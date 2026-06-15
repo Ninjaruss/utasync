@@ -1,6 +1,7 @@
 import React from 'react'
 import { useLyricsStore } from './LyricsStore'
 import type { TimedLine } from '../core/types'
+import { WordAlignment } from '../language/WordAlignment'
 
 interface Props {
   onSeek: (time: number) => void
@@ -41,6 +42,12 @@ function Line({ line, state, onSeek }: {
 
       {isActive && line.translation && (
         <div className="text-base italic text-white/70 mt-1">{line.translation}</div>
+      )}
+
+      {isActive && line.tokens && line.tokens.length > 0 && (
+        <div className="mt-2">
+          <WordAlignment tokens={line.tokens} grammarAnnotations={line.grammarAnnotations ?? []} />
+        </div>
       )}
     </div>
   )
