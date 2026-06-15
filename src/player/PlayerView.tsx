@@ -126,7 +126,7 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
       <LyricDisplay onSeek={seek} />
 
       {/* Playback controls */}
-      <div className="px-4 pb-6 pt-2 space-y-3">
+      <div className="px-4 pt-2 space-y-3" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 24px), 24px)' }}>
         {/* Seek bar */}
         <div
           className="h-1 bg-cinnabar-900 rounded cursor-pointer"
@@ -177,16 +177,16 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
         {!isYouTube && (
           <div className="flex items-center justify-center gap-6">
             <button onClick={() => seek(Math.max(0, position - 5))}
-              className="text-white/50 hover:text-white text-xl">⏮</button>
+              className="text-white/50 hover:text-white text-xl touch-manipulation">⏮</button>
             <button
               onClick={togglePlay}
-              className="w-14 h-14 rounded-full bg-cinnabar-accent text-white text-2xl flex items-center justify-center shadow-lg"
+              className="w-14 h-14 rounded-full bg-cinnabar-accent text-white text-2xl flex items-center justify-center shadow-lg touch-manipulation"
               style={{ boxShadow: '0 0 20px rgba(248,113,113,0.4)' }}
             >
               {playbackState === 'playing' ? '⏸' : '▶'}
             </button>
             <button onClick={() => seek(Math.min(duration, position + 5))}
-              className="text-white/50 hover:text-white text-xl">⏭</button>
+              className="text-white/50 hover:text-white text-xl touch-manipulation">⏭</button>
           </div>
         )}
 

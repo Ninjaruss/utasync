@@ -65,7 +65,7 @@ export function LyricDisplay({ onSeek }: Props) {
   }
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center overflow-hidden">
+    <div className="flex-1 flex flex-col items-center justify-center overflow-hidden" style={{ touchAction: 'pan-y' }}>
       {lines.map((line, i) => {
         const offset = i - activeLine
         if (offset < -1 || offset > 2) return null
