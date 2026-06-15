@@ -1,0 +1,89 @@
+<h2>Player Layout — Core Interface</h2>
+<p class="subtitle">How should the bilingual lyrics be displayed during playback? Click to select your preference.</p>
+
+<div class="cards">
+
+  <!-- Option A: Stacked rows -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f0f14;padding:16px;border-radius:8px;font-family:monospace">
+      <div style="background:#1a1a2e;border-radius:6px;padding:10px;margin-bottom:6px;opacity:0.4;font-size:11px;color:#888">
+        <div style="color:#555;font-size:10px">01:12</div>
+        <div style="color:#aaa">君の声が聞こえる</div>
+        <div style="color:#666;font-size:10px;margin-top:2px">I can hear your voice</div>
+      </div>
+      <div style="background:#1e1e3a;border-radius:6px;padding:10px;margin-bottom:6px;border:2px solid #6c63ff;font-size:11px;color:#eee">
+        <div style="color:#6c63ff;font-size:10px">01:18 ▶</div>
+        <div style="color:#fff;font-weight:bold">夢の中で待ってる</div>
+        <div style="color:#b0b0ff;font-size:10px;margin-top:2px;font-style:italic">Waiting for you in my dreams</div>
+        <div style="color:#7c7caa;font-size:9px;margin-top:2px">yume no naka de matteru</div>
+      </div>
+      <div style="background:#1a1a2e;border-radius:6px;padding:10px;opacity:0.4;font-size:11px;color:#888">
+        <div style="color:#555;font-size:10px">01:24</div>
+        <div style="color:#aaa">朝が来るまで</div>
+        <div style="color:#666;font-size:10px;margin-top:2px">Until morning comes</div>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:6px;align-items:center;justify-content:center">
+        <div style="width:28px;height:28px;border-radius:50%;background:#6c63ff;display:flex;align-items:center;justify-content:center;color:white;font-size:12px">⏮</div>
+        <div style="width:36px;height:36px;border-radius:50%;background:#6c63ff;display:flex;align-items:center;justify-content:center;color:white;font-size:16px">⏸</div>
+        <div style="width:28px;height:28px;border-radius:50%;background:#6c63ff;display:flex;align-items:center;justify-content:center;color:white;font-size:12px">⏭</div>
+        <div style="flex:1;height:4px;background:#333;border-radius:2px;margin:0 6px"><div style="width:40%;height:100%;background:#6c63ff;border-radius:2px"></div></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Stacked Rows</h3>
+      <p>Each line shows: timestamp · Japanese · translation · romaji. Current line expands and highlights. Scrolls vertically like a teleprompter. Simple and readable on mobile.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Two-column split -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f0f14;padding:16px;border-radius:8px;font-family:monospace">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:10px">
+        <div style="color:#555;font-weight:bold;text-align:center;padding-bottom:4px;border-bottom:1px solid #333">日本語</div>
+        <div style="color:#555;font-weight:bold;text-align:center;padding-bottom:4px;border-bottom:1px solid #333">English</div>
+
+        <div style="color:#666;padding:4px 0;opacity:0.5">君の声が聞こえる<br><span style="font-size:9px;color:#555">kimi no koe ga kikoeru</span></div>
+        <div style="color:#666;padding:4px 0;opacity:0.5;font-style:italic">I can hear your voice</div>
+
+        <div style="color:#fff;padding:6px;background:#1e1e3a;border-radius:4px;border-left:3px solid #6c63ff;font-weight:bold">夢の中で待ってる<br><span style="font-size:9px;color:#9090cc">yume no naka de matteru</span></div>
+        <div style="color:#b0b0ff;padding:6px;background:#1e1e3a;border-radius:4px;font-style:italic">Waiting for you in my dreams</div>
+
+        <div style="color:#666;padding:4px 0;opacity:0.5">朝が来るまで<br><span style="font-size:9px;color:#555">asa ga kuru made</span></div>
+        <div style="color:#666;padding:4px 0;opacity:0.5;font-style:italic">Until morning comes</div>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:6px;align-items:center;justify-content:center">
+        <div style="width:28px;height:28px;border-radius:50%;background:#6c63ff;display:flex;align-items:center;justify-content:center;color:white;font-size:12px">⏮</div>
+        <div style="width:36px;height:36px;border-radius:50%;background:#6c63ff;display:flex;align-items:center;justify-content:center;color:white;font-size:16px">⏸</div>
+        <div style="width:28px;height:28px;border-radius:50%;background:#6c63ff;display:flex;align-items:center;justify-content:center;color:white;font-size:12px">⏭</div>
+        <div style="flex:1;height:4px;background:#333;border-radius:2px;margin:0 6px"><div style="width:40%;height:100%;background:#6c63ff;border-radius:2px"></div></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Two-Column Split</h3>
+      <p>Japanese left, English right, always visible side-by-side. Current line highlighted across both columns simultaneously. Better for desktop; tighter on mobile but still scannable.</p>
+    </div>
+  </div>
+
+  <!-- Option C: Focus mode (karaoke-style) -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f0f14;padding:16px;border-radius:8px;font-family:monospace;text-align:center">
+      <div style="color:#666;font-size:10px;margin-bottom:8px;opacity:0.5">夢の中で待ってる</div>
+      <div style="color:#fff;font-size:14px;font-weight:bold;letter-spacing:1px">夢の中で待ってる</div>
+      <div style="color:#9090cc;font-size:10px;margin:3px 0">yume no naka de matteru</div>
+      <div style="color:#b0b0ff;font-size:11px;font-style:italic;margin-bottom:8px">Waiting for you in my dreams</div>
+      <div style="color:#666;font-size:10px;opacity:0.5">朝が来るまで</div>
+      <div style="color:#666;font-size:9px;opacity:0.4;margin-top:2px">Until morning comes</div>
+      <div style="margin-top:12px;display:flex;gap:6px;align-items:center;justify-content:center">
+        <div style="width:28px;height:28px;border-radius:50%;background:#6c63ff;display:flex;align-items:center;justify-content:center;color:white;font-size:12px">⏮</div>
+        <div style="width:36px;height:36px;border-radius:50%;background:#6c63ff;display:flex;align-items:center;justify-content:center;color:white;font-size:16px">⏸</div>
+        <div style="width:28px;height:28px;border-radius:50%;background:#6c63ff;display:flex;align-items:center;justify-content:center;color:white;font-size:12px">⏭</div>
+        <div style="flex:1;height:4px;background:#333;border-radius:2px;margin:0 6px"><div style="width:40%;height:100%;background:#6c63ff;border-radius:2px"></div></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Focus Mode (Karaoke-style)</h3>
+      <p>Current line is large and centered. Japanese + romaji + translation all stacked on the active line. Adjacent lines visible but dimmed. Like a karaoke screen — immersive and distraction-free.</p>
+    </div>
+  </div>
+
+</div>

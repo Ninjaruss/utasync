@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { LinkParser } from './sources/LinkParser'
+import { HomeScreen } from './sources/HomeScreen'
 import { PlayerView } from './player/PlayerView'
 import { SettingsView } from './settings/SettingsView'
 import { estimateQuota } from './core/storage/quota'
@@ -16,7 +16,7 @@ export default function App() {
     estimateQuota().then(({ ratio }) => {
       if (ratio > 0.8) toast('Storage nearly full. Visit Settings to free space.', 'warning')
     })
-  }, [])
+  }, [toast])
 
   if (view === 'settings') {
     return <SettingsView onClose={() => setView(songId ? 'player' : 'home')} />
@@ -33,7 +33,7 @@ export default function App() {
   }
 
   return (
-    <LinkParser
+    <HomeScreen
       onSongReady={(id) => {
         setSongId(id)
         setView('player')

@@ -3,7 +3,7 @@ import { fetchYouTubeMeta } from './youtube'
 import { fetchLRCFromLRCLIB } from './lrclib'
 import { parseLRC } from '../lyrics/lrc-parser'
 import { db } from '../core/db/schema'
-import { v4 as uuidv4 } from 'uuid'
+import { buildSong } from './songBuilder'
 import type { Song } from '../core/types'
 import { AlignmentEditor } from '../lyrics/AlignmentEditor'
 
@@ -33,20 +33,12 @@ export function LinkParser({ onSongReady }: Props) {
         // Lyrics not found — continue with empty lines
       }
 
-      const song: Song = {
-        id: uuidv4(),
+      const song: Song = buildSong({
         title: meta.title,
         artist: meta.artist,
         sourceUrl: url,
-        lyrics: {
-          lines,
-          sourceLanguage: 'ja',
-          translationLanguage: 'en',
-          alignmentMode: 'manual',
-        },
-        createdAt: new Date(),
-        isTrialSong: false,
-      }
+        lines,
+      })
 
       // Check if original and translation line counts differ
       const origLines = lines.map((l) => l.original)

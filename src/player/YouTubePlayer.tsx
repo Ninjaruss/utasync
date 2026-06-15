@@ -1,3 +1,4 @@
+/// <reference types="youtube" />
 import { useEffect, useRef } from 'react'
 import { usePlayerStore } from './PlayerStore'
 import { useLyricsStore } from '../lyrics/LyricsStore'
@@ -7,7 +8,7 @@ interface Props {
 }
 
 declare global {
-  interface Window { YT: any; onYouTubeIframeAPIReady: () => void }
+  interface Window { YT: typeof YT; onYouTubeIframeAPIReady: () => void }
 }
 
 function loadYTScript(): Promise<void> {
@@ -22,7 +23,7 @@ function loadYTScript(): Promise<void> {
 
 export function YouTubePlayer({ videoId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const playerRef = useRef<any>(null)
+  const playerRef = useRef<YT.Player | null>(null)
   const tickerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const { setPosition, setPlaybackState, setDuration } = usePlayerStore()
   const { syncPosition } = useLyricsStore()
@@ -37,12 +38,12 @@ export function YouTubePlayer({ videoId }: Props) {
         height: '100%',
         playerVars: { autoplay: 0, rel: 0 },
         events: {
-          onStateChange: (e: any) => {
+          onStateChange: (e: YT.OnStateChangeEvent) => {
             if (e.data === window.YT.PlayerState.PLAYING) {
               setPlaybackState('playing')
-              setDuration(playerRef.current.getDuration())
+              setDuration(playerRef.current?.getDuration() ?? 0)
               tickerRef.current = setInterval(() => {
-                const pos = playerRef.current.getCurrentTime()
+                const pos = playerRef.current?.getCurrentTime() ?? 0
                 setPosition(pos)
                 syncPosition(pos)
               }, 100)

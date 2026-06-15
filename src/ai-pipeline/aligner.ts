@@ -7,7 +7,9 @@ export interface TranscriptWord {
 }
 
 function normalize(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9　-鿿]/g, ' ').trim()
+  // Keep ASCII alphanumerics and the CJK range (U+3000–U+9FFF) so Japanese
+  // text survives normalization; everything else collapses to spaces.
+  return text.toLowerCase().replace(/[^a-z0-9\u3000-\u9fff]/g, ' ').trim()
 }
 
 export function alignTranscriptToLines(

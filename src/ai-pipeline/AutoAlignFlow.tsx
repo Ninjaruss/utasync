@@ -12,6 +12,10 @@ interface Props {
 
 type Stage = 'idle' | 'separating' | 'transcribing' | 'aligning' | 'done' | 'error'
 
+// Shape of the Whisper worker's transcription result (word-level timestamps).
+interface WhisperChunk { text: string; timestamp: [number, number] }
+interface WhisperResult { text: string; chunks?: WhisperChunk[] }
+
 export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
   const [stage, setStage] = useState<Stage>('idle')
   const [progress, setProgress] = useState(0)
@@ -57,7 +61,7 @@ export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
       const whisperWorker = new Worker(new URL('./whisper.worker.ts', import.meta.url), { type: 'module' })
       whisperWorker.postMessage({ type: 'load' })
 
-      const transcriptResult = await new Promise<any>((res, rej) => {
+      const transcriptResult = await new Promise<WhisperResult>((res, rej) => {
         whisperWorker.onmessage = (e) => {
           if (e.data.type === 'loaded') {
             whisperWorker.postMessage({ type: 'transcribe', payload: { audioData, sampleRate: 44100 } })
@@ -68,7 +72,7 @@ export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
       })
 
       setStage('aligning')
-      const words: TranscriptWord[] = transcriptResult.chunks?.map((c: any) => ({
+      const words: TranscriptWord[] = transcriptResult.chunks?.map((c) => ({
         word: c.text,
         startTime: c.timestamp[0],
         endTime: c.timestamp[1],
@@ -132,3 +136,5 @@ export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
     </div>
   )
 }
+
+export default AutoAlignFlow

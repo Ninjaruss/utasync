@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { usePlayerStore } from './PlayerStore'
 import { useLyricsStore } from '../lyrics/LyricsStore'
 import { AudioEngine } from './AudioEngine'
@@ -16,6 +16,11 @@ import { detectGrammarPatterns } from '../language/japanese/grammar'
 import { tokenizeEnglish } from '../language/english/tokenizer'
 import { sentenceToIPA } from '../language/english/phonetics'
 import { detectEnglishGrammar } from '../language/english/grammar'
+import { TapSyncEditor } from './TapSyncEditor'
+import { getDeviceTier } from '../ai-pipeline/capability'
+import { chooseAutoAlignment, manualAlignMode, type AlignMode } from './alignmentPolicy'
+
+const AutoAlignFlow = lazy(() => import('../ai-pipeline/AutoAlignFlow'))
 
 async function enrichLines(lines: TimedLine[], sourceLanguage: Language): Promise<TimedLine[]> {
   return Promise.all(lines.map(async (line): Promise<TimedLine> => {
@@ -46,28 +51,45 @@ interface Props {
 }
 
 export function PlayerView({ songId, onBack, onSettings }: Props) {
-  const engine = useRef<AudioEngine>(new AudioEngine())
+  const engineRef = useRef<AudioEngine | null>(null)
+  if (engineRef.current === null) engineRef.current = new AudioEngine()
+  const engine = engineRef.current
   const abLoopControllerRef = useRef<ABLoopController | null>(null)
   const { playbackState, position, speed, abLoop, setPlaybackState, setPosition, setSpeed, setABLoop } = usePlayerStore()
   const { syncPosition, setLines } = useLyricsStore()
   const [song, setSong] = useState<Song | null>(null)
+  const [duration, setDuration] = useState(1)
   const [showUpgrade, setShowUpgrade] = useState(false)
+  const [alignMode, setAlignMode] = useState<AlignMode | null>(null)
 
   useEffect(() => {
-    db.songs.get(songId).then((s) => {
-      if (s) {
-        setSong(s)
-        setLines(s.lyrics.lines)
-        enrichLines(s.lyrics.lines, s.lyrics.sourceLanguage).then((enriched) => {
-          setLines(enriched)
-        })
+    let cancelled = false
+    db.songs.get(songId).then(async (s) => {
+      if (!s || cancelled) return
+      setSong(s)
+      setLines(s.lyrics.lines)
+      // Load locally-stored audio into the engine so playback works for
+      // non-YouTube sources. Without this, play() is a no-op.
+      if (s.audioStoredPath) {
+        try {
+          const { getAudioFile } = await import('../core/opfs/audio')
+          const file = await getAudioFile(s.id)
+          await engine.load(file)
+          if (!cancelled) setDuration(engine.duration || 1)
+        } catch {
+          // audio file missing or unreadable — leave controls inert
+        }
       }
+      enrichLines(s.lyrics.lines, s.lyrics.sourceLanguage).then((enriched) => {
+        if (!cancelled) setLines(enriched)
+      })
     })
+    return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [songId])
 
   useEffect(() => {
-    const e = engine.current
+    const e = engine
     e.onTimeUpdate((pos) => {
       setPosition(pos)
       syncPosition(pos)
@@ -90,25 +112,64 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
 
   const togglePlay = () => {
     if (playbackState === 'playing') {
-      engine.current.pause()
+      engine.pause()
       setPlaybackState('paused')
     } else {
-      engine.current.play()
+      engine.play()
       setPlaybackState('playing')
     }
   }
 
   const seek = (time: number) => {
-    engine.current.seek(time)
+    engine.seek(time)
     setPosition(time)
   }
 
-  const duration = engine.current.duration || 1
+  const beginAlignment = (mode: AlignMode) => {
+    if (mode === 'tap') { engine.play(); setPlaybackState('playing') }
+    setAlignMode(mode)
+  }
+
+  // Guarantee alignment: when a stored-audio song loads with untimed lyrics,
+  // route into auto-align (capable device) or tap-sync (no-WebGPU device).
+  useEffect(() => {
+    if (!song) return
+    const choice = chooseAutoAlignment(!!song.audioStoredPath, song.lyrics.lines, getDeviceTier())
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot route into alignment; chooseAutoAlignment returns null once lines are timed, so this cannot cascade
+    if (choice) beginAlignment(choice)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [song])
+
+  const applyAlignedSong = (updated: Song) => {
+    setSong(updated)
+    setLines(updated.lyrics.lines)
+    enrichLines(updated.lyrics.lines, updated.lyrics.sourceLanguage).then((enriched) => setLines(enriched))
+    setAlignMode(null)
+  }
+
+  const handleTapComplete = async (lines: TimedLine[]) => {
+    if (!song) return
+    const updated: Song = { ...song, lyrics: { ...song.lyrics, lines } }
+    await db.songs.put(updated)
+    applyAlignedSong(updated)
+  }
+
   const progress = position / duration
 
   const ytVideoId = song?.sourceUrl ? extractVideoId(song.sourceUrl) : null
   const isYouTube = !!ytVideoId && !song?.audioStoredPath
   const isProUser = canUsePro(song?.isTrialSong ?? false)
+
+  if (song && alignMode === 'tap') {
+    return (
+      <TapSyncEditor
+        plainLines={song.lyrics.lines.map((l) => l.original)}
+        translations={song.lyrics.lines.map((l) => l.translation)}
+        audioPosition={() => engine.position}
+        onComplete={handleTapComplete}
+      />
+    )
+  }
 
   return (
     <div className="min-h-screen bg-cinnabar-950 flex flex-col">
@@ -216,7 +277,27 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
             </button>
           </div>
         )}
+
+        {song?.audioStoredPath && (
+          <div className="flex justify-center">
+            <button
+              onClick={() => beginAlignment(manualAlignMode(getDeviceTier()))}
+              className="text-white/30 hover:text-white/60 text-xs">
+              ✨ Re-align lyrics
+            </button>
+          </div>
+        )}
       </div>
+
+      {song && alignMode === 'auto' && (
+        <Suspense fallback={<div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 text-white/70 text-sm">Loading AI…</div>}>
+          <AutoAlignFlow
+            song={song}
+            onComplete={applyAlignedSong}
+            onClose={() => setAlignMode(null)}
+          />
+        </Suspense>
+      )}
 
       {showUpgrade && (
         <UpgradeModal feature="Speed Control & A-B Loop" onClose={() => setShowUpgrade(false)} />

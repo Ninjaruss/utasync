@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('../../../src/language/japanese/phonetics', () => ({
-  toRomaji: async (text: string) => 'hoshi',
-  toFurigana: async (text: string) => '<ruby>星<rt>ほし</rt></ruby>',
-  toKatakana: async (text: string) => 'ホシ',
+  toRomaji: async () => 'hoshi',
+  toFurigana: async () => '<ruby>星<rt>ほし</rt></ruby>',
+  toKatakana: async () => 'ホシ',
 }))
 
 import { toRomaji, toFurigana } from '../../../src/language/japanese/phonetics'
