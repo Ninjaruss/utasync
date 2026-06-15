@@ -3,11 +3,24 @@ import { usePlayerStore } from './PlayerStore'
 import { useLyricsStore } from '../lyrics/LyricsStore'
 import { AudioEngine } from './AudioEngine'
 import { LyricDisplay } from '../lyrics/LyricDisplay'
+import { db } from '../core/db/schema'
 
-export function PlayerView() {
+interface Props {
+  songId: string
+  onBack: () => void
+}
+
+export function PlayerView({ songId, onBack }: Props) {
   const engine = useRef<AudioEngine>(new AudioEngine())
   const { playbackState, position, setPlaybackState, setPosition, setDuration } = usePlayerStore()
-  const { syncPosition } = useLyricsStore()
+  const { syncPosition, setLines } = useLyricsStore()
+
+  useEffect(() => {
+    db.songs.get(songId).then((song) => {
+      if (song) setLines(song.lyrics.lines)
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [songId])
 
   useEffect(() => {
     const e = engine.current
@@ -42,6 +55,7 @@ export function PlayerView() {
     <div className="min-h-screen bg-cinnabar-950 flex flex-col">
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-cinnabar-900">
+        <button onClick={onBack} className="text-white/40 hover:text-white text-xs">← Back</button>
         <span className="text-cinnabar-accent font-semibold tracking-widest text-sm uppercase">歌sync</span>
         <button className="text-white/40 hover:text-white text-xs">Settings</button>
       </div>
