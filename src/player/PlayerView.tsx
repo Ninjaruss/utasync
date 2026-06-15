@@ -9,7 +9,35 @@ import { extractVideoId } from '../sources/youtube'
 import { canUsePro } from '../payment/trial'
 import { UpgradeModal } from '../payment/UpgradeModal'
 import { ABLoopController } from './ABLoop'
-import type { Song } from '../core/types'
+import type { Song, TimedLine, Language } from '../core/types'
+import { tokenizeJapanese } from '../language/japanese/tokenizer'
+import { toRomaji } from '../language/japanese/phonetics'
+import { detectGrammarPatterns } from '../language/japanese/grammar'
+import { tokenizeEnglish } from '../language/english/tokenizer'
+import { sentenceToIPA } from '../language/english/phonetics'
+import { detectEnglishGrammar } from '../language/english/grammar'
+
+async function enrichLines(lines: TimedLine[], sourceLanguage: Language): Promise<TimedLine[]> {
+  return Promise.all(lines.map(async (line): Promise<TimedLine> => {
+    try {
+      if (sourceLanguage === 'ja') {
+        const [tokens, reading] = await Promise.all([
+          tokenizeJapanese(line.original),
+          toRomaji(line.original),
+        ])
+        const grammarAnnotations = detectGrammarPatterns(line.original)
+        return { ...line, tokens, reading, grammarAnnotations }
+      } else {
+        const tokens = tokenizeEnglish(line.original)
+        const reading = await sentenceToIPA(line.original)
+        const grammarAnnotations = detectEnglishGrammar(line.original)
+        return { ...line, tokens, reading, grammarAnnotations }
+      }
+    } catch {
+      return line
+    }
+  }))
+}
 
 interface Props {
   songId: string
@@ -29,6 +57,9 @@ export function PlayerView({ songId, onBack }: Props) {
       if (s) {
         setSong(s)
         setLines(s.lyrics.lines)
+        enrichLines(s.lyrics.lines, s.lyrics.sourceLanguage).then((enriched) => {
+          setLines(enriched)
+        })
       }
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
