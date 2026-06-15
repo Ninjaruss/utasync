@@ -136,3 +136,5 @@ export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
     </div>
   )
 }
+
+export default AutoAlignFlow
