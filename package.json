@@ -21,6 +21,7 @@
     "onnxruntime-web": "^1.26.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "soundtouchjs": "^0.3.0",
     "uuid": "^14.0.0",
     "wanakana": "^5.3.1",
     "zustand": "^5.0.14"
@@ -35,6 +36,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/uuid": "^10.0.0",
+    "@types/youtube": "^0.3.0",
     "@vitejs/plugin-react": "^6.0.1",
     "@vitest/ui": "^4.1.9",
     "autoprefixer": "^10.5.0",
