@@ -42,9 +42,10 @@ async function enrichLines(lines: TimedLine[], sourceLanguage: Language): Promis
 interface Props {
   songId: string
   onBack: () => void
+  onSettings?: () => void
 }
 
-export function PlayerView({ songId, onBack }: Props) {
+export function PlayerView({ songId, onBack, onSettings }: Props) {
   const engine = useRef<AudioEngine>(new AudioEngine())
   const abLoopControllerRef = useRef<ABLoopController | null>(null)
   const { playbackState, position, speed, abLoop, setPlaybackState, setPosition, setDuration, setSpeed, setABLoop } = usePlayerStore()
@@ -115,7 +116,7 @@ export function PlayerView({ songId, onBack }: Props) {
       <div className="flex items-center justify-between px-4 py-3 border-b border-cinnabar-900">
         <button onClick={onBack} className="text-white/40 hover:text-white text-xs">← Back</button>
         <span className="text-cinnabar-accent font-semibold tracking-widest text-sm uppercase">歌sync</span>
-        <button className="text-white/40 hover:text-white text-xs">Settings</button>
+        <button onClick={() => onSettings?.()} className="text-white/40 hover:text-white text-xs">Settings</button>
       </div>
 
       {/* YouTube embed */}
