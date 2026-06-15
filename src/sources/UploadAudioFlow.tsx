@@ -55,6 +55,12 @@ export function UploadAudioFlow({ onSongReady }: Props) {
         }
         return
       }
+      if (lines.length === 0) {
+        // Empty paste/subtitle — there is nothing to align. Require real lyric text.
+        setStatus('')
+        setError('No lyric lines found. Add lyrics so they can be aligned to the audio.')
+        return
+      }
       setStatus('Storing…')
       const { songId, audioStoredPath } = await ingestAudioFile(file)
       const song = buildSong({ id: songId, title: title.trim(), artist: artist.trim(), audioStoredPath, lines })
