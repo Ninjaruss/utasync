@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { selectClozeTokens, type ClozeToken } from './ClozeEngine'
 import type { TimedLine, ClozeDifficulty } from '../core/types'
 

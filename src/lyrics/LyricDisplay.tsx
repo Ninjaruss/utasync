@@ -1,4 +1,3 @@
-import React from 'react'
 import { useLyricsStore } from './LyricsStore'
 import type { TimedLine } from '../core/types'
 import { WordAlignment } from '../language/WordAlignment'

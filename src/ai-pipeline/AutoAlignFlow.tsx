@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { getDeviceTier } from './capability'
 import type { Song } from '../core/types'
 import { alignTranscriptToLines, type TranscriptWord } from './aligner'

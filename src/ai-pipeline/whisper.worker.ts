@@ -24,7 +24,8 @@ self.onmessage = async (e: MessageEvent) => {
 
     const resampled = sampleRate === 16000 ? audioData : resampleTo16k(audioData, sampleRate)
 
-    const result = await asr(resampled, {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await (asr as any)(resampled, {
       return_timestamps: 'word',
       language: 'japanese',
       task: 'transcribe',

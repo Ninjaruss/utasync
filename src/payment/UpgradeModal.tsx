@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { trialSlotsRemaining, TRIAL_LIMIT } from './trial'
 import { useSettingsStore } from './SettingsStore'
 import { verifyLicense } from './license'

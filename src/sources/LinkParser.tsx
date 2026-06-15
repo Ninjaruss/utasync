@@ -1,10 +1,11 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { fetchYouTubeMeta } from './youtube'
 import { fetchLRCFromLRCLIB } from './lrclib'
 import { parseLRC } from '../lyrics/lrc-parser'
 import { db } from '../core/db/schema'
 import { v4 as uuidv4 } from 'uuid'
 import type { Song } from '../core/types'
+import { AlignmentEditor } from '../lyrics/AlignmentEditor'
 
 interface Props {
   onSongReady: (songId: string) => void
@@ -14,6 +15,8 @@ export function LinkParser({ onSongReady }: Props) {
   const [url, setUrl] = useState('')
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
+  const [pendingSong, setPendingSong] = useState<Song | null>(null)
+  const [alignmentEditorData, setAlignmentEditorData] = useState<{ orig: string[]; trans: string[] } | null>(null)
 
   const handleParse = async () => {
     setError('')
@@ -45,6 +48,18 @@ export function LinkParser({ onSongReady }: Props) {
         isTrialSong: false,
       }
 
+      // Check if original and translation line counts differ
+      const origLines = lines.map((l) => l.original)
+      const transLines = lines.map((l) => l.translation ?? '')
+      const hasTranslations = transLines.some((t) => t.length > 0)
+
+      if (hasTranslations && origLines.length !== transLines.filter((t) => t.length > 0).length) {
+        setPendingSong(song)
+        setAlignmentEditorData({ orig: origLines, trans: transLines })
+        setStatus('')
+        return
+      }
+
       await db.songs.put(song)
       setStatus('')
       onSongReady(song.id)
@@ -52,6 +67,33 @@ export function LinkParser({ onSongReady }: Props) {
       setStatus('')
       setError(e instanceof Error ? e.message : 'Something went wrong')
     }
+  }
+
+  const handleAlignmentConfirm = async (pairs: Array<{ original: string; translation: string }>) => {
+    if (!pendingSong) return
+    const updatedLines = pendingSong.lyrics.lines.map((line, i) => ({
+      ...line,
+      original: pairs[i]?.original ?? line.original,
+      translation: pairs[i]?.translation ?? line.translation,
+    }))
+    const updatedSong: Song = {
+      ...pendingSong,
+      lyrics: { ...pendingSong.lyrics, lines: updatedLines },
+    }
+    await db.songs.put(updatedSong)
+    setAlignmentEditorData(null)
+    setPendingSong(null)
+    onSongReady(updatedSong.id)
+  }
+
+  if (alignmentEditorData) {
+    return (
+      <AlignmentEditor
+        originalLines={alignmentEditorData.orig}
+        translationLines={alignmentEditorData.trans}
+        onConfirm={handleAlignmentConfirm}
+      />
+    )
   }
 
   return (

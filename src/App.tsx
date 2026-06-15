@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { LinkParser } from './sources/LinkParser'
 import { PlayerView } from './player/PlayerView'
 import { SettingsView } from './settings/SettingsView'

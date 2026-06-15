@@ -3,12 +3,19 @@ import type { AudioEngine } from './AudioEngine'
 
 export class ABLoopController {
   private timer: ReturnType<typeof setTimeout> | null = null
+  private engine: AudioEngine
+  private getLoop: () => ABLoop
+  private getPosition: () => number
 
   constructor(
-    private engine: AudioEngine,
-    private getLoop: () => ABLoop,
-    private getPosition: () => number,
-  ) {}
+    engine: AudioEngine,
+    getLoop: () => ABLoop,
+    getPosition: () => number,
+  ) {
+    this.engine = engine
+    this.getLoop = getLoop
+    this.getPosition = getPosition
+  }
 
   tick() {
     const loop = this.getLoop()

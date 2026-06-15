@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePlayerStore } from './PlayerStore'
 import { useLyricsStore } from '../lyrics/LyricsStore'
 import { AudioEngine } from './AudioEngine'
@@ -48,7 +48,7 @@ interface Props {
 export function PlayerView({ songId, onBack, onSettings }: Props) {
   const engine = useRef<AudioEngine>(new AudioEngine())
   const abLoopControllerRef = useRef<ABLoopController | null>(null)
-  const { playbackState, position, speed, abLoop, setPlaybackState, setPosition, setDuration, setSpeed, setABLoop } = usePlayerStore()
+  const { playbackState, position, speed, abLoop, setPlaybackState, setPosition, setSpeed, setABLoop } = usePlayerStore()
   const { syncPosition, setLines } = useLyricsStore()
   const [song, setSong] = useState<Song | null>(null)
   const [showUpgrade, setShowUpgrade] = useState(false)

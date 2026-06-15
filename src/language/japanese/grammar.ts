@@ -26,8 +26,7 @@ export function detectGrammarPatterns(text: string): GrammarAnnotation[] {
   const annotations: GrammarAnnotation[] = []
   for (const rule of RULES) {
     rule.pattern.lastIndex = 0
-    let match: RegExpExecArray | null
-    while ((match = rule.pattern.exec(text)) !== null) {
+    while (rule.pattern.exec(text) !== null) {
       annotations.push({
         tokenIndices: [],
         pattern: rule.label,
