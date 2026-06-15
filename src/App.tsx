@@ -16,7 +16,7 @@ export default function App() {
     estimateQuota().then(({ ratio }) => {
       if (ratio > 0.8) toast('Storage nearly full. Visit Settings to free space.', 'warning')
     })
-  }, [])
+  }, [toast])
 
   if (view === 'settings') {
     return <SettingsView onClose={() => setView(songId ? 'player' : 'home')} />

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 global.fetch = vi.fn()
+const mockFetch = (value: unknown) => vi.mocked(fetch).mockResolvedValue(value as Response)
 
 import { searchLRCLIB, fetchLRCFromLRCLIB } from '../../src/sources/lrclib'
 
@@ -8,7 +9,7 @@ describe('searchLRCLIB', () => {
   beforeEach(() => { vi.resetAllMocks() })
 
   it('returns parsed TimedLine[] on success', async () => {
-    (fetch as any).mockResolvedValue({
+    mockFetch({
       ok: true,
       json: async () => ([{
         id: 1,
@@ -23,7 +24,7 @@ describe('searchLRCLIB', () => {
   })
 
   it('returns empty array on fetch error', async () => {
-    (fetch as any).mockResolvedValue({ ok: false, status: 404 })
+    mockFetch({ ok: false, status: 404 })
     const results = await searchLRCLIB('Unknown', 'Unknown')
     expect(results).toEqual([])
   })
@@ -33,7 +34,7 @@ describe('fetchLRCFromLRCLIB', () => {
   beforeEach(() => { vi.resetAllMocks() })
 
   it('returns synced lyrics string', async () => {
-    (fetch as any).mockResolvedValue({
+    mockFetch({
       ok: true,
       json: async () => ({
         syncedLyrics: '[00:01.00]Hello world\n[00:03.00]Goodbye world',
@@ -44,7 +45,7 @@ describe('fetchLRCFromLRCLIB', () => {
   })
 
   it('returns null when no synced lyrics', async () => {
-    (fetch as any).mockResolvedValue({
+    mockFetch({
       ok: true,
       json: async () => ({ syncedLyrics: null, plainLyrics: 'Hello world' }),
     })

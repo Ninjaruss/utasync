@@ -5,7 +5,7 @@ vi.mock('../../src/payment/SettingsStore', () => ({
   useSettingsStore: { getState: () => mockSettings }
 }))
 
-import { canUsePro, claimTrialSlot, TRIAL_LIMIT } from '../../src/payment/trial'
+import { canUsePro, claimTrialSlot } from '../../src/payment/trial'
 
 describe('canUsePro', () => {
   beforeEach(() => {

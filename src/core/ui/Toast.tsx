@@ -4,6 +4,7 @@ interface ToastItem { id: number; message: string; type: 'info' | 'warning' | 'e
 
 const ToastContext = createContext<(msg: string, type?: ToastItem['type']) => void>(() => {})
 
+// eslint-disable-next-line react-refresh/only-export-components -- hook co-located with its provider
 export function useToast() { return useContext(ToastContext) }
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {

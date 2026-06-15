@@ -46,28 +46,44 @@ interface Props {
 }
 
 export function PlayerView({ songId, onBack, onSettings }: Props) {
-  const engine = useRef<AudioEngine>(new AudioEngine())
+  const engineRef = useRef<AudioEngine | null>(null)
+  if (engineRef.current === null) engineRef.current = new AudioEngine()
+  const engine = engineRef.current
   const abLoopControllerRef = useRef<ABLoopController | null>(null)
   const { playbackState, position, speed, abLoop, setPlaybackState, setPosition, setSpeed, setABLoop } = usePlayerStore()
   const { syncPosition, setLines } = useLyricsStore()
   const [song, setSong] = useState<Song | null>(null)
+  const [duration, setDuration] = useState(1)
   const [showUpgrade, setShowUpgrade] = useState(false)
 
   useEffect(() => {
-    db.songs.get(songId).then((s) => {
-      if (s) {
-        setSong(s)
-        setLines(s.lyrics.lines)
-        enrichLines(s.lyrics.lines, s.lyrics.sourceLanguage).then((enriched) => {
-          setLines(enriched)
-        })
+    let cancelled = false
+    db.songs.get(songId).then(async (s) => {
+      if (!s || cancelled) return
+      setSong(s)
+      setLines(s.lyrics.lines)
+      // Load locally-stored audio into the engine so playback works for
+      // non-YouTube sources. Without this, play() is a no-op.
+      if (s.audioStoredPath) {
+        try {
+          const { getAudioFile } = await import('../core/opfs/audio')
+          const file = await getAudioFile(s.id)
+          await engine.load(file)
+          if (!cancelled) setDuration(engine.duration || 1)
+        } catch {
+          // audio file missing or unreadable — leave controls inert
+        }
       }
+      enrichLines(s.lyrics.lines, s.lyrics.sourceLanguage).then((enriched) => {
+        if (!cancelled) setLines(enriched)
+      })
     })
+    return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [songId])
 
   useEffect(() => {
-    const e = engine.current
+    const e = engine
     e.onTimeUpdate((pos) => {
       setPosition(pos)
       syncPosition(pos)
@@ -90,20 +106,19 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
 
   const togglePlay = () => {
     if (playbackState === 'playing') {
-      engine.current.pause()
+      engine.pause()
       setPlaybackState('paused')
     } else {
-      engine.current.play()
+      engine.play()
       setPlaybackState('playing')
     }
   }
 
   const seek = (time: number) => {
-    engine.current.seek(time)
+    engine.seek(time)
     setPosition(time)
   }
 
-  const duration = engine.current.duration || 1
   const progress = position / duration
 
   const ytVideoId = song?.sourceUrl ? extractVideoId(song.sourceUrl) : null

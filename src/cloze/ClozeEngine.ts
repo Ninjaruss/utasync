@@ -13,7 +13,7 @@ export function selectClozeTokens(tokens: Token[], difficulty: ClozeDifficulty):
     const isContent = CONTENT_POS.has(pos)
     const isFunction = FUNCTION_POS.has(pos)
 
-    let blanked = false
+    let blanked: boolean
     if (difficulty === 'easy') blanked = isContent
     else if (difficulty === 'medium') blanked = isContent || Math.random() < 0.3
     else blanked = !isFunction // hard: blank almost everything

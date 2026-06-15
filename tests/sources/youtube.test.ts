@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 global.fetch = vi.fn()
+const mockFetch = (value: unknown) => vi.mocked(fetch).mockResolvedValue(value as Response)
 
 import { fetchYouTubeMeta, extractVideoId } from '../../src/sources/youtube'
 
@@ -20,7 +21,7 @@ describe('fetchYouTubeMeta', () => {
   beforeEach(() => { vi.resetAllMocks() })
 
   it('returns title and author from oEmbed', async () => {
-    (fetch as any).mockResolvedValue({
+    mockFetch({
       ok: true,
       json: async () => ({ title: 'Rick Astley - Never Gonna Give You Up', author_name: 'RickAstleyVEVO' }),
     })

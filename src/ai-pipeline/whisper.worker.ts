@@ -12,7 +12,8 @@ self.onmessage = async (e: MessageEvent) => {
   if (type === 'load') {
     self.postMessage({ type: 'progress', payload: { status: 'loading', progress: 0 } })
     asr = await pipeline('automatic-speech-recognition', 'Xenova/whisper-small', {
-      progress_callback: (p: any) => self.postMessage({ type: 'progress', payload: p }),
+      progress_callback: (p: { status?: string; progress?: number }) =>
+        self.postMessage({ type: 'progress', payload: p }),
     })
     self.postMessage({ type: 'loaded' })
     return

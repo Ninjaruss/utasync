@@ -1,12 +1,12 @@
-import kuromoji from 'kuromoji'
+import kuromoji, { type Tokenizer } from 'kuromoji'
 import type { Token } from '../../core/types'
 
-let builder: any = null
+let builder: Tokenizer | null = null
 
-function getTokenizer(): Promise<any> {
+function getTokenizer(): Promise<Tokenizer> {
   if (builder) return Promise.resolve(builder)
   return new Promise((resolve, reject) => {
-    kuromoji.builder({ dicPath: '/dict' }).build((err: any, tokenizer: any) => {
+    kuromoji.builder({ dicPath: '/dict' }).build((err, tokenizer) => {
       if (err) reject(err)
       else { builder = tokenizer; resolve(tokenizer) }
     })
@@ -15,7 +15,7 @@ function getTokenizer(): Promise<any> {
 
 export async function tokenizeJapanese(text: string): Promise<Token[]> {
   const tokenizer = await getTokenizer()
-  const raw: any[] = tokenizer.tokenize(text)
+  const raw = tokenizer.tokenize(text)
 
   let index = 0
   return raw.map((t): Token => {

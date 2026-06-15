@@ -8,7 +8,7 @@ global.fetch = vi.fn().mockResolvedValue({
     'LOVE': 'L AH1 V',
     'MUSIC': 'M Y UW1 Z IH0 K',
   })
-}) as any
+} as unknown as Response)
 
 import { wordToIPA, sentenceToIPA } from '../../../src/language/english/phonetics'
 

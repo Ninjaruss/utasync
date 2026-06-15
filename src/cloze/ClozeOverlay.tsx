@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { selectClozeTokens, type ClozeToken } from './ClozeEngine'
+import { useMemo } from 'react'
+import { selectClozeTokens } from './ClozeEngine'
 import type { TimedLine, ClozeDifficulty } from '../core/types'
 
 interface Props {
@@ -9,11 +9,10 @@ interface Props {
 }
 
 export function ClozeOverlay({ line, difficulty, revealed }: Props) {
-  const [tokens, setTokens] = useState<ClozeToken[]>([])
-
-  useEffect(() => {
-    if (line.tokens) setTokens(selectClozeTokens(line.tokens, difficulty))
-  }, [line, difficulty])
+  const tokens = useMemo(
+    () => (line.tokens ? selectClozeTokens(line.tokens, difficulty) : []),
+    [line.tokens, difficulty],
+  )
 
   if (!line.tokens) return <span className="text-white">{line.original}</span>
 
