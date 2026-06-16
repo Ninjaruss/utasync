@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { alignTranscriptToLines, sanitizeTranscript, lineWeight, type TranscriptWord } from '../../src/ai-pipeline/aligner'
+import { alignTranscriptToLines, sanitizeTranscript, lineWeight, alignLyrics, type TranscriptWord } from '../../src/ai-pipeline/aligner'
 import type { TimedLine } from '../../src/core/types'
 
 const plainLines = ['star in the sky', 'waiting in dreams']
@@ -201,5 +201,31 @@ describe('lineWeight', () => {
     expect(lineWeight('青空に溶けて', 'ja')).toBe(6)            // 6 kana/kanji
     expect(lineWeight('You always make me so happy', 'ja')).toBe(6) // 6 words
     expect(lineWeight('青空に溶けて', 'ja')).toBeGreaterThan(0)
+  })
+})
+
+describe('alignLyrics', () => {
+  it('uses content mode when the transcript matches the lyrics', () => {
+    const lines = ['あおぞら', 'ゆきがふる']
+    const words: TranscriptWord[] = [
+      { word: 'あおぞら', startTime: 1, endTime: 2 },
+      { word: 'ゆきがふる', startTime: 10, endTime: 11 },
+    ]
+    const r = alignLyrics(lines, words, undefined, 'ja')
+    expect(r.mode).toBe('content')
+    expect(r.confidence).toBeGreaterThan(0.5)
+    expect(r.lines[1].startTime).toBeGreaterThanOrEqual(10)
+  })
+
+  it('falls back to proportional when nothing matches', () => {
+    const lines = ['あおぞら', 'ゆきがふる']
+    const words: TranscriptWord[] = [
+      { word: 'xxxxx', startTime: 1, endTime: 2 },
+      { word: 'yyyyy', startTime: 10, endTime: 11 },
+    ]
+    const r = alignLyrics(lines, words, undefined, 'ja')
+    expect(r.mode).toBe('proportional')
+    expect(r.confidence).toBeLessThan(0.5)
+    expect(r.lines).toHaveLength(2)
   })
 })

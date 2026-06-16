@@ -1,4 +1,5 @@
 import type { Language, TimedLine } from '../core/types'
+import { alignByContent } from './contentAligner'
 
 export interface TranscriptWord {
   word: string
@@ -11,6 +12,8 @@ const JA_CHARS = /[぀-ヿー㐀-鿿豈-﫿]/g
 function countMatches(text: string, re: RegExp): number {
   return (text.match(re) ?? []).length
 }
+
+export const CONTENT_CONFIDENCE_THRESHOLD = 0.5
 
 // A sung word/melisma can run a few seconds, but anything longer is a Whisper
 // artifact (it stamps absurd spans on silence). Used to discard garbage words.
@@ -176,4 +179,25 @@ export function alignTranscriptToLines(
   last.endTime = Math.max(last.endTime, last.startTime, lastWordEnd)
 
   return result
+}
+
+export type AlignResult = {
+  lines: TimedLine[]
+  mode: 'content' | 'proportional'
+  confidence: number
+}
+
+export function alignLyrics(
+  lineTexts: string[],
+  words: TranscriptWord[],
+  existingLines?: TimedLine[],
+  sourceLanguage: Language = 'ja',
+): AlignResult {
+  const clean = sanitizeTranscript(words)
+  const content = alignByContent(lineTexts, clean, existingLines, sourceLanguage)
+  if (content.confidence >= CONTENT_CONFIDENCE_THRESHOLD) {
+    return { lines: content.lines, mode: 'content', confidence: content.confidence }
+  }
+  const lines = alignTranscriptToLines(lineTexts, clean, existingLines, sourceLanguage)
+  return { lines, mode: 'proportional', confidence: content.confidence }
 }
