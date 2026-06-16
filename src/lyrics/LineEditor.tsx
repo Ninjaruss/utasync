@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { TimedLine } from '../core/types'
 
 interface Props {
@@ -19,6 +19,11 @@ function fmt(t: number): string {
 export function LineEditor({ line, playhead, onChange, onAdd, onDelete }: Props) {
   const [original, setOriginal] = useState(line.original)
   const [translation, setTranslation] = useState(line.translation)
+
+  useEffect(() => {
+    setOriginal(line.original)
+    setTranslation(line.translation)
+  }, [line.original, line.translation])
 
   return (
     <div className="rounded-xl border border-cinnabar-accent/60 bg-cinnabar-accent/8 p-3 space-y-2">
@@ -48,7 +53,7 @@ export function LineEditor({ line, playhead, onChange, onAdd, onDelete }: Props)
         <button onClick={() => onChange({ startTime: line.startTime + 0.1 })}
           className="px-2 py-1 rounded-lg bg-cinnabar-900 text-white/70">+0.1</button>
         <button onClick={onAdd} className="px-2 py-1 rounded-lg bg-cinnabar-900 text-white/70">⊕ add</button>
-        <button onClick={onDelete} className="px-2 py-1 rounded-lg bg-cinnabar-900 text-red-400 ml-auto">🗑</button>
+        <button onClick={onDelete} aria-label="Delete line" className="px-2 py-1 rounded-lg bg-cinnabar-900 text-red-400 ml-auto">🗑</button>
       </div>
     </div>
   )

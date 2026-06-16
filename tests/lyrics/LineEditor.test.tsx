@@ -28,4 +28,23 @@ describe('LineEditor', () => {
     fireEvent.blur(input)
     expect(onChange).toHaveBeenCalledWith({ original: '新しい歌詞' })
   })
+
+  it('does not commit text on change, only on blur', () => {
+    const onChange = vi.fn()
+    render(<LineEditor line={line} playhead={() => 0} onChange={onChange} onAdd={vi.fn()} onDelete={vi.fn()} />)
+    const input = screen.getByDisplayValue('二人だけの空')
+    fireEvent.change(input, { target: { value: 'x' } })
+    expect(onChange).not.toHaveBeenCalled()
+    fireEvent.blur(input)
+    expect(onChange).toHaveBeenCalledWith({ original: 'x' })
+  })
+
+  it('fires onAdd and onDelete', () => {
+    const onAdd = vi.fn(); const onDelete = vi.fn()
+    render(<LineEditor line={line} playhead={() => 0} onChange={vi.fn()} onAdd={onAdd} onDelete={onDelete} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete line' }))
+    expect(onDelete).toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: /add/i }))
+    expect(onAdd).toHaveBeenCalled()
+  })
 })
