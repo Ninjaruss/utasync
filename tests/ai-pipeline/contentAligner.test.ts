@@ -39,3 +39,22 @@ describe('alignByContent (exact match)', () => {
     expect(confidence).toBeLessThan(0.2)
   })
 })
+
+describe('alignByContent (repeated lines)', () => {
+  it('does not place a later repeated line earlier than a previous line', () => {
+    // "ねえ" appears 3 times; the transcript has them at 5s, 50s, 90s.
+    const lines = ['ねえ', 'そら', 'ねえ', 'うみ', 'ねえ']
+    const words: TranscriptWord[] = [
+      { word: 'ねえ', startTime: 5, endTime: 6 },
+      { word: 'そら', startTime: 20, endTime: 21 },
+      { word: 'ねえ', startTime: 50, endTime: 51 },
+      { word: 'うみ', startTime: 70, endTime: 71 },
+      { word: 'ねえ', startTime: 90, endTime: 91 },
+    ]
+    const { lines: out } = alignByContent(lines, words, undefined, 'ja')
+    for (let i = 1; i < out.length; i++) {
+      expect(out[i].startTime).toBeGreaterThanOrEqual(out[i - 1].startTime)
+    }
+    expect(out[4].startTime).toBeGreaterThan(out[3].startTime)
+  })
+})

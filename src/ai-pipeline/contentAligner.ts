@@ -138,6 +138,14 @@ export function alignByContent(
   const confidence = matched / A.length
 
   const anchors = anchorsByLine(A, matchTime, lineCount)
+  // Robustify: a later line anchored earlier than an earlier kept line is a wrong
+  // match against a repeated phrase — drop it so it interpolates from neighbours.
+  let lastKept = -Infinity
+  for (let li = 0; li < anchors.length; li++) {
+    if (Number.isNaN(anchors[li])) continue
+    if (anchors[li] < lastKept) anchors[li] = NaN
+    else lastKept = anchors[li]
+  }
   const lastTime = B[B.length - 1].time
   const starts = interpolateAnchors(anchors, lineTexts, sourceLanguage, lastTime)
 
