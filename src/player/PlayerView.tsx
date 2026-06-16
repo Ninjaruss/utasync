@@ -73,6 +73,7 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
       if (!s || cancelled) return
       setSong(s)
       setLines(s.lyrics.lines)
+      setMode('play') // a freshly opened song always lands in Play mode
       // Opening a different song starts from the top; reopening the same song
       // (e.g. after a trip to Settings) resumes the persisted position.
       const store = usePlayerStore.getState()
