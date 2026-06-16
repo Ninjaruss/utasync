@@ -10,7 +10,7 @@ interface Props {
   onClose: () => void
 }
 
-type Stage = 'idle' | 'separating' | 'transcribing' | 'aligning' | 'done' | 'error'
+type Stage = 'idle' | 'separating' | 'loading' | 'transcribing' | 'aligning' | 'done' | 'error'
 
 // Shape of the Whisper worker's transcription result (word-level timestamps).
 interface WhisperChunk { text: string; timestamp: [number, number] }
@@ -25,6 +25,7 @@ export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
   const start = async () => {
     try {
       let audioData: Float32Array | null = null
+      let sampleRate = 44100
 
       if (song.audioStoredPath) {
         const { getAudioFile } = await import('../core/opfs/audio')
@@ -33,6 +34,7 @@ export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
         const ctx = new AudioContext()
         const decoded = await ctx.decodeAudioData(arrayBuffer)
         audioData = decoded.getChannelData(0)
+        sampleRate = decoded.sampleRate
         await ctx.close()
       }
 
@@ -56,7 +58,10 @@ export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
         })
       }
 
-      setStage('transcribing')
+      // First run downloads the Whisper model (~240MB, file by file); show that
+      // as its own phase so the progress bar resetting per file isn't mistaken
+      // for transcription stalling.
+      setStage('loading')
       setProgress(0)
       const whisperWorker = new Worker(new URL('./whisper.worker.ts', import.meta.url), { type: 'module' })
       whisperWorker.postMessage({ type: 'load' })
@@ -64,7 +69,9 @@ export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
       const transcriptResult = await new Promise<WhisperResult>((res, rej) => {
         whisperWorker.onmessage = (e) => {
           if (e.data.type === 'loaded') {
-            whisperWorker.postMessage({ type: 'transcribe', payload: { audioData, sampleRate: 44100 } })
+            setStage('transcribing')
+            setProgress(0)
+            whisperWorker.postMessage({ type: 'transcribe', payload: { audioData, sampleRate } })
           } else if (e.data.type === 'result') { whisperWorker.terminate(); res(e.data.payload) }
           else if (e.data.type === 'error') rej(e.data.payload)
           else if (e.data.type === 'progress') setProgress(e.data.payload.progress ?? 0)
@@ -78,7 +85,9 @@ export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
         endTime: c.timestamp[1],
       })) ?? []
 
-      const lineTexts = song.lyrics.lines.map((l) => l.translation || l.original)
+      // Weight against the sung (original) text — that's what the audio
+      // transcript corresponds to, not the translation.
+      const lineTexts = song.lyrics.lines.map((l) => l.original || l.translation)
       const aligned = alignTranscriptToLines(lineTexts, words, song.lyrics.lines)
       const updated: Song = { ...song, lyrics: { ...song.lyrics, lines: aligned, alignmentMode: 'auto' } }
       await db.songs.put(updated)
@@ -94,6 +103,7 @@ export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
   const stageLabel: Record<Stage, string> = {
     idle: '',
     separating: 'Separating vocals…',
+    loading: 'Loading AI model (first run only)…',
     transcribing: 'Transcribing audio…',
     aligning: 'Aligning to lyrics…',
     done: 'Done!',
