@@ -21,5 +21,7 @@ export function deriveSources(song: Song): SourceRef[] {
 export function computeSyncState(song: Song): SyncState {
   const lines = song.lyrics.lines
   if (lines.length === 0) return 'needs-sync'
+  // Synced only when every line has a positive start time; the first line is
+  // allowed to start at exactly 0.
   return lines.every((l) => l.startTime > 0 || (l.startTime === 0 && l === lines[0])) ? 'synced' : 'needs-sync'
 }

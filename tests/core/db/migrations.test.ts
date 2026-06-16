@@ -56,4 +56,12 @@ describe('computeSyncState', () => {
     ]
     expect(computeSyncState(baseSong({ lyrics: { lines, sourceLanguage: 'ja', translationLanguage: 'en', alignmentMode: 'manual' } }))).toBe('synced')
   })
+
+  it('is synced when the first line starts at 0 and the rest are positive', () => {
+    const lines = [
+      { startTime: 0, endTime: 2, original: 'a', translation: '' },
+      { startTime: 2, endTime: 4, original: 'b', translation: '' },
+    ]
+    expect(computeSyncState(baseSong({ lyrics: { lines, sourceLanguage: 'ja', translationLanguage: 'en', alignmentMode: 'manual' } }))).toBe('synced')
+  })
 })
