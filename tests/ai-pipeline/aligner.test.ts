@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { alignTranscriptToLines, type TranscriptWord } from '../../src/ai-pipeline/aligner'
+import { alignTranscriptToLines, sanitizeTranscript, lineWeight, alignLyrics, type TranscriptWord } from '../../src/ai-pipeline/aligner'
 import type { TimedLine } from '../../src/core/types'
 
 const plainLines = ['star in the sky', 'waiting in dreams']
@@ -30,8 +30,10 @@ describe('alignTranscriptToLines', () => {
     // Second line starts later than the first and within the transcript span.
     expect(result[1].startTime).toBeGreaterThan(result[0].startTime)
     expect(result[1].startTime).toBeLessThanOrEqual(4.3)
-    // Lines are stitched end-to-start so there are no gaps/overlaps.
-    expect(result[0].endTime).toBeCloseTo(result[1].startTime)
+    // A line ends at its own last sung word and never overlaps the next line;
+    // an instrumental gap between them is left as a rest (endTime < next start).
+    expect(result[0].endTime).toBeGreaterThanOrEqual(result[0].startTime)
+    expect(result[0].endTime).toBeLessThanOrEqual(result[1].startTime)
   })
 
   it('preserves original and translation text', () => {
@@ -67,6 +69,42 @@ describe('alignTranscriptToLines', () => {
     expect(result[4].endTime).toBeGreaterThan(55)
   })
 
+  it('weights a sung-English line by word count, not letter count, vs Japanese', () => {
+    // A pure-English sung line (6 words) and a Japanese line (6 mora-chars).
+    // Whisper emits ~1 token per English WORD but ~1 per Japanese char, so the
+    // two lines occupy similar token counts and should split the transcript
+    // near the midpoint. Counting English letters (22) would make line 0 hog
+    // ~3/4 of the timeline and shove line 1 late.
+    const lines = ['You always make me so happy', 'あおにとけて']
+    const words: TranscriptWord[] = Array.from({ length: 12 }, (_, i) => ({
+      word: `w${i}`,
+      startTime: i,
+      endTime: i + 0.9,
+    }))
+    const result = alignTranscriptToLines(lines, words, undefined, 'ja')
+    // Line 1 starts near the midpoint (~6s), not pushed toward ~9s.
+    expect(result[1].startTime).toBeGreaterThan(4.5)
+    expect(result[1].startTime).toBeLessThan(7.5)
+  })
+
+  it('weights inline-bilingual lines by their sung (Japanese) content, not the translation', () => {
+    // Two lines with the SAME Japanese (4 sung chars each) but the first also
+    // carries a long English translation inline. Only the Japanese is in the
+    // audio, so both lines should claim a similar slice of the transcript — if
+    // the English were counted, line 1 would balloon and shove line 2 late.
+    const lines = ['You always make me so happy 青空に溶け', '青空に溶ける']
+    const words: TranscriptWord[] = Array.from({ length: 20 }, (_, i) => ({
+      word: `語${i}`,
+      startTime: i,
+      endTime: i + 0.9,
+    }))
+    const result = alignTranscriptToLines(lines, words, undefined, 'ja')
+
+    // Line 2 should start near the midpoint (~10s), not be pushed toward the end.
+    expect(result[1].startTime).toBeGreaterThan(7)
+    expect(result[1].startTime).toBeLessThan(13)
+  })
+
   it('handles an empty transcript without crashing', () => {
     const result = alignTranscriptToLines(plainLines, [])
     expect(result).toHaveLength(2)
@@ -82,5 +120,112 @@ describe('alignTranscriptToLines', () => {
     const result = alignTranscriptToLines(lines, words)
     expect(result).toHaveLength(5)
     expect(isMonotonic(result)).toBe(true)
+  })
+
+  it('leaves a rest at an instrumental gap instead of stretching the line across it', () => {
+    // Two lines; the transcript has a 20s instrumental gap between them.
+    const lines = ['ねえ', 'いつも']
+    const words: TranscriptWord[] = [
+      { word: 'ねえ', startTime: 1, endTime: 2 },
+      { word: 'いつも', startTime: 22, endTime: 23 },
+    ]
+    const result = alignTranscriptToLines(lines, words)
+    // Line 0 ends at its own last word (~2s), not stretched to line 1's start.
+    expect(result[0].endTime).toBeCloseTo(2)
+    expect(result[1].startTime).toBeCloseTo(22)
+    // The gap between them is a rest, not covered by line 0.
+    expect(result[1].startTime - result[0].endTime).toBeGreaterThan(15)
+  })
+
+  it('ignores hallucinated repetition in a gap so the next line keeps its real onset', () => {
+    // A real word, then a Whisper silence-loop, then the real second line.
+    const lines = ['星空', '夜空']
+    const words: TranscriptWord[] = [
+      { word: '星空', startTime: 1, endTime: 2 },
+      ...Array.from({ length: 8 }, (_, i) => ({ word: 'のののの', startTime: 5 + i, endTime: 5.5 + i })),
+      { word: '夜空', startTime: 30, endTime: 31 },
+    ]
+    const result = alignTranscriptToLines(lines, words)
+    // Without filtering, the 8 phantom words would pull line 2's start toward
+    // the gap; sanitized, line 2 anchors at its real 30s onset.
+    expect(result[1].startTime).toBeGreaterThan(20)
+  })
+})
+
+describe('sanitizeTranscript', () => {
+  it('drops zero/negative and implausibly long durations', () => {
+    const words: TranscriptWord[] = [
+      { word: 'ok', startTime: 1, endTime: 2 },
+      { word: 'zero', startTime: 3, endTime: 3 },
+      { word: 'neg', startTime: 5, endTime: 4 },
+      { word: 'huge', startTime: 6, endTime: 30 },
+    ]
+    expect(sanitizeTranscript(words).map((w) => w.word)).toEqual(['ok'])
+  })
+
+  it('drops out-of-order words', () => {
+    const words: TranscriptWord[] = [
+      { word: 'a', startTime: 5, endTime: 6 },
+      { word: 'b', startTime: 2, endTime: 3 },
+      { word: 'c', startTime: 7, endTime: 8 },
+    ]
+    expect(sanitizeTranscript(words).map((w) => w.word)).toEqual(['a', 'c'])
+  })
+
+  it('collapses a consecutive repetition loop to a single token', () => {
+    const loop: TranscriptWord[] = Array.from({ length: 6 }, (_, i) => ({
+      word: 'la',
+      startTime: i,
+      endTime: i + 0.5,
+    }))
+    // The whole consecutive run collapses to its first occurrence.
+    const result = sanitizeTranscript(loop)
+    expect(result).toHaveLength(1)
+    expect(result[0].startTime).toBe(0)
+  })
+
+  it('only collapses CONSECUTIVE duplicates, not repeats split by other words', () => {
+    const words: TranscriptWord[] = [
+      { word: 'ねえ', startTime: 1, endTime: 2 },
+      { word: 'いつか', startTime: 3, endTime: 4 },
+      { word: 'ねえ', startTime: 5, endTime: 6 },
+      { word: 'いつも', startTime: 7, endTime: 8 },
+    ]
+    // Genuine refrain repeats (non-adjacent) are preserved.
+    expect(sanitizeTranscript(words)).toHaveLength(4)
+  })
+})
+
+describe('lineWeight', () => {
+  it('counts Japanese by character and English by word', () => {
+    expect(lineWeight('青空に溶けて', 'ja')).toBe(6)            // 6 kana/kanji
+    expect(lineWeight('You always make me so happy', 'ja')).toBe(6) // 6 words
+    expect(lineWeight('青空に溶けて', 'ja')).toBeGreaterThan(0)
+  })
+})
+
+describe('alignLyrics', () => {
+  it('uses content mode when the transcript matches the lyrics', () => {
+    const lines = ['あおぞら', 'ゆきがふる']
+    const words: TranscriptWord[] = [
+      { word: 'あおぞら', startTime: 1, endTime: 2 },
+      { word: 'ゆきがふる', startTime: 10, endTime: 11 },
+    ]
+    const r = alignLyrics(lines, words, undefined, 'ja')
+    expect(r.mode).toBe('content')
+    expect(r.confidence).toBeGreaterThan(0.5)
+    expect(r.lines[1].startTime).toBeGreaterThanOrEqual(10)
+  })
+
+  it('falls back to proportional when nothing matches', () => {
+    const lines = ['あおぞら', 'ゆきがふる']
+    const words: TranscriptWord[] = [
+      { word: 'xxxxx', startTime: 1, endTime: 2 },
+      { word: 'yyyyy', startTime: 10, endTime: 11 },
+    ]
+    const r = alignLyrics(lines, words, undefined, 'ja')
+    expect(r.mode).toBe('proportional')
+    expect(r.confidence).toBeLessThan(0.5)
+    expect(r.lines).toHaveLength(2)
   })
 })

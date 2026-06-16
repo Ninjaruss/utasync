@@ -5,10 +5,10 @@ const mockWritable = { write: vi.fn(), close: vi.fn() }
 const mockFileHandle = {
   createWritable: vi.fn().mockResolvedValue(mockWritable),
   getFile: vi.fn().mockResolvedValue(new File([new ArrayBuffer(8)], 'test.mp3')),
-  remove: vi.fn().mockResolvedValue(undefined),
 }
 const mockSongsDir = {
   getFileHandle: vi.fn().mockResolvedValue(mockFileHandle),
+  removeEntry: vi.fn().mockResolvedValue(undefined),
 }
 const mockRoot = {
   getDirectoryHandle: vi.fn().mockResolvedValue(mockSongsDir),
@@ -28,6 +28,7 @@ describe('OPFS audio utilities', () => {
     vi.clearAllMocks()
     mockRoot.getDirectoryHandle.mockResolvedValue(mockSongsDir)
     mockSongsDir.getFileHandle.mockResolvedValue(mockFileHandle)
+    mockSongsDir.removeEntry.mockResolvedValue(undefined)
     mockFileHandle.createWritable.mockResolvedValue(mockWritable)
   })
 
@@ -43,10 +44,14 @@ describe('OPFS audio utilities', () => {
     expect(file).toBeInstanceOf(File)
   })
 
-  it('deleteAudio removes file handle', async () => {
-    const mockRemove = vi.fn()
-    mockSongsDir.getFileHandle.mockResolvedValue({ ...mockFileHandle, remove: mockRemove })
+  it('deleteAudio removes the file via removeEntry', async () => {
     await deleteAudio('song-1')
-    expect(mockRemove).toHaveBeenCalled()
+    expect(mockSongsDir.removeEntry).toHaveBeenCalledWith('song-1.mp3')
+  })
+
+  it('deleteAudio ignores an already-missing file', async () => {
+    const notFound = Object.assign(new Error('missing'), { name: 'NotFoundError' })
+    mockSongsDir.removeEntry.mockRejectedValueOnce(notFound)
+    await expect(deleteAudio('song-1')).resolves.toBeUndefined()
   })
 })

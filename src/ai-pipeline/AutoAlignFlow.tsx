@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { getDeviceTier } from './capability'
 import type { Song } from '../core/types'
-import { alignTranscriptToLines, type TranscriptWord } from './aligner'
+import { alignLyrics, type TranscriptWord } from './aligner'
 import { db } from '../core/db/schema'
 
 interface Props {
@@ -20,6 +20,7 @@ export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
   const [stage, setStage] = useState<Stage>('idle')
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState('')
+  const [lowConfidence, setLowConfidence] = useState(false)
   const tier = getDeviceTier()
 
   const start = async () => {
@@ -88,10 +89,16 @@ export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
       // Weight against the sung (original) text — that's what the audio
       // transcript corresponds to, not the translation.
       const lineTexts = song.lyrics.lines.map((l) => l.original || l.translation)
-      const aligned = alignTranscriptToLines(lineTexts, words, song.lyrics.lines)
-      const updated: Song = { ...song, lyrics: { ...song.lyrics, lines: aligned, alignmentMode: 'auto' } }
+      const { lines: aligned, mode, confidence } = alignLyrics(
+        lineTexts, words, song.lyrics.lines, song.lyrics.sourceLanguage,
+      )
+      const updated: Song = {
+        ...song,
+        lyrics: { ...song.lyrics, lines: aligned, alignmentMode: 'auto', alignmentConfidence: confidence },
+      }
       await db.songs.put(updated)
 
+      setLowConfidence(mode === 'proportional')
       setStage('done')
       onComplete(updated)
     } catch (e: unknown) {
@@ -137,7 +144,11 @@ export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
         )}
 
         {stage === 'error' && <p className="text-red-400 text-sm">{error}</p>}
-        {stage === 'done' && <p className="text-green-400 text-sm">Lyrics aligned successfully.</p>}
+        {stage === 'done' && (
+          lowConfidence
+            ? <p className="text-yellow-400 text-sm">Alignment is approximate — the audio didn't closely match these lyrics. Try tap-sync or double-check your lyrics.</p>
+            : <p className="text-green-400 text-sm">Lyrics aligned successfully.</p>
+        )}
 
         <button onClick={onClose} className="text-white/40 text-sm w-full text-center">
           {stage === 'done' ? 'Close' : 'Cancel'}

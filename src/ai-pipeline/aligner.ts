@@ -1,4 +1,5 @@
-import type { TimedLine } from '../core/types'
+import type { Language, TimedLine } from '../core/types'
+import { alignByContent } from './contentAligner'
 
 export interface TranscriptWord {
   word: string
@@ -6,11 +7,94 @@ export interface TranscriptWord {
   endTime: number
 }
 
-// Letters/CJK only (whitespace and punctuation removed). Used as a proxy for
-// how much of the song a line occupies — longer text is sung for longer. Works
-// for spaced and spaceless languages alike, unlike a whitespace word count.
-function weightOf(text: string): number {
-  // Non-whitespace character count (\s also matches the ideographic space).
+// Japanese scripts: hiragana, katakana, the prolonged-sound mark, and kanji.
+const JA_CHARS = /[぀-ヿー㐀-鿿豈-﫿]/g
+function countMatches(text: string, re: RegExp): number {
+  return (text.match(re) ?? []).length
+}
+
+export const CONTENT_CONFIDENCE_THRESHOLD = 0.5
+
+// A sung word/melisma can run a few seconds, but anything longer is a Whisper
+// artifact (it stamps absurd spans on silence). Used to discard garbage words.
+const MAX_WORD_DURATION_S = 10
+// Whisper loops the same token during instrumental/silent stretches (often
+// dozens of times). Collapse each run of consecutive identical tokens down to
+// one slot — a few real consecutive repeats ("la la la") lose a little weight,
+// but a phantom loop no longer fills the gap and shoves later lines off.
+const MAX_REPEATS_KEPT = 1
+
+function normalizeToken(word: string): string {
+  // Strip whitespace and punctuation so repetition detection isn't fooled by
+  // trailing commas/spaces Whisper sprinkles between looped tokens.
+  return word.toLowerCase().replace(/[\s\p{P}]+/gu, '')
+}
+
+/**
+ * Clean a raw Whisper transcript before alignment. Whisper hallucinates during
+ * the instrumental/silent parts of a song — phantom looping words carrying real
+ * timestamps that sit inside the gap. Left in, they inflate word counts and drag
+ * lyric-line timings off. This drops the three classes of garbage we see:
+ *   1. words with non-finite, zero/negative, or implausibly long durations,
+ *   2. words whose timestamps run backwards (out-of-order artifacts),
+ *   3. long runs of the same repeated token (silence loops).
+ */
+export function sanitizeTranscript(words: TranscriptWord[]): TranscriptWord[] {
+  const kept: TranscriptWord[] = []
+  let runToken = ''
+  let runCount = 0
+
+  for (const w of words) {
+    if (!Number.isFinite(w.startTime) || !Number.isFinite(w.endTime)) continue
+    const duration = w.endTime - w.startTime
+    if (duration <= 0 || duration > MAX_WORD_DURATION_S) continue
+
+    // Timestamps must not go backwards relative to the last word we kept.
+    const prev = kept[kept.length - 1]
+    if (prev && w.startTime < prev.startTime) continue
+
+    const token = normalizeToken(w.word)
+    if (token && token === runToken) {
+      runCount++
+      if (runCount > MAX_REPEATS_KEPT) continue // drop the 3rd+ identical in a row
+    } else {
+      runToken = token
+      runCount = 1
+    }
+
+    kept.push(w)
+  }
+
+  return kept
+}
+
+function latinWordCount(text: string): number {
+  return (text.match(/[A-Za-z]+/g) ?? []).length
+}
+
+// A line's weight estimates how many Whisper word-tokens it produces, which is
+// what the proportional distribution actually slices on. Whisper tokenizes the
+// scripts at very different granularities: roughly ONE token per mora/character
+// for Japanese (青/空/に/溶/けて), but one token per WORD for English
+// (You/always/make/me/so/happy). So Japanese is weighted by character count and
+// English by *word* count — counting English letters instead over-weights every
+// English line ~4x, stealing word-slots from the lines after it.
+//
+// A line that MIXES scripts (Japanese + an inline Latin translation, e.g.
+// "You always make me so happy 青空に溶けて") is weighted by its Japanese only:
+// the Latin there is a translation that isn't in the audio. A PURELY Latin line
+// is treated as sung English and weighted by its word count.
+export function lineWeight(text: string, sourceLanguage: Language): number {
+  if (sourceLanguage === 'ja') {
+    const ja = countMatches(text, JA_CHARS)
+    if (ja > 0) return ja
+    return latinWordCount(text)
+  }
+  const words = latinWordCount(text)
+  if (words > 0) return words
+  const ja = countMatches(text, JA_CHARS)
+  if (ja > 0) return ja
+  // Fallback for any other script: non-whitespace character count.
   return text.replace(/\s+/g, '').length
 }
 
@@ -27,7 +111,8 @@ function weightOf(text: string): number {
 export function alignTranscriptToLines(
   lineTexts: string[],
   words: TranscriptWord[],
-  existingLines?: TimedLine[]
+  existingLines?: TimedLine[],
+  sourceLanguage: Language = 'ja'
 ): TimedLine[] {
   const lineCount = lineTexts.length
 
@@ -38,14 +123,18 @@ export function alignTranscriptToLines(
     translation: existingLines?.[li]?.translation ?? lineTexts[li],
   })
 
+  // Strip hallucinations/garbage so phantom words in instrumental gaps don't
+  // skew the proportional mapping (see sanitizeTranscript).
+  const clean = sanitizeTranscript(words)
+
   // No usable transcript: keep the lines but leave them untimed.
-  if (words.length === 0 || lineCount === 0) {
+  if (clean.length === 0 || lineCount === 0) {
     return lineTexts.map((_, li) => buildLine(li, 0, 0))
   }
 
-  const weights = lineTexts.map((t) => Math.max(1, weightOf(t)))
+  const weights = lineTexts.map((t) => Math.max(1, lineWeight(t, sourceLanguage)))
   const totalWeight = weights.reduce((a, b) => a + b, 0)
-  const lastWordEnd = words[words.length - 1].endTime
+  const lastWordEnd = clean[clean.length - 1].endTime
 
   const result: TimedLine[] = []
   let prevBoundary = 0
@@ -56,32 +145,59 @@ export function alignTranscriptToLines(
     // Word-array boundary for the end of this line, proportional to weight.
     const boundary =
       li === lineCount - 1
-        ? words.length
-        : Math.round((cumWeight / totalWeight) * words.length)
+        ? clean.length
+        : Math.round((cumWeight / totalWeight) * clean.length)
     const startWord = prevBoundary
-    const endWord = Math.min(Math.max(boundary, startWord), words.length)
-    const span = words.slice(startWord, endWord)
+    const endWord = Math.min(Math.max(boundary, startWord), clean.length)
+    const span = clean.slice(startWord, endWord)
 
-    // Real timestamps where available; otherwise anchor to the previous line's
-    // end (covers lines that fall past the end of a short transcript).
+    // Real timestamps where available; an empty span anchors to the next real
+    // word onset (so the line lands at the resumption of singing, not inside a
+    // gap), then to the previous line's end past the transcript's end.
     const startTime =
-      span[0]?.startTime ?? words[startWord]?.startTime ?? result[li - 1]?.endTime ?? lastWordEnd
+      span[0]?.startTime ?? clean[startWord]?.startTime ?? result[li - 1]?.endTime ?? lastWordEnd
     const endTime = span[span.length - 1]?.endTime ?? startTime
 
     result.push(buildLine(li, startTime, endTime))
     prevBoundary = endWord
   }
 
-  // Stitch boundaries so start times are non-decreasing and each line ends
-  // exactly where the next begins (no gaps/overlaps for the highlighter).
+  // Stitch boundaries: keep start times non-decreasing, and clamp each line's
+  // end to its own last sung word — but never past the next line's start. This
+  // leaves a "rest" during instrumental gaps (a line no longer claims the
+  // silent stretch up to the next line) while preventing overlaps. The active-
+  // line highlighter keys off startTime, so rests are invisible there but make
+  // endTime correct for AB-loop and lyric export.
   for (let li = 0; li < result.length - 1; li++) {
     if (result[li + 1].startTime < result[li].startTime) {
       result[li + 1].startTime = result[li].startTime
     }
-    result[li].endTime = result[li + 1].startTime
+    const ownEnd = Math.max(result[li].endTime, result[li].startTime)
+    result[li].endTime = Math.min(ownEnd, result[li + 1].startTime)
   }
   const last = result[result.length - 1]
   last.endTime = Math.max(last.endTime, last.startTime, lastWordEnd)
 
   return result
+}
+
+export type AlignResult = {
+  lines: TimedLine[]
+  mode: 'content' | 'proportional'
+  confidence: number
+}
+
+export function alignLyrics(
+  lineTexts: string[],
+  words: TranscriptWord[],
+  existingLines?: TimedLine[],
+  sourceLanguage: Language = 'ja',
+): AlignResult {
+  const clean = sanitizeTranscript(words)
+  const content = alignByContent(lineTexts, clean, existingLines, sourceLanguage)
+  if (content.confidence >= CONTENT_CONFIDENCE_THRESHOLD) {
+    return { lines: content.lines, mode: 'content', confidence: content.confidence }
+  }
+  const lines = alignTranscriptToLines(lineTexts, clean, existingLines, sourceLanguage)
+  return { lines, mode: 'proportional', confidence: content.confidence }
 }
