@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 global.fetch = vi.fn()
 const mockFetch = (value: unknown) => vi.mocked(fetch).mockResolvedValue(value as Response)
 
-import { searchLRCLIB, fetchLRCFromLRCLIB } from '../../src/sources/lrclib'
+import { searchLRCLIB, fetchLRCFromLRCLIB, findSecondLanguageLyrics } from '../../src/sources/lrclib'
 
 describe('searchLRCLIB', () => {
   beforeEach(() => { vi.resetAllMocks() })
@@ -27,6 +27,35 @@ describe('searchLRCLIB', () => {
     mockFetch({ ok: false, status: 404 })
     const results = await searchLRCLIB('Unknown', 'Unknown')
     expect(results).toEqual([])
+  })
+})
+
+describe('findSecondLanguageLyrics', () => {
+  beforeEach(() => { vi.resetAllMocks() })
+
+  it('picks a result whose script differs from the primary language', async () => {
+    mockFetch({
+      ok: true,
+      json: async () => ([
+        { id: 1, name: 'Song', artistName: 'A', syncedLyrics: '[00:01.00]君の瞳' }, // ja
+        { id: 2, name: 'Song', artistName: 'A', syncedLyrics: '[00:01.00]Your eyes' }, // en
+      ]),
+    })
+    const result = await findSecondLanguageLyrics('Song', 'A', 'ja')
+    expect(result).not.toBeNull()
+    expect(result!.lrc).toContain('Your eyes')
+    expect(result!.synced).toBe(true)
+  })
+
+  it('returns null when every result is the same language as the primary', async () => {
+    mockFetch({
+      ok: true,
+      json: async () => ([
+        { id: 1, name: 'Song', artistName: 'A', syncedLyrics: '[00:01.00]君の瞳' },
+      ]),
+    })
+    const result = await findSecondLanguageLyrics('Song', 'A', 'ja')
+    expect(result).toBeNull()
   })
 })
 

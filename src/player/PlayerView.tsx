@@ -4,14 +4,14 @@ import { useLyricsStore } from '../lyrics/LyricsStore'
 import { AudioEngine } from './AudioEngine'
 import { LyricDisplay } from '../lyrics/LyricDisplay'
 import { db } from '../core/db/schema'
-import { YouTubePlayer } from './YouTubePlayer'
+import { YouTubePlayer, type YouTubePlayerHandle } from './YouTubePlayer'
 import { extractVideoId } from '../sources/youtube'
 import { canUsePro } from '../payment/trial'
 import { UpgradeModal } from '../payment/UpgradeModal'
 import { ABLoopController } from './ABLoop'
 import type { Song, TimedLine, Language } from '../core/types'
 import { tokenizeJapanese } from '../language/japanese/tokenizer'
-import { toRomaji } from '../language/japanese/phonetics'
+import { toRomaji, toFurigana } from '../language/japanese/phonetics'
 import { detectGrammarPatterns } from '../language/japanese/grammar'
 import { tokenizeEnglish } from '../language/english/tokenizer'
 import { sentenceToIPA } from '../language/english/phonetics'
@@ -26,12 +26,13 @@ async function enrichLines(lines: TimedLine[], sourceLanguage: Language): Promis
   return Promise.all(lines.map(async (line): Promise<TimedLine> => {
     try {
       if (sourceLanguage === 'ja') {
-        const [tokens, reading] = await Promise.all([
+        const [tokens, reading, furigana] = await Promise.all([
           tokenizeJapanese(line.original),
           toRomaji(line.original),
+          toFurigana(line.original),
         ])
         const grammarAnnotations = detectGrammarPatterns(line.original)
-        return { ...line, tokens, reading, grammarAnnotations }
+        return { ...line, tokens, reading, furigana, grammarAnnotations }
       } else {
         const tokens = tokenizeEnglish(line.original)
         const reading = await sentenceToIPA(line.original)
@@ -55,8 +56,9 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
   if (engineRef.current === null) engineRef.current = new AudioEngine()
   const engine = engineRef.current
   const abLoopControllerRef = useRef<ABLoopController | null>(null)
-  const { playbackState, position, speed, abLoop, setPlaybackState, setPosition, setSpeed, setABLoop } = usePlayerStore()
-  const { syncPosition, setLines } = useLyricsStore()
+  const ytRef = useRef<YouTubePlayerHandle>(null)
+  const { playbackState, position, speed, abLoop, currentSongId, setPlaybackState, setPosition, setSpeed, setABLoop, setCurrentSong } = usePlayerStore()
+  const { syncPosition, setLines, furiganaMode, showTranslation, lyricsLayout, setFuriganaMode, setShowTranslation, setLyricsLayout } = useLyricsStore()
   const [song, setSong] = useState<Song | null>(null)
   const [duration, setDuration] = useState(1)
   const [showUpgrade, setShowUpgrade] = useState(false)
@@ -68,6 +70,12 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
       if (!s || cancelled) return
       setSong(s)
       setLines(s.lyrics.lines)
+      // Opening a different song starts from the top; reopening the same song
+      // (e.g. after a trip to Settings) resumes the persisted position.
+      const store = usePlayerStore.getState()
+      const isNewSong = store.currentSongId !== songId
+      if (isNewSong) setCurrentSong(songId) // resets position to 0
+      const resumeAt = isNewSong ? 0 : store.position
       // Load locally-stored audio into the engine so playback works for
       // non-YouTube sources. Without this, play() is a no-op.
       if (s.audioStoredPath) {
@@ -75,7 +83,14 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
           const { getAudioFile } = await import('../core/opfs/audio')
           const file = await getAudioFile(s.id)
           await engine.load(file)
-          if (!cancelled) setDuration(engine.duration || 1)
+          if (!cancelled) {
+            setDuration(engine.duration || 1)
+            if (resumeAt > 0) {
+              engine.seek(resumeAt)
+              setPosition(resumeAt)
+              syncPosition(resumeAt)
+            }
+          }
         } catch {
           // audio file missing or unreadable — leave controls inert
         }
@@ -110,19 +125,27 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const ytVideoId = song?.sourceUrl ? extractVideoId(song.sourceUrl) : null
+  const isYouTube = !!ytVideoId && !song?.audioStoredPath
+
   const togglePlay = () => {
     if (playbackState === 'playing') {
-      engine.pause()
+      if (isYouTube) ytRef.current?.pause(); else engine.pause()
       setPlaybackState('paused')
     } else {
-      engine.play()
+      if (isYouTube) ytRef.current?.play(); else engine.play()
       setPlaybackState('playing')
     }
   }
 
   const seek = (time: number) => {
-    engine.seek(time)
+    if (isYouTube) {
+      ytRef.current?.seekTo(time)
+    } else {
+      engine.seek(time)
+    }
     setPosition(time)
+    syncPosition(time)
   }
 
   const beginAlignment = (mode: AlignMode) => {
@@ -155,10 +178,14 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
   }
 
   const progress = position / duration
-
-  const ytVideoId = song?.sourceUrl ? extractVideoId(song.sourceUrl) : null
-  const isYouTube = !!ytVideoId && !song?.audioStoredPath
   const isProUser = canUsePro(song?.isTrialSong ?? false)
+  const isJapanese = song?.lyrics.sourceLanguage === 'ja'
+  const hasTranslation = !!song?.lyrics.lines.some((l) => l.translation)
+
+  const cycleFurigana = () =>
+    setFuriganaMode(furiganaMode === 'none' ? 'romaji' : furiganaMode === 'romaji' ? 'furigana' : 'none')
+  const furiganaLabel =
+    furiganaMode === 'none' ? 'あ Reading: off' : furiganaMode === 'romaji' ? 'A Romaji' : 'ふ Furigana'
 
   if (song && alignMode === 'tap') {
     return (
@@ -172,22 +199,59 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-cinnabar-950 flex flex-col">
+    <div className="h-[100dvh] overflow-hidden bg-cinnabar-950 flex flex-col">
       {/* Top bar */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-cinnabar-900">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-cinnabar-900 shrink-0">
         <button onClick={onBack} className="text-white/40 hover:text-white text-xs">← Back</button>
         <span className="text-cinnabar-accent font-semibold tracking-widest text-sm uppercase">歌sync</span>
         <button onClick={() => onSettings?.()} className="text-white/40 hover:text-white text-xs">Settings</button>
       </div>
 
-      {/* YouTube embed */}
-      {isYouTube && <YouTubePlayer videoId={ytVideoId} />}
+      {/* YouTube — audio only (kept mounted off-screen so it keeps playing) */}
+      {isYouTube && (
+        <YouTubePlayer
+          ref={ytRef}
+          videoId={ytVideoId}
+          startSeconds={currentSongId === songId ? position : 0}
+          audioOnly
+        />
+      )}
 
-      {/* Lyrics area */}
+      {/* Display options */}
+      {(isJapanese || hasTranslation) && (
+        <div className="flex items-center justify-center gap-2 px-4 py-2 shrink-0 text-xs">
+          {isJapanese && (
+            <button
+              onClick={cycleFurigana}
+              className="px-3 py-1 rounded-full border border-white/20 text-white/60 hover:text-white hover:border-white/40"
+            >
+              {furiganaLabel}
+            </button>
+          )}
+          {hasTranslation && (
+            <button
+              onClick={() => setShowTranslation(!showTranslation)}
+              className={`px-3 py-1 rounded-full border ${showTranslation ? 'border-cinnabar-accent text-cinnabar-accent' : 'border-white/20 text-white/40'}`}
+            >
+              文 Translation
+            </button>
+          )}
+          {hasTranslation && (
+            <button
+              onClick={() => setLyricsLayout(lyricsLayout === 'sideBySide' ? 'stacked' : 'sideBySide')}
+              className={`px-3 py-1 rounded-full border ${lyricsLayout === 'sideBySide' ? 'border-cinnabar-accent text-cinnabar-accent' : 'border-white/20 text-white/40'}`}
+            >
+              ⇄ Side-by-side
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Lyrics area — the only scrollable region */}
       <LyricDisplay onSeek={seek} />
 
       {/* Playback controls */}
-      <div className="px-4 pt-2 space-y-3" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 24px), 24px)' }}>
+      <div className="px-4 pt-2 space-y-3 shrink-0" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 24px), 24px)' }}>
         {/* Seek bar */}
         <div
           className="h-1 bg-cinnabar-900 rounded cursor-pointer"
@@ -234,22 +298,20 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
           )}
         </div>
 
-        {/* Buttons — only show for non-YouTube sources */}
-        {!isYouTube && (
-          <div className="flex items-center justify-center gap-6">
-            <button onClick={() => seek(Math.max(0, position - 5))}
-              className="text-white/50 hover:text-white text-xl touch-manipulation">⏮</button>
-            <button
-              onClick={togglePlay}
-              className="w-14 h-14 rounded-full bg-cinnabar-accent text-white text-2xl flex items-center justify-center shadow-lg touch-manipulation"
-              style={{ boxShadow: '0 0 20px rgba(248,113,113,0.4)' }}
-            >
-              {playbackState === 'playing' ? '⏸' : '▶'}
-            </button>
-            <button onClick={() => seek(Math.min(duration, position + 5))}
-              className="text-white/50 hover:text-white text-xl touch-manipulation">⏭</button>
-          </div>
-        )}
+        {/* Transport controls (audio-only YouTube needs these too) */}
+        <div className="flex items-center justify-center gap-6">
+          <button onClick={() => seek(Math.max(0, position - 5))}
+            className="text-white/50 hover:text-white text-xl touch-manipulation">⏮</button>
+          <button
+            onClick={togglePlay}
+            className="w-14 h-14 rounded-full bg-cinnabar-accent text-white text-2xl flex items-center justify-center shadow-lg touch-manipulation"
+            style={{ boxShadow: '0 0 20px rgba(248,113,113,0.4)' }}
+          >
+            {playbackState === 'playing' ? '⏸' : '▶'}
+          </button>
+          <button onClick={() => seek(Math.min(duration, position + 5))}
+            className="text-white/50 hover:text-white text-xl touch-manipulation">⏭</button>
+        </div>
 
         {/* A-B Loop controls (Pro-gated) */}
         {isProUser ? (

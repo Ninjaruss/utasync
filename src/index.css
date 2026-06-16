@@ -1,3 +1,11 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Furigana ruby readings (kuroshiro output) above kanji. */
+.furigana-text ruby rt {
+  font-size: 0.5em;
+  font-weight: 400;
+  color: rgba(248, 113, 113, 0.85); /* cinnabar accent */
+  user-select: none;
+}

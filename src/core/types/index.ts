@@ -1,6 +1,7 @@
 export type Language = 'ja' | 'en'
 export type AlignmentMode = 'manual' | 'auto'
-export type PhoneticMode = 'none' | 'reading' | 'translation'
+export type FuriganaMode = 'none' | 'romaji' | 'furigana'
+export type LyricsLayout = 'stacked' | 'sideBySide'
 export type ClozeDifficulty = 'easy' | 'medium' | 'hard'
 export type DeviceTier = 'full' | 'lite' | 'manual'
 export type PlaybackState = 'idle' | 'playing' | 'paused' | 'loading'
@@ -27,6 +28,8 @@ export interface TimedLine {
   translation: string
   tokens?: Token[]
   reading?: string
+  /** Ruby HTML (kuroshiro furigana) for rendering readings above kanji. */
+  furigana?: string
   grammarAnnotations?: GrammarAnnotation[]
 }
 

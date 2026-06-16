@@ -3,7 +3,9 @@ import { useState, type ChangeEvent } from 'react'
 import { db } from '../core/db/schema'
 import { ingestAudioFile } from './audioIngest'
 import { buildSong, linesFromPlainText } from './songBuilder'
-import { fetchLRCFromLRCLIB } from './lrclib'
+import { fetchLRCFromLRCLIB, findSecondLanguageLyrics } from './lrclib'
+import { detectLanguage, attachSecondLanguage } from '../lyrics/bilingual'
+import type { Language } from '../core/types'
 import { parseLRC } from '../lyrics/lrc-parser'
 import { parseSubtitle } from '../lyrics/subtitle-parser'
 import { extractAudioMetadata, deriveTitle } from './audioMetadata'
@@ -21,6 +23,7 @@ export function UploadAudioFlow({ onSongReady }: Props) {
   const [artist, setArtist] = useState('')
   const [source, setSource] = useState<LyricSource>('lrclib')
   const [pasted, setPasted] = useState('')
+  const [secondLang, setSecondLang] = useState('')
   const [subtitleFile, setSubtitleFile] = useState<File | null>(null)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
@@ -72,9 +75,24 @@ export function UploadAudioFlow({ onSongReady }: Props) {
         setError('No lyric lines found. Add lyrics so they can be aligned to the audio.')
         return
       }
+      // Determine languages and attach a second language (manual paste wins,
+      // else a best-effort LRCLIB lookup for an alternate-language entry).
+      const primaryLang = detectLanguage(lines.map((l) => l.original).join('\n'))
+      const sourceLanguage: Language = primaryLang === 'ja' ? 'ja' : 'en'
+      const translationLanguage: Language = sourceLanguage === 'ja' ? 'en' : 'ja'
+      let secondText = secondLang.trim()
+      if (!secondText) {
+        const second = await findSecondLanguageLyrics(title.trim(), artist.trim(), primaryLang)
+        if (second) secondText = second.lrc
+      }
+      const finalLines = secondText ? attachSecondLanguage(lines, secondText).lines : lines
+
       setStatus('Storing…')
       const { songId, audioStoredPath } = await ingestAudioFile(file)
-      const song = buildSong({ id: songId, title: title.trim(), artist: artist.trim(), audioStoredPath, lines })
+      const song = buildSong({
+        id: songId, title: title.trim(), artist: artist.trim(), audioStoredPath,
+        lines: finalLines, sourceLanguage, translationLanguage,
+      })
       await db.songs.put(song)
       setStatus('')
       onSongReady(song.id)
@@ -120,6 +138,10 @@ export function UploadAudioFlow({ onSongReady }: Props) {
               onChange={(e) => setSubtitleFile(e.target.files?.[0] ?? null)} />
           </label>
         )}
+
+        <textarea value={secondLang} onChange={(e) => setSecondLang(e.target.value)}
+          placeholder="Second-language lyrics (optional) — paste a translation, one line per row…"
+          rows={4} className="w-full px-4 py-3 bg-cinnabar-900 text-white text-sm rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/30 font-jp" />
 
         <button onClick={handleSubmit} disabled={!file || !title.trim() || !!status}
           className="w-full py-3 bg-cinnabar-accent text-white rounded-xl font-medium disabled:opacity-40">

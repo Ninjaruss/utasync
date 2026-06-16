@@ -1,16 +1,20 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { TimedLine, PhoneticMode, ClozeDifficulty } from '../core/types'
+import type { TimedLine, FuriganaMode, LyricsLayout, ClozeDifficulty } from '../core/types'
 
 interface LyricsState {
   lines: TimedLine[]
   activeLine: number
-  phoneticMode: PhoneticMode
+  furiganaMode: FuriganaMode
+  showTranslation: boolean
+  lyricsLayout: LyricsLayout
   clozeMode: boolean
   clozeDifficulty: ClozeDifficulty
   setLines: (lines: TimedLine[]) => void
   syncPosition: (position: number) => void
-  setPhoneticMode: (mode: PhoneticMode) => void
+  setFuriganaMode: (mode: FuriganaMode) => void
+  setShowTranslation: (on: boolean) => void
+  setLyricsLayout: (layout: LyricsLayout) => void
   setClozeMode: (on: boolean) => void
 }
 
@@ -35,7 +39,9 @@ export const useLyricsStore = create<LyricsState>()(
     (set, get) => ({
       lines: [],
       activeLine: -1,
-      phoneticMode: 'reading',
+      furiganaMode: 'furigana',
+      showTranslation: true,
+      lyricsLayout: 'stacked',
       clozeMode: false,
       clozeDifficulty: 'medium',
       setLines: (lines) => set({ lines, activeLine: -1 }),
@@ -44,9 +50,19 @@ export const useLyricsStore = create<LyricsState>()(
         const next = binarySearchLine(lines, position)
         if (next !== activeLine) set({ activeLine: next })
       },
-      setPhoneticMode: (phoneticMode) => set({ phoneticMode }),
+      setFuriganaMode: (furiganaMode) => set({ furiganaMode }),
+      setShowTranslation: (showTranslation) => set({ showTranslation }),
+      setLyricsLayout: (lyricsLayout) => set({ lyricsLayout }),
       setClozeMode: (clozeMode) => set({ clozeMode }),
     }),
-    { name: 'utasync-lyrics', partialize: (s) => ({ phoneticMode: s.phoneticMode, clozeDifficulty: s.clozeDifficulty }) }
+    {
+      name: 'utasync-lyrics',
+      partialize: (s) => ({
+        furiganaMode: s.furiganaMode,
+        showTranslation: s.showTranslation,
+        lyricsLayout: s.lyricsLayout,
+        clozeDifficulty: s.clozeDifficulty,
+      }),
+    }
   )
 )

@@ -13,7 +13,7 @@ interface Props {
 export function SettingsView({ onClose }: Props) {
   const [songs, setSongs] = useState<Song[]>([])
   const [quota, setQuota] = useState<{ used: number; total: number; ratio: number } | null>(null)
-  const { isPro, trialSongsClaimed } = useSettingsStore()
+  const { isPro, trialSongsClaimed, setIsPro } = useSettingsStore()
 
   useEffect(() => {
     db.songs.toArray().then(setSongs)
@@ -44,6 +44,14 @@ export function SettingsView({ onClose }: Props) {
         {isPro
           ? <p className="text-green-400 text-sm">✓ Pro — lifetime access</p>
           : <p className="text-white/50 text-sm">{trialSongsClaimed}/2 trial songs used</p>}
+        {import.meta.env.DEV && (
+          <button
+            onClick={() => setIsPro(!isPro)}
+            className="mt-2 text-xs px-3 py-1 rounded-full border border-yellow-500/50 text-yellow-300 hover:bg-yellow-500/10"
+          >
+            🛠 Dev: {isPro ? 'Disable' : 'Enable'} Pro
+          </button>
+        )}
       </div>
 
       {quota && (
