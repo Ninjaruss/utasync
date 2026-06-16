@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# superpowers brainstorm companion (local mockups)
+.superpowers/
