@@ -1,11 +1,12 @@
 // src/sources/UploadAudioFlow.tsx
-import { useState } from 'react'
+import { useState, type ChangeEvent } from 'react'
 import { db } from '../core/db/schema'
 import { ingestAudioFile } from './audioIngest'
 import { buildSong, linesFromPlainText } from './songBuilder'
 import { fetchLRCFromLRCLIB } from './lrclib'
 import { parseLRC } from '../lyrics/lrc-parser'
 import { parseSubtitle } from '../lyrics/subtitle-parser'
+import { extractAudioMetadata, deriveTitle } from './audioMetadata'
 import type { TimedLine } from '../core/types'
 
 type LyricSource = 'lrclib' | 'paste' | 'subtitle'
@@ -25,6 +26,16 @@ export function UploadAudioFlow({ onSongReady }: Props) {
   const [error, setError] = useState('')
   // True once an LRCLIB lookup returns nothing: forces paste/subtitle input.
   const [lrclibMissed, setLrclibMissed] = useState(false)
+
+  async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0] ?? null
+    setFile(f)
+    if (!f) return
+    const meta = await extractAudioMetadata(f)
+    // Only fill fields the user hasn't typed into; tags win over filename.
+    setTitle((cur) => cur || meta.title || deriveTitle(f.name))
+    setArtist((cur) => cur || meta.artist || '')
+  }
 
   async function resolveLines(): Promise<TimedLine[] | null> {
     if (source === 'paste') return linesFromPlainText(pasted)
@@ -84,7 +95,7 @@ export function UploadAudioFlow({ onSongReady }: Props) {
         <label className="block w-full px-4 py-3 bg-cinnabar-900 text-white/70 rounded-xl border border-cinnabar-800 cursor-pointer text-sm">
           {file ? file.name : 'Choose an audio file…'}
           <input type="file" accept="audio/*" className="hidden"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            onChange={handleFileChange} />
         </label>
 
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title"
