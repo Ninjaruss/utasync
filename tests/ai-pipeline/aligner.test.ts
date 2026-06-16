@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { alignTranscriptToLines, sanitizeTranscript, type TranscriptWord } from '../../src/ai-pipeline/aligner'
+import { alignTranscriptToLines, sanitizeTranscript, lineWeight, type TranscriptWord } from '../../src/ai-pipeline/aligner'
 import type { TimedLine } from '../../src/core/types'
 
 const plainLines = ['star in the sky', 'waiting in dreams']
@@ -193,5 +193,13 @@ describe('sanitizeTranscript', () => {
     ]
     // Genuine refrain repeats (non-adjacent) are preserved.
     expect(sanitizeTranscript(words)).toHaveLength(4)
+  })
+})
+
+describe('lineWeight', () => {
+  it('counts Japanese by character and English by word', () => {
+    expect(lineWeight('青空に溶けて', 'ja')).toBe(6)            // 6 kana/kanji
+    expect(lineWeight('You always make me so happy', 'ja')).toBe(6) // 6 words
+    expect(lineWeight('青空に溶けて', 'ja')).toBeGreaterThan(0)
   })
 })

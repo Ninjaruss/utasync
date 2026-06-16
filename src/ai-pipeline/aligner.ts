@@ -81,7 +81,7 @@ function latinWordCount(text: string): number {
 // "You always make me so happy 青空に溶けて") is weighted by its Japanese only:
 // the Latin there is a translation that isn't in the audio. A PURELY Latin line
 // is treated as sung English and weighted by its word count.
-function weightOf(text: string, sourceLanguage: Language): number {
+export function lineWeight(text: string, sourceLanguage: Language): number {
   if (sourceLanguage === 'ja') {
     const ja = countMatches(text, JA_CHARS)
     if (ja > 0) return ja
@@ -129,7 +129,7 @@ export function alignTranscriptToLines(
     return lineTexts.map((_, li) => buildLine(li, 0, 0))
   }
 
-  const weights = lineTexts.map((t) => Math.max(1, weightOf(t, sourceLanguage)))
+  const weights = lineTexts.map((t) => Math.max(1, lineWeight(t, sourceLanguage)))
   const totalWeight = weights.reduce((a, b) => a + b, 0)
   const lastWordEnd = clean[clean.length - 1].endTime
 
