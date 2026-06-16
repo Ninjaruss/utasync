@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { db } from '../core/db/schema'
-import { deleteAudio } from '../core/opfs/audio'
+import { deleteSong as removeSong } from '../core/db/deleteSong'
 import { estimateQuota, formatBytes } from '../core/storage/quota'
 import { exportLRC, downloadFile } from '../lyrics/exporter'
 import { useSettingsStore } from '../payment/SettingsStore'
@@ -20,9 +20,8 @@ export function SettingsView({ onClose }: Props) {
     estimateQuota().then(setQuota)
   }, [])
 
-  const deleteSong = async (song: Song) => {
-    if (song.audioStoredPath) await deleteAudio(song.id)
-    await db.songs.delete(song.id)
+  const handleDelete = async (song: Song) => {
+    await removeSong(song)
     setSongs((prev) => prev.filter((s) => s.id !== song.id))
   }
 
@@ -82,7 +81,7 @@ export function SettingsView({ onClose }: Props) {
               >
                 LRC
               </button>
-              <button onClick={() => deleteSong(song)} className="text-xs text-red-400 hover:text-red-300">
+              <button onClick={() => handleDelete(song)} className="text-xs text-red-400 hover:text-red-300">
                 Delete
               </button>
             </div>
