@@ -35,6 +35,9 @@ export interface LyricsData {
   sourceLanguage: Language
   translationLanguage: Language
   alignmentMode: AlignmentMode
+  // Confidence of the last auto-alignment (0–1, content-match coverage). When
+  // low, auto-align fell back to the proportional method; the UI warns the user.
+  alignmentConfidence?: number
 }
 
 export interface WordAlignment {
