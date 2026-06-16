@@ -7,7 +7,6 @@ interface OPFSWritable {
 interface OPFSFileHandle {
   createWritable(): Promise<OPFSWritable>
   getFile(): Promise<File>
-  remove(): Promise<void>
 }
 
 async function getSongsDir() {
@@ -31,8 +30,14 @@ export async function getAudioFile(songId: string): Promise<File> {
 
 export async function deleteAudio(songId: string): Promise<void> {
   const dir = await getSongsDir()
-  const file = await dir.getFileHandle(`${songId}.mp3`) as unknown as OPFSFileHandle
-  await file.remove()
+  // removeEntry is the standard, broadly-supported way to delete a file (the
+  // per-handle remove() is non-standard). Tolerate an already-missing file so
+  // deletion stays idempotent and never blocks removing the song row.
+  try {
+    await dir.removeEntry(`${songId}.mp3`)
+  } catch (e: unknown) {
+    if ((e as DOMException)?.name !== 'NotFoundError') throw e
+  }
 }
 
 export function audioStoragePath(songId: string): string {

@@ -88,7 +88,7 @@ export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
       // Weight against the sung (original) text — that's what the audio
       // transcript corresponds to, not the translation.
       const lineTexts = song.lyrics.lines.map((l) => l.original || l.translation)
-      const aligned = alignTranscriptToLines(lineTexts, words, song.lyrics.lines)
+      const aligned = alignTranscriptToLines(lineTexts, words, song.lyrics.lines, song.lyrics.sourceLanguage)
       const updated: Song = { ...song, lyrics: { ...song.lyrics, lines: aligned, alignmentMode: 'auto' } }
       await db.songs.put(updated)
 

@@ -25,6 +25,18 @@ self.onmessage = async (e: MessageEvent) => {
 
     const resampled = sampleRate === 16000 ? audioData : resampleTo16k(audioData, sampleRate)
 
+    const CHUNK_LENGTH_S = 30
+    const STRIDE_LENGTH_S = 5
+
+    // Whisper slides a 30s window forward by (chunk_length - 2*stride) seconds
+    // per step (see chunk_callback in transformers.js). Estimating the total
+    // chunk count lets us turn each completed chunk into a real progress %, so
+    // the bar advances during the (multi-minute) transcribe phase instead of
+    // sitting frozen at 0%.
+    const jumpSamples = (CHUNK_LENGTH_S - 2 * STRIDE_LENGTH_S) * 16000
+    const totalChunks = Math.max(1, Math.ceil(resampled.length / jumpSamples))
+    let doneChunks = 0
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await (asr as any)(resampled, {
       return_timestamps: 'word',
@@ -33,8 +45,13 @@ self.onmessage = async (e: MessageEvent) => {
       // Without chunking, Whisper only processes the first 30s of audio, so a
       // full song gets no word timestamps past ~30s. Chunk across the whole
       // track (30s windows, 5s overlap so words at boundaries aren't lost).
-      chunk_length_s: 30,
-      stride_length_s: 5,
+      chunk_length_s: CHUNK_LENGTH_S,
+      stride_length_s: STRIDE_LENGTH_S,
+      chunk_callback: () => {
+        doneChunks++
+        const progress = Math.min(100, Math.round((doneChunks / totalChunks) * 100))
+        self.postMessage({ type: 'progress', payload: { status: 'transcribing', progress } })
+      },
     })
 
     self.postMessage({ type: 'result', payload: result })
