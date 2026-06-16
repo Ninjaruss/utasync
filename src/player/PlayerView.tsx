@@ -19,6 +19,8 @@ import { detectEnglishGrammar } from '../language/english/grammar'
 import { TapSyncEditor } from './TapSyncEditor'
 import { getDeviceTier } from '../ai-pipeline/capability'
 import { chooseAutoAlignment, manualAlignMode, type AlignMode } from './alignmentPolicy'
+import { EditMode } from '../lyrics/EditMode'
+import { computeSyncState, deriveSources } from '../core/db/migrations'
 
 const AutoAlignFlow = lazy(() => import('../ai-pipeline/AutoAlignFlow'))
 
@@ -58,11 +60,12 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
   const abLoopControllerRef = useRef<ABLoopController | null>(null)
   const ytRef = useRef<YouTubePlayerHandle>(null)
   const { playbackState, position, speed, abLoop, currentSongId, setPlaybackState, setPosition, setSpeed, setABLoop, setCurrentSong } = usePlayerStore()
-  const { syncPosition, setLines, furiganaMode, showTranslation, lyricsLayout, setFuriganaMode, setShowTranslation, setLyricsLayout } = useLyricsStore()
+  const { lines, syncPosition, setLines, furiganaMode, showTranslation, lyricsLayout, setFuriganaMode, setShowTranslation, setLyricsLayout } = useLyricsStore()
   const [song, setSong] = useState<Song | null>(null)
   const [duration, setDuration] = useState(1)
   const [showUpgrade, setShowUpgrade] = useState(false)
   const [alignMode, setAlignMode] = useState<AlignMode | null>(null)
+  const [mode, setMode] = useState<'play' | 'edit'>('play')
 
   useEffect(() => {
     let cancelled = false
@@ -127,6 +130,8 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
 
   const ytVideoId = song?.sourceUrl ? extractVideoId(song.sourceUrl) : null
   const isYouTube = !!ytVideoId && !song?.audioStoredPath
+  const sources = song ? deriveSources(song) : []
+  const hasAudio = sources.some((s) => s.hasAudio)
 
   const togglePlay = () => {
     if (playbackState === 'playing') {
@@ -177,6 +182,17 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
     applyAlignedSong(updated)
   }
 
+  const handleEditLines = async (lines: TimedLine[]) => {
+    if (!song) return
+    setLines(lines)
+    const updated: Song = { ...song, lyrics: { ...song.lyrics, lines }, syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines } }) }
+    setSong(updated)
+    await db.songs.put(updated)
+    enrichLines(lines, song.lyrics.sourceLanguage).then((enriched) => {
+      if (enriched.length === lines.length) setLines(enriched)
+    })
+  }
+
   const progress = position / duration
   const isProUser = canUsePro(song?.isTrialSong ?? false)
   const isJapanese = song?.lyrics.sourceLanguage === 'ja'
@@ -203,7 +219,12 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-cinnabar-900 shrink-0">
         <button onClick={onBack} className="text-white/40 hover:text-white text-xs">← Back</button>
-        <span className="text-cinnabar-accent font-semibold tracking-widest text-sm uppercase">歌sync</span>
+        <div className="inline-flex bg-white/8 rounded-full p-0.5 gap-0.5">
+          <button onClick={() => setMode('play')}
+            className={`text-[11px] px-3 py-1 rounded-full ${mode === 'play' ? 'bg-cinnabar-accent text-white font-semibold' : 'text-white/50'}`}>Play</button>
+          <button onClick={() => setMode('edit')}
+            className={`text-[11px] px-3 py-1 rounded-full ${mode === 'edit' ? 'bg-cinnabar-accent text-white font-semibold' : 'text-white/50'}`}>Edit</button>
+        </div>
         <button onClick={() => onSettings?.()} className="text-white/40 hover:text-white text-xs">Settings</button>
       </div>
 
@@ -248,7 +269,18 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
       )}
 
       {/* Lyrics area — the only scrollable region */}
-      <LyricDisplay onSeek={seek} />
+      {mode === 'play' ? (
+        <LyricDisplay onSeek={seek} />
+      ) : (
+        <EditMode
+          lines={lines}
+          playhead={() => (isYouTube ? position : engine.position)}
+          hasAudio={hasAudio}
+          onChangeLines={handleEditLines}
+          onTapThrough={() => beginAlignment('tap')}
+          onAutoAlign={() => beginAlignment('auto')}
+        />
+      )}
 
       {/* Playback controls */}
       <div className="px-4 pt-2 space-y-3 shrink-0" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 24px), 24px)' }}>
