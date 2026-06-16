@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { TimedLine } from '../core/types'
 
 interface Props {
@@ -17,13 +17,11 @@ function fmt(t: number): string {
 }
 
 export function LineEditor({ line, playhead, onChange, onAdd, onDelete }: Props) {
+  // Local draft state for the two text fields, committed to the parent on blur.
+  // A row is expanded one at a time and keyed by line, so initialising from the
+  // prop is sufficient; stable-id keys (follow-up) handle identity changes.
   const [original, setOriginal] = useState(line.original)
   const [translation, setTranslation] = useState(line.translation)
-
-  useEffect(() => {
-    setOriginal(line.original)
-    setTranslation(line.translation)
-  }, [line.original, line.translation])
 
   return (
     <div className="rounded-xl border border-cinnabar-accent/60 bg-cinnabar-accent/8 p-3 space-y-2">
