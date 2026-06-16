@@ -6,6 +6,19 @@ export type ClozeDifficulty = 'easy' | 'medium' | 'hard'
 export type DeviceTier = 'full' | 'lite' | 'manual'
 export type PlaybackState = 'idle' | 'playing' | 'paused' | 'loading'
 
+export type ProviderType = 'youtube' | 'spotify' | 'upload'
+
+export interface SourceRef {
+  provider: ProviderType
+  /** youtube videoId | spotify trackId | OPFS audio path */
+  ref: string
+  url?: string
+  /** true when the app can read the waveform (YouTube/upload) → AI-alignable */
+  hasAudio: boolean
+}
+
+export type SyncState = 'synced' | 'needs-sync'
+
 export interface Token {
   surface: string
   reading?: string
@@ -68,6 +81,11 @@ export interface Song {
   stats?: PracticeStats
   createdAt: Date
   isTrialSong: boolean
+  // Phase 1: unified source model (additive; derived from sourceUrl/audioStoredPath when absent)
+  sources?: SourceRef[]
+  activeProvider?: ProviderType
+  albumArtUrl?: string
+  syncState?: SyncState
 }
 
 export interface UserSettings {
