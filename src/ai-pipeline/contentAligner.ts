@@ -152,8 +152,10 @@ export function alignByContent(
   // Monotonic guard.
   for (let li = 1; li < starts.length; li++) if (starts[li] < starts[li - 1]) starts[li] = starts[li - 1]
 
-  const lines = starts.map((s, li) => buildLine(li, s, li + 1 < starts.length ? Math.max(s, starts[li + 1]) : Math.max(s, lastTime)))
-  // Clamp each line's end to the next line's start (rest at gaps); last line holds to lastTime.
-  for (let li = 0; li < lines.length - 1; li++) lines[li].endTime = Math.max(lines[li].startTime, starts[li + 1])
+  // Each line ends at the next line's start (a rest fills any instrumental gap);
+  // the last line holds to the end of the transcript.
+  const lines = starts.map((s, li) =>
+    buildLine(li, s, li + 1 < starts.length ? Math.max(s, starts[li + 1]) : Math.max(s, lastTime)),
+  )
   return { lines, confidence }
 }
