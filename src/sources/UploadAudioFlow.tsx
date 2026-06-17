@@ -8,7 +8,7 @@ import { detectLanguage, attachSecondLanguage } from '../lyrics/bilingual'
 import type { Language } from '../core/types'
 import { parseLRC } from '../lyrics/lrc-parser'
 import { parseSubtitle } from '../lyrics/subtitle-parser'
-import { extractAudioMetadata, deriveTitle } from './audioMetadata'
+import { extractAudioMetadata, deriveTitle, parseFilename } from './audioMetadata'
 import type { TimedLine } from '../core/types'
 
 type LyricSource = 'lrclib' | 'paste' | 'subtitle'
@@ -35,9 +35,10 @@ export function UploadAudioFlow({ onSongReady }: Props) {
     setFile(f)
     if (!f) return
     const meta = await extractAudioMetadata(f)
-    // Only fill fields the user hasn't typed into; tags win over filename.
-    setTitle((cur) => cur || meta.title || deriveTitle(f.name))
-    setArtist((cur) => cur || meta.artist || '')
+    const fromName = parseFilename(f.name)
+    // Only fill fields the user hasn't typed into. Priority: tags > filename.
+    setTitle((cur) => cur || meta.title || fromName.title || deriveTitle(f.name))
+    setArtist((cur) => cur || meta.artist || fromName.artist || '')
   }
 
   async function resolveLines(): Promise<TimedLine[] | null> {

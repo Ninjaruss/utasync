@@ -79,4 +79,15 @@ describe('UploadAudioFlow', () => {
     await waitFor(() => expect(extractAudioMetadata).toHaveBeenCalled())
     expect(screen.getByPlaceholderText(/title/i)).toHaveValue('My Manual Title')
   })
+
+  it('falls back to artist/title parsed from "Artist - Title" filename when there are no tags', async () => {
+    vi.mocked(extractAudioMetadata).mockResolvedValue({})
+    const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'Yorushika - Itte.mp3', { type: 'audio/mpeg' })] } })
+
+    await waitFor(() => expect(screen.getByPlaceholderText('Title') as HTMLInputElement).toHaveValue('Itte'))
+    expect((screen.getByPlaceholderText('Artist') as HTMLInputElement).value).toBe('Yorushika')
+  })
 })
