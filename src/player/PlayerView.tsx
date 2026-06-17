@@ -25,9 +25,12 @@ import { computeSyncState, deriveSources } from '../core/db/migrations'
 const AutoAlignFlow = lazy(() => import('../ai-pipeline/AutoAlignFlow'))
 
 /**
- * Distinguishes a tap from a long-press on one element. A press held past `ms`
- * without dragging fires `onLongPress`; a quick release fires `onTap`. Movement
- * beyond ~8px cancels, so it never fights list scrolling.
+ * Distinguishes a tap from a long-press on one element. On press, the pointer
+ * is captured so move/up events keep flowing to the element even if the
+ * finger drifts off its bounds (important for small touch targets like the
+ * A/B pills). A press held past `ms` without dragging fires `onLongPress`;
+ * a quick release fires `onTap`. Movement beyond ~8px cancels, so it never
+ * fights list scrolling. Pending timers are cleared on unmount.
  */
 function useLongPress(onTap: () => void, onLongPress: () => void, ms = 500) {
   const state = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean; x: number; y: number }>(
@@ -36,22 +39,24 @@ function useLongPress(onTap: () => void, onLongPress: () => void, ms = 500) {
   const clear = () => {
     if (state.current.timer) { clearTimeout(state.current.timer); state.current.timer = null }
   }
+  useEffect(() => () => clear(), [])
   return {
     onPointerDown: (e: React.PointerEvent) => {
       state.current.fired = false
       state.current.x = e.clientX
       state.current.y = e.clientY
       clear()
+      if (e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId)
       state.current.timer = setTimeout(() => { state.current.fired = true; clear(); onLongPress() }, ms)
     },
     onPointerMove: (e: React.PointerEvent) => {
       if (Math.abs(e.clientX - state.current.x) > 8 || Math.abs(e.clientY - state.current.y) > 8) clear()
     },
-    onPointerUp: () => {
+    onPointerUp: (e: React.PointerEvent) => {
       clear()
+      if (e.currentTarget.hasPointerCapture?.(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
       if (!state.current.fired) onTap()
     },
-    onPointerLeave: () => clear(),
   }
 }
 
@@ -391,11 +396,11 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
           <div className="space-y-1">
             <div className="flex gap-3 justify-center text-xs">
               <button {...aPress}
-                className={`px-3 py-1 rounded-full border ${armingAB === 'a' ? 'border-cinnabar-accent text-cinnabar-accent animate-pulse' : abLoop.a !== null ? 'border-cinnabar-accent text-cinnabar-accent' : 'border-white/20 text-white/30'}`}>
+                className={`px-3 py-1 rounded-full border touch-manipulation ${armingAB === 'a' ? 'border-cinnabar-accent text-cinnabar-accent animate-pulse' : abLoop.a !== null ? 'border-cinnabar-accent text-cinnabar-accent' : 'border-white/20 text-white/30'}`}>
                 A {abLoop.a !== null ? formatTime(abLoop.a) : '—'}
               </button>
               <button {...bPress}
-                className={`px-3 py-1 rounded-full border ${armingAB === 'b' ? 'border-cinnabar-accent text-cinnabar-accent animate-pulse' : abLoop.b !== null ? 'border-cinnabar-accent text-cinnabar-accent' : 'border-white/20 text-white/30'}`}>
+                className={`px-3 py-1 rounded-full border touch-manipulation ${armingAB === 'b' ? 'border-cinnabar-accent text-cinnabar-accent animate-pulse' : abLoop.b !== null ? 'border-cinnabar-accent text-cinnabar-accent' : 'border-white/20 text-white/30'}`}>
                 B {abLoop.b !== null ? formatTime(abLoop.b) : '—'}
               </button>
               <button onClick={() => setABLoop({ a: null, b: null })}
