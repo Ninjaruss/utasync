@@ -21,13 +21,21 @@ Two related sets of issues raised after the previous feature round:
    include non-lyric header lines (`[Chorus]`, `Verse 2`) and don't always
    map 1:1 to the primary lines (one language merges two lines into one),
    causing frequent, full-song manual realignment in `AlignmentEditor`.
+5. **Second-language handling is duplicated and intrusive at creation time.**
+   `LinkParser` and `UploadAudioFlow` each carry their own manual paste
+   textarea and a pause-for-translation state that blocks song creation
+   when auto-search misses, even though `SecondLanguagePanel` already
+   exists in Edit mode with a fuller, recoverable version of the same
+   workflow.
 
 ## Goals / Non-goals
 
 **Goals:** declutter Edit mode and gate destructive actions behind
 confirmation; streamline A/B and speed in Play mode; fix the YouTube
 Auto-align dead end at the source (optional audio attach); reduce false
-mismatches and shrink the manual-fix surface for second-language pairing.
+mismatches and shrink the manual-fix surface for second-language pairing;
+make song creation a single uninterrupted action by moving all
+second-language management to `SecondLanguagePanel`.
 
 **Non-goals:** no changes to the Whisper/Demucs alignment algorithm itself
 (`AutoAlignFlow`'s internals), no changes to `AlignmentEditor`'s per-row UI,
@@ -188,6 +196,30 @@ signal) but sharply reduces both false-positive full-song mismatches
 (via header stripping) and the size of what needs manual cleanup when a
 real mismatch occurs (via block scoping).
 
+## 10. Second-language management consolidated into `SecondLanguagePanel`
+
+`LinkParser.tsx` and `UploadAudioFlow.tsx` lose their manual second-language
+textarea and the pause-for-translation state (`pending`/`showSecondLang` in
+`LinkParser`; the `secondLang` field and its UI in `UploadAudioFlow`).
+Creation becomes non-blocking with respect to translations:
+
+- Auto-search still runs (`findSecondLanguageLyrics`), same as today.
+- If a result is found **and** pairs cleanly (no mismatched blocks per §9),
+  attach it silently — no prompt, no confirmation, song opens with the
+  translation already in place.
+- If nothing is found, or the result has any mismatched blocks, **skip
+  attaching it** and open the song with the primary language only. No
+  `AlignmentEditor` routing happens during creation anymore.
+- The user adds a translation anytime afterward via Edit mode's existing
+  `＋ 2nd language` button, which opens `SecondLanguagePanel` — already
+  fully equipped to re-run the search, show the confirm-preview banner,
+  route to `AlignmentEditor` for mismatches, or accept a paste.
+
+Net effect: second-language logic now lives in exactly one place
+(`SecondLanguagePanel` + the shared `bilingual.ts` helpers it and the
+creation flows both call), and creating a song is a single uninterrupted
+action regardless of whether a translation was found.
+
 ---
 
 ## Files touched
@@ -201,10 +233,11 @@ real mismatch occurs (via block scoping).
   `extractSecondLanguageBlocks`, block-scoped `attachSecondLanguage` (9).
 - `src/lyrics/SecondLanguagePanel.tsx` — consume block-scoped
   `AttachResult` (9).
-- `src/sources/LinkParser.tsx` — optional audio-attach step (8), consume
-  block-scoped `AttachResult` (9).
-- `src/sources/UploadAudioFlow.tsx` — consume block-scoped `AttachResult`
-  if it also calls `attachSecondLanguage` (9, verify during implementation).
+- `src/sources/LinkParser.tsx` — optional audio-attach step (8), remove
+  manual second-language textarea / pause-for-translation state, silent
+  clean-match auto-attach only (9, 10).
+- `src/sources/UploadAudioFlow.tsx` — remove manual second-language
+  textarea, silent clean-match auto-attach only (9, 10).
 - `src/player/PlayerView.tsx` — mode-scoped chrome (1), tap-to-arm A/B (6),
   collapsible speed chip (7), `hasAudio` prop fix (3).
 - `src/player/PlayerStore.ts` — no changes (existing `armingAB`/`armAB`/
@@ -229,7 +262,11 @@ real mismatch occurs (via block scoping).
   click cancels, line click sets armed endpoint; speed chip
   expands/collapses; Edit mode hides display toggles/full transport.
 - `LinkParser.test`: optional audio attach produces `audioStoredPath` on
-  the built song; skipping it still produces a complete song.
+  the built song; skipping it still produces a complete song; a clean-match
+  translation auto-attaches with no pending state; a mismatched/missing
+  translation opens the song immediately with no `AlignmentEditor` prompt.
+- `UploadAudioFlow.test`: same auto-attach-or-skip assertions as
+  `LinkParser`; manual second-language textarea no longer present.
 
 ## Risks / edge cases
 
@@ -247,3 +284,7 @@ real mismatch occurs (via block scoping).
   bubbling up — already handled by `setABLoop` clearing `armingAB`
   synchronously before the container handler reads it, so the bubbled
   call is a no-op, not a race.
+- **Songs created without a translation** are not a regression — they're
+  the existing "lyrics found but no match" case, just without the old
+  blocking prompt. `SecondLanguagePanel`'s footer button already makes
+  "add one later" a one-tap action from Edit mode.
