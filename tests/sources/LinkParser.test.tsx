@@ -62,6 +62,10 @@ describe('LinkParser', () => {
     render(<LinkParser onSongReady={onSongReady} />)
     fireEvent.change(screen.getByPlaceholderText(/paste a youtube link/i), { target: { value: 'https://youtu.be/abc123' } })
     const file = new File([new Uint8Array([1, 2, 3])], 'song.mp3', { type: 'audio/mpeg' })
+    // The aria-label sits on the wrapping <label>, which Testing Library also
+    // implicitly associates with the nested <input> via wrapping — so
+    // getByLabelText resolves to both elements and getAllByLabelText is
+    // needed to disambiguate which one is the actual <input>.
     const fileInput = screen.getAllByLabelText(/attach audio/i).find((el) => el.tagName === 'INPUT') as HTMLInputElement
     fireEvent.change(fileInput, { target: { files: [file] } })
     fireEvent.click(screen.getByText('Get Lyrics'))
@@ -69,5 +73,10 @@ describe('LinkParser', () => {
     const songId = onSongReady.mock.calls[0][0]
     const song = await db.songs.get(songId)
     expect(song?.audioStoredPath).toBeTruthy()
+    // The song's id must match the id ingestAudioFile used to store the
+    // audio in OPFS (audioStoragePath(songId) === `songs/${songId}.mp3`),
+    // otherwise any code deriving the OPFS path from song.id will look in
+    // the wrong place.
+    expect(song?.audioStoredPath).toBe(`songs/${song?.id}.mp3`)
   })
 })

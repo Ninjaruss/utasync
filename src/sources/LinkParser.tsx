@@ -56,15 +56,17 @@ export function LinkParser({ onSongReady }: Props) {
       }
 
       let audioStoredPath: string | undefined
+      let songId: string | undefined
       if (audioFile) {
         setStatus('Storing audio…')
         const ingested = await ingestAudioFile(audioFile)
         audioStoredPath = ingested.audioStoredPath
+        songId = ingested.songId
       }
 
       setStatus('Saving…')
       const input: BuildSongInput = {
-        title: meta.title, artist: meta.artist, sourceUrl: url, audioStoredPath,
+        id: songId, title: meta.title, artist: meta.artist, sourceUrl: url, audioStoredPath,
         lines: finalLines, sourceLanguage, translationLanguage,
       }
       const song = buildSong(input)
