@@ -15,6 +15,8 @@ interface PlayerState {
   setDuration: (dur: number) => void
   setSpeed: (speed: number) => void
   setABLoop: (loop: Partial<ABLoop>) => void
+  armingAB: 'a' | 'b' | null
+  armAB: (which: 'a' | 'b' | null) => void
 }
 
 const DEFAULT_AB_LOOP: ABLoop = {
@@ -34,13 +36,23 @@ export const usePlayerStore = create<PlayerState>()(
       duration: 0,
       speed: 1,
       abLoop: DEFAULT_AB_LOOP,
+      armingAB: null,
       setCurrentSong: (id) => set({ currentSongId: id, position: 0, playbackState: 'idle' }),
       setPlaybackState: (playbackState) => set({ playbackState }),
       setPosition: (position) => set({ position }),
       setDuration: (duration) => set({ duration }),
       setSpeed: (speed) => set({ speed }),
-      setABLoop: (loop) => set((s) => ({ abLoop: { ...s.abLoop, ...loop } })),
+      setABLoop: (loop) => set((s) => ({ abLoop: { ...s.abLoop, ...loop }, armingAB: null })),
+      armAB: (armingAB) => set({ armingAB }),
     }),
-    { name: 'utasync-player' }
+    {
+      name: 'utasync-player',
+      partialize: (s) => ({
+        currentSongId: s.currentSongId,
+        position: s.position,
+        speed: s.speed,
+        abLoop: s.abLoop,
+      }),
+    }
   )
 )
