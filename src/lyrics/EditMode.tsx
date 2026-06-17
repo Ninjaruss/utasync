@@ -82,19 +82,19 @@ export function EditMode({ lines, playhead, hasAudio, title, artist, sourceLangu
         })}
       </div>
 
-      <div className="flex gap-2 p-3 border-t border-white/10 shrink-0">
-        <button onClick={onTapThrough} className="flex-1 text-xs rounded-lg border border-white/15 bg-white/6 py-2 text-white/85">⏱ Tap-through</button>
+      <div className="grid grid-cols-2 gap-2 p-3 border-t border-white/10 shrink-0">
+        <button onClick={onTapThrough} className="text-xs rounded-lg border border-white/15 bg-white/6 py-2 text-white/85">⏱ Tap-through</button>
         {hasAudio ? (
-          <button onClick={onAutoAlign} className="flex-1 text-xs rounded-lg border border-white/15 bg-white/6 py-2 text-white/85">✨ Auto-align</button>
+          <button onClick={onAutoAlign} className="text-xs rounded-lg border border-white/15 bg-white/6 py-2 text-white/85">✨ Auto-align</button>
         ) : (
-          <span className="flex-1 text-[10px] text-white/35 self-center text-center px-1">
+          <span className="text-[10px] text-white/35 self-center text-center px-1">
             Auto-align needs a YouTube or uploaded audio source
           </span>
         )}
-        <button onClick={() => onChangeLines(addLine(lines, lines.length - 1))} className="flex-1 text-xs rounded-lg border border-white/15 bg-white/6 py-2 text-white/85">＋ Add line</button>
+        <button onClick={() => onChangeLines(addLine(lines, lines.length - 1))} className="text-xs rounded-lg border border-white/15 bg-white/6 py-2 text-white/85">＋ Add line</button>
         <button
           onClick={() => setShowSecondLang(true)}
-          className="flex-1 text-xs rounded-lg border border-white/15 bg-white/6 py-2 text-white/85"
+          className="text-xs rounded-lg border border-white/15 bg-white/6 py-2 text-white/85"
         >
           {hasSecondLang ? '↻ Replace 2nd language' : '＋ 2nd language'}
         </button>
