@@ -24,6 +24,37 @@ import { computeSyncState, deriveSources } from '../core/db/migrations'
 
 const AutoAlignFlow = lazy(() => import('../ai-pipeline/AutoAlignFlow'))
 
+/**
+ * Distinguishes a tap from a long-press on one element. A press held past `ms`
+ * without dragging fires `onLongPress`; a quick release fires `onTap`. Movement
+ * beyond ~8px cancels, so it never fights list scrolling.
+ */
+function useLongPress(onTap: () => void, onLongPress: () => void, ms = 500) {
+  const state = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean; x: number; y: number }>(
+    { timer: null, fired: false, x: 0, y: 0 },
+  )
+  const clear = () => {
+    if (state.current.timer) { clearTimeout(state.current.timer); state.current.timer = null }
+  }
+  return {
+    onPointerDown: (e: React.PointerEvent) => {
+      state.current.fired = false
+      state.current.x = e.clientX
+      state.current.y = e.clientY
+      clear()
+      state.current.timer = setTimeout(() => { state.current.fired = true; clear(); onLongPress() }, ms)
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      if (Math.abs(e.clientX - state.current.x) > 8 || Math.abs(e.clientY - state.current.y) > 8) clear()
+    },
+    onPointerUp: () => {
+      clear()
+      if (!state.current.fired) onTap()
+    },
+    onPointerLeave: () => clear(),
+  }
+}
+
 async function enrichLines(lines: TimedLine[], sourceLanguage: Language): Promise<TimedLine[]> {
   return Promise.all(lines.map(async (line): Promise<TimedLine> => {
     try {
@@ -59,7 +90,7 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
   const engine = engineRef.current
   const abLoopControllerRef = useRef<ABLoopController | null>(null)
   const ytRef = useRef<YouTubePlayerHandle>(null)
-  const { playbackState, position, speed, abLoop, currentSongId, setPlaybackState, setPosition, setSpeed, setABLoop, setCurrentSong } = usePlayerStore()
+  const { playbackState, position, speed, abLoop, armingAB, currentSongId, setPlaybackState, setPosition, setSpeed, setABLoop, armAB, setCurrentSong } = usePlayerStore()
   const { lines, syncPosition, setLines, furiganaMode, showTranslation, lyricsLayout, setFuriganaMode, setShowTranslation, setLyricsLayout } = useLyricsStore()
   const [song, setSong] = useState<Song | null>(null)
   const [duration, setDuration] = useState(1)
@@ -204,6 +235,9 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
   const furiganaLabel =
     furiganaMode === 'none' ? 'あ Reading: off' : furiganaMode === 'romaji' ? 'A Romaji' : 'ふ Furigana'
 
+  const aPress = useLongPress(() => setABLoop({ a: position }), () => armAB('a'))
+  const bPress = useLongPress(() => setABLoop({ b: position }), () => armAB('b'))
+
   if (song && alignMode === 'tap') {
     return (
       <TapSyncEditor
@@ -271,7 +305,10 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
 
       {/* Lyrics area — the only scrollable region */}
       {mode === 'play' ? (
-        <LyricDisplay onLineClick={(line) => seek(line.startTime)} />
+        <LyricDisplay onLineClick={(line) => {
+          if (armingAB) setABLoop({ [armingAB]: line.startTime })
+          else seek(line.startTime)
+        }} />
       ) : (
         <EditMode
           lines={lines}
@@ -351,19 +388,26 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
 
         {/* A-B Loop controls (Pro-gated) */}
         {isProUser ? (
-          <div className="flex gap-3 justify-center text-xs">
-            <button onClick={() => setABLoop({ a: position })}
-              className={`px-3 py-1 rounded-full border ${abLoop.a !== null ? 'border-cinnabar-accent text-cinnabar-accent' : 'border-white/20 text-white/30'}`}>
-              A {abLoop.a !== null ? formatTime(abLoop.a) : '—'}
-            </button>
-            <button onClick={() => setABLoop({ b: position })}
-              className={`px-3 py-1 rounded-full border ${abLoop.b !== null ? 'border-cinnabar-accent text-cinnabar-accent' : 'border-white/20 text-white/30'}`}>
-              B {abLoop.b !== null ? formatTime(abLoop.b) : '—'}
-            </button>
-            <button onClick={() => setABLoop({ a: null, b: null })}
-              className="px-3 py-1 rounded-full border border-white/20 text-white/30">
-              Clear
-            </button>
+          <div className="space-y-1">
+            <div className="flex gap-3 justify-center text-xs">
+              <button {...aPress}
+                className={`px-3 py-1 rounded-full border ${armingAB === 'a' ? 'border-cinnabar-accent text-cinnabar-accent animate-pulse' : abLoop.a !== null ? 'border-cinnabar-accent text-cinnabar-accent' : 'border-white/20 text-white/30'}`}>
+                A {abLoop.a !== null ? formatTime(abLoop.a) : '—'}
+              </button>
+              <button {...bPress}
+                className={`px-3 py-1 rounded-full border ${armingAB === 'b' ? 'border-cinnabar-accent text-cinnabar-accent animate-pulse' : abLoop.b !== null ? 'border-cinnabar-accent text-cinnabar-accent' : 'border-white/20 text-white/30'}`}>
+                B {abLoop.b !== null ? formatTime(abLoop.b) : '—'}
+              </button>
+              <button onClick={() => setABLoop({ a: null, b: null })}
+                className="px-3 py-1 rounded-full border border-white/20 text-white/30">
+                Clear
+              </button>
+            </div>
+            {armingAB && (
+              <p className="text-center text-[11px] text-cinnabar-accent/80 animate-pulse">
+                Tap a lyric line to set {armingAB.toUpperCase()}
+              </p>
+            )}
           </div>
         ) : (
           <div className="flex justify-center">
