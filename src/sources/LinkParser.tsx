@@ -4,7 +4,7 @@ import { findLyrics, findSecondLanguageLyrics } from './lrclib'
 import { parseLRC } from '../lyrics/lrc-parser'
 import { db } from '../core/db/schema'
 import { buildSong, linesFromPlainText, type BuildSongInput } from './songBuilder'
-import { detectLanguage, attachSecondLanguage, extractSecondLanguageLines } from '../lyrics/bilingual'
+import { detectLanguage, attachSecondLanguage, extractSecondLanguageLines, pairsToTimedLines } from '../lyrics/bilingual'
 import type { Song, TimedLine, Language } from '../core/types'
 import { AlignmentEditor } from '../lyrics/AlignmentEditor'
 
@@ -132,11 +132,7 @@ export function LinkParser({ onSongReady }: Props) {
 
   const handleAlignmentConfirm = async (pairs: Array<{ original: string; translation: string }>) => {
     if (!pendingSong) return
-    const updatedLines = pendingSong.lyrics.lines.map((line, i) => ({
-      ...line,
-      original: pairs[i]?.original ?? line.original,
-      translation: pairs[i]?.translation ?? line.translation,
-    }))
+    const updatedLines = pairsToTimedLines(pendingSong.lyrics.lines, pairs)
     const updatedSong: Song = {
       ...pendingSong,
       lyrics: { ...pendingSong.lyrics, lines: updatedLines },

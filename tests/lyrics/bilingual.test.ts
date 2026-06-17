@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { detectLanguage, attachSecondLanguage, isSameText } from '../../src/lyrics/bilingual'
+import { detectLanguage, attachSecondLanguage, isSameText, pairsToTimedLines } from '../../src/lyrics/bilingual'
 import type { TimedLine } from '../../src/core/types'
 
 const line = (original: string, startTime = 0, endTime = 0, translation = ''): TimedLine =>
@@ -70,5 +70,30 @@ describe('isSameText', () => {
     expect(isSameText('', 'x')).toBe(false)
     expect(isSameText('x', undefined)).toBe(false)
     expect(isSameText(undefined, undefined)).toBe(false)
+  })
+})
+
+describe('pairsToTimedLines', () => {
+  it('overlays original/translation by index, preserving existing timing', () => {
+    const existing: TimedLine[] = [
+      { original: '君の瞳', startTime: 1, endTime: 3, translation: '' },
+      { original: '夜の中', startTime: 3, endTime: 5, translation: '' },
+    ]
+    const pairs = [
+      { original: '君の瞳', translation: 'Your eyes' },
+      { original: '夜の中', translation: 'In the night' },
+    ]
+    const result = pairsToTimedLines(existing, pairs)
+    expect(result).toEqual([
+      { original: '君の瞳', startTime: 1, endTime: 3, translation: 'Your eyes' },
+      { original: '夜の中', startTime: 3, endTime: 5, translation: 'In the night' },
+    ])
+  })
+
+  it('falls back to existing text when a pair is missing', () => {
+    const existing: TimedLine[] = [{ original: 'a', startTime: 0, endTime: 1, translation: 'x' }]
+    expect(pairsToTimedLines(existing, [])).toEqual([
+      { original: 'a', startTime: 0, endTime: 1, translation: 'x' },
+    ])
   })
 })

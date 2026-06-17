@@ -58,3 +58,19 @@ export function attachSecondLanguage(primary: TimedLine[], secondary: string): A
   }))
   return { lines, needsAlignment }
 }
+
+/**
+ * Overlay confirmed { original, translation } pairs (from AlignmentEditor) onto
+ * existing timed lines by index, preserving each line's timing and falling back
+ * to existing text where a pair is absent.
+ */
+export function pairsToTimedLines(
+  existing: TimedLine[],
+  pairs: Array<{ original: string; translation: string }>,
+): TimedLine[] {
+  return existing.map((line, i) => ({
+    ...line,
+    original: pairs[i]?.original ?? line.original,
+    translation: pairs[i]?.translation ?? line.translation,
+  }))
+}
