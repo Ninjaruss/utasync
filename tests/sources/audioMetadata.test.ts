@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { deriveTitle, extractAudioMetadata } from '../../src/sources/audioMetadata'
+import { deriveTitle, extractAudioMetadata, parseFilename } from '../../src/sources/audioMetadata'
 
 const parseBlob = vi.fn()
 vi.mock('music-metadata', () => ({ parseBlob: (...args: unknown[]) => parseBlob(...args) }))
@@ -35,5 +35,21 @@ describe('extractAudioMetadata', () => {
     parseBlob.mockResolvedValue({}) // malformed result: no `common`
     const file = new File(['x'], 'song.mp3', { type: 'audio/mpeg' })
     expect(await extractAudioMetadata(file)).toEqual({})
+  })
+})
+
+describe('parseFilename', () => {
+  it('splits "Artist - Title.ext"', () => {
+    expect(parseFilename('Radwimps - Sparkle.mp3')).toEqual({ artist: 'Radwimps', title: 'Sparkle' })
+  })
+  it('handles en-dash and em-dash separators', () => {
+    expect(parseFilename('A – B.flac')).toEqual({ artist: 'A', title: 'B' })
+    expect(parseFilename('A — B.flac')).toEqual({ artist: 'A', title: 'B' })
+  })
+  it('splits on the first separator only, keeping later dashes in the title', () => {
+    expect(parseFilename('Artist - Title - Remix.wav')).toEqual({ artist: 'Artist', title: 'Title - Remix' })
+  })
+  it('returns title-only when there is no separator', () => {
+    expect(parseFilename('Just A Title.mp3')).toEqual({ title: 'Just A Title' })
   })
 })
