@@ -7,6 +7,17 @@ const JAPANESE_RE = /[぀-ヿ㐀-鿿]/
 const LRC_TIMESTAMP_RE = /\[\d{2}:\d{2}[.:]\d{2,3}\]/
 
 /**
+ * Case- and whitespace-insensitive equality used to suppress redundant display
+ * lines (e.g. romaji or a "translation" that just repeats the original). Empty
+ * or undefined operands are never considered equal.
+ */
+export function isSameText(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
+  return norm(a) === norm(b)
+}
+
+/**
  * Coarse language detection used to keep Japanese as the primary line
  * regardless of paste order, and to pick which language to fetch as the
  * opposite. Returns 'ja' when any kana/kanji is present, else 'other'.
