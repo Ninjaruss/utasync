@@ -77,7 +77,7 @@ export function extractSecondLanguageBlocks(secondary: string): string[][] {
   return blocks.filter((b) => b.length > 0)
 }
 
-/** Split already-timed primary lines into stanza blocks using gaps between line starts as a proxy for blank-line stanza breaks (which don't survive into TimedLine[]). Untimed primary stays a single block. */
+/** Split already-timed primary lines into stanza blocks using gaps between line starts as a proxy for blank-line stanza breaks (which don't survive into TimedLine[]). Untimed primary stays a single block, so any mismatch always falls back to flat pairing — there's no timing signal to detect stanza boundaries on that side. */
 function splitPrimaryIntoBlocks(primary: TimedLine[]): TimedLine[][] {
   if (!primary.some((l) => l.endTime > 0)) return [primary]
   const blocks: TimedLine[][] = []
@@ -105,9 +105,9 @@ export interface AttachResult {
  * field, preserving primary timing/text. Tries a flat whole-song index pairing
  * first (today's behavior, unaffected by header-stripping when counts already
  * matched). Only when flat counts mismatch does it attempt to localize the
- * mismatch to specific stanza blocks — and only when both sides independently
- * show 2+ blocks of equal count, so a single stray blank line never fragments
- * an otherwise-clean pairing.
+ * mismatch to specific stanza blocks — and only when both sides produce the
+ * same number of blocks and that count is more than 1, so a single stray
+ * blank line never fragments an otherwise-clean pairing.
  */
 export function attachSecondLanguage(primary: TimedLine[], secondary: string): AttachResult {
   const flatSecondary = stripNonLyricLines(extractSecondLanguageLines(secondary))
@@ -121,6 +121,9 @@ export function attachSecondLanguage(primary: TimedLine[], secondary: string): A
   const secondaryBlocks = extractSecondLanguageBlocks(secondary)
 
   if (primaryBlocks.length !== secondaryBlocks.length || primaryBlocks.length <= 1) {
+    // Degraded flat best-effort pairing, not block-scoped: there's no real
+    // "block 0" here, so `mismatchedBlocks: [0]` is an overloaded signal
+    // meaning "the whole song", not a detected stanza block.
     const lines = primary.map((line, i) => ({ ...line, translation: flatSecondary[i] ?? '' }))
     return { lines, mismatchedBlocks: [0] }
   }
