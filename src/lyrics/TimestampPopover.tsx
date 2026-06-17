@@ -8,6 +8,7 @@ interface Props {
 }
 
 function fmt(t: number): string {
+  if (!Number.isFinite(t) || t < 0) return '—'
   const m = Math.floor(t / 60)
   return `${m}:${Math.floor(t % 60).toString().padStart(2, '0')}`
 }

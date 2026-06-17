@@ -32,4 +32,18 @@ describe('TimestampPopover', () => {
     expect(onCommit).toHaveBeenCalledWith(77)
     expect(onClose).toHaveBeenCalled()
   })
+
+  it('falls back to — for a negative playhead value instead of rendering malformed text', () => {
+    render(<TimestampPopover time={10} playhead={() => -1} onCommit={vi.fn()} onClose={vi.fn()} />)
+    fireEvent.click(screen.getByText(/use current/i))
+    expect(screen.getAllByText('—', { exact: false }).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/-1:-1/)).toBeNull()
+  })
+
+  it('falls back to — for a NaN playhead value instead of rendering malformed text', () => {
+    render(<TimestampPopover time={10} playhead={() => NaN} onCommit={vi.fn()} onClose={vi.fn()} />)
+    fireEvent.click(screen.getByText(/use current/i))
+    expect(screen.getAllByText('—', { exact: false }).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/NaN/)).toBeNull()
+  })
 })
