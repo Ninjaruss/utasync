@@ -1,13 +1,17 @@
 import { useState } from 'react'
-import type { TimedLine } from '../core/types'
+import type { TimedLine, Language } from '../core/types'
 import { LineEditor } from './LineEditor'
 import { stampStart, setText, addLine, deleteLine } from './lineOps'
+import { SecondLanguagePanel } from './SecondLanguagePanel'
 
 interface Props {
   lines: TimedLine[]
   playhead: () => number
   /** Active provider exposes a waveform (YouTube/upload) → Auto-align allowed. */
   hasAudio: boolean
+  title: string
+  artist: string
+  sourceLanguage: Language
   onChangeLines: (lines: TimedLine[]) => void
   onTapThrough: () => void
   onAutoAlign: () => void
@@ -23,8 +27,10 @@ function fmt(t: number, timed: boolean): string {
   return `${m}:${Math.floor(t % 60).toString().padStart(2, '0')}`
 }
 
-export function EditMode({ lines, playhead, hasAudio, onChangeLines, onTapThrough, onAutoAlign }: Props) {
+export function EditMode({ lines, playhead, hasAudio, title, artist, sourceLanguage, onChangeLines, onTapThrough, onAutoAlign }: Props) {
   const [expanded, setExpanded] = useState<number | null>(null)
+  const [showSecondLang, setShowSecondLang] = useState(false)
+  const hasSecondLang = lines.some((l) => l.translation)
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -86,7 +92,24 @@ export function EditMode({ lines, playhead, hasAudio, onChangeLines, onTapThroug
           </span>
         )}
         <button onClick={() => onChangeLines(addLine(lines, lines.length - 1))} className="flex-1 text-xs rounded-lg border border-white/15 bg-white/6 py-2 text-white/85">＋ Add line</button>
+        <button
+          onClick={() => setShowSecondLang(true)}
+          className="flex-1 text-xs rounded-lg border border-white/15 bg-white/6 py-2 text-white/85"
+        >
+          {hasSecondLang ? '↻ Replace 2nd language' : '＋ 2nd language'}
+        </button>
       </div>
+
+      {showSecondLang && (
+        <SecondLanguagePanel
+          lines={lines}
+          title={title}
+          artist={artist}
+          sourceLanguage={sourceLanguage}
+          onApply={(next) => onChangeLines(next)}
+          onClose={() => setShowSecondLang(false)}
+        />
+      )}
     </div>
   )
 }

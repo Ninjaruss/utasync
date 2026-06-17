@@ -277,6 +277,9 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
           lines={lines}
           playhead={() => (isYouTube ? position : engine.position)}
           hasAudio={hasAudio}
+          title={song?.title ?? ''}
+          artist={song?.artist ?? ''}
+          sourceLanguage={song?.lyrics.sourceLanguage ?? 'ja'}
           onChangeLines={handleEditLines}
           onTapThrough={() => beginAlignment('tap')}
           onAutoAlign={() => beginAlignment('auto')}
