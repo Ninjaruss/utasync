@@ -25,8 +25,8 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
 
   // Route a secondary block to confirm (counts match) or align (counts differ).
   const route = (secondary: string) => {
-    const { lines: paired, needsAlignment } = attachSecondLanguage(lines, secondary)
-    setPhase(needsAlignment ? { kind: 'align', secondary } : { kind: 'confirm', paired, secondary })
+    const { lines: paired, mismatchedBlocks } = attachSecondLanguage(lines, secondary)
+    setPhase(mismatchedBlocks.length > 0 ? { kind: 'align', secondary } : { kind: 'confirm', paired, secondary })
   }
 
   useEffect(() => {
