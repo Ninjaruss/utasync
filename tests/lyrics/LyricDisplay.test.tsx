@@ -30,4 +30,16 @@ describe('LyricDisplay dedup', () => {
     render(<LyricDisplay onLineClick={() => {}} />)
     expect(screen.getAllByText(/hello/i)).toHaveLength(1)
   })
+
+  it('falls back to stacked layout in sideBySide mode when the translation duplicates the original, but keeps the grid when it differs', () => {
+    setStore(
+      [
+        { original: 'Hello', startTime: 0, endTime: 1, translation: 'hello' },
+        { original: 'こんにちは', startTime: 1, endTime: 2, translation: 'Hello' },
+      ],
+      { lyricsLayout: 'sideBySide' }
+    )
+    const { container } = render(<LyricDisplay onLineClick={() => {}} />)
+    expect(container.querySelectorAll('.grid-cols-2')).toHaveLength(1)
+  })
 })

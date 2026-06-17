@@ -49,6 +49,7 @@ function Line({ line, isActive, onLineClick, lineRef }: {
 }) {
   const { furiganaMode, showTranslation, lyricsLayout } = useLyricsStore()
   const hasTranslation = !!line.translation && !isSameText(line.translation, line.original)
+  // A line whose translation duplicates the original has no second column, so it falls back to the stacked layout even in side-by-side mode.
   const sideBySide = lyricsLayout === 'sideBySide' && hasTranslation
 
   const translationEl = hasTranslation && (showTranslation || isActive || sideBySide) ? (
