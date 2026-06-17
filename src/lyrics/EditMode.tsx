@@ -52,17 +52,24 @@ export function EditMode({ lines, playhead, hasAudio, onChangeLines, onTapThroug
             <div key={i} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-2 py-2">
               <button
                 onClick={() => onChangeLines(stampStart(lines, i, playhead()))}
-                className="flex-1 flex items-center gap-3 text-left"
-                aria-label={`Stamp start for line ${i + 1}`}
+                aria-label={`Set start to current time for line ${i + 1}`}
+                className="flex items-center gap-1 shrink-0 rounded-lg border border-white/15 bg-white/5 px-1.5 py-1"
               >
-                <span className="text-[11px] tabular-nums text-cinnabar-accent w-10 shrink-0">{fmt(line.startTime, timed)}</span>
+                <span className="text-[10px] text-white/40">⏱</span>
+                <span className="text-[11px] tabular-nums text-cinnabar-accent w-9 text-center">{fmt(line.startTime, timed)}</span>
+              </button>
+              <button
+                onClick={() => setExpanded(i)}
+                className="flex-1 flex items-center gap-3 text-left"
+                aria-label={`Edit line ${i + 1}`}
+              >
                 <span className="flex-1 text-sm text-white font-jp">
                   {line.original || <span className="text-white/30">empty</span>}
                   {!timed && <span className="ml-2 text-[10px] text-cinnabar-accent">untimed</span>}
                   {line.translation && <span className="block text-[11px] italic text-white/45">{line.translation}</span>}
                 </span>
               </button>
-              <button onClick={() => setExpanded(i)} aria-label={`Edit line ${i + 1}`} className="text-white/40 px-1 shrink-0">✎</button>
+              <button onClick={() => setExpanded(i)} aria-label={`Open editor for line ${i + 1}`} className="text-white/40 px-1 shrink-0">✎</button>
             </div>
           )
         })}

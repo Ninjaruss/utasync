@@ -9,13 +9,20 @@ const lines: TimedLine[] = [
 ]
 
 describe('EditMode', () => {
-  it('stamps the playhead onto a line when its row is tapped (simple path)', () => {
+  it('stamps the playhead when the timestamp pill is tapped', () => {
+    const onChangeLines = vi.fn()
+    render(<EditMode lines={lines} playhead={() => 9} hasAudio onChangeLines={onChangeLines} onTapThrough={vi.fn()} onAutoAlign={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /set start to current time for line 2/i }))
+    const next = onChangeLines.mock.calls[0][0] as TimedLine[]
+    expect(next[1].startTime).toBe(9)
+  })
+
+  it('opens the editor (does NOT stamp) when the lyric text is tapped', () => {
     const onChangeLines = vi.fn()
     render(<EditMode lines={lines} playhead={() => 9} hasAudio onChangeLines={onChangeLines} onTapThrough={vi.fn()} onAutoAlign={vi.fn()} />)
     fireEvent.click(screen.getByText('b'))
-    expect(onChangeLines).toHaveBeenCalled()
-    const next = onChangeLines.mock.calls[0][0] as TimedLine[]
-    expect(next[1].startTime).toBe(9)
+    expect(onChangeLines).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('Original text')).toBeTruthy()
   })
 
   it('shows Auto-align only when audio is available', () => {
