@@ -21,6 +21,7 @@ import { getDeviceTier } from '../ai-pipeline/capability'
 import { chooseAutoAlignment, manualAlignMode, type AlignMode } from './alignmentPolicy'
 import { EditMode } from '../lyrics/EditMode'
 import { computeSyncState, deriveSources } from '../core/db/migrations'
+import { hasVisibleTranslation } from '../lyrics/bilingual'
 
 const AutoAlignFlow = lazy(() => import('../ai-pipeline/AutoAlignFlow'))
 
@@ -233,7 +234,7 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
   const progress = position / duration
   const isProUser = canUsePro(song?.isTrialSong ?? false)
   const isJapanese = song?.lyrics.sourceLanguage === 'ja'
-  const hasTranslation = !!song?.lyrics.lines.some((l) => l.translation)
+  const hasTranslation = !!song?.lyrics.lines.some(hasVisibleTranslation)
 
   const cycleFurigana = () =>
     setFuriganaMode(furiganaMode === 'none' ? 'romaji' : furiganaMode === 'romaji' ? 'furigana' : 'none')

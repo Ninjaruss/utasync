@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useLyricsStore } from './LyricsStore'
 import type { TimedLine, FuriganaMode } from '../core/types'
 import { WordAlignment } from '../language/WordAlignment'
-import { isSameText } from './bilingual'
+import { isSameText, hasVisibleTranslation } from './bilingual'
 
 interface Props {
   onLineClick: (line: TimedLine) => void
@@ -48,7 +48,7 @@ function Line({ line, isActive, onLineClick, lineRef }: {
   lineRef?: React.Ref<HTMLDivElement>
 }) {
   const { furiganaMode, showTranslation, lyricsLayout } = useLyricsStore()
-  const hasTranslation = !!line.translation && !isSameText(line.translation, line.original)
+  const hasTranslation = hasVisibleTranslation(line)
   // A line whose translation duplicates the original has no second column, so it falls back to the stacked layout even in side-by-side mode.
   const sideBySide = lyricsLayout === 'sideBySide' && hasTranslation
 

@@ -18,6 +18,16 @@ export function isSameText(a: string | undefined, b: string | undefined): boolea
 }
 
 /**
+ * A line has a translation worth displaying only when it exists and isn't just
+ * a duplicate of the original (the English-song case where a "translation" or
+ * romaji repeats the source text). Display predicates should use this rather
+ * than raw `line.translation` truthiness so toggles don't appear for nothing.
+ */
+export function hasVisibleTranslation(line: { original: string; translation?: string }): boolean {
+  return !!line.translation && !isSameText(line.translation, line.original)
+}
+
+/**
  * Coarse language detection used to keep Japanese as the primary line
  * regardless of paste order, and to pick which language to fetch as the
  * opposite. Returns 'ja' when any kana/kanji is present, else 'other'.

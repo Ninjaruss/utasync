@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { detectLanguage, attachSecondLanguage, isSameText, pairsToTimedLines } from '../../src/lyrics/bilingual'
+import { detectLanguage, attachSecondLanguage, isSameText, pairsToTimedLines, hasVisibleTranslation } from '../../src/lyrics/bilingual'
 import type { TimedLine } from '../../src/core/types'
 
 const line = (original: string, startTime = 0, endTime = 0, translation = ''): TimedLine =>
@@ -70,6 +70,19 @@ describe('isSameText', () => {
     expect(isSameText('', 'x')).toBe(false)
     expect(isSameText('x', undefined)).toBe(false)
     expect(isSameText(undefined, undefined)).toBe(false)
+  })
+})
+
+describe('hasVisibleTranslation', () => {
+  it('is true for a distinct translation', () => {
+    expect(hasVisibleTranslation({ original: '君の瞳', translation: 'Your eyes' })).toBe(true)
+  })
+  it('is false when the translation duplicates the original', () => {
+    expect(hasVisibleTranslation({ original: 'Hello', translation: 'hello' })).toBe(false)
+  })
+  it('is false when there is no translation', () => {
+    expect(hasVisibleTranslation({ original: 'Hello', translation: '' })).toBe(false)
+    expect(hasVisibleTranslation({ original: 'Hello' })).toBe(false)
   })
 })
 
