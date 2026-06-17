@@ -58,6 +58,7 @@ export function EditMode({ lines, playhead, hasAudio, onChangeLines, onTapThroug
                 <span className="text-[10px] text-white/40">⏱</span>
                 <span className="text-[11px] tabular-nums text-cinnabar-accent w-9 text-center">{fmt(line.startTime, timed)}</span>
               </button>
+              {/* Text and the ✎ icon both open the editor — the wide text area is the primary tap target, ✎ is a compact secondary affordance. */}
               <button
                 onClick={() => setExpanded(i)}
                 className="flex-1 flex items-center gap-3 text-left"
@@ -69,7 +70,7 @@ export function EditMode({ lines, playhead, hasAudio, onChangeLines, onTapThroug
                   {line.translation && <span className="block text-[11px] italic text-white/45">{line.translation}</span>}
                 </span>
               </button>
-              <button onClick={() => setExpanded(i)} aria-label={`Open editor for line ${i + 1}`} className="text-white/40 px-1 shrink-0">✎</button>
+              <button onClick={() => setExpanded(i)} aria-hidden="true" tabIndex={-1} className="text-white/40 px-1 shrink-0">✎</button>
             </div>
           )
         })}
