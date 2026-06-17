@@ -23,6 +23,14 @@ describe('SecondLanguagePanel', () => {
     expect(screen.getByRole('button', { name: /looks good/i })).toBeTruthy()
   })
 
+  it('previews the matched translation lines in the confirm banner', async () => {
+    findMock.mockResolvedValue({ lrc: 'Your eyes\nIn the night', synced: false })
+    render(<SecondLanguagePanel lines={primary} title="t" artist="a" sourceLanguage="ja" onApply={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByText(/found translation/i)
+    expect(screen.getByText('Your eyes')).toBeTruthy()
+    expect(screen.getByText('In the night')).toBeTruthy()
+  })
+
   it('applies the matched translation on "Looks good"', async () => {
     findMock.mockResolvedValue({ lrc: 'Your eyes\nIn the night', synced: false })
     const onApply = vi.fn()

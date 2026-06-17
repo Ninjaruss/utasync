@@ -56,7 +56,7 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-cinnabar-950 border border-cinnabar-800 p-4 space-y-3">
+      <div className="w-full max-w-md rounded-2xl bg-cinnabar-900 border border-cinnabar-800 p-4 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-white font-semibold">Second language</h2>
           <button onClick={onClose} aria-label="Close" className="text-white/40 px-2">✕</button>
@@ -69,6 +69,17 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
         {phase.kind === 'confirm' && (
           <div className="space-y-3">
             <p className="text-white/70 text-sm">Found translation from LRCLIB — does it look right?</p>
+            <ul className="space-y-1 max-h-40 overflow-y-auto rounded-lg bg-cinnabar-950 border border-cinnabar-800 p-2">
+              {phase.paired.slice(0, 4).map((l, i) => (
+                <li key={i} className="text-xs">
+                  <span className="text-white/70 font-jp">{l.original}</span>
+                  <span className="text-white/35 italic block">{l.translation || '—'}</span>
+                </li>
+              ))}
+              {phase.paired.length > 4 && (
+                <li className="text-[10px] text-white/30">+{phase.paired.length - 4} more…</li>
+              )}
+            </ul>
             <div className="flex flex-wrap gap-2">
               <button onClick={() => { onApply(phase.paired); onClose() }}
                 className="px-3 py-1.5 rounded-lg bg-cinnabar-accent text-white text-sm">Looks good</button>
