@@ -83,10 +83,14 @@ export function UploadAudioFlow({ onSongReady }: Props) {
       // match; any mismatch or miss is skipped silently — the user adds one
       // later via SecondLanguagePanel in Edit mode.
       let finalLines = lines
-      const second = await findSecondLanguageLyrics(title.trim(), artist.trim(), primaryLang)
-      if (second) {
-        const result = attachSecondLanguage(lines, second.lrc)
-        if (result.mismatchedBlocks.length === 0) finalLines = result.lines
+      try {
+        const second = await findSecondLanguageLyrics(title.trim(), artist.trim(), primaryLang)
+        if (second) {
+          const result = attachSecondLanguage(lines, second.lrc)
+          if (result.mismatchedBlocks.length === 0) finalLines = result.lines
+        }
+      } catch {
+        // Translation lookup failed — continue with primary only
       }
 
       setStatus('Storing…')

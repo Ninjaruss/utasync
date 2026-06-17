@@ -140,4 +140,17 @@ describe('UploadAudioFlow', () => {
     expect(song?.lyrics.lines.map((l) => l.translation)).toEqual(['', ''])
     expect(screen.queryByText(/align/i)).not.toBeInTheDocument()
   })
+
+  it('does not fail the whole submission when findSecondLanguageLyrics throws', async () => {
+    const lrclib = await import('../../src/sources/lrclib')
+    vi.mocked(lrclib.findSecondLanguageLyrics).mockRejectedValueOnce(new Error('network error'))
+    const onSongReady = vi.fn()
+    await submitWithPastedLyrics(onSongReady)
+
+    await waitFor(() => expect(onSongReady).toHaveBeenCalled())
+    const songId = onSongReady.mock.calls[0][0]
+    const song = await db.songs.get(songId)
+    expect(song?.lyrics.lines.map((l) => l.translation)).toEqual(['', ''])
+    expect(screen.queryByText(/upload failed/i)).not.toBeInTheDocument()
+  })
 })
