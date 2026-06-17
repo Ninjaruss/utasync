@@ -2,9 +2,10 @@ import { useEffect, useRef } from 'react'
 import { useLyricsStore } from './LyricsStore'
 import type { TimedLine, FuriganaMode } from '../core/types'
 import { WordAlignment } from '../language/WordAlignment'
+import { isSameText } from './bilingual'
 
 interface Props {
-  onSeek: (time: number) => void
+  onLineClick: (line: TimedLine) => void
 }
 
 /** Renders the Japanese (primary) text honoring the furigana/romaji mode. */
@@ -31,7 +32,7 @@ function PrimaryText({ line, isActive, furiganaMode }: {
       style={isActive ? { textShadow: '0 0 20px rgba(248,113,113,0.5)' } : undefined}
     >
       {line.original}
-      {furiganaMode === 'romaji' && line.reading && (
+      {furiganaMode === 'romaji' && line.reading && !isSameText(line.reading, line.original) && (
         <div className={isActive ? 'text-sm text-cinnabar-accent/80 mt-1' : 'text-xs text-white/30 mt-0.5'}>
           {line.reading}
         </div>
@@ -40,14 +41,14 @@ function PrimaryText({ line, isActive, furiganaMode }: {
   )
 }
 
-function Line({ line, isActive, onSeek, lineRef }: {
+function Line({ line, isActive, onLineClick, lineRef }: {
   line: TimedLine
   isActive: boolean
-  onSeek: (t: number) => void
+  onLineClick: (line: TimedLine) => void
   lineRef?: React.Ref<HTMLDivElement>
 }) {
   const { furiganaMode, showTranslation, lyricsLayout } = useLyricsStore()
-  const hasTranslation = !!line.translation
+  const hasTranslation = !!line.translation && !isSameText(line.translation, line.original)
   const sideBySide = lyricsLayout === 'sideBySide' && hasTranslation
 
   const translationEl = hasTranslation && (showTranslation || isActive || sideBySide) ? (
@@ -63,7 +64,7 @@ function Line({ line, isActive, onSeek, lineRef }: {
   return (
     <div
       ref={lineRef}
-      onClick={() => onSeek(line.startTime)}
+      onClick={() => onLineClick(line)}
       className={[
         'cursor-pointer select-none transition-all duration-300 px-4',
         isActive ? 'py-6' : 'py-2',
@@ -91,7 +92,7 @@ function Line({ line, isActive, onSeek, lineRef }: {
   )
 }
 
-export function LyricDisplay({ onSeek }: Props) {
+export function LyricDisplay({ onLineClick }: Props) {
   const { lines, activeLine } = useLyricsStore()
   const containerRef = useRef<HTMLDivElement>(null)
   const activeRef = useRef<HTMLDivElement>(null)
@@ -123,7 +124,7 @@ export function LyricDisplay({ onSeek }: Props) {
             key={i}
             line={line}
             isActive={isActive}
-            onSeek={onSeek}
+            onLineClick={onLineClick}
             lineRef={isActive ? activeRef : undefined}
           />
         )

@@ -271,7 +271,7 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
 
       {/* Lyrics area — the only scrollable region */}
       {mode === 'play' ? (
-        <LyricDisplay onSeek={seek} />
+        <LyricDisplay onLineClick={(line) => seek(line.startTime)} />
       ) : (
         <EditMode
           lines={lines}
