@@ -56,6 +56,9 @@ async function enrichLines(lines: TimedLine[], sourceLanguage: Language): Promis
  * run on devices without WebGPU, same constraint as Auto-Align). Failures
  * (model load/run errors) degrade silently to no coloring rather than
  * blocking the rest of the song from displaying.
+ * Processes lines sequentially (one embedTexts round-trip per line) — fine
+ * for typical songs, but a candidate for batching across lines if alignment
+ * latency becomes noticeable.
  */
 async function enrichAlignment(lines: TimedLine[]): Promise<TimedLine[]> {
   if (getDeviceTier() === 'manual') return lines
@@ -69,7 +72,8 @@ async function enrichAlignment(lines: TimedLine[]): Promise<TimedLine[]> {
       updated.push({ ...line, tokens })
     }
     return updated
-  } catch {
+  } catch (e) {
+    console.warn('word alignment failed', e)
     return lines
   }
 }
