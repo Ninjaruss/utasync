@@ -47,7 +47,7 @@ interface RowProps {
   onClosePopover: () => void
 }
 
-/** One lyric row. Holds local draft text so typing doesn't push a change on every keystroke — committed only on blur, same discipline as the LineEditor panel this replaces. */
+/** One lyric row. Holds local draft text so typing doesn't push a change on every keystroke — committed only on blur, same discipline the old expand-into-panel editor used. */
 function Row({
   line, index, timed, editing, deleteArmed, onStartEdit, onStopEdit, onCommitText, onAdd,
   onArmDelete, onConfirmDelete, onOpenPopover, popoverOpen, playhead, onCommitTime, onClosePopover,
