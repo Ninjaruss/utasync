@@ -29,6 +29,14 @@ describe('colorForToken', () => {
     expect(colorForToken(tokens, 0)).toBe(PAIR_COLORS[0])
     expect(colorForToken(tokens, 2)).toBe(PAIR_COLORS[1 % PAIR_COLORS.length])
   })
+  it('returns null instead of throwing for an index past the end of tokens', () => {
+    const tokens = [tok('君', '名詞', [0])]
+    expect(colorForToken(tokens, tokens.length)).toBeNull()
+  })
+  it('returns null instead of throwing for a negative index', () => {
+    const tokens = [tok('君', '名詞', [0])]
+    expect(colorForToken(tokens, -1)).toBeNull()
+  })
 })
 
 describe('colorForTranslationWord', () => {

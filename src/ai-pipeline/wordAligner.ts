@@ -1,9 +1,7 @@
 import type { Token } from '../core/types'
+import { isParticleToken } from '../core/language'
 
-/** kuromoji tags particles as "助詞" (optionally with sub-category after a comma). */
-export function isParticleToken(token: Token): boolean {
-  return token.pos?.startsWith('助詞') ?? false
-}
+export { isParticleToken }
 
 /** Embedding vectors from the embedder are pre-normalized, so dot product IS cosine similarity. */
 export function cosineSimilarity(a: number[], b: number[]): number {
