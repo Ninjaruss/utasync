@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { LyricDisplay } from '../../src/lyrics/LyricDisplay'
 import { useLyricsStore } from '../../src/lyrics/LyricsStore'
@@ -41,5 +41,42 @@ describe('LyricDisplay dedup', () => {
     )
     const { container } = render(<LyricDisplay onLineClick={() => {}} />)
     expect(container.querySelectorAll('.grid-cols-2')).toHaveLength(1)
+  })
+})
+
+describe('word-pair coloring', () => {
+  const coloredLine: TimedLine = {
+    startTime: 0, endTime: 2, original: '君', translation: 'you',
+    tokens: [{ surface: '君', pos: '名詞', startIndex: 0, endIndex: 1, alignmentIndices: [0] }],
+  }
+  const particleLine: TimedLine = {
+    startTime: 0, endTime: 2, original: 'が', translation: 'placeholder',
+    tokens: [{ surface: 'が', pos: '助詞', startIndex: 0, endIndex: 1 }],
+  }
+
+  beforeEach(() => {
+    useLyricsStore.setState({ lyricsLayout: 'sideBySide' })
+  })
+
+  it('colors a matched token and its translation word the same in side-by-side mode', () => {
+    useLyricsStore.setState({ lines: [coloredLine], activeLine: -1 })
+    render(<LyricDisplay onLineClick={vi.fn()} />)
+    const sourceSpan = screen.getByText('君')
+    const targetSpan = screen.getByText('you')
+    expect(sourceSpan.style.borderBottomColor).not.toBe('')
+    expect(sourceSpan.style.borderBottomColor).toBe(targetSpan.style.borderBottomColor)
+  })
+
+  it('gives a particle the fixed particle color regardless of match state', () => {
+    useLyricsStore.setState({ lines: [particleLine], activeLine: -1 })
+    render(<LyricDisplay onLineClick={vi.fn()} />)
+    const span = screen.getByText('が')
+    expect(span.style.borderBottomColor).toBe('rgb(156, 163, 175)') // PARTICLE_COLOR #9ca3af
+  })
+
+  it('shows no coloring in stacked layout', () => {
+    useLyricsStore.setState({ lyricsLayout: 'stacked', lines: [coloredLine], activeLine: -1 })
+    render(<LyricDisplay onLineClick={vi.fn()} />)
+    expect(screen.getByText('君').style.borderBottomColor).toBe('')
   })
 })

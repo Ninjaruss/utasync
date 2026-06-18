@@ -3,16 +3,18 @@ import { useLyricsStore } from './LyricsStore'
 import type { TimedLine, FuriganaMode } from '../core/types'
 import { WordAlignment } from '../language/WordAlignment'
 import { isSameText, hasVisibleTranslation } from './bilingual'
+import { colorForToken, colorForTranslationWord, splitTranslationWords } from '../language/wordColors'
 
 interface Props {
   onLineClick: (line: TimedLine) => void
 }
 
 /** Renders the Japanese (primary) text honoring the furigana/romaji mode. */
-function PrimaryText({ line, isActive, furiganaMode }: {
+function PrimaryText({ line, isActive, furiganaMode, colored }: {
   line: TimedLine
   isActive: boolean
   furiganaMode: FuriganaMode
+  colored: boolean
 }) {
   const sizeClass = isActive ? 'text-2xl font-semibold text-white' : 'text-base font-normal text-white/45'
 
@@ -31,13 +33,47 @@ function PrimaryText({ line, isActive, furiganaMode }: {
       className={['font-jp transition-all duration-300', sizeClass].join(' ')}
       style={isActive ? { textShadow: '0 0 20px rgba(248,113,113,0.5)' } : undefined}
     >
-      {line.original}
+      {colored && line.tokens && line.tokens.length > 0 ? (
+        line.tokens.map((token, i) => {
+          const color = colorForToken(line.tokens!, i)
+          return (
+            <span
+              key={i}
+              style={color ? { borderBottomColor: color, borderBottomWidth: '2px', borderBottomStyle: 'solid' } : undefined}
+            >
+              {token.surface}
+            </span>
+          )
+        })
+      ) : (
+        line.original
+      )}
       {furiganaMode === 'romaji' && line.reading && !isSameText(line.reading, line.original) && (
         <div className={isActive ? 'text-sm text-cinnabar-accent/80 mt-1' : 'text-xs text-white/30 mt-0.5'}>
           {line.reading}
         </div>
       )}
     </div>
+  )
+}
+
+function ColoredTranslation({ line }: { line: TimedLine }) {
+  const words = splitTranslationWords(line.translation)
+  if (!line.tokens) return <>{line.translation}</>
+  return (
+    <>
+      {words.map((word, i) => {
+        const color = colorForTranslationWord(line.tokens!, i)
+        return (
+          <span
+            key={i}
+            style={color ? { borderBottomColor: color, borderBottomWidth: '2px', borderBottomStyle: 'solid' } : undefined}
+          >
+            {word}{i < words.length - 1 ? ' ' : ''}
+          </span>
+        )
+      })}
+    </>
   )
 }
 
@@ -51,6 +87,7 @@ function Line({ line, isActive, onLineClick, lineRef }: {
   const hasTranslation = hasVisibleTranslation(line)
   // A line whose translation duplicates the original has no second column, so it falls back to the stacked layout even in side-by-side mode.
   const sideBySide = lyricsLayout === 'sideBySide' && hasTranslation
+  const colored = sideBySide
 
   const translationEl = hasTranslation && (showTranslation || isActive || sideBySide) ? (
     <div className={[
@@ -58,7 +95,7 @@ function Line({ line, isActive, onLineClick, lineRef }: {
       isActive ? 'text-base italic text-white/70' : 'text-sm italic text-white/35',
       sideBySide ? 'text-left' : 'mt-1',
     ].join(' ')}>
-      {line.translation}
+      {colored ? <ColoredTranslation line={line} /> : line.translation}
     </div>
   ) : null
 
@@ -74,12 +111,12 @@ function Line({ line, isActive, onLineClick, lineRef }: {
     >
       {sideBySide ? (
         <div className="grid grid-cols-2 gap-4 items-baseline max-w-3xl mx-auto">
-          <PrimaryText line={line} isActive={isActive} furiganaMode={furiganaMode} />
+          <PrimaryText line={line} isActive={isActive} furiganaMode={furiganaMode} colored={colored} />
           {translationEl}
         </div>
       ) : (
         <>
-          <PrimaryText line={line} isActive={isActive} furiganaMode={furiganaMode} />
+          <PrimaryText line={line} isActive={isActive} furiganaMode={furiganaMode} colored={colored} />
           {translationEl}
         </>
       )}
