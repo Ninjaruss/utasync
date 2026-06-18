@@ -9,10 +9,6 @@ export function stampStart(lines: TimedLine[], i: number, time: number): TimedLi
   return replaceAt(lines, i, { ...lines[i], startTime: Math.max(0, time) })
 }
 
-export function nudgeStart(lines: TimedLine[], i: number, delta: number): TimedLine[] {
-  return replaceAt(lines, i, { ...lines[i], startTime: Math.max(0, lines[i].startTime + delta) })
-}
-
 /**
  * Update original and/or translation. Changing `original` invalidates derived
  * enrichment (reading/furigana/tokens/grammar) so the player re-enriches it.

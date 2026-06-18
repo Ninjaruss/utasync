@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stampStart, nudgeStart, setText, addLine, deleteLine, mergeWithNext, splitLine, reorder } from '../../src/lyrics/lineOps'
+import { stampStart, setText, addLine, deleteLine, mergeWithNext, splitLine, reorder } from '../../src/lyrics/lineOps'
 import type { TimedLine } from '../../src/core/types'
 
 const L = (startTime: number, original: string, translation = ''): TimedLine => ({ startTime, endTime: startTime + 2, original, translation })
@@ -11,13 +11,6 @@ describe('stampStart', () => {
     expect(out[1].startTime).toBe(2.5)
     expect(out[0]).toEqual(lines()[0])
     expect(out).not.toBe(lines()) // new array (immutable)
-  })
-})
-
-describe('nudgeStart', () => {
-  it('adds a delta and clamps at zero', () => {
-    expect(nudgeStart(lines(), 1, -0.1)[1].startTime).toBeCloseTo(1.9)
-    expect(nudgeStart(lines(), 0, -5)[0].startTime).toBe(0)
   })
 })
 
