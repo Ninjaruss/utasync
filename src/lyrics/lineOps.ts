@@ -12,15 +12,22 @@ export function stampStart(lines: TimedLine[], i: number, time: number): TimedLi
 /**
  * Update original and/or translation. Changing `original` invalidates derived
  * enrichment (reading/furigana/tokens/grammar) so the player re-enriches it.
+ * Changing `translation` also invalidates `tokens`, since each token's
+ * `alignmentIndices` is computed against the translation's word array and
+ * would otherwise point at stale positions in the new translation text.
  */
 export function setText(lines: TimedLine[], i: number, patch: { original?: string; translation?: string }): TimedLine[] {
   const cur = lines[i]
   const next: TimedLine = { ...cur, ...patch }
-  if (patch.original !== undefined && patch.original !== cur.original) {
+  const originalChanged = patch.original !== undefined && patch.original !== cur.original
+  const translationChanged = patch.translation !== undefined && patch.translation !== cur.translation
+  if (originalChanged) {
     delete next.reading
     delete next.furigana
-    delete next.tokens
     delete next.grammarAnnotations
+  }
+  if (originalChanged || translationChanged) {
+    delete next.tokens
   }
   return replaceAt(lines, i, next)
 }

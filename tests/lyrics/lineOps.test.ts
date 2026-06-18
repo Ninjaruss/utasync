@@ -23,11 +23,40 @@ describe('setText', () => {
   })
 
   it('drops stale enrichment when the original text changes', () => {
-    const enriched: TimedLine = { ...L(0, 'a'), reading: 'old', furigana: '<ruby>', tokens: [] }
+    const enriched: TimedLine = { ...L(0, 'a'), reading: 'old', furigana: '<ruby>', tokens: [], grammarAnnotations: [] }
     const out = setText([enriched], 0, { original: 'b' })
     expect(out[0].reading).toBeUndefined()
     expect(out[0].furigana).toBeUndefined()
     expect(out[0].tokens).toBeUndefined()
+    expect(out[0].grammarAnnotations).toBeUndefined()
+  })
+
+  it('drops stale tokens (with stale alignmentIndices) when only the translation changes, but keeps reading/furigana/grammarAnnotations', () => {
+    const enriched: TimedLine = { ...L(0, 'a', 'old translation'), reading: 'reading', furigana: '<ruby>', tokens: [], grammarAnnotations: [] }
+    const out = setText([enriched], 0, { translation: 'new translation' })
+    expect(out[0].translation).toBe('new translation')
+    expect(out[0].tokens).toBeUndefined()
+    expect(out[0].reading).toBe('reading')
+    expect(out[0].furigana).toBe('<ruby>')
+    expect(out[0].grammarAnnotations).toEqual([])
+  })
+
+  it('clears nothing when the patch matches the existing original and translation', () => {
+    const enriched: TimedLine = { ...L(0, 'a', 'b'), reading: 'reading', furigana: '<ruby>', tokens: [], grammarAnnotations: [] }
+    const out = setText([enriched], 0, { original: 'a', translation: 'b' })
+    expect(out[0].reading).toBe('reading')
+    expect(out[0].furigana).toBe('<ruby>')
+    expect(out[0].tokens).toEqual([])
+    expect(out[0].grammarAnnotations).toEqual([])
+  })
+
+  it('clears nothing when no patch fields are provided', () => {
+    const enriched: TimedLine = { ...L(0, 'a', 'b'), reading: 'reading', furigana: '<ruby>', tokens: [], grammarAnnotations: [] }
+    const out = setText([enriched], 0, {})
+    expect(out[0].reading).toBe('reading')
+    expect(out[0].furigana).toBe('<ruby>')
+    expect(out[0].tokens).toEqual([])
+    expect(out[0].grammarAnnotations).toEqual([])
   })
 })
 
