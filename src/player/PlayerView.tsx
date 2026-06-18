@@ -20,7 +20,7 @@ import { TapSyncEditor } from './TapSyncEditor'
 import { getDeviceTier } from '../ai-pipeline/capability'
 import { chooseAutoAlignment, manualAlignMode, type AlignMode } from './alignmentPolicy'
 import { EditMode } from '../lyrics/EditMode'
-import { computeSyncState, deriveSources } from '../core/db/migrations'
+import { computeSyncState } from '../core/db/migrations'
 import { hasVisibleTranslation } from '../lyrics/bilingual'
 
 const AutoAlignFlow = lazy(() => import('../ai-pipeline/AutoAlignFlow'))
@@ -134,8 +134,9 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
 
   const ytVideoId = song?.sourceUrl ? extractVideoId(song.sourceUrl) : null
   const isYouTube = !!ytVideoId && !song?.audioStoredPath
-  const sources = song ? deriveSources(song) : []
-  const hasAudio = sources.some((s) => s.hasAudio)
+  // AutoAlignFlow can only decode locally stored audio (song.audioStoredPath),
+  // not a YouTube stream — gate on that specifically, not "any active source".
+  const hasAudio = !!song?.audioStoredPath
 
   const togglePlay = () => {
     if (playbackState === 'playing') {
