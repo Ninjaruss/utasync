@@ -21,18 +21,18 @@ self.onmessage = async (e: MessageEvent) => {
   }
 
   if (type === 'embed') {
-    if (!extractor) { self.postMessage({ type: 'error', payload: 'Model not loaded' }); return }
+    const { texts, requestId } = payload as { texts: string[]; requestId: number }
+    if (!extractor) { self.postMessage({ type: 'error', payload: { requestId, message: 'Model not loaded' } }); return }
     try {
-      const { texts } = payload as { texts: string[] }
       const output = await extractor(texts, { pooling: 'mean', normalize: true })
       const dim = output.dims[1]
       const vecs: number[][] = []
       for (let i = 0; i < texts.length; i++) {
         vecs.push(Array.from(output.data.slice(i * dim, (i + 1) * dim)) as number[])
       }
-      self.postMessage({ type: 'result', payload: vecs })
+      self.postMessage({ type: 'result', payload: { requestId, vecs } })
     } catch (err) {
-      self.postMessage({ type: 'error', payload: err instanceof Error ? err.message : 'Embedding failed' })
+      self.postMessage({ type: 'error', payload: { requestId, message: err instanceof Error ? err.message : 'Embedding failed' } })
     }
   }
 }
