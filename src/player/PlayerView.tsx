@@ -67,6 +67,7 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
   const [showUpgrade, setShowUpgrade] = useState(false)
   const [alignMode, setAlignMode] = useState<AlignMode | null>(null)
   const [mode, setMode] = useState<'play' | 'edit'>('play')
+  const [speedExpanded, setSpeedExpanded] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -329,31 +330,40 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
               <span>{formatTime(duration)}</span>
             </div>
 
-            {/* Speed slider (Pro-gated) */}
-            <div className="flex items-center gap-3">
-              <span className="text-white/30 text-xs w-12">Speed</span>
-              {isProUser ? (
-                <>
-                  <input
-                    type="range"
-                    min={50}
-                    max={200}
-                    step={5}
-                    value={speed * 100}
-                    onChange={(e) => setSpeed(Number(e.target.value) / 100)}
-                    className="flex-1 accent-cinnabar-accent"
-                  />
-                  <span className="text-white/50 text-xs w-10 text-right">{Math.round(speed * 100)}%</span>
-                </>
-              ) : (
+            {/* Speed (Pro-gated), collapsed behind a chip by default */}
+            {isProUser ? (
+              <div>
+                <button
+                  onClick={() => setSpeedExpanded((v) => !v)}
+                  className="text-white/40 hover:text-white/70 text-xs"
+                >
+                  Speed: {Math.round(speed * 100)}%
+                </button>
+                {speedExpanded && (
+                  <div className="flex items-center gap-3 mt-2">
+                    <input
+                      type="range"
+                      min={50}
+                      max={200}
+                      step={5}
+                      value={speed * 100}
+                      onChange={(e) => setSpeed(Number(e.target.value) / 100)}
+                      className="flex-1 accent-cinnabar-accent"
+                    />
+                    <span className="text-white/50 text-xs w-10 text-right">{Math.round(speed * 100)}%</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center">
                 <button
                   onClick={() => setShowUpgrade(true)}
                   className="text-white/30 hover:text-white/60 text-sm"
                 >
                   🔒 Speed control
                 </button>
-              )}
-            </div>
+              </div>
+            )}
 
             {/* Transport controls (audio-only YouTube needs these too) */}
             <div className="flex items-center justify-center gap-6">
