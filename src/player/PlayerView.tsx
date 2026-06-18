@@ -22,6 +22,8 @@ import { chooseAutoAlignment, manualAlignMode, type AlignMode } from './alignmen
 import { EditMode } from '../lyrics/EditMode'
 import { computeSyncState } from '../core/db/migrations'
 import { hasVisibleTranslation } from '../lyrics/bilingual'
+import { alignLineTokens } from '../ai-pipeline/wordAligner'
+import { splitTranslationWords } from '../language/wordColors'
 
 const AutoAlignFlow = lazy(() => import('../ai-pipeline/AutoAlignFlow'))
 
@@ -46,6 +48,30 @@ async function enrichLines(lines: TimedLine[], sourceLanguage: Language): Promis
       return line
     }
   }))
+}
+
+/**
+ * Computes word-pair alignment for lines that have both tokens and a visible
+ * translation, gated to non-manual device tiers (the embedding model can't
+ * run on devices without WebGPU, same constraint as Auto-Align). Failures
+ * (model load/run errors) degrade silently to no coloring rather than
+ * blocking the rest of the song from displaying.
+ */
+async function enrichAlignment(lines: TimedLine[]): Promise<TimedLine[]> {
+  if (getDeviceTier() === 'manual') return lines
+  try {
+    const { embedTexts } = await import('../ai-pipeline/textEmbedder')
+    const updated: TimedLine[] = []
+    for (const line of lines) {
+      if (!line.tokens || !hasVisibleTranslation(line)) { updated.push(line); continue }
+      const targetWords = splitTranslationWords(line.translation)
+      const tokens = await alignLineTokens(line.tokens, targetWords, embedTexts)
+      updated.push({ ...line, tokens })
+    }
+    return updated
+  } catch {
+    return lines
+  }
 }
 
 interface Props {
@@ -102,9 +128,11 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
           // audio file missing or unreadable — leave controls inert
         }
       }
-      enrichLines(s.lyrics.lines, s.lyrics.sourceLanguage).then((enriched) => {
-        if (!cancelled) setLines(enriched)
-      })
+      enrichLines(s.lyrics.lines, s.lyrics.sourceLanguage)
+        .then(enrichAlignment)
+        .then((enriched) => {
+          if (!cancelled) setLines(enriched)
+        })
     })
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -176,7 +204,9 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
   const applyAlignedSong = (updated: Song) => {
     setSong(updated)
     setLines(updated.lyrics.lines)
-    enrichLines(updated.lyrics.lines, updated.lyrics.sourceLanguage).then((enriched) => setLines(enriched))
+    enrichLines(updated.lyrics.lines, updated.lyrics.sourceLanguage)
+      .then(enrichAlignment)
+      .then((enriched) => setLines(enriched))
     setAlignMode(null)
   }
 
@@ -193,9 +223,11 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
     const updated: Song = { ...song, lyrics: { ...song.lyrics, lines }, syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines } }) }
     setSong(updated)
     await db.songs.put(updated)
-    enrichLines(lines, song.lyrics.sourceLanguage).then((enriched) => {
-      if (enriched.length === lines.length) setLines(enriched)
-    })
+    enrichLines(lines, song.lyrics.sourceLanguage)
+      .then(enrichAlignment)
+      .then((enriched) => {
+        if (enriched.length === lines.length) setLines(enriched)
+      })
   }
 
   const progress = position / duration
