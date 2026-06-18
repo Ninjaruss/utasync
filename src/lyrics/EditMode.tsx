@@ -55,9 +55,20 @@ function Row({
   const [original, setOriginal] = useState(line.original)
   const [translation, setTranslation] = useState(line.translation)
 
-  useEffect(() => {
-    if (editing) { setOriginal(line.original); setTranslation(line.translation) }
-  }, [editing, line.original, line.translation])
+  // Reset local drafts only on the false->true transition of `editing`, not on every
+  // change to the line's text while already editing — otherwise an external lines
+  // update (e.g. SecondLanguagePanel.onApply) would clobber in-progress typing.
+  // Adjusted during render per React's guidance for resetting state from props
+  // (https://react.dev/reference/react/useState#storing-information-from-previous-renders),
+  // rather than in a useEffect (see commit 7c63b9d for the prior incarnation of this bug).
+  const [wasEditing, setWasEditing] = useState(editing)
+  if (editing !== wasEditing) {
+    setWasEditing(editing)
+    if (editing) {
+      setOriginal(line.original)
+      setTranslation(line.translation)
+    }
+  }
 
   return (
     <div className="relative rounded-xl border border-white/10 bg-white/5 px-2 py-2">
@@ -107,7 +118,10 @@ function Row({
         <input
           value={translation}
           onChange={(e) => setTranslation(e.target.value)}
-          onBlur={() => { translation !== line.translation && onCommitText({ translation }); onStopEdit() }}
+          onBlur={() => {
+            if (translation !== line.translation) onCommitText({ translation })
+            onStopEdit()
+          }}
           placeholder="Translation"
           aria-label="Translation text"
           className="mt-1.5 w-full bg-cinnabar-950 text-white/80 text-sm px-2 py-1 rounded-lg outline-none border border-cinnabar-800 focus:border-cinnabar-accent"
@@ -147,6 +161,26 @@ export function EditMode({ lines, playhead, hasAudio, title, artist, sourceLangu
     onChangeLines(deleteLine(lines, i))
   }
 
+  /** Clears a stale delete-arm (and its pending timeout) belonging to a different row than `keep`. */
+  const disarmDelete = (keep: number | null) => {
+    setDeleteArmed((current) => {
+      if (current === null || current === keep) return current
+      if (deleteTimer.current) clearTimeout(deleteTimer.current)
+      deleteTimer.current = null
+      return null
+    })
+  }
+
+  const startEdit = (i: number) => {
+    disarmDelete(i)
+    setEditingIndex(i)
+  }
+
+  const stopEdit = () => {
+    disarmDelete(null)
+    setEditingIndex(null)
+  }
+
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -158,8 +192,8 @@ export function EditMode({ lines, playhead, hasAudio, title, artist, sourceLangu
             timed={isTimed(line, i === 0)}
             editing={editingIndex === i}
             deleteArmed={deleteArmed === i}
-            onStartEdit={() => setEditingIndex(i)}
-            onStopEdit={() => setEditingIndex(null)}
+            onStartEdit={() => startEdit(i)}
+            onStopEdit={stopEdit}
             onCommitText={(patch) => onChangeLines(setText(lines, i, patch))}
             onAdd={() => onChangeLines(addLine(lines, i))}
             onArmDelete={() => armDelete(i)}

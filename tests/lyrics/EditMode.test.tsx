@@ -15,7 +15,7 @@ const lines: TimedLine[] = [
 function renderEditMode(overrides: Partial<Parameters<typeof EditMode>[0]> = {}) {
   const onChangeLines = vi.fn()
   const onAutoAlign = vi.fn()
-  render(
+  const utils = render(
     <EditMode
       lines={lines}
       playhead={() => 9}
@@ -28,7 +28,7 @@ function renderEditMode(overrides: Partial<Parameters<typeof EditMode>[0]> = {})
       {...overrides}
     />,
   )
-  return { onChangeLines, onAutoAlign }
+  return { onChangeLines, onAutoAlign, ...utils }
 }
 
 describe('EditMode', () => {
@@ -109,5 +109,50 @@ describe('EditMode', () => {
     renderEditMode()
     fireEvent.click(screen.getByRole('button', { name: /2nd language/i }))
     expect(await screen.findByText(/searching lrclib/i)).toBeTruthy()
+  })
+
+  it('does not clobber an in-progress draft when lines change externally while editing', () => {
+    const { rerender } = renderEditMode()
+    fireEvent.click(screen.getByText('b'))
+    const input = screen.getByLabelText('Original text') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'draft in progress' } })
+    expect(input.value).toBe('draft in progress')
+
+    // Simulate an external lines update (e.g. SecondLanguagePanel.onApply) while
+    // this row is still being edited — its translation changes but original stays.
+    const updatedLines: TimedLine[] = [
+      lines[0],
+      { ...lines[1], translation: 'new translation from elsewhere' },
+    ]
+    rerender(
+      <EditMode
+        lines={updatedLines}
+        playhead={() => 9}
+        hasAudio
+        onChangeLines={vi.fn()}
+        onAutoAlign={vi.fn()}
+        title="t"
+        artist="a"
+        sourceLanguage="ja"
+      />,
+    )
+
+    expect((screen.getByLabelText('Original text') as HTMLInputElement).value).toBe('draft in progress')
+  })
+
+  it('requires a fresh tap to re-arm delete after switching to a different row', () => {
+    renderEditMode()
+    // Arm delete on line 2 ("b").
+    fireEvent.click(screen.getByText('b'))
+    fireEvent.click(screen.getByLabelText('Delete line 2'))
+    expect(screen.getByLabelText('Confirm delete line 2')).toBeTruthy()
+
+    // Switch to editing line 1 ("a") instead, within the confirm window.
+    fireEvent.click(screen.getByText('a'))
+
+    // Switch back to line 2 — it should require a fresh tap, not show Confirm? immediately.
+    fireEvent.click(screen.getByLabelText('Edit line 2'))
+    expect(screen.queryByLabelText('Confirm delete line 2')).toBeNull()
+    expect(screen.getByLabelText('Delete line 2')).toBeTruthy()
   })
 })
