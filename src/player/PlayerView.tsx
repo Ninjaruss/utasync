@@ -68,6 +68,7 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
   const [alignMode, setAlignMode] = useState<AlignMode | null>(null)
   const [mode, setMode] = useState<'play' | 'edit'>('play')
   const [speedExpanded, setSpeedExpanded] = useState(false)
+  const speedPct = Math.round(speed * 100)
 
   useEffect(() => {
     let cancelled = false
@@ -335,9 +336,10 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
               <div>
                 <button
                   onClick={() => setSpeedExpanded((v) => !v)}
+                  aria-expanded={speedExpanded}
                   className="text-white/40 hover:text-white/70 text-xs"
                 >
-                  Speed: {Math.round(speed * 100)}%
+                  Speed: {speedPct}%
                 </button>
                 {speedExpanded && (
                   <div className="flex items-center gap-3 mt-2">
@@ -350,7 +352,7 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
                       onChange={(e) => setSpeed(Number(e.target.value) / 100)}
                       className="flex-1 accent-cinnabar-accent"
                     />
-                    <span className="text-white/50 text-xs w-10 text-right">{Math.round(speed * 100)}%</span>
+                    <span className="text-white/50 text-xs w-10 text-right">{speedPct}%</span>
                   </div>
                 )}
               </div>
