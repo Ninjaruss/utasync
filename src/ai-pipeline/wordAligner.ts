@@ -14,6 +14,9 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 
 export interface MatchPair { sourceIndex: number; targetIndex: number; score: number }
 
+// Initial guess, not yet validated against real embeddings — revisit once
+// textEmbedder (the actual on-device model) lands and can be tested against
+// real lyric lines.
 export const MATCH_THRESHOLD = 0.55
 
 /** Greedy best-match: highest-similarity pairs win first, each index used at most once. */

@@ -45,6 +45,16 @@ describe('greedyMatch', () => {
     const matches = greedyMatch(source, target, 0.5)
     expect(matches.length).toBe(1)
   })
+  it('resolves a similarity tie deterministically, picking only one match for the single target', () => {
+    const source = [[1, 0], [1, 0]] // identical to each other and to the target
+    const target = [[1, 0]]
+    const matches = greedyMatch(source, target, 0.5)
+    expect(matches.length).toBe(1)
+    // Both candidates score 1 against the single target, so the sort is a tie.
+    // Array.prototype.sort is stable in modern JS, so candidates retain their
+    // original generation order (sourceIndex 0 before 1) and index 0 wins.
+    expect(matches[0]).toEqual({ sourceIndex: 0, targetIndex: 0, score: 1 })
+  })
 })
 
 describe('alignLineTokens', () => {
@@ -71,5 +81,16 @@ describe('alignLineTokens', () => {
     const tokens: Token[] = [tok('君')]
     const result = await alignLineTokens(tokens, [], async () => [])
     expect(result[0].alignmentIndices).toBeUndefined()
+  })
+
+  it('leaves tokens unmatched when every token is a particle (alignableIndices empty, targetWords non-empty)', async () => {
+    const tokens: Token[] = [tok('が', '助詞'), tok('を', '助詞'), tok('は', '助詞')]
+    const targetWords = ['you', 'like', 'I']
+    const result = await alignLineTokens(tokens, targetWords, async () => {
+      throw new Error('embed should not be called when there are no alignable tokens')
+    })
+    expect(result[0].alignmentIndices).toBeUndefined()
+    expect(result[1].alignmentIndices).toBeUndefined()
+    expect(result[2].alignmentIndices).toBeUndefined()
   })
 })
