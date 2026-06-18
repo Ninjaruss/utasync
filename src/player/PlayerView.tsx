@@ -25,42 +25,6 @@ import { hasVisibleTranslation } from '../lyrics/bilingual'
 
 const AutoAlignFlow = lazy(() => import('../ai-pipeline/AutoAlignFlow'))
 
-/**
- * Distinguishes a tap from a long-press on one element. On press, the pointer
- * is captured so move/up events keep flowing to the element even if the
- * finger drifts off its bounds (important for small touch targets like the
- * A/B pills). A press held past `ms` without dragging fires `onLongPress`;
- * a quick release fires `onTap`. Movement beyond ~8px cancels, so it never
- * fights list scrolling. Pending timers are cleared on unmount.
- */
-function useLongPress(onTap: () => void, onLongPress: () => void, ms = 500) {
-  const state = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean; x: number; y: number }>(
-    { timer: null, fired: false, x: 0, y: 0 },
-  )
-  const clear = () => {
-    if (state.current.timer) { clearTimeout(state.current.timer); state.current.timer = null }
-  }
-  useEffect(() => () => clear(), [])
-  return {
-    onPointerDown: (e: React.PointerEvent) => {
-      state.current.fired = false
-      state.current.x = e.clientX
-      state.current.y = e.clientY
-      clear()
-      if (e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId)
-      state.current.timer = setTimeout(() => { state.current.fired = true; clear(); onLongPress() }, ms)
-    },
-    onPointerMove: (e: React.PointerEvent) => {
-      if (Math.abs(e.clientX - state.current.x) > 8 || Math.abs(e.clientY - state.current.y) > 8) clear()
-    },
-    onPointerUp: (e: React.PointerEvent) => {
-      clear()
-      if (e.currentTarget.hasPointerCapture?.(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
-      if (!state.current.fired) onTap()
-    },
-  }
-}
-
 async function enrichLines(lines: TimedLine[], sourceLanguage: Language): Promise<TimedLine[]> {
   return Promise.all(lines.map(async (line): Promise<TimedLine> => {
     try {
@@ -241,8 +205,7 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
   const furiganaLabel =
     furiganaMode === 'none' ? 'あ Reading: off' : furiganaMode === 'romaji' ? 'A Romaji' : 'ふ Furigana'
 
-  const aPress = useLongPress(() => setABLoop({ a: position }), () => armAB('a'))
-  const bPress = useLongPress(() => setABLoop({ b: position }), () => armAB('b'))
+  const toggleArm = (which: 'a' | 'b') => armAB(armingAB === which ? null : which)
 
   if (song && alignMode === 'tap') {
     return (
@@ -256,7 +219,10 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
   }
 
   return (
-    <div className="h-[100dvh] overflow-hidden bg-cinnabar-950 flex flex-col">
+    <div
+      className="h-[100dvh] overflow-hidden bg-cinnabar-950 flex flex-col"
+      onClick={() => { if (armingAB) armAB(null) }}
+    >
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-cinnabar-900 shrink-0">
         <button onClick={onBack} className="text-white/40 hover:text-white text-xs">← Back</button>
@@ -408,11 +374,11 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
             {isProUser ? (
               <div className="space-y-1">
                 <div className="flex gap-3 justify-center text-xs">
-                  <button {...aPress}
+                  <button onClick={() => toggleArm('a')}
                     className={`px-3 py-1 rounded-full border touch-manipulation ${armingAB === 'a' ? 'border-cinnabar-accent text-cinnabar-accent animate-pulse' : abLoop.a !== null ? 'border-cinnabar-accent text-cinnabar-accent' : 'border-white/20 text-white/30'}`}>
                     A {abLoop.a !== null ? formatTime(abLoop.a) : '—'}
                   </button>
-                  <button {...bPress}
+                  <button onClick={() => toggleArm('b')}
                     className={`px-3 py-1 rounded-full border touch-manipulation ${armingAB === 'b' ? 'border-cinnabar-accent text-cinnabar-accent animate-pulse' : abLoop.b !== null ? 'border-cinnabar-accent text-cinnabar-accent' : 'border-white/20 text-white/30'}`}>
                     B {abLoop.b !== null ? formatTime(abLoop.b) : '—'}
                   </button>
