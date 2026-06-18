@@ -27,6 +27,17 @@ describe('SongScreen Play/Edit toggle', () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: /tap-through/i })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('button', { name: /edit timestamp for line 1/i })).toBeTruthy())
+  })
+
+  it('hides display toggles and the full transport in Edit mode', async () => {
+    render(<PlayerView songId="song1" onBack={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
+    expect(screen.queryByText(/translation/i)).toBeTruthy() // visible in Play mode
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /edit timestamp for line 1/i })).toBeTruthy())
+    expect(screen.queryByText(/^文 Translation$/)).toBeNull()
+    expect(screen.queryByText(/speed/i)).toBeNull()
+    expect(screen.queryByRole('button', { name: /^a /i })).toBeNull()
   })
 })

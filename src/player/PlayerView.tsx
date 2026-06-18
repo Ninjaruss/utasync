@@ -279,8 +279,8 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
         />
       )}
 
-      {/* Display options */}
-      {(isJapanese || hasTranslation) && (
+      {/* Display options — Play-mode only, irrelevant while editing text/timing */}
+      {mode === 'play' && (isJapanese || hasTranslation) && (
         <div className="flex items-center justify-center gap-2 px-4 py-2 shrink-0 text-xs">
           {isJapanese && (
             <button
@@ -324,14 +324,13 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
           artist={song?.artist ?? ''}
           sourceLanguage={song?.lyrics.sourceLanguage ?? 'ja'}
           onChangeLines={handleEditLines}
-          onTapThrough={() => beginAlignment('tap')}
           onAutoAlign={() => beginAlignment('auto')}
         />
       )}
 
       {/* Playback controls */}
       <div className="px-4 pt-2 space-y-3 shrink-0" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 24px), 24px)' }}>
-        {/* Seek bar */}
+        {/* Seek bar — always visible; Edit mode needs it to position the playhead for stamping */}
         <div
           className="h-1 bg-cinnabar-900 rounded cursor-pointer"
           onClick={(e) => {
@@ -345,95 +344,110 @@ export function PlayerView({ songId, onBack, onSettings }: Props) {
           />
         </div>
 
-        {/* Time */}
-        <div className="flex justify-between text-xs text-white/30">
-          <span>{formatTime(position)}</span>
-          <span>{formatTime(duration)}</span>
-        </div>
-
-        {/* Speed slider (Pro-gated) */}
-        <div className="flex items-center gap-3">
-          <span className="text-white/30 text-xs w-12">Speed</span>
-          {isProUser ? (
-            <>
-              <input
-                type="range"
-                min={50}
-                max={200}
-                step={5}
-                value={speed * 100}
-                onChange={(e) => setSpeed(Number(e.target.value) / 100)}
-                className="flex-1 accent-cinnabar-accent"
-              />
-              <span className="text-white/50 text-xs w-10 text-right">{Math.round(speed * 100)}%</span>
-            </>
-          ) : (
+        {mode === 'edit' ? (
+          // Compact transport — just enough to time lines while editing. Speed,
+          // A/B loop, and Re-align are Play-mode-only concerns.
+          <div className="flex items-center justify-center">
             <button
-              onClick={() => setShowUpgrade(true)}
-              className="text-white/30 hover:text-white/60 text-sm"
+              onClick={togglePlay}
+              className="w-12 h-12 rounded-full bg-cinnabar-accent text-white text-xl flex items-center justify-center shadow-lg touch-manipulation"
             >
-              🔒 Speed control
+              {playbackState === 'playing' ? '⏸' : '▶'}
             </button>
-          )}
-        </div>
-
-        {/* Transport controls (audio-only YouTube needs these too) */}
-        <div className="flex items-center justify-center gap-6">
-          <button onClick={() => seek(Math.max(0, position - 5))}
-            className="text-white/50 hover:text-white text-xl touch-manipulation">⏮</button>
-          <button
-            onClick={togglePlay}
-            className="w-14 h-14 rounded-full bg-cinnabar-accent text-white text-2xl flex items-center justify-center shadow-lg touch-manipulation"
-            style={{ boxShadow: '0 0 20px rgba(248,113,113,0.4)' }}
-          >
-            {playbackState === 'playing' ? '⏸' : '▶'}
-          </button>
-          <button onClick={() => seek(Math.min(duration, position + 5))}
-            className="text-white/50 hover:text-white text-xl touch-manipulation">⏭</button>
-        </div>
-
-        {/* A-B Loop controls (Pro-gated) */}
-        {isProUser ? (
-          <div className="space-y-1">
-            <div className="flex gap-3 justify-center text-xs">
-              <button {...aPress}
-                className={`px-3 py-1 rounded-full border touch-manipulation ${armingAB === 'a' ? 'border-cinnabar-accent text-cinnabar-accent animate-pulse' : abLoop.a !== null ? 'border-cinnabar-accent text-cinnabar-accent' : 'border-white/20 text-white/30'}`}>
-                A {abLoop.a !== null ? formatTime(abLoop.a) : '—'}
-              </button>
-              <button {...bPress}
-                className={`px-3 py-1 rounded-full border touch-manipulation ${armingAB === 'b' ? 'border-cinnabar-accent text-cinnabar-accent animate-pulse' : abLoop.b !== null ? 'border-cinnabar-accent text-cinnabar-accent' : 'border-white/20 text-white/30'}`}>
-                B {abLoop.b !== null ? formatTime(abLoop.b) : '—'}
-              </button>
-              <button onClick={() => setABLoop({ a: null, b: null })}
-                className="px-3 py-1 rounded-full border border-white/20 text-white/30">
-                Clear
-              </button>
-            </div>
-            {armingAB && (
-              <p className="text-center text-[11px] text-cinnabar-accent/80 animate-pulse">
-                Tap a lyric line to set {armingAB.toUpperCase()}
-              </p>
-            )}
           </div>
         ) : (
-          <div className="flex justify-center">
-            <button
-              onClick={() => setShowUpgrade(true)}
-              className="text-white/30 hover:text-white/60 text-xs"
-            >
-              🔒 A-B Loop
-            </button>
-          </div>
-        )}
+          <>
+            {/* Time */}
+            <div className="flex justify-between text-xs text-white/30">
+              <span>{formatTime(position)}</span>
+              <span>{formatTime(duration)}</span>
+            </div>
 
-        {song?.audioStoredPath && (
-          <div className="flex justify-center">
-            <button
-              onClick={() => beginAlignment(manualAlignMode(getDeviceTier()))}
-              className="text-white/30 hover:text-white/60 text-xs">
-              ✨ Re-align lyrics
-            </button>
-          </div>
+            {/* Speed slider (Pro-gated) */}
+            <div className="flex items-center gap-3">
+              <span className="text-white/30 text-xs w-12">Speed</span>
+              {isProUser ? (
+                <>
+                  <input
+                    type="range"
+                    min={50}
+                    max={200}
+                    step={5}
+                    value={speed * 100}
+                    onChange={(e) => setSpeed(Number(e.target.value) / 100)}
+                    className="flex-1 accent-cinnabar-accent"
+                  />
+                  <span className="text-white/50 text-xs w-10 text-right">{Math.round(speed * 100)}%</span>
+                </>
+              ) : (
+                <button
+                  onClick={() => setShowUpgrade(true)}
+                  className="text-white/30 hover:text-white/60 text-sm"
+                >
+                  🔒 Speed control
+                </button>
+              )}
+            </div>
+
+            {/* Transport controls (audio-only YouTube needs these too) */}
+            <div className="flex items-center justify-center gap-6">
+              <button onClick={() => seek(Math.max(0, position - 5))}
+                className="text-white/50 hover:text-white text-xl touch-manipulation">⏮</button>
+              <button
+                onClick={togglePlay}
+                className="w-14 h-14 rounded-full bg-cinnabar-accent text-white text-2xl flex items-center justify-center shadow-lg touch-manipulation"
+                style={{ boxShadow: '0 0 20px rgba(248,113,113,0.4)' }}
+              >
+                {playbackState === 'playing' ? '⏸' : '▶'}
+              </button>
+              <button onClick={() => seek(Math.min(duration, position + 5))}
+                className="text-white/50 hover:text-white text-xl touch-manipulation">⏭</button>
+            </div>
+
+            {/* A-B Loop controls (Pro-gated) */}
+            {isProUser ? (
+              <div className="space-y-1">
+                <div className="flex gap-3 justify-center text-xs">
+                  <button {...aPress}
+                    className={`px-3 py-1 rounded-full border touch-manipulation ${armingAB === 'a' ? 'border-cinnabar-accent text-cinnabar-accent animate-pulse' : abLoop.a !== null ? 'border-cinnabar-accent text-cinnabar-accent' : 'border-white/20 text-white/30'}`}>
+                    A {abLoop.a !== null ? formatTime(abLoop.a) : '—'}
+                  </button>
+                  <button {...bPress}
+                    className={`px-3 py-1 rounded-full border touch-manipulation ${armingAB === 'b' ? 'border-cinnabar-accent text-cinnabar-accent animate-pulse' : abLoop.b !== null ? 'border-cinnabar-accent text-cinnabar-accent' : 'border-white/20 text-white/30'}`}>
+                    B {abLoop.b !== null ? formatTime(abLoop.b) : '—'}
+                  </button>
+                  <button onClick={() => setABLoop({ a: null, b: null })}
+                    className="px-3 py-1 rounded-full border border-white/20 text-white/30">
+                    Clear
+                  </button>
+                </div>
+                {armingAB && (
+                  <p className="text-center text-[11px] text-cinnabar-accent/80 animate-pulse">
+                    Tap a lyric line to set {armingAB.toUpperCase()}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="flex justify-center">
+                <button
+                  onClick={() => setShowUpgrade(true)}
+                  className="text-white/30 hover:text-white/60 text-xs"
+                >
+                  🔒 A-B Loop
+                </button>
+              </div>
+            )}
+
+            {song?.audioStoredPath && (
+              <div className="flex justify-center">
+                <button
+                  onClick={() => beginAlignment(manualAlignMode(getDeviceTier()))}
+                  className="text-white/30 hover:text-white/60 text-xs">
+                  ✨ Re-align lyrics
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
