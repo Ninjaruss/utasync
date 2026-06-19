@@ -1,13 +1,13 @@
 import type { DeviceTier } from '../core/types'
 
-/** Full-tier auto-align: best word-timestamp quality (~240MB download). */
+/** Auto-align speech model — word-timestamp quality matters more than download size. */
 export const WHISPER_MODEL_FULL = 'Xenova/whisper-small'
 
-/** Lite-tier auto-align: smaller/faster; timing quality is sufficient for align (~75MB). */
-export const WHISPER_MODEL_LITE = 'Xenova/whisper-tiny'
+/** Same model on lite tier: whisper-tiny regressed line timing (fc423db). */
+export const WHISPER_MODEL_LITE = WHISPER_MODEL_FULL
 
-export function getWhisperModel(tier: DeviceTier): string {
-  return tier === 'lite' ? WHISPER_MODEL_LITE : WHISPER_MODEL_FULL
+export function getWhisperModel(_tier: DeviceTier): string {
+  return WHISPER_MODEL_FULL
 }
 
 /** Multilingual sentence embeddings for word-pair coloring and semantic line attach. */
@@ -22,8 +22,5 @@ export function getEmbedModel(_tier: DeviceTier): string {
   return EMBED_MODEL
 }
 
-/** Rough download sizes shown in AutoAlignFlow loading copy. */
-export const WHISPER_DOWNLOAD_HINT: Record<'full' | 'lite', string> = {
-  full: '~240MB',
-  lite: '~75MB',
-}
+/** Rough download size shown in AutoAlignFlow loading copy. */
+export const WHISPER_DOWNLOAD_HINT = '~240MB'

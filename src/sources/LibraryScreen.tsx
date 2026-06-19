@@ -45,7 +45,7 @@ export function LibraryScreen({ onOpen, onAdd, onSettings }: Props) {
           const sync = song.syncState ?? computeSyncState(song)
           return (
             <div key={song.id} onClick={() => onOpen(song.id)}
-              className="bg-cinnabar-900 rounded-xl p-3 flex items-center gap-3 cursor-pointer hover:bg-cinnabar-800 transition-colors">
+              className="bg-cinnabar-900 rounded-xl p-3 flex items-center gap-3 cursor-pointer hover:bg-cinnabar-800 transition-[background-color] duration-150 ease-out active:scale-[0.99] touch-manipulation min-h-[3.75rem]">
               <div className="w-10 h-10 rounded-[10px] bg-gradient-to-br from-cinnabar-accent to-cinnabar-800 shrink-0 overflow-hidden">
                 {song.albumArtUrl && <img src={song.albumArtUrl} alt="" className="w-full h-full object-cover" />}
               </div>

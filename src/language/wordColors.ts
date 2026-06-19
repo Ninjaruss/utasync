@@ -2,7 +2,10 @@ import type { Token } from '../core/types'
 import { isParticleToken } from '../core/language'
 
 export function splitTranslationWords(text: string): string[] {
-  return text.split(/\s+/).filter(Boolean)
+  return text
+    .split(/\s+/)
+    .map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''))
+    .filter(Boolean)
 }
 
 /** Muted, fixed color for grammatical particles — distinct from the cycling match palette so it reads as "this is a particle," not "this is paired with something." */

@@ -9,6 +9,11 @@ describe('splitTranslationWords', () => {
   it('splits on whitespace and drops empty entries', () => {
     expect(splitTranslationWords('  I  like   you ')).toEqual(['I', 'like', 'you'])
   })
+
+  it('strips leading and trailing punctuation from words', () => {
+    expect(splitTranslationWords('Hello, world!')).toEqual(['Hello', 'world'])
+    expect(splitTranslationWords('"you" — love.')).toEqual(['you', 'love'])
+  })
 })
 
 describe('colorForToken', () => {

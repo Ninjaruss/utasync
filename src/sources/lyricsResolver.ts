@@ -1,0 +1,75 @@
+import type { TimedLine, Language } from '../core/types'
+import { findLyrics, type LyricsLookup } from './lrclib'
+import { parseLRC } from '../lyrics/lrc-parser'
+import { linesFromPlainText } from './songBuilder'
+import { fetchYouTubeCaptionLines } from './youtubeCaptions'
+import { detectLanguage } from '../lyrics/bilingual'
+
+export type LyricsResolveSource =
+  | 'youtube-captions'
+  | 'lrclib-synced'
+  | 'lrclib-plain'
+  | 'none'
+
+export interface LyricsResolveResult {
+  lines: TimedLine[]
+  synced: boolean
+  source: LyricsResolveSource
+}
+
+function fromLrcLookup(lookup: LyricsLookup): LyricsResolveResult {
+  const lines = lookup.synced ? parseLRC(lookup.lrc) : linesFromPlainText(lookup.lrc)
+  return {
+    lines,
+    synced: lookup.synced,
+    source: lookup.synced ? 'lrclib-synced' : 'lrclib-plain',
+  }
+}
+
+function languageHints(sourceLanguage?: Language): string[] {
+  if (sourceLanguage === 'ja') return ['ja', 'en']
+  if (sourceLanguage === 'en') return ['en', 'ja']
+  return ['ja', 'en']
+}
+
+/**
+ * Resolve lyrics for a song. YouTube native captions are tried first when a
+ * video id is available; LRCLIB is the fallback.
+ */
+export async function resolveLyricsForSong(opts: {
+  title: string
+  artist: string
+  videoId?: string | null
+  sourceLanguage?: Language
+}): Promise<LyricsResolveResult> {
+  const { title, artist, videoId, sourceLanguage } = opts
+  const preferLangs = languageHints(sourceLanguage)
+
+  if (videoId) {
+    const captions = await fetchYouTubeCaptionLines(videoId, preferLangs)
+    if (captions && captions.length > 0) {
+      return { lines: captions, synced: true, source: 'youtube-captions' }
+    }
+  }
+
+  const found = await findLyrics(title.trim(), artist.trim())
+  if (found) return fromLrcLookup(found)
+
+  return { lines: [], synced: false, source: 'none' }
+}
+
+export function lyricsSourceLabel(source: LyricsResolveSource): string {
+  switch (source) {
+    case 'youtube-captions': return 'YouTube captions'
+    case 'lrclib-synced': return 'LRCLIB (synced)'
+    case 'lrclib-plain': return 'LRCLIB (plain)'
+    default: return 'No match'
+  }
+}
+
+/** Infer source language from lyric text when not already known. */
+export function inferSourceLanguage(lines: TimedLine[]): Language {
+  if (lines.length === 0) return 'ja'
+  const lang = detectLanguage(lines.map((l) => l.original).join('\n'))
+  return lang === 'ja' ? 'ja' : 'en'
+}

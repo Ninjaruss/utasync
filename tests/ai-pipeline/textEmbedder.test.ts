@@ -52,6 +52,8 @@ describe('embedTexts concurrency (request id matching)', () => {
         }
       }
     )
+    const { clearEmbeddingCache } = await import('../../src/ai-pipeline/textEmbedder')
+    clearEmbeddingCache()
   })
 
   it('resolves each concurrent call with its own result, ignoring the other call\'s message', async () => {
@@ -134,5 +136,61 @@ describe('embedTexts concurrency (request id matching)', () => {
 
     await expect(callPromise).resolves.toEqual([[1], [2], [3]])
     expect(onProgress).toHaveBeenCalledWith(2, 3)
+  })
+})
+
+describe('embedTexts session cache', () => {
+  let fakeWorker: FakeWorker
+
+  beforeEach(async () => {
+    vi.resetModules()
+    fakeWorker = new FakeWorker()
+    const worker = fakeWorker
+    vi.stubGlobal(
+      'Worker',
+      class {
+        constructor() {
+          return worker
+        }
+      }
+    )
+    const { clearEmbeddingCache } = await import('../../src/ai-pipeline/textEmbedder')
+    clearEmbeddingCache()
+  })
+
+  async function loadModel() {
+    await Promise.resolve()
+    fakeWorker.emit({ type: 'loaded' })
+    await Promise.resolve()
+    await Promise.resolve()
+  }
+
+  it('skips worker embed for texts already cached in this session', async () => {
+    const { embedTexts, embeddingCacheSize } = await import('../../src/ai-pipeline/textEmbedder')
+
+    const callPromise = embedTexts(['hello', 'world'])
+    await loadModel()
+    const requestId = (fakeWorker.posted.find((m) => m.type === 'embed')!.payload as { requestId: number }).requestId
+    fakeWorker.emit({ type: 'result', payload: { requestId, vecs: [[1], [2]] } })
+    await callPromise
+    expect(embeddingCacheSize()).toBe(2)
+
+    const cached = await embedTexts(['hello', 'world', 'hello'])
+    expect(fakeWorker.posted.filter((m) => m.type === 'embed')).toHaveLength(1)
+    expect(cached).toEqual([[1], [2], [1]])
+  })
+
+  it('treats differently-cased English words as the same cache entry', async () => {
+    const { embedTexts } = await import('../../src/ai-pipeline/textEmbedder')
+
+    const callPromise = embedTexts(['You'])
+    await loadModel()
+    const requestId = (fakeWorker.posted.find((m) => m.type === 'embed')!.payload as { requestId: number }).requestId
+    fakeWorker.emit({ type: 'result', payload: { requestId, vecs: [[5]] } })
+    await callPromise
+
+    const cached = await embedTexts(['you', 'YOU'])
+    expect(cached).toEqual([[5], [5]])
+    expect(fakeWorker.posted.filter((m) => m.type === 'embed')).toHaveLength(1)
   })
 })

@@ -27,6 +27,8 @@ type LyricsPhase =
 
 interface Props {
   onSongReady: (songId: string) => void
+  /** When true, renders inside AddSongSheet without standalone page chrome. */
+  embedded?: boolean
 }
 
 const SOURCE_LABEL: Record<MetadataFieldSource, string> = {
@@ -43,7 +45,7 @@ function FieldSourceBadge({ source }: { source: MetadataFieldSource | null }) {
   )
 }
 
-export function UploadAudioFlow({ onSongReady }: Props) {
+export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
   const [file, setFile] = useState<File | null>(null)
   const [title, setTitle] = useState('')
   const [artist, setArtist] = useState('')
@@ -195,12 +197,14 @@ export function UploadAudioFlow({ onSongReady }: Props) {
   )
 
   return (
-    <div className="min-h-screen bg-cinnabar-950 flex flex-col items-center justify-center p-6 gap-5">
+    <div className={embedded ? 'w-full space-y-3' : 'min-h-screen bg-cinnabar-950 flex flex-col items-center justify-center p-6 gap-5'}>
       {loading && <LoadingOverlay message={loading.message} detail={loading.detail} />}
 
-      <h1 className="text-2xl font-bold text-cinnabar-accent tracking-widest">Upload audio</h1>
+      {!embedded && (
+        <h1 className="text-2xl font-bold text-cinnabar-accent tracking-widest">Upload audio</h1>
+      )}
 
-      <div className="w-full max-w-md space-y-3">
+      <div className={embedded ? 'space-y-3' : 'w-full max-w-md space-y-3'}>
         <label className="block w-full px-4 py-3 bg-cinnabar-900 text-white/70 rounded-xl border border-cinnabar-800 cursor-pointer text-sm">
           {file ? file.name : 'Choose an audio file…'}
           <input type="file" accept="audio/*" className="hidden"

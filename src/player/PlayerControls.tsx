@@ -42,8 +42,6 @@ interface Props {
   abExportCanIncludeSrt?: boolean
   abExportIncludeSrt?: boolean
   onAbExportIncludeSrtChange?: (value: boolean) => void
-  showRealign?: boolean
-  onRealign?: () => void
 }
 
 function formatTime(s: number): string {
@@ -55,16 +53,18 @@ function formatTime(s: number): string {
 function SeekBar({ progress, duration, onSeek }: { progress: number; duration: number; onSeek: (t: number) => void }) {
   return (
     <div
-      className="h-2 bg-cinnabar-900 rounded-full cursor-pointer touch-manipulation"
+      className="py-2 -my-1 touch-manipulation"
       onClick={(e) => {
         const rect = e.currentTarget.getBoundingClientRect()
         onSeek(((e.clientX - rect.left) / rect.width) * duration)
       }}
     >
-      <div
-        className="h-full bg-cinnabar-accent rounded-full transition-[width] duration-150 ease-out"
-        style={{ width: `${progress * 100}%` }}
-      />
+      <div className="h-2.5 md:h-2 bg-cinnabar-900 rounded-full cursor-pointer">
+        <div
+          className="h-full bg-cinnabar-accent rounded-full transition-[width] duration-150 ease-out"
+          style={{ width: `${progress * 100}%` }}
+        />
+      </div>
     </div>
   )
 }
@@ -278,8 +278,6 @@ function MoreMenu({
   canIncludeSrt,
   includeSrt,
   onIncludeSrtChange,
-  showRealign,
-  onRealign,
 }: {
   showAbExport?: boolean
   onExportAb?: () => void
@@ -288,12 +286,10 @@ function MoreMenu({
   canIncludeSrt?: boolean
   includeSrt?: boolean
   onIncludeSrtChange?: (value: boolean) => void
-  showRealign?: boolean
-  onRealign?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
-  const hasItems = showAbExport || showRealign
+  const hasItems = showAbExport
 
   useEffect(() => {
     if (!open) return
@@ -327,20 +323,8 @@ function MoreMenu({
           aria-label="More playback options"
           className="absolute left-0 md:left-auto md:right-0 bottom-full mb-2 z-50 w-60 rounded-xl border border-cinnabar-800 bg-cinnabar-900 shadow-xl shadow-black/40 p-3 space-y-3"
         >
-          {showRealign && onRealign && (
-            <section aria-label="Lyrics alignment">
-              <p className={[toolbarSectionLabel, 'mb-2'].join(' ')}>Lyrics</p>
-              <button
-                type="button"
-                onClick={() => { onRealign(); setOpen(false) }}
-                className={[toolbarChipBtn, toolbarChipBtnIdle, 'w-full text-left px-3 py-2 text-sm'].join(' ')}
-              >
-                Re-align lyrics
-              </button>
-            </section>
-          )}
           {showAbExport && onExportAb && (
-            <section aria-label="Export loop" className={showRealign ? 'border-t border-cinnabar-800/80 pt-3' : ''}>
+            <section aria-label="Export loop">
               <p className={[toolbarSectionLabel, 'mb-2'].join(' ')}>Export</p>
               <div className="space-y-2">
                 {canIncludeSrt && onIncludeSrtChange && (
@@ -398,8 +382,6 @@ export function PlayerControls({
   abExportCanIncludeSrt,
   abExportIncludeSrt,
   onAbExportIncludeSrtChange,
-  showRealign,
-  onRealign,
 }: Props) {
   const abActive = abLoop.a !== null || abLoop.b !== null || armingAB !== null
   const abLooping = isABLoopActive(abLoop)
@@ -417,7 +399,7 @@ export function PlayerControls({
 
   return (
     <aside
-      className="shrink-0 border-t md:border-t-0 md:border-l border-cinnabar-900 bg-cinnabar-950/98 md:bg-cinnabar-950 backdrop-blur-sm md:backdrop-blur-none px-4 pt-3 md:pt-4 md:px-5 md:w-64 lg:w-72 flex flex-col gap-3 max-h-[min(46dvh,22rem)] md:max-h-none overflow-y-auto"
+      className="shrink-0 border-t md:border-t-0 md:border-l border-cinnabar-900 bg-cinnabar-950/98 md:bg-cinnabar-950 backdrop-blur-sm md:backdrop-blur-none px-4 pt-3 md:pt-5 md:px-5 md:w-72 lg:w-80 flex flex-col gap-3 max-h-[min(42dvh,20rem)] md:max-h-none overflow-y-auto overscroll-contain"
       style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 12px), 12px)' }}
       onClick={(e) => e.stopPropagation()}
       aria-label="Playback controls"
@@ -450,7 +432,7 @@ export function PlayerControls({
               onClick={() => setPracticeOpen((v) => !v)}
               aria-expanded={practiceOpen}
               aria-label="Practice tools"
-              className="w-full flex items-center justify-between px-3 py-2.5 text-left touch-manipulation"
+              className="w-full flex items-center justify-between px-3 py-3 min-h-11 text-left touch-manipulation transition-[background-color] duration-150 ease-out active:bg-white/[0.03]"
             >
               <span className="text-xs font-medium text-white/55">Practice</span>
               <span className={[
@@ -497,8 +479,6 @@ export function PlayerControls({
             canIncludeSrt={abExportCanIncludeSrt}
             includeSrt={abExportIncludeSrt}
             onIncludeSrtChange={onAbExportIncludeSrtChange}
-            showRealign={showRealign}
-            onRealign={onRealign}
           />
         </>
       )}

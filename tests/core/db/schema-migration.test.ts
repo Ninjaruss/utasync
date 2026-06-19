@@ -16,7 +16,7 @@ describe('Dexie v2 backfill', () => {
     } as never)
 
     const got = await db.songs.get('leg1')
-    expect(got!.sources?.[0]).toMatchObject({ provider: 'youtube', ref: 'abc123', hasAudio: true })
+    expect(got!.sources?.[0]).toMatchObject({ provider: 'youtube', ref: 'abc123', hasAudio: false })
     expect(got!.syncState).toBe('synced')
   })
 })

@@ -9,7 +9,7 @@ export function deriveSources(song: Song): SourceRef[] {
   if (song.sources && song.sources.length > 0) return song.sources
   if (song.sourceUrl) {
     const videoId = extractVideoId(song.sourceUrl)
-    if (videoId) return [{ provider: 'youtube', ref: videoId, url: song.sourceUrl, hasAudio: true }]
+    if (videoId) return [{ provider: 'youtube', ref: videoId, url: song.sourceUrl, hasAudio: false }]
   }
   if (song.audioStoredPath) {
     return [{ provider: 'upload', ref: song.audioStoredPath, hasAudio: true }]

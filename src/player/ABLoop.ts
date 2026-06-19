@@ -1,19 +1,18 @@
 import type { ABLoop } from '../core/types'
-import type { AudioEngine } from './AudioEngine'
 import { isABLoopActive } from './abLoopUtils'
 
 export class ABLoopController {
   private timer: ReturnType<typeof setTimeout> | null = null
-  private engine: AudioEngine
+  private seek: (seconds: number) => void
   private getLoop: () => ABLoop
   private getPosition: () => number
 
   constructor(
-    engine: AudioEngine,
+    seek: (seconds: number) => void,
     getLoop: () => ABLoop,
     getPosition: () => number,
   ) {
-    this.engine = engine
+    this.seek = seek
     this.getLoop = getLoop
     this.getPosition = getPosition
   }
@@ -23,7 +22,7 @@ export class ABLoopController {
     if (!isABLoopActive(loop)) return
     const pos = this.getPosition()
     if (pos >= loop.b!) {
-      this.engine.seek(Math.max(0, loop.a!))
+      this.seek(Math.max(0, loop.a!))
     }
   }
 

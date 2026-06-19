@@ -1,17 +1,24 @@
 /** Shared toolbar + lyric-row surfaces — keeps Play/Edit chrome visually aligned. */
 
 export const toolbarSection =
-  'shrink-0 px-3 sm:px-4 py-2 border-b border-cinnabar-900'
+  'shrink-0 px-4 py-2.5 border-b border-cinnabar-900'
 
-/** Fixed-height mode toolbar — keeps Play/Edit chrome from shifting when toggling. */
-export const modeToolbarRow =
-  `${toolbarSection} min-h-[5.25rem] flex flex-col justify-center`
+/** Single-line play-mode display toolbar (Display menu row). */
+export const displayToolbarRow =
+  `${toolbarSection} flex items-center justify-between gap-3`
+
+/** Multi-line edit-mode toolbar (actions + helper copy). */
+export const editToolbarRow =
+  `${toolbarSection} flex flex-col justify-center gap-2 py-3`
+
+/** @deprecated Use displayToolbarRow or editToolbarRow */
+export const modeToolbarRow = editToolbarRow
 
 export const toolbarSectionLabel =
   'text-[10px] uppercase tracking-wide text-white/35'
 
 export const toolbarActionBtn =
-  'px-2.5 py-1.5 rounded-lg border border-cinnabar-800 text-[11px] text-white/65 hover:text-white hover:border-cinnabar-accent/50 touch-manipulation transition-colors'
+  'min-h-11 px-3 py-2 rounded-lg border border-cinnabar-800 text-xs text-white/65 hover:text-white hover:border-cinnabar-accent/50 touch-manipulation transition-[color,border-color,transform] duration-150 ease-out active:scale-[0.96]'
 
 export const editRowSurface =
   'relative rounded-lg border border-cinnabar-900/70 bg-cinnabar-900/20 px-3 py-2.5 transition-colors hover:bg-cinnabar-900/30'
@@ -20,11 +27,11 @@ export const editRowSurfaceActive =
   'border-cinnabar-accent/40 bg-cinnabar-900/35'
 
 export const timestampPillBtn =
-  'flex items-center gap-1 shrink-0 rounded-lg border border-cinnabar-800 bg-cinnabar-950/50 px-1.5 py-1 touch-manipulation hover:border-cinnabar-accent/50 transition-colors'
+  'flex items-center gap-1.5 shrink-0 min-h-11 rounded-lg border border-cinnabar-800 bg-cinnabar-950/50 px-2 py-1.5 touch-manipulation hover:border-cinnabar-accent/50 transition-[border-color,transform] duration-150 ease-out active:scale-[0.96]'
 
 /** Chip buttons for practice controls (A-B, speed presets) — shared sizing and borders. */
 export const toolbarChipBtn =
-  'min-h-9 px-2.5 py-1 rounded-lg border text-xs touch-manipulation transition-[color,background-color,border-color,transform] duration-150 ease-out active:scale-[0.98] tabular-nums'
+  'min-h-11 px-3 py-2 rounded-lg border text-xs touch-manipulation transition-[color,background-color,border-color,transform] duration-150 ease-out active:scale-[0.96] tabular-nums'
 
 export const toolbarChipBtnIdle =
   'border-cinnabar-800 text-white/45 hover:border-cinnabar-accent/50 hover:text-white/65'
@@ -37,7 +44,7 @@ export const toolbarChipBtnArmed =
 
 /** Display menu trigger — visible in the play-mode toolbar. */
 export const displayMenuTrigger =
-  'inline-flex items-center gap-1.5 min-h-9 px-3 rounded-lg border text-xs font-medium touch-manipulation transition-[color,background-color,border-color,box-shadow]'
+  'inline-flex items-center gap-1.5 min-h-11 px-3.5 rounded-lg border text-xs font-medium touch-manipulation transition-[color,background-color,border-color,box-shadow,transform] duration-150 ease-out active:scale-[0.96]'
 
 export const displayMenuTriggerIdle =
   'border-cinnabar-800 text-white/55 hover:text-white/80 hover:border-cinnabar-accent/40'

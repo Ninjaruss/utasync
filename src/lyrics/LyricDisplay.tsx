@@ -188,8 +188,9 @@ function Line({ line, isActive, inLoopRegion, onLineClick, lineRef }: {
     <div className={[
       lyricTextTransition,
       isActive ? 'text-base italic text-white/70' : 'text-sm italic text-white/35',
-      sideBySide ? 'text-left' : 'mt-1',
+      sideBySide ? 'text-left' : 'mt-1.5',
       translationHoverClass,
+      'text-pretty',
       line.translation.includes('\n') ? 'whitespace-pre-line' : '',
     ].join(' ')}>
       {colored && line.tokens && !line.translation.includes('\n') ? (
@@ -205,17 +206,17 @@ function Line({ line, isActive, inLoopRegion, onLineClick, lineRef }: {
       ref={lineRef}
       onClick={() => onLineClick(line)}
       className={[
-        'group cursor-pointer select-none rounded-lg',
+        'group cursor-pointer select-none rounded-xl',
         lyricLineTransition,
-        isActive ? 'py-6' : 'py-2',
+        isActive ? 'py-4 sm:py-6' : 'py-2.5 sm:py-3',
         sideBySide ? 'text-left' : 'text-center',
-        'hover:bg-white/[0.04]',
+        'hover:bg-white/[0.04] active:bg-white/[0.06]',
         inLoopRegion && !isActive ? lyricRowLoopRegion : '',
         isActive ? lyricRowPlayheadActive : '',
       ].join(' ')}
     >
       {sideBySide ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 sm:gap-4 items-baseline max-w-3xl mx-auto w-full">
+        <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2 sm:gap-4 items-baseline max-w-3xl mx-auto w-full px-1">
           <PrimaryText
             line={line}
             isActive={isActive}
@@ -227,7 +228,7 @@ function Line({ line, isActive, inLoopRegion, onLineClick, lineRef }: {
           {translationEl}
         </div>
       ) : (
-        <>
+        <div className={sideBySide ? '' : 'max-w-2xl mx-auto w-full'}>
           <PrimaryText
             line={line}
             isActive={isActive}
@@ -237,7 +238,7 @@ function Line({ line, isActive, inLoopRegion, onLineClick, lineRef }: {
             onHover={setHoveredPair}
           />
           {translationEl}
-        </>
+        </div>
       )}
     </div>
   )
@@ -266,7 +267,7 @@ export function LyricDisplay({ onLineClick, abLoop, position: _position }: Props
   return (
     <div
       ref={containerRef}
-      className="flex-1 min-h-0 overflow-y-auto py-[16vh] sm:py-[20vh] md:py-[18vh] lg:py-[22vh] px-3 sm:px-4"
+      className="flex-1 min-h-0 overflow-y-auto py-[14vh] sm:py-[18vh] md:py-[16vh] lg:py-[20vh] px-4"
       style={{ touchAction: 'pan-y', scrollbarWidth: 'thin' }}
     >
       {lines.map((line, i) => {

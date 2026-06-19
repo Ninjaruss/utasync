@@ -8,3 +8,10 @@ export async function ingestAudioFile(file: File): Promise<{ songId: string; aud
   await saveAudio(songId, buffer)
   return { songId, audioStoredPath: audioStoragePath(songId) }
 }
+
+/** Attach audio to an existing song (e.g. YouTube link → unlock local processing). */
+export async function attachAudioToSong(songId: string, file: File): Promise<{ audioStoredPath: string }> {
+  const buffer = await file.arrayBuffer()
+  await saveAudio(songId, buffer)
+  return { audioStoredPath: audioStoragePath(songId) }
+}

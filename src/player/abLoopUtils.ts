@@ -39,3 +39,27 @@ export function abEndpointFromLine(
 
   return start
 }
+
+/**
+ * Partial A/B loop update from a lyric tap while arming. Handles B-first
+ * same-line loops: when B was placed at the line start, setting A promotes B
+ * to the line end so the pair stays valid.
+ */
+export function abLoopPatchFromLineTap(
+  which: 'a' | 'b',
+  line: TimedLine,
+  loop: { a: number | null; b: number | null },
+): Partial<{ a: number; b: number }> {
+  const { startTime: start, endTime: end } = line
+  const hasValidEnd = end > start
+
+  if (which === 'a') {
+    const a = start
+    if (loop.b !== null && hasValidEnd && loop.b === start && a >= loop.b) {
+      return { a, b: end }
+    }
+    return { a }
+  }
+
+  return { b: abEndpointFromLine('b', line, loop.a) }
+}

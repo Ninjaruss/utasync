@@ -15,8 +15,12 @@ describe('linesAreTimed', () => {
 })
 
 describe('chooseAutoAlignment', () => {
-  it('null without stored audio', () => {
-    expect(chooseAutoAlignment(false, untimed, 'full')).toBeNull()
+  it('null without stored audio or playback', () => {
+    expect(chooseAutoAlignment(false, untimed, 'full', false)).toBeNull()
+  })
+  it('tap for YouTube-only playback without stored audio', () => {
+    expect(chooseAutoAlignment(false, untimed, 'full', true)).toBe('tap')
+    expect(chooseAutoAlignment(false, untimed, 'manual', true)).toBe('tap')
   })
   it('null when already timed', () => {
     expect(chooseAutoAlignment(true, timed, 'full')).toBeNull()

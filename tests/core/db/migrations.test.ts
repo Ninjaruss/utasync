@@ -12,10 +12,10 @@ function baseSong(over: Partial<Song> = {}): Song {
 }
 
 describe('deriveSources', () => {
-  it('maps a YouTube sourceUrl to a youtube SourceRef with audio', () => {
+  it('maps a YouTube sourceUrl to a youtube SourceRef without local audio processing', () => {
     const s = baseSong({ sourceUrl: 'https://youtube.com/watch?v=abc123' })
     expect(deriveSources(s)).toEqual([
-      { provider: 'youtube', ref: 'abc123', url: 'https://youtube.com/watch?v=abc123', hasAudio: true },
+      { provider: 'youtube', ref: 'abc123', url: 'https://youtube.com/watch?v=abc123', hasAudio: false },
     ])
   })
 

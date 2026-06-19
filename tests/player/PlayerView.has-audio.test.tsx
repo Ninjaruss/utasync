@@ -23,7 +23,7 @@ async function seedSong(overrides: Record<string, unknown>) {
   } as never)
 }
 
-describe('PlayerView hasAudio gating', () => {
+describe('PlayerView local audio gating', () => {
   it('does not offer Auto-align for a YouTube-only song with no stored audio', async () => {
     await seedSong({})
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
@@ -31,7 +31,7 @@ describe('PlayerView hasAudio gating', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     await waitFor(() => expect(screen.getByLabelText(/edit timestamp/i)).toBeTruthy())
     expect(screen.queryByRole('button', { name: /auto-align/i })).toBeNull()
-    expect(screen.getByText(/needs uploaded audio/i)).toBeTruthy()
+    expect(screen.getByText(/tap-through to time lyrics/i)).toBeTruthy()
   })
 
   it('offers Auto-align once audioStoredPath is present', async () => {
@@ -40,5 +40,20 @@ describe('PlayerView hasAudio gating', () => {
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     await waitFor(() => expect(screen.getByRole('button', { name: /auto-align/i })).toBeTruthy())
+  })
+
+  it('shows an add-audio banner for YouTube-only songs', async () => {
+    await seedSong({ sourceUrl: 'https://youtube.com/watch?v=abc123' })
+    render(<PlayerView songId="song1" onBack={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
+    expect(screen.getByRole('button', { name: /add audio file/i })).toBeTruthy()
+    expect(screen.getByText(/streaming via youtube/i)).toBeTruthy()
+  })
+
+  it('does not offer play-mode re-align (Edit → Auto-align is the sole entry point)', async () => {
+    await seedSong({ audioStoredPath: '/audio/song1' })
+    render(<PlayerView songId="song1" onBack={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
+    expect(screen.queryByRole('button', { name: /re-align/i })).toBeNull()
   })
 })

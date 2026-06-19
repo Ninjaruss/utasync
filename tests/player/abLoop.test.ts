@@ -2,14 +2,36 @@ import { describe, it, expect, vi } from 'vitest'
 import { ABLoopController } from '../../src/player/ABLoop'
 
 describe('ABLoopController', () => {
-  it('loops back to point A exactly, not before it', () => {
+  it('seeks back to A when position reaches B', () => {
     const seek = vi.fn()
-    const engine = { seek } as never
-    const getLoop = () => ({ a: 10, b: 20, preRoll: 2, loopCount: 3, crossfadeDuration: 0.3 })
-    const controller = new ABLoopController(engine, getLoop, () => 20)
-
+    const controller = new ABLoopController(
+      seek,
+      () => ({ a: 10, b: 20, preRoll: 0, loopCount: 0, crossfadeDuration: 0 }),
+      () => 20,
+    )
     controller.tick()
-
     expect(seek).toHaveBeenCalledWith(10)
+  })
+
+  it('does nothing when the loop is incomplete', () => {
+    const seek = vi.fn()
+    const controller = new ABLoopController(
+      seek,
+      () => ({ a: 10, b: null, preRoll: 0, loopCount: 0, crossfadeDuration: 0 }),
+      () => 20,
+    )
+    controller.tick()
+    expect(seek).not.toHaveBeenCalled()
+  })
+
+  it('does nothing before B is reached', () => {
+    const seek = vi.fn()
+    const controller = new ABLoopController(
+      seek,
+      () => ({ a: 10, b: 20, preRoll: 0, loopCount: 0, crossfadeDuration: 0 }),
+      () => 15,
+    )
+    controller.tick()
+    expect(seek).not.toHaveBeenCalled()
   })
 })

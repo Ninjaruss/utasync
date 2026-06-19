@@ -16,20 +16,26 @@ import { sentenceToIPA } from '../language/english/phonetics'
 import { detectEnglishGrammar } from '../language/english/grammar'
 import { TapSyncEditor } from './TapSyncEditor'
 import { getDeviceTier } from '../ai-pipeline/capability'
-import { linesAreTimed, chooseAutoAlignment, manualAlignMode, type AlignMode } from './alignmentPolicy'
+import { linesAreTimed, chooseAutoAlignment, type AlignMode } from './alignmentPolicy'
 import { EditMode } from '../lyrics/EditMode'
 import { computeSyncState } from '../core/db/migrations'
 import { hasVisibleTranslation } from '../lyrics/bilingual'
 import { linesNeedEnrichment, linesNeedAlignment, lineNeedsAlignment, LYRICS_ENRICHMENT_VERSION } from '../lyrics/lyricsEnrichment'
 import { alignLinesTokens, countEmbedBatches } from '../ai-pipeline/wordAligner'
+import { preloadEmbedder } from '../ai-pipeline/textEmbedder'
 import { splitTranslationWords } from '../language/wordColors'
 import { LoadingOverlay } from '../core/ui/LoadingOverlay'
-import { abPairError, abEndpointFromLine, isValidABPair } from './abLoopUtils'
+import { abPairError, abLoopPatchFromLineTap, isValidABPair } from './abLoopUtils'
 import { exportAbLoopClip, abLoopHasTimedLyrics } from './abLoopExport'
 import { getAudioFile } from '../core/opfs/audio'
 import { PlayerControls } from './PlayerControls'
 import { DisplayMenu } from './DisplayMenu'
-import { modeToolbarRow } from '../core/ui/toolbarClasses'
+import { AttachLocalAudioBanner } from './AttachLocalAudioBanner'
+import { LyricsImportPanel } from '../lyrics/LyricsImportPanel'
+import { attachAudioToSong } from '../sources/audioIngest'
+import { inferSourceLanguage } from '../sources/lyricsResolver'
+import { WordColorProgressBanner } from './WordColorProgressBanner'
+import { displayToolbarRow } from '../core/ui/toolbarClasses'
 
 const AutoAlignFlow = lazy(() => import('../ai-pipeline/AutoAlignFlow'))
 
@@ -57,9 +63,9 @@ async function enrichLines(lines: TimedLine[], sourceLanguage: Language): Promis
 }
 
 /** Max texts per embed call on lite-tier phones to limit WebGPU memory spikes. */
-const LITE_EMBED_BATCH_TEXTS = 64
+const LITE_EMBED_BATCH_TEXTS = 96
 /** Lines processed per chunk on lite tier so the UI can breathe between batches. */
-const LITE_ALIGN_LINES_PER_CHUNK = 4
+const LITE_ALIGN_LINES_PER_CHUNK = 8
 
 /**
  * Computes word-pair alignment for lines that have both tokens and a visible
@@ -167,10 +173,9 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   // Tracks whether timestamp-scrubbing started playback, so onScrubEnd only
   // stops audio it itself started (leaves pre-existing playback alone).
   const scrubStartedPlayRef = useRef(false)
-  const { playbackState, position, speed, volume, abLoop, armingAB, currentSongId, setPlaybackState, setPosition, setSpeed, setVolume, setABLoop, armAB, setCurrentSong } = usePlayerStore()
+  const { playbackState, position, duration, speed, volume, abLoop, armingAB, currentSongId, setPlaybackState, setPosition, setDuration, setSpeed, setVolume, setABLoop, armAB, setCurrentSong } = usePlayerStore()
   const { lines, syncPosition, setLines, furiganaMode, showTranslation, lyricsLayout, setFuriganaMode, setShowTranslation, setLyricsLayout } = useLyricsStore()
   const [song, setSong] = useState<Song | null>(null)
-  const [duration, setDuration] = useState(1)
   const [alignMode, setAlignMode] = useState<AlignMode | null>(null)
   const [mode, setMode] = useState<'play' | 'edit'>('play')
   const [lyricsLoading, setLyricsLoading] = useState<{ message: string; detail?: string } | null>(null)
@@ -178,6 +183,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [abExporting, setAbExporting] = useState(false)
   const [abExportError, setAbExportError] = useState('')
   const [abExportIncludeSrt, setAbExportIncludeSrt] = useState(false)
+  const [attachingAudio, setAttachingAudio] = useState(false)
+  const [attachAudioError, setAttachAudioError] = useState('')
+  const [showLyricsReimport, setShowLyricsReimport] = useState(false)
+  const seekRef = useRef<(time: number) => void>(() => {})
   const speedPct = Math.round(speed * 100)
   const volumePct = Math.round(volume * 100)
 
@@ -226,6 +235,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       if (!s || cancelled) return
       setSong(s)
       setLines(s.lyrics.lines)
+      if (getDeviceTier() !== 'manual') preloadEmbedder()
       setMode('play') // a freshly opened song always lands in Play mode
       // Opening a different song starts from the top; reopening the same song
       // (e.g. after a trip to Settings) resumes the persisted position.
@@ -241,7 +251,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           const loadVolume = usePlayerStore.getState().volume
           await engine.load(file, loadVolume)
           if (!cancelled) {
-            setDuration(engine.duration || 1)
+            setDuration(Math.max(engine.duration, 0))
             engine.setVolume(usePlayerStore.getState().volume)
             if (resumeAt > 0) {
               engine.seek(resumeAt)
@@ -254,7 +264,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         }
       }
       const willAutoAlign = autoAlignOnOpen
-        && chooseAutoAlignment(!!s.audioStoredPath, s.lyrics.lines, getDeviceTier()) !== null
+        && chooseAutoAlignment(!!s.audioStoredPath, s.lyrics.lines, getDeviceTier(), true) !== null
       if (!willAutoAlign && linesAreTimed(s.lyrics.lines)) {
         if (linesNeedEnrichment(s.lyrics.lines, s.lyrics.enrichmentVersion)) {
           runLyricsEnrichment(s.lyrics.lines, s.lyrics.sourceLanguage, s.lyrics.enrichmentVersion)
@@ -278,12 +288,11 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     e.onTimeUpdate((pos) => {
       setPosition(pos)
       syncPosition(pos)
-      abLoopControllerRef.current?.tick()
     })
     e.onEnd(() => setPlaybackState('idle'))
 
     abLoopControllerRef.current = new ABLoopController(
-      e,
+      (t) => seekRef.current(t),
       () => usePlayerStore.getState().abLoop,
       () => usePlayerStore.getState().position,
     )
@@ -295,11 +304,15 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    abLoopControllerRef.current?.tick()
+  }, [position])
+
   const ytVideoId = song?.sourceUrl ? extractVideoId(song.sourceUrl) : null
   const isYouTube = !!ytVideoId && !song?.audioStoredPath
-  // AutoAlignFlow can only decode locally stored audio (song.audioStoredPath),
-  // not a YouTube stream — gate on that specifically, not "any active source".
-  const hasAudio = !!song?.audioStoredPath
+  const hasLocalAudio = !!song?.audioStoredPath
+  const canPlayback = isYouTube || hasLocalAudio
+  const lyricsUntimed = lines.length > 0 && !linesAreTimed(lines)
 
   const togglePlay = () => {
     if (playbackState === 'playing') {
@@ -320,6 +333,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     setPosition(time)
     syncPosition(time)
   }
+  seekRef.current = seek
 
   /** Jump to a lyric by index; sets activeLine directly so untimed lines still highlight correctly. */
   const goToLyricLine = (index: number) => {
@@ -363,13 +377,17 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   }
 
   const beginAlignment = (mode: AlignMode) => {
-    if (mode === 'tap') { engine.play(); setPlaybackState('playing') }
+    if (mode === 'tap') {
+      if (isYouTube) ytRef.current?.play()
+      else engine.play()
+      setPlaybackState('playing')
+    }
     setAlignMode(mode)
   }
 
   useEffect(() => {
     if (!song || !autoAlignOnOpen) return
-    const choice = chooseAutoAlignment(!!song.audioStoredPath, song.lyrics.lines, getDeviceTier())
+    const choice = chooseAutoAlignment(!!song.audioStoredPath, song.lyrics.lines, getDeviceTier(), canPlayback)
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot route into alignment after add-song
     if (choice) beginAlignment(choice)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -419,7 +437,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
   }
 
-  const progress = position / duration
+  const progress = duration > 0 ? Math.min(1, position / duration) : 0
   const isJapanese = song?.lyrics.sourceLanguage === 'ja'
   const hasTranslation = !!song?.lyrics.lines.some(hasVisibleTranslation)
 
@@ -496,6 +514,58 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     && abLoopHasTimedLyrics(song.lyrics.lines, abLoop.a!, abLoop.b!)
   )
 
+  const handleAttachLocalAudio = async (file: File) => {
+    if (!song) return
+    setAttachAudioError('')
+    setAttachingAudio(true)
+    try {
+      const { audioStoredPath } = await attachAudioToSong(song.id, file)
+      const updated: Song = { ...song, audioStoredPath }
+      await db.songs.put(updated)
+      const audioFile = await getAudioFile(song.id)
+      const loadVolume = usePlayerStore.getState().volume
+      await engine.load(audioFile, loadVolume)
+      setDuration(Math.max(engine.duration, 0))
+      engine.setVolume(loadVolume)
+      const resumeAt = usePlayerStore.getState().position
+      if (resumeAt > 0) {
+        engine.seek(resumeAt)
+        setPosition(resumeAt)
+        syncPosition(resumeAt)
+      }
+      setSong(updated)
+    } catch (e: unknown) {
+      setAttachAudioError(e instanceof Error ? e.message : 'Could not add audio file')
+    } finally {
+      setAttachingAudio(false)
+    }
+  }
+
+  const handleReplaceLyrics = async (imported: TimedLine[]) => {
+    if (!song) return
+    setShowLyricsReimport(false)
+    const sourceLanguage = inferSourceLanguage(imported)
+    const translationLanguage: Language = sourceLanguage === 'ja' ? 'en' : 'ja'
+    const updated: Song = {
+      ...song,
+      lyrics: {
+        ...song.lyrics,
+        lines: imported,
+        sourceLanguage,
+        translationLanguage,
+        enrichmentVersion: undefined,
+      },
+      syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines: imported } }),
+    }
+    setSong(updated)
+    setLines(imported)
+    await db.songs.put(updated)
+    if (linesNeedEnrichment(imported, undefined)) {
+      runLyricsEnrichment(imported, sourceLanguage)
+        .then((enriched) => { void persistEnrichedLines(updated, enriched, true) })
+    }
+  }
+
   const handleExportAbLoop = async () => {
     if (!song?.audioStoredPath || !isValidABPair(abLoop.a, abLoop.b)) return
     setAbExportError('')
@@ -523,7 +593,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       <TapSyncEditor
         plainLines={song.lyrics.lines.map((l) => l.original)}
         translations={song.lyrics.lines.map((l) => l.translation)}
-        audioPosition={() => engine.position}
+        audioPosition={() => position}
         onComplete={handleTapComplete}
       />
     )
@@ -535,23 +605,12 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       onClick={() => { if (armingAB) armAB(null) }}
     >
       {lyricsLoading && <LoadingOverlay message={lyricsLoading.message} detail={lyricsLoading.detail} />}
-      {wordColorProgress && (
-        <div
-          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-cinnabar-900/95 border border-cinnabar-800 shadow-lg"
-          role="status"
-          aria-live="polite"
-        >
-          <p className="text-white/70 text-xs whitespace-nowrap">
-            Coloring word pairs… {wordColorProgress.done}/{wordColorProgress.total}
-          </p>
-        </div>
-      )}
       {abExporting && (
         <LoadingOverlay message="Exporting A-B loop…" detail="Trimming audio and syncing subtitles" />
       )}
       {/* Top bar */}
-      <header className="flex items-center gap-2 px-3 sm:px-4 py-2.5 border-b border-cinnabar-900 shrink-0">
-        <button onClick={onBack} className="shrink-0 min-h-11 min-w-11 px-2 text-white/40 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]">← Back</button>
+      <header className="flex items-center gap-2 px-4 py-2.5 border-b border-cinnabar-900 shrink-0">
+        <button onClick={onBack} className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-white/40 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]">← Back</button>
         {song && (
           <div className="flex-1 min-w-0 px-1">
             <p className="text-sm text-white/85 truncate font-medium text-balance">{song.title}</p>
@@ -559,19 +618,40 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           </div>
         )}
         <div className="flex items-center gap-2 shrink-0">
-          <div className="inline-flex bg-white/8 rounded-full p-0.5 gap-0.5">
+          <div className="inline-flex bg-white/8 rounded-full p-1 gap-0.5">
             <button onClick={() => setMode('play')}
-              className={`text-[11px] px-3 py-1.5 rounded-[calc(9999px-2px)] touch-manipulation transition-[color,background-color] duration-150 ease-out ${mode === 'play' ? 'bg-cinnabar-accent text-white font-semibold' : 'text-white/50 hover:text-white/70'}`}>Play</button>
+              className={`min-h-9 px-3.5 text-xs rounded-[calc(9999px-4px)] touch-manipulation transition-[color,background-color,transform] duration-150 ease-out active:scale-[0.96] ${mode === 'play' ? 'bg-cinnabar-accent text-white font-semibold' : 'text-white/50 hover:text-white/70'}`}>Play</button>
             <button onClick={() => setMode('edit')}
-              className={`text-[11px] px-3 py-1.5 rounded-[calc(9999px-2px)] touch-manipulation transition-[color,background-color] duration-150 ease-out ${mode === 'edit' ? 'bg-cinnabar-accent text-white font-semibold' : 'text-white/50 hover:text-white/70'}`}>Edit</button>
+              className={`min-h-9 px-3.5 text-xs rounded-[calc(9999px-4px)] touch-manipulation transition-[color,background-color,transform] duration-150 ease-out active:scale-[0.96] ${mode === 'edit' ? 'bg-cinnabar-accent text-white font-semibold' : 'text-white/50 hover:text-white/70'}`}>Edit</button>
           </div>
-          <button onClick={() => onSettings?.()} className="shrink-0 min-h-11 min-w-11 px-2 text-white/40 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]">Settings</button>
+          <button onClick={() => onSettings?.()} className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-white/40 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]">Settings</button>
         </div>
       </header>
 
+      {wordColorProgress && (
+        <WordColorProgressBanner done={wordColorProgress.done} total={wordColorProgress.total} />
+      )}
+
+      {isYouTube && song && (
+        <AttachLocalAudioBanner
+          onAttach={handleAttachLocalAudio}
+          attaching={attachingAudio}
+          error={attachAudioError || undefined}
+        />
+      )}
+
+      {mode === 'play' && lyricsUntimed && canPlayback && (
+        <div className="shrink-0 px-3 sm:px-4 py-2 border-b border-cinnabar-900/80 bg-cinnabar-950/80">
+          <p className="text-[11px] text-white/45 text-pretty">
+            Lyrics are not timed yet. Open Edit → Tap-through to stamp each line while the song plays
+            {hasLocalAudio ? ', or use Auto-align.' : ', or add an audio file for AI align.'}
+          </p>
+        </div>
+      )}
+
       {mode === 'play' && (isJapanese || hasTranslation) && (
-        <div className={[modeToolbarRow, 'flex items-center justify-between gap-3'].join(' ')}>
-          <p className="text-[11px] text-white/40 text-pretty">Lyrics display</p>
+        <div className={displayToolbarRow}>
+          <p className="text-xs text-white/40 text-pretty shrink-0">Lyrics display</p>
           <DisplayMenu
             isJapanese={isJapanese}
             hasTranslation={hasTranslation}
@@ -597,17 +677,18 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       )}
 
       {/* Main: lyrics + controls. Controls dock to the bottom on mobile, sidebar on md+. */}
-      <div className="flex flex-1 min-h-0 flex-col md:flex-row">
-        <div className="flex flex-1 min-h-0 flex-col min-w-0">
+      <div className="flex flex-1 min-h-0 flex-col md:flex-row md:items-stretch">
+        <div className="flex flex-1 min-h-0 flex-col min-w-0 md:max-w-[calc(100%-17rem)] lg:max-w-none">
           {mode === 'play' ? (
             <LyricDisplay
               abLoop={abLoop}
               position={position}
               onLineClick={(line) => {
               if (armingAB) {
-                const t = abEndpointFromLine(armingAB, line, abLoop.a)
-                setABLoop({ [armingAB]: t })
-                seek(t)
+                const patch = abLoopPatchFromLineTap(armingAB, line, abLoop)
+                setABLoop(patch)
+                const t = patch[armingAB]
+                if (t !== undefined) seek(t)
               } else {
                 const idx = useLyricsStore.getState().lines.indexOf(line)
                 if (idx >= 0) useLyricsStore.setState({ activeLine: idx })
@@ -622,12 +703,15 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               seek={seek}
               onScrubStart={onScrubStart}
               onScrubEnd={onScrubEnd}
-              hasAudio={hasAudio}
+              hasLocalAudio={hasLocalAudio}
               title={song?.title ?? ''}
               artist={song?.artist ?? ''}
               sourceLanguage={song?.lyrics.sourceLanguage ?? 'ja'}
               onChangeLines={handleEditLines}
               onAutoAlign={() => beginAlignment('auto')}
+              showTapSync={canPlayback && lyricsUntimed}
+              onTapSync={() => beginAlignment('tap')}
+              onReplaceLyrics={() => setShowLyricsReimport(true)}
             />
           )}
         </div>
@@ -659,17 +743,37 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           onSeek={seek}
           onToggleArm={toggleArm}
           onClearAB={() => setABLoop({ a: null, b: null })}
-          showAbExport={hasAudio && mode === 'play' && isValidABPair(abLoop.a, abLoop.b)}
+          showAbExport={hasLocalAudio && mode === 'play' && isValidABPair(abLoop.a, abLoop.b)}
           onExportAb={handleExportAbLoop}
           abExporting={abExporting}
           abExportError={abExportError}
           abExportCanIncludeSrt={abExportCanIncludeSrt}
           abExportIncludeSrt={abExportIncludeSrt}
           onAbExportIncludeSrtChange={setAbExportIncludeSrt}
-          showRealign={!!song?.audioStoredPath && mode === 'play'}
-          onRealign={() => beginAlignment(manualAlignMode(getDeviceTier()))}
         />
       </div>
+
+      {showLyricsReimport && song && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4" onClick={() => setShowLyricsReimport(false)}>
+          <div
+            className="w-full max-w-md rounded-2xl bg-cinnabar-950 border border-cinnabar-800 p-4 max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-label="Replace lyrics"
+          >
+            <h3 className="text-sm font-semibold text-white mb-3">Replace lyrics</h3>
+            <LyricsImportPanel
+              title={song.title}
+              artist={song.artist}
+              videoId={ytVideoId}
+              sourceLanguage={song.lyrics.sourceLanguage}
+              onApply={handleReplaceLyrics}
+              onCancel={() => setShowLyricsReimport(false)}
+              applyLabel="Replace lyrics"
+            />
+          </div>
+        </div>
+      )}
 
       {song && alignMode === 'auto' && (
         <Suspense fallback={

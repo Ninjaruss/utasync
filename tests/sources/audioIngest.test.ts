@@ -7,7 +7,7 @@ vi.mock('../../src/core/opfs/audio', () => ({
   audioStoragePath: (id: string) => `songs/${id}.mp3`,
 }))
 
-import { ingestAudioFile } from '../../src/sources/audioIngest'
+import { ingestAudioFile, attachAudioToSong } from '../../src/sources/audioIngest'
 
 describe('ingestAudioFile', () => {
   beforeEach(() => saveAudio.mockReset())
@@ -20,5 +20,16 @@ describe('ingestAudioFile', () => {
     expect(saveAudio).toHaveBeenCalledTimes(1)
     expect(saveAudio.mock.calls[0][0]).toBe(songId)
     expect(saveAudio.mock.calls[0][1].byteLength).toBe(3)
+  })
+})
+
+describe('attachAudioToSong', () => {
+  beforeEach(() => saveAudio.mockReset())
+
+  it('saves audio under an existing song id', async () => {
+    const file = new File([new Uint8Array([4, 5])], 'song.mp3', { type: 'audio/mpeg' })
+    const { audioStoredPath } = await attachAudioToSong('existing-id', file)
+    expect(audioStoredPath).toBe('songs/existing-id.mp3')
+    expect(saveAudio).toHaveBeenCalledWith('existing-id', expect.any(ArrayBuffer))
   })
 })

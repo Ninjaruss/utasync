@@ -1,5 +1,6 @@
 import type { Token } from '../core/types'
 import { isParticleToken } from '../core/language'
+import { dedupeTexts, expandVectors } from './embedTextUtils'
 
 export { isParticleToken }
 
@@ -12,17 +13,34 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 
 export interface MatchPair { sourceIndex: number; targetIndex: number; score: number }
 
-// Initial guess, not yet validated against real embeddings — revisit once
-// textEmbedder (the actual on-device model) lands and can be tested against
-// real lyric lines.
-export const MATCH_THRESHOLD = 0.55
+// Tuned for multilingual MiniLM-style embeddings: cross-language pairs often
+// score lower than same-language pairs, so 0.55 left most lyric lines unmatched.
+export const MATCH_THRESHOLD = 0.45
+/** Second-pass floor for tokens still unmatched after greedy pairing. */
+export const RELAXED_MATCH_THRESHOLD = 0.35
 
-/** Greedy best-match: highest-similarity pairs win first, each index used at most once. */
+/** Text sent to the embedder for a source token (reading when it adds signal). */
+export function tokenEmbedText(token: Token): string {
+  const surface = token.surface.trim()
+  if (!surface) return surface
+  const reading = token.reading?.trim()
+  if (reading && reading !== surface) return reading
+  return surface
+}
+
+export interface GreedyMatchOptions {
+  /** When true, multiple source tokens may map to the same target word. */
+  allowManyToOne?: boolean
+}
+
+/** Greedy best-match: highest-similarity pairs win first; each source index used at most once. */
 export function greedyMatch(
   sourceVecs: number[][],
   targetVecs: number[][],
   threshold = MATCH_THRESHOLD,
+  options: GreedyMatchOptions = {},
 ): MatchPair[] {
+  const { allowManyToOne = true } = options
   const candidates: MatchPair[] = []
   for (let i = 0; i < sourceVecs.length; i++) {
     for (let j = 0; j < targetVecs.length; j++) {
@@ -35,12 +53,38 @@ export function greedyMatch(
   const usedTarget = new Set<number>()
   const result: MatchPair[] = []
   for (const c of candidates) {
-    if (usedSource.has(c.sourceIndex) || usedTarget.has(c.targetIndex)) continue
+    if (usedSource.has(c.sourceIndex)) continue
+    if (!allowManyToOne && usedTarget.has(c.targetIndex)) continue
     usedSource.add(c.sourceIndex)
-    usedTarget.add(c.targetIndex)
+    if (!allowManyToOne) usedTarget.add(c.targetIndex)
     result.push(c)
   }
   return result.sort((a, b) => a.sourceIndex - b.sourceIndex)
+}
+
+/** Assigns still-unmatched sources to their best target above the relaxed floor. */
+function relaxedMatchUnmatched(
+  sourceVecs: number[][],
+  targetVecs: number[][],
+  existing: MatchPair[],
+  threshold = RELAXED_MATCH_THRESHOLD,
+): MatchPair[] {
+  const matchedSources = new Set(existing.map((m) => m.sourceIndex))
+  const extra: MatchPair[] = []
+  for (let i = 0; i < sourceVecs.length; i++) {
+    if (matchedSources.has(i)) continue
+    let bestJ = -1
+    let bestScore = threshold
+    for (let j = 0; j < targetVecs.length; j++) {
+      const score = cosineSimilarity(sourceVecs[i], targetVecs[j])
+      if (score >= bestScore) {
+        bestScore = score
+        bestJ = j
+      }
+    }
+    if (bestJ >= 0) extra.push({ sourceIndex: i, targetIndex: bestJ, score: bestScore })
+  }
+  return extra
 }
 
 export interface LineAlignJob {
@@ -101,7 +145,9 @@ function applyTokenMatches(
   sourceVecs: number[][],
   targetVecs: number[][],
 ): Token[] {
-  const matches = greedyMatch(sourceVecs, targetVecs)
+  const primary = greedyMatch(sourceVecs, targetVecs)
+  const relaxed = relaxedMatchUnmatched(sourceVecs, targetVecs, primary)
+  const matches = [...primary, ...relaxed]
   const updated = tokens.map((t) => ({ ...t }))
   for (const m of matches) {
     const tokenIndex = alignableIndices[m.sourceIndex]
@@ -132,9 +178,10 @@ export async function alignLinesTokens(
     const texts: string[] = []
     for (const slice of batch) {
       const { tokens, targetWords } = jobs[slice.lineIndex]
-      texts.push(...slice.alignableIndices.map((i) => tokens[i].surface), ...targetWords)
+      texts.push(...slice.alignableIndices.map((i) => tokenEmbedText(tokens[i])), ...targetWords)
     }
-    const vecs = await embed(texts)
+    const { unique, indexMap } = dedupeTexts(texts)
+    const vecs = expandVectors(await embed(unique), indexMap)
     let offset = 0
     for (const slice of batch) {
       const sourceVecs = vecs.slice(offset, offset + slice.sourceCount)

@@ -22,10 +22,10 @@ self.onmessage = async (e: MessageEvent) => {
   }
 
   if (type === 'embed') {
-    const { texts, requestId } = payload as { texts: string[]; requestId: number }
+    const { texts, requestId, chunkSize } = payload as { texts: string[]; requestId: number; chunkSize?: number }
     if (!extractor) { self.postMessage({ type: 'error', payload: { requestId, message: 'Model not loaded' } }); return }
     try {
-      const EMBED_CHUNK = 32
+      const EMBED_CHUNK = chunkSize ?? 32
       const vecs: number[][] = []
       for (let start = 0; start < texts.length; start += EMBED_CHUNK) {
         const chunk = texts.slice(start, start + EMBED_CHUNK)

@@ -97,6 +97,20 @@ describe('PlayerView A/B loop', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
+  it('loops a single lyric line when B is set before A', async () => {
+    render(<PlayerView songId="song1" onBack={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
+    await openPracticePanel()
+    fireEvent.click(screen.getByRole('button', { name: /b loop point/i }))
+    fireEvent.click(screen.getByText('hello'))
+    fireEvent.click(screen.getByRole('button', { name: /a loop point/i }))
+    fireEvent.click(screen.getByText('hello'))
+    const { abLoop } = usePlayerStore.getState()
+    expect(abLoop.a).toBe(1)
+    expect(abLoop.b).toBe(3)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   it('clicking outside the lyric list cancels arming', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())

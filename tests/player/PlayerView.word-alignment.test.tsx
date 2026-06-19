@@ -28,6 +28,7 @@ vi.mock('../../src/language/japanese/phonetics', () => ({
   katakanaToHiragana: (text: string) => text,
 }))
 vi.mock('../../src/ai-pipeline/textEmbedder', () => ({
+  preloadEmbedder: vi.fn(),
   // Deterministic fake: identical text -> identical vector, so '君' aligns to
   // whichever target word is given the same fake embedding below.
   embedTexts: vi.fn(async (texts: string[]) =>

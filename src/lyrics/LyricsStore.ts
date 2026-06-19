@@ -51,7 +51,11 @@ export const useLyricsStore = create<LyricsState>()(
         if (next !== activeLine) set({ activeLine: next })
       },
       setFuriganaMode: (furiganaMode) => set({ furiganaMode }),
-      setShowTranslation: (showTranslation) => set({ showTranslation }),
+      setShowTranslation: (showTranslation) => set((state) => ({
+        showTranslation,
+        // Side-by-side only makes sense with translation visible.
+        lyricsLayout: showTranslation ? state.lyricsLayout : 'stacked',
+      })),
       setLyricsLayout: (lyricsLayout) => set({ lyricsLayout }),
       setClozeMode: (clozeMode) => set({ clozeMode }),
     }),

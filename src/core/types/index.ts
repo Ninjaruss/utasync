@@ -13,7 +13,7 @@ export interface SourceRef {
   /** youtube videoId | spotify trackId | OPFS audio path */
   ref: string
   url?: string
-  /** true when the app can read the waveform (YouTube/upload) → AI-alignable */
+  /** true when the app can decode local audio for AI align / export (upload only) */
   hasAudio: boolean
 }
 

@@ -4,12 +4,23 @@ import { LinkParser } from '../../src/sources/LinkParser'
 import { db } from '../../src/core/db/schema'
 
 vi.mock('../../src/sources/youtube', () => ({
-  fetchYouTubeMeta: vi.fn(async () => ({ title: 'Test Song', artist: 'Test Artist' })),
+  fetchYouTubeMeta: vi.fn(async () => ({ title: 'Test Song', artist: 'Test Artist', videoId: 'abc123' })),
   extractVideoId: vi.fn(() => 'abc123'),
 }))
 
+vi.mock('../../src/sources/lyricsResolver', () => ({
+  resolveLyricsForSong: vi.fn(async () => ({
+    lines: [
+      { startTime: 0, endTime: 0, original: 'Line one', translation: '' },
+      { startTime: 0, endTime: 0, original: 'Line two', translation: '' },
+    ],
+    synced: false,
+    source: 'lrclib-plain',
+  })),
+  lyricsSourceLabel: vi.fn(() => 'LRCLIB (plain)'),
+}))
+
 vi.mock('../../src/sources/lrclib', () => ({
-  findLyrics: vi.fn(async () => ({ lrc: 'Line one\nLine two', synced: false })),
   findSecondLanguageLyrics: vi.fn(async () => null),
 }))
 
@@ -19,11 +30,17 @@ vi.mock('../../src/sources/audioIngest', () => ({
 
 beforeEach(async () => {
   await db.songs.clear()
-  const lrclib = await import('../../src/sources/lrclib')
-  vi.mocked(lrclib.findLyrics).mockReset()
-  vi.mocked(lrclib.findLyrics).mockResolvedValue({ lrc: 'Line one\nLine two', synced: false })
-  vi.mocked(lrclib.findSecondLanguageLyrics).mockReset()
-  vi.mocked(lrclib.findSecondLanguageLyrics).mockResolvedValue(null)
+  const resolver = await import('../../src/sources/lyricsResolver')
+  vi.mocked(resolver.resolveLyricsForSong).mockReset()
+  vi.mocked(resolver.resolveLyricsForSong).mockResolvedValue({
+    lines: [
+      { startTime: 0, endTime: 0, original: 'Line one', translation: '' },
+      { startTime: 0, endTime: 0, original: 'Line two', translation: '' },
+    ],
+    synced: false,
+    source: 'lrclib-plain',
+  })
+  vi.mocked(resolver.lyricsSourceLabel).mockReturnValue('LRCLIB (plain)')
 })
 
 async function continueToLyricsFound(onSongReady: (id: string) => void) {
@@ -48,12 +65,15 @@ describe('LinkParser', () => {
     expect(onSongReady).not.toHaveBeenCalled()
   })
 
-  it('auto-searches LRCLIB after metadata loads and adds the song', async () => {
-    const lrclib = await import('../../src/sources/lrclib')
+  it('auto-resolves lyrics after metadata loads and adds the song', async () => {
+    const resolver = await import('../../src/sources/lyricsResolver')
     const onSongReady = vi.fn()
     await continueToLyricsFound(onSongReady)
-    expect(lrclib.findLyrics).toHaveBeenCalledWith('Test Song', 'Test Artist')
-    expect(screen.queryByText(/paste a second/i)).not.toBeInTheDocument()
+    expect(resolver.resolveLyricsForSong).toHaveBeenCalledWith({
+      title: 'Test Song',
+      artist: 'Test Artist',
+      videoId: 'abc123',
+    })
   })
 
   it('auto-attaches a translation on add song when counts match', async () => {
@@ -66,17 +86,17 @@ describe('LinkParser', () => {
     expect(song?.lyrics.lines.map((l) => l.translation)).toEqual(['Translated one', 'Translated two'])
   })
 
-  it('lets the user skip LRCLIB search and paste lyrics', async () => {
-    const lrclib = await import('../../src/sources/lrclib')
-    vi.mocked(lrclib.findLyrics).mockImplementation(() => new Promise(() => {}))
+  it('lets the user skip search and paste lyrics', async () => {
+    const resolver = await import('../../src/sources/lyricsResolver')
+    vi.mocked(resolver.resolveLyricsForSong).mockImplementation(() => new Promise(() => {}))
     const onSongReady = vi.fn()
     render(<LinkParser onSongReady={onSongReady} />)
     fireEvent.change(screen.getByPlaceholderText(/paste a youtube link/i), { target: { value: 'https://youtu.be/abc123' } })
     fireEvent.click(screen.getByRole('button', { name: /continue/i }))
-    await waitFor(() => expect(screen.getByText(/searching lrclib/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/checking youtube captions/i)).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /paste lyrics/i }))
     await waitFor(() => expect(screen.getByPlaceholderText(/paste lyrics/i)).toBeInTheDocument())
-    expect(lrclib.findLyrics).toHaveBeenCalled()
+    expect(resolver.resolveLyricsForSong).toHaveBeenCalled()
   })
 
   it('attaches uploaded audio to the built song when provided', async () => {
@@ -84,7 +104,7 @@ describe('LinkParser', () => {
     render(<LinkParser onSongReady={onSongReady} />)
     fireEvent.change(screen.getByPlaceholderText(/paste a youtube link/i), { target: { value: 'https://youtu.be/abc123' } })
     const file = new File([new Uint8Array([1, 2, 3])], 'song.mp3', { type: 'audio/mpeg' })
-    const fileInput = screen.getAllByLabelText(/attach audio/i).find((el) => el.tagName === 'INPUT') as HTMLInputElement
+    const fileInput = screen.getAllByLabelText(/add audio file/i).find((el) => el.tagName === 'INPUT') as HTMLInputElement
     fireEvent.change(fileInput, { target: { files: [file] } })
     fireEvent.click(screen.getByRole('button', { name: /continue/i }))
     await waitFor(() => expect(screen.getByText(/found plain lyrics/i)).toBeInTheDocument(), { timeout: 3000 })

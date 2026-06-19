@@ -59,10 +59,10 @@ export function SettingsView({ onClose }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-cinnabar-950 text-white p-4 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Settings</h1>
-        <button onClick={onClose} className="text-white/40 hover:text-white text-xl">✕</button>
+    <div className="min-h-screen bg-cinnabar-950 text-white px-4 py-4 space-y-6 max-w-2xl mx-auto">
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold text-balance">Settings</h1>
+        <button onClick={onClose} className="min-h-11 min-w-11 flex items-center justify-center text-white/40 hover:text-white text-xl touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]" aria-label="Close settings">✕</button>
       </div>
 
       <div className="bg-cinnabar-900 rounded-xl p-4 space-y-1">
@@ -144,14 +144,14 @@ export function SettingsView({ onClose }: Props) {
               <p className="text-sm font-medium">{song.title}</p>
               <p className="text-xs text-white/40">{song.artist}</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-1 shrink-0">
               <button
                 onClick={() => downloadFile(exportLRC(song.lyrics.lines), `${song.title}.lrc`, 'text/plain')}
-                className="text-xs text-white/40 hover:text-white"
+                className="min-h-11 px-3 text-xs text-white/40 hover:text-white touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]"
               >
                 LRC
               </button>
-              <button onClick={() => handleDelete(song)} className="text-xs text-red-400 hover:text-red-300">
+              <button onClick={() => handleDelete(song)} className="min-h-11 px-3 text-xs text-red-400 hover:text-red-300 touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]">
                 Delete
               </button>
             </div>

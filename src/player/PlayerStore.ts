@@ -43,7 +43,7 @@ export const usePlayerStore = create<PlayerState>()(
       volume: DEFAULT_VOLUME,
       abLoop: DEFAULT_AB_LOOP,
       armingAB: null,
-      setCurrentSong: (id) => set({ currentSongId: id, position: 0, playbackState: 'idle' }),
+      setCurrentSong: (id) => set({ currentSongId: id, position: 0, duration: 0, playbackState: 'idle' }),
       setPlaybackState: (playbackState) => set({ playbackState }),
       setPosition: (position) => set({ position }),
       setDuration: (duration) => set({ duration }),

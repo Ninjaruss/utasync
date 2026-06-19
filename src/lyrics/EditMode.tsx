@@ -9,7 +9,7 @@ import {
   lyricRowPlayheadActive,
   timestampPillBtn,
   toolbarActionBtn,
-  modeToolbarRow,
+  editToolbarRow,
   toolbarSectionLabel,
 } from '../core/ui/toolbarClasses'
 import { lineIndexAtPlayhead } from './lineTiming'
@@ -22,13 +22,19 @@ interface Props {
   seek?: (time: number) => void
   onScrubStart?: () => void
   onScrubEnd?: () => void
-  /** Whether this song has locally stored audio for Auto-align to decode (not just an active playback source — YouTube alone doesn't count). */
-  hasAudio: boolean
+  /** Whether this song has a local audio file the app can decode (AI align, export). YouTube streaming alone does not count. */
+  hasLocalAudio: boolean
   title: string
   artist: string
   sourceLanguage: Language
   onChangeLines: (lines: TimedLine[]) => void
+  /** Sole re-align entry point (Play mode intentionally has no duplicate control). */
   onAutoAlign: () => void
+  /** Tap-through timing while audio plays (YouTube or local). */
+  showTapSync?: boolean
+  onTapSync?: () => void
+  /** Re-fetch / replace main lyrics from captions, LRCLIB, paste, or file. */
+  onReplaceLyrics?: () => void
 }
 
 const DELETE_CONFIRM_MS = 3000
@@ -132,12 +138,12 @@ function Row({
         </div>
 
         {editing && (
-          <div className="flex items-center gap-1 shrink-0">
-            <button onClick={onAdd} aria-label={`Add line after ${index + 1}`} className="text-white/50 px-1">⊕</button>
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button onClick={onAdd} aria-label={`Add line after ${index + 1}`} className="min-w-11 min-h-11 flex items-center justify-center text-white/50 hover:text-white touch-manipulation transition-[color,transform] duration-150 ease-out active:scale-[0.96]">⊕</button>
             {deleteArmed ? (
-              <button onClick={onConfirmDelete} aria-label={`Confirm delete line ${index + 1}`} className="text-red-400 px-1 font-semibold whitespace-nowrap">Confirm?</button>
+              <button onClick={onConfirmDelete} aria-label={`Confirm delete line ${index + 1}`} className="min-h-11 px-2 text-red-400 font-semibold whitespace-nowrap text-xs touch-manipulation active:scale-[0.96]">Confirm?</button>
             ) : (
-              <button onClick={onArmDelete} aria-label={`Delete line ${index + 1}`} className="text-white/50 px-1">🗑</button>
+              <button onClick={onArmDelete} aria-label={`Delete line ${index + 1}`} className="min-w-11 min-h-11 flex items-center justify-center text-white/50 hover:text-white touch-manipulation transition-[color,transform] duration-150 ease-out active:scale-[0.96]">🗑</button>
             )}
           </div>
         )}
@@ -174,7 +180,7 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
@@ -253,10 +259,20 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className={[modeToolbarRow, 'space-y-2'].join(' ')}>
-        <div className="flex items-center gap-2">
-          <p className={[toolbarSectionLabel, 'flex-1'].join(' ')}>Edit lyrics</p>
-          {hasAudio ? (
+      <div className={editToolbarRow}>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <p className={[toolbarSectionLabel, 'flex-1 min-w-[6rem]'].join(' ')}>Edit lyrics</p>
+          {onReplaceLyrics && (
+            <button type="button" onClick={onReplaceLyrics} className={toolbarActionBtn}>
+              Replace lyrics
+            </button>
+          )}
+          {showTapSync && onTapSync && (
+            <button type="button" onClick={onTapSync} className={toolbarActionBtn}>
+              Tap-through
+            </button>
+          )}
+          {hasLocalAudio ? (
             <button
               type="button"
               onClick={() => setConfirmAutoAlign(true)}
@@ -273,14 +289,16 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             {hasSecondLang ? '2nd language' : '+ Translation'}
           </button>
         </div>
-        {!hasAudio && (
-          <p className="text-[10px] text-white/30 text-pretty">Auto-align needs uploaded audio on this song.</p>
+        {!hasLocalAudio && (
+          <p className="text-[10px] text-white/30 text-pretty">
+            AI auto-align and A-B export need an audio file. Use Tap-through to time lyrics while the song plays.
+          </p>
         )}
         <p className="text-[10px] text-white/30 text-pretty">Tap a line to edit text · ⏱ to set timestamps</p>
       </div>
 
       <div
-        className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 space-y-1.5"
+        className="flex-1 overflow-y-auto px-4 py-3 space-y-2"
         aria-label="Lyric lines"
         style={{ scrollbarWidth: 'thin' }}
         onClick={() => { if (openPopover !== null) cancelPopover() }}

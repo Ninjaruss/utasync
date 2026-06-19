@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, type ChangeEvent } from 'react'
 import { fetchYouTubeMeta } from './youtube'
-import { findLyrics } from './lrclib'
-import { parseLRC } from '../lyrics/lrc-parser'
+import { resolveLyricsForSong, lyricsSourceLabel } from './lyricsResolver'
 import { db } from '../core/db/schema'
 import { buildSong, linesFromPlainText, type BuildSongInput } from './songBuilder'
 import { detectLanguage } from '../lyrics/bilingual'
@@ -16,18 +15,21 @@ type ManualLyricSource = 'paste' | 'subtitle'
 type LyricsPhase =
   | { kind: 'idle' }
   | { kind: 'searching' }
-  | { kind: 'found'; lines: TimedLine[]; synced: boolean }
+  | { kind: 'found'; lines: TimedLine[]; synced: boolean; sourceLabel: string }
   | { kind: 'manual'; source: ManualLyricSource }
 
 interface Props {
   onSongReady: (songId: string) => void
+  /** When true, renders inside AddSongSheet without standalone page chrome. */
+  embedded?: boolean
 }
 
-export function LinkParser({ onSongReady }: Props) {
+export function LinkParser({ onSongReady, embedded = false }: Props) {
   const [url, setUrl] = useState('')
   const [audioFile, setAudioFile] = useState<File | null>(null)
   const [title, setTitle] = useState('')
   const [artist, setArtist] = useState('')
+  const [videoId, setVideoId] = useState<string | null>(null)
   const [metaLoaded, setMetaLoaded] = useState(false)
   const [lyricsPhase, setLyricsPhase] = useState<LyricsPhase>({ kind: 'idle' })
   const [pasted, setPasted] = useState('')
@@ -44,6 +46,7 @@ export function LinkParser({ onSongReady }: Props) {
       const meta = await fetchYouTubeMeta(url)
       setTitle(meta.title)
       setArtist(meta.artist)
+      setVideoId(meta.videoId)
       setMetaLoaded(true)
       searchGenRef.current++
       setLyricsPhase({ kind: 'idle' })
@@ -74,12 +77,16 @@ export function LinkParser({ onSongReady }: Props) {
     setLyricsPhase({ kind: 'searching' })
     setError('')
 
-    findLyrics(title.trim(), artist.trim())
-      .then((found) => {
+    resolveLyricsForSong({ title: title.trim(), artist: artist.trim(), videoId })
+      .then((result) => {
         if (gen !== searchGenRef.current) return
-        if (found) {
-          const lines = found.synced ? parseLRC(found.lrc) : linesFromPlainText(found.lrc)
-          setLyricsPhase({ kind: 'found', lines, synced: found.synced })
+        if (result.lines.length > 0) {
+          setLyricsPhase({
+            kind: 'found',
+            lines: result.lines,
+            synced: result.synced,
+            sourceLabel: lyricsSourceLabel(result.source),
+          })
         } else {
           setLyricsPhase({ kind: 'manual', source: 'paste' })
         }
@@ -167,12 +174,16 @@ export function LinkParser({ onSongReady }: Props) {
   )
 
   return (
-    <div className="min-h-screen bg-cinnabar-950 flex flex-col items-center justify-center p-6 gap-6">
+    <div className={embedded ? 'w-full space-y-3' : 'min-h-screen bg-cinnabar-950 flex flex-col items-center justify-center p-6 gap-6'}>
       {loading && <LoadingOverlay message={loading.message} detail={loading.detail} />}
-      <h1 className="text-3xl font-bold text-cinnabar-accent tracking-widest">歌sync</h1>
-      <p className="text-white/50 text-sm text-center">Learn languages through music</p>
+      {!embedded && (
+        <>
+          <h1 className="text-3xl font-bold text-cinnabar-accent tracking-widest">歌sync</h1>
+          <p className="text-white/50 text-sm text-center">Learn languages through music</p>
+        </>
+      )}
 
-      <div className="w-full max-w-md space-y-3">
+      <div className={embedded ? 'space-y-3' : 'w-full max-w-md space-y-3'}>
         <input
           value={url}
           onChange={(e) => { setUrl(e.target.value); setMetaLoaded(false) }}
@@ -181,10 +192,10 @@ export function LinkParser({ onSongReady }: Props) {
         />
 
         <label
-          aria-label="Attach audio for instant auto-sync (optional)"
-          className="block w-full px-4 py-3 bg-cinnabar-900 text-white/60 rounded-xl border border-cinnabar-800 cursor-pointer text-xs"
+          aria-label="Attach audio file to unlock AI align and export"
+          className="block w-full px-4 py-3 bg-cinnabar-900 text-white/60 rounded-xl border border-cinnabar-800 cursor-pointer text-xs text-pretty"
         >
-          {audioFile ? audioFile.name : '+ Attach audio for instant auto-sync (optional)'}
+          {audioFile ? audioFile.name : '+ Add audio file (unlocks AI align & export — optional)'}
           <input
             type="file"
             accept="audio/*"
@@ -204,7 +215,7 @@ export function LinkParser({ onSongReady }: Props) {
         ) : (
           <>
             <p className="text-white/40 text-xs text-pretty">
-              Verify title and artist — LRCLIB search starts automatically.
+              Verify title and artist — YouTube captions and LRCLIB are checked automatically.
             </p>
 
             <div className="space-y-2">
@@ -236,28 +247,28 @@ export function LinkParser({ onSongReady }: Props) {
 
               {lyricsPhase.kind === 'idle' && (
                 <div className="space-y-2">
-                  <p className="text-white/35 text-xs">Starting LRCLIB search…</p>
+                  <p className="text-white/35 text-xs">Checking YouTube captions & LRCLIB…</p>
                   {skipSearchButtons}
                 </div>
               )}
 
               {lyricsPhase.kind === 'searching' && (
                 <div className="space-y-2">
-                  <p className="text-white/35 text-xs text-center py-1">Searching LRCLIB…</p>
+                  <p className="text-white/35 text-xs text-center py-1">Checking YouTube captions & LRCLIB…</p>
                   <p className="text-white/25 text-[10px] text-center">Skip search and add lyrics manually:</p>
                   {skipSearchButtons}
                 </div>
               )}
 
               {lyricsPhase.kind === 'found' && (
-                <p className="text-green-400/90 text-sm">
-                  Found {lyricsPhase.synced ? 'synced' : 'plain'} lyrics ({lyricsPhase.lines.length} lines)
+                <p className="text-green-400/90 text-sm text-pretty">
+                  Found {lyricsPhase.synced ? 'synced' : 'plain'} lyrics from {lyricsPhase.sourceLabel} ({lyricsPhase.lines.length} lines)
                 </p>
               )}
 
               {lyricsPhase.kind === 'manual' && (
                 <>
-                  <p className="text-white/35 text-xs">No LRCLIB match — paste lyrics or choose a subtitle file.</p>
+                  <p className="text-white/35 text-xs text-pretty">No captions or LRCLIB match — paste lyrics or choose a subtitle file.</p>
                   {skipSearchButtons}
                   {lyricsPhase.source === 'paste' && (
                     <textarea
@@ -292,7 +303,9 @@ export function LinkParser({ onSongReady }: Props) {
         {error && <p className="text-red-400 text-sm text-center">{error}</p>}
       </div>
 
-      <p className="text-white/20 text-xs text-center">2 free full song trials included</p>
+      {!embedded && (
+        <p className="text-white/20 text-xs text-center">2 free full song trials included</p>
+      )}
     </div>
   )
 }

@@ -19,7 +19,7 @@ function renderEditMode(overrides: Partial<Parameters<typeof EditMode>[0]> = {})
     <EditMode
       lines={lines}
       playhead={() => 9}
-      hasAudio
+      hasLocalAudio
       onChangeLines={onChangeLines}
       onAutoAlign={onAutoAlign}
       title="t"
@@ -122,10 +122,10 @@ describe('EditMode', () => {
     expect(onAutoAlign).toHaveBeenCalled()
   })
 
-  it('shows a locally-stored-audio hint instead of Auto-align when hasAudio is false', () => {
-    renderEditMode({ hasAudio: false })
+  it('shows a local-audio hint instead of Auto-align when hasLocalAudio is false', () => {
+    renderEditMode({ hasLocalAudio: false })
     expect(screen.queryByRole('button', { name: /auto-align/i })).toBeNull()
-    expect(screen.getByText(/needs uploaded audio/i)).toBeTruthy()
+    expect(screen.getByText(/tap-through to time lyrics/i)).toBeTruthy()
   })
 
   it('marks untimed lines', () => {
@@ -156,7 +156,7 @@ describe('EditMode', () => {
       <EditMode
         lines={updatedLines}
         playhead={() => 9}
-        hasAudio
+        hasLocalAudio
         onChangeLines={vi.fn()}
         onAutoAlign={vi.fn()}
         title="t"
@@ -194,7 +194,7 @@ describe('EditMode', () => {
         lines={timedLines}
         playhead={() => 1}
         playheadPosition={1}
-        hasAudio
+        hasLocalAudio
         onChangeLines={vi.fn()}
         onAutoAlign={vi.fn()}
         title="t"

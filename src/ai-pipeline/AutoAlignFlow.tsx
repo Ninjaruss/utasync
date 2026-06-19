@@ -129,9 +129,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
 
   const stageDetail: Partial<Record<Stage, string>> = {
     separating: 'Isolating vocals before transcription',
-    loading: tier === 'lite'
-      ? `First run only — downloading speech model (${WHISPER_DOWNLOAD_HINT.lite})`
-      : `First run only — downloading speech model (${WHISPER_DOWNLOAD_HINT.full})`,
+    loading: `First run only — downloading speech model (${WHISPER_DOWNLOAD_HINT})`,
     transcribing: tier === 'lite'
       ? 'On-device speech recognition — can take a few minutes on phones'
       : 'Running on-device speech recognition',
