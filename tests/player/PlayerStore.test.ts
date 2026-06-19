@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { usePlayerStore } from '../../src/player/PlayerStore'
+import { usePlayerStore, DEFAULT_VOLUME } from '../../src/player/PlayerStore'
+
+describe('PlayerStore volume', () => {
+  it('uses a safe default volume for new sessions', () => {
+    expect(DEFAULT_VOLUME).toBe(0.75)
+  })
+})
 
 describe('PlayerStore A/B arming', () => {
   beforeEach(() => usePlayerStore.setState({ armingAB: null, abLoop: { a: null, b: null, preRoll: 2, loopCount: 3, crossfadeDuration: 0.3 } }))

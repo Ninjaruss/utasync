@@ -1,5 +1,6 @@
 import type { ABLoop } from '../core/types'
 import type { AudioEngine } from './AudioEngine'
+import { isABLoopActive } from './abLoopUtils'
 
 export class ABLoopController {
   private timer: ReturnType<typeof setTimeout> | null = null
@@ -19,10 +20,10 @@ export class ABLoopController {
 
   tick() {
     const loop = this.getLoop()
-    if (loop.a === null || loop.b === null) return
+    if (!isABLoopActive(loop)) return
     const pos = this.getPosition()
-    if (pos >= loop.b) {
-      this.engine.seek(loop.a - loop.preRoll)
+    if (pos >= loop.b!) {
+      this.engine.seek(Math.max(0, loop.a!))
     }
   }
 

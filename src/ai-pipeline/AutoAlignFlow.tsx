@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { getDeviceTier } from './capability'
+import { getWhisperModel, WHISPER_DOWNLOAD_HINT } from './models'
+import { getAudioFile } from '../core/opfs/audio'
 import type { Song } from '../core/types'
 import { alignLyrics, type TranscriptWord } from './aligner'
 import { db } from '../core/db/schema'
@@ -8,6 +10,8 @@ interface Props {
   song: Song
   onComplete: (updated: Song) => void
   onClose: () => void
+  /** When true, begin alignment as soon as the flow opens (e.g. fresh audio upload). */
+  autoStart?: boolean
 }
 
 type Stage = 'idle' | 'separating' | 'loading' | 'transcribing' | 'aligning' | 'done' | 'error'
@@ -16,12 +20,14 @@ type Stage = 'idle' | 'separating' | 'loading' | 'transcribing' | 'aligning' | '
 interface WhisperChunk { text: string; timestamp: [number, number] }
 interface WhisperResult { text: string; chunks?: WhisperChunk[] }
 
-export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
-  const [stage, setStage] = useState<Stage>('idle')
+export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: Props) {
+  const tier = getDeviceTier()
+  const [stage, setStage] = useState<Stage>(() =>
+    autoStart && tier !== 'manual' ? 'loading' : 'idle',
+  )
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState('')
   const [lowConfidence, setLowConfidence] = useState(false)
-  const tier = getDeviceTier()
 
   const start = async () => {
     try {
@@ -29,7 +35,6 @@ export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
       let sampleRate = 44100
 
       if (song.audioStoredPath) {
-        const { getAudioFile } = await import('../core/opfs/audio')
         const file = await getAudioFile(song.id)
         const arrayBuffer = await file.arrayBuffer()
         const ctx = new AudioContext()
@@ -65,7 +70,7 @@ export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
       setStage('loading')
       setProgress(0)
       const whisperWorker = new Worker(new URL('./whisper.worker.ts', import.meta.url), { type: 'module' })
-      whisperWorker.postMessage({ type: 'load' })
+      whisperWorker.postMessage({ type: 'load', payload: { model: getWhisperModel(tier) } })
 
       const transcriptResult = await new Promise<WhisperResult>((res, rej) => {
         whisperWorker.onmessage = (e) => {
@@ -107,14 +112,30 @@ export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
     }
   }
 
+  useEffect(() => {
+    if (autoStart && tier !== 'manual') void start()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const stageLabel: Record<Stage, string> = {
     idle: '',
     separating: 'Separating vocals…',
-    loading: 'Loading AI model (first run only)…',
+    loading: 'Loading AI model…',
     transcribing: 'Transcribing audio…',
     aligning: 'Aligning to lyrics…',
     done: 'Done!',
     error: 'Error',
+  }
+
+  const stageDetail: Partial<Record<Stage, string>> = {
+    separating: 'Isolating vocals before transcription',
+    loading: tier === 'lite'
+      ? `First run only — downloading speech model (${WHISPER_DOWNLOAD_HINT.lite})`
+      : `First run only — downloading speech model (${WHISPER_DOWNLOAD_HINT.full})`,
+    transcribing: tier === 'lite'
+      ? 'On-device speech recognition — can take a few minutes on phones'
+      : 'Running on-device speech recognition',
+    aligning: 'Matching the transcript to your lyric lines',
   }
 
   const tierNote =
@@ -128,18 +149,30 @@ export function AutoAlignFlow({ song, onComplete, onClose }: Props) {
         <h2 className="text-white font-semibold text-lg">Auto-Align Lyrics</h2>
         <p className="text-white/50 text-sm">{tierNote}</p>
 
-        {stage === 'idle' && tier !== 'manual' && (
+        {stage === 'idle' && tier !== 'manual' && !autoStart && (
           <button onClick={start} className="w-full py-3 bg-cinnabar-accent text-white rounded-xl font-medium">
             Start Auto-Align
           </button>
         )}
 
-        {stage !== 'idle' && stage !== 'error' && stage !== 'done' && (
-          <div className="space-y-2">
-            <p className="text-white/70 text-sm">{stageLabel[stage]}</p>
-            <div className="h-2 bg-cinnabar-800 rounded-full">
-              <div className="h-full bg-cinnabar-accent rounded-full transition-all" style={{ width: `${progress}%` }} />
+        {(stage !== 'idle' || autoStart) && stage !== 'error' && stage !== 'done' && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="w-5 h-5 rounded-full border-2 border-cinnabar-accent border-t-transparent animate-spin shrink-0" />
+              <div>
+                <p className="text-white/80 text-sm font-medium">{stageLabel[stage]}</p>
+                {stageDetail[stage] && <p className="text-white/35 text-xs">{stageDetail[stage]}</p>}
+              </div>
             </div>
+            <div className="h-2 bg-cinnabar-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-cinnabar-accent rounded-full transition-[width] duration-300 ease-out"
+                style={{ width: progress > 0 ? `${progress}%` : '100%', opacity: progress > 0 ? 1 : 0.4, animation: progress === 0 ? 'pulse 1.5s ease-in-out infinite' : undefined }}
+              />
+            </div>
+            {progress > 0 && (
+              <p className="text-right text-[11px] text-white/30 tabular-nums">{Math.round(progress)}%</p>
+            )}
           </div>
         )}
 

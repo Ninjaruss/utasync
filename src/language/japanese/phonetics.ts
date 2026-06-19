@@ -34,3 +34,8 @@ export async function toKatakana(text: string): Promise<string> {
   const k = await getKuroshiro()
   return k.convert(text, { to: 'katakana' })
 }
+
+/** Kuromoji readings are katakana; furigana rt tags conventionally use hiragana. */
+export function katakanaToHiragana(text: string): string {
+  return text.replace(/[\u30a1-\u30f6]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60))
+}

@@ -24,14 +24,15 @@ export function LibraryScreen({ onOpen, onAdd, onSettings }: Props) {
 
   return (
     <div className="min-h-screen bg-cinnabar-950 flex flex-col">
+      <div className="w-full max-w-2xl mx-auto flex flex-col flex-1 min-h-screen">
       <div className="flex items-center justify-between px-4 py-4 shrink-0">
         <span className="text-cinnabar-accent font-semibold tracking-widest text-lg">歌sync</span>
-        <button onClick={onSettings} className="text-white/40 hover:text-white text-xs">⚙ Settings</button>
+        <button onClick={onSettings} className="min-h-11 px-2 text-white/40 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out">⚙ Settings</button>
       </div>
 
       <div className="px-4 pb-3 shrink-0">
         <button onClick={onAdd}
-          className="w-full py-3 rounded-xl bg-cinnabar-accent text-white font-semibold text-sm flex items-center justify-center gap-2">
+          className="w-full py-3 rounded-xl bg-cinnabar-accent text-white font-semibold text-sm flex items-center justify-center gap-2 touch-manipulation transition-[transform,background-color] duration-150 ease-out active:scale-[0.98]">
           ＋ Add a song
         </button>
       </div>
@@ -45,7 +46,7 @@ export function LibraryScreen({ onOpen, onAdd, onSettings }: Props) {
           return (
             <div key={song.id} onClick={() => onOpen(song.id)}
               className="bg-cinnabar-900 rounded-xl p-3 flex items-center gap-3 cursor-pointer hover:bg-cinnabar-800 transition-colors">
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-cinnabar-accent to-cinnabar-800 shrink-0 overflow-hidden">
+              <div className="w-10 h-10 rounded-[10px] bg-gradient-to-br from-cinnabar-accent to-cinnabar-800 shrink-0 overflow-hidden">
                 {song.albumArtUrl && <img src={song.albumArtUrl} alt="" className="w-full h-full object-cover" />}
               </div>
               <div className="flex-1 min-w-0">
@@ -56,10 +57,12 @@ export function LibraryScreen({ onOpen, onAdd, onSettings }: Props) {
                 {sync === 'synced' ? 'synced' : 'needs sync'}
               </span>
               <button onClick={(e) => { e.stopPropagation(); handleDelete(song) }}
-                className="text-xs text-red-400 hover:text-red-300 px-1 shrink-0">✕</button>
+                className="min-w-11 min-h-11 flex items-center justify-center text-xs text-red-400 hover:text-red-300 shrink-0 touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]"
+                aria-label={`Delete ${song.title}`}>✕</button>
             </div>
           )
         })}
+      </div>
       </div>
     </div>
   )

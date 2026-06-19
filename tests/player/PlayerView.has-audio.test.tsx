@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import 'fake-indexeddb/auto'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { db } from '../../src/core/db/schema'
@@ -7,7 +7,7 @@ import { PlayerView } from '../../src/player/PlayerView'
 vi.mock('../../src/player/AudioEngine', () => ({
   AudioEngine: class {
     duration = 10; position = 3
-    async load() {} play() {} pause() {} seek() {} destroy() {}
+    async load() {} play() {} pause() {} seek() {} destroy() {} setRate() {} setVolume() {}
     onTimeUpdate() {} onEnd() {}
   },
 }))
@@ -31,7 +31,7 @@ describe('PlayerView hasAudio gating', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     await waitFor(() => expect(screen.getByLabelText(/edit timestamp/i)).toBeTruthy())
     expect(screen.queryByRole('button', { name: /auto-align/i })).toBeNull()
-    expect(screen.getByText(/needs locally stored audio/i)).toBeTruthy()
+    expect(screen.getByText(/needs uploaded audio/i)).toBeTruthy()
   })
 
   it('offers Auto-align once audioStoredPath is present', async () => {

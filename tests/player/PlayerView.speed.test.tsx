@@ -3,11 +3,12 @@ import 'fake-indexeddb/auto'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { db } from '../../src/core/db/schema'
 import { PlayerView } from '../../src/player/PlayerView'
+import { usePlayerStore } from '../../src/player/PlayerStore'
 
 vi.mock('../../src/player/AudioEngine', () => ({
   AudioEngine: class {
     duration = 10; position = 3
-    async load() {} play() {} pause() {} seek() {} destroy() {}
+    async load() {} play() {} pause() {} seek() {} destroy() {} setRate() {} setVolume() {}
     onTimeUpdate() {} onEnd() {}
   },
 }))
@@ -21,22 +22,35 @@ beforeEach(async () => {
     lyrics: { lines: [{ startTime: 1, endTime: 3, original: 'hello', translation: 'hi' }], sourceLanguage: 'en', translationLanguage: 'en', alignmentMode: 'manual' },
     syncState: 'synced', createdAt: new Date(), isTrialSong: false,
   } as never)
+  usePlayerStore.setState({ speed: 1 })
 })
 
 describe('PlayerView speed control', () => {
-  it('shows a collapsed Speed chip by default, no slider visible', async () => {
+  it('shows the speed slider in the practice panel', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
-    expect(screen.getByText(/speed: 100%/i)).toBeTruthy()
-    expect(screen.queryByRole('slider')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /practice tools/i }))
+    expect(screen.getByRole('slider', { name: /playback speed/i })).toBeTruthy()
   })
 
-  it('tapping the chip expands the slider, tapping again collapses it', async () => {
+  it('applies learner speed presets', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
-    fireEvent.click(screen.getByText(/speed: 100%/i))
-    expect(screen.getByRole('slider')).toBeTruthy()
-    fireEvent.click(screen.getByText(/speed: 100%/i))
-    expect(screen.queryByRole('slider')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /practice tools/i }))
+    fireEvent.click(screen.getByRole('button', { name: /slow, 75 percent speed/i }))
+    expect(usePlayerStore.getState().speed).toBe(0.75)
+    fireEvent.click(screen.getByRole('button', { name: /slower, 60 percent speed/i }))
+    expect(usePlayerStore.getState().speed).toBe(0.6)
+  })
+
+  it('resets to normal speed on double-tap of the slider', async () => {
+    usePlayerStore.setState({ speed: 0.6 })
+    render(<PlayerView songId="song1" onBack={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /practice tools/i }))
+    const slider = screen.getByRole('slider', { name: /playback speed/i })
+    fireEvent.pointerUp(slider, { clientX: 10, clientY: 10 })
+    fireEvent.pointerUp(slider, { clientX: 10, clientY: 10 })
+    expect(usePlayerStore.getState().speed).toBe(1)
   })
 })

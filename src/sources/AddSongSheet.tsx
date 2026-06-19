@@ -14,7 +14,7 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
 
   const tab = (s: Source, label: string) => (
     <button onClick={() => setSource(s)}
-      className={`flex-1 text-center text-xs py-2 rounded-lg border ${source === s ? 'border-cinnabar-accent bg-cinnabar-accent/12 text-cinnabar-accent font-medium' : 'border-white/12 text-white/50'}`}>
+      className={`flex-1 text-center text-xs py-2 rounded-lg border ${source === s ? 'border-cinnabar-accent bg-cinnabar-accent/12 text-cinnabar-accent font-medium' : 'border-cinnabar-800 text-white/50'}`}>
       {label}
     </button>
   )
@@ -22,7 +22,7 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-40 flex flex-col justify-end">
       <button aria-label="Dismiss" onClick={onClose} className="absolute inset-0 bg-black/60" />
-      <div className="relative bg-cinnabar-950 border-t border-white/12 rounded-t-2xl p-4 max-h-[85vh] flex flex-col">
+      <div className="relative bg-cinnabar-950 border-t border-cinnabar-900 rounded-t-2xl p-4 max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between mb-3 shrink-0">
           <h2 className="text-white font-semibold text-sm">Add a song</h2>
           <button aria-label="Close" onClick={onClose} className="text-white/40 text-lg leading-none">✕</button>

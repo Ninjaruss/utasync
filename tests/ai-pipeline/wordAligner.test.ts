@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { isParticleToken, cosineSimilarity, greedyMatch, alignLineTokens } from '../../src/ai-pipeline/wordAligner'
+import { describe, it, expect, vi } from 'vitest'
+import { isParticleToken, cosineSimilarity, greedyMatch, alignLineTokens, alignLinesTokens, countEmbedBatches } from '../../src/ai-pipeline/wordAligner'
 import type { Token } from '../../src/core/types'
 
 const tok = (surface: string, pos = '名詞'): Token => ({ surface, pos, startIndex: 0, endIndex: surface.length })
@@ -92,5 +92,65 @@ describe('alignLineTokens', () => {
     expect(result[0].alignmentIndices).toBeUndefined()
     expect(result[1].alignmentIndices).toBeUndefined()
     expect(result[2].alignmentIndices).toBeUndefined()
+  })
+})
+
+describe('alignLinesTokens', () => {
+  const embed = async (texts: string[]): Promise<number[][]> =>
+    texts.map((t) => {
+      if (t === '君' || t === 'you') return [1, 0, 0]
+      if (t === '好き' || t === 'like') return [0, 1, 0]
+      if (t === '愛' || t === 'love') return [0, 0, 1]
+      return [0, 0, 0]
+    })
+
+  it('aligns multiple lines in a single embed call', async () => {
+    const embedSpy = vi.fn(embed)
+    const jobs = [
+      { tokens: [tok('君'), tok('好き')], targetWords: ['you', 'like'] },
+      { tokens: [tok('愛')], targetWords: ['love'] },
+    ]
+    const results = await alignLinesTokens(jobs, embedSpy)
+    expect(embedSpy).toHaveBeenCalledTimes(1)
+    expect(embedSpy.mock.calls[0][0]).toEqual(['君', '好き', 'you', 'like', '愛', 'love'])
+    expect(results[0][0].alignmentIndices).toEqual([0])
+    expect(results[0][1].alignmentIndices).toEqual([1])
+    expect(results[1][0].alignmentIndices).toEqual([0])
+  })
+
+  it('splits large batches when maxTextsPerBatch is set', async () => {
+    const embedSpy = vi.fn(embed)
+    const jobs = [
+      { tokens: [tok('君'), tok('好き')], targetWords: ['you', 'like'] },
+      { tokens: [tok('愛')], targetWords: ['love'] },
+    ]
+    await alignLinesTokens(jobs, embedSpy, { maxTextsPerBatch: 4 })
+    expect(embedSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports batch progress when splitting embed calls', async () => {
+    const onBatchProgress = vi.fn()
+    const jobs = [
+      { tokens: [tok('君'), tok('好き')], targetWords: ['you', 'like'] },
+      { tokens: [tok('愛')], targetWords: ['love'] },
+    ]
+    await alignLinesTokens(jobs, embed, { maxTextsPerBatch: 4, onBatchProgress })
+    expect(onBatchProgress).toHaveBeenCalledTimes(2)
+    expect(onBatchProgress).toHaveBeenNthCalledWith(1, 1, 2)
+    expect(onBatchProgress).toHaveBeenNthCalledWith(2, 2, 2)
+  })
+})
+
+describe('countEmbedBatches', () => {
+  it('returns 1 when all texts fit a single batch', () => {
+    const jobs = [{ tokens: [tok('君')], targetWords: ['you'] }]
+    expect(countEmbedBatches(jobs)).toBe(1)
+  })
+  it('returns multiple batches when maxTextsPerBatch forces splits', () => {
+    const jobs = [
+      { tokens: [tok('君'), tok('好き')], targetWords: ['you', 'like'] },
+      { tokens: [tok('愛')], targetWords: ['love'] },
+    ]
+    expect(countEmbedBatches(jobs, 4)).toBe(2)
   })
 })

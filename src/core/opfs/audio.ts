@@ -43,3 +43,20 @@ export async function deleteAudio(songId: string): Promise<void> {
 export function audioStoragePath(songId: string): string {
   return `songs/${songId}.mp3`
 }
+
+/** Total bytes of uploaded song audio stored in OPFS. */
+export async function estimateOpfsAudioBytes(): Promise<number> {
+  if (!navigator.storage?.getDirectory) return 0
+  try {
+    const root = await navigator.storage.getDirectory()
+    const dir = await root.getDirectoryHandle('songs')
+    let total = 0
+    for await (const [name, handle] of dir.entries()) {
+      if (handle.kind !== 'file' || !name.endsWith('.mp3')) continue
+      total += (await handle.getFile()).size
+    }
+    return total
+  } catch {
+    return 0
+  }
+}

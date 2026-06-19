@@ -32,7 +32,10 @@ export function exportSRT(lines: TimedLine[], field: 'original' | 'translation' 
 }
 
 export function downloadFile(content: string, filename: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType })
+  downloadBlob(new Blob([content], { type: mimeType }), filename)
+}
+
+export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url

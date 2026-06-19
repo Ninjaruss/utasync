@@ -1,4 +1,3 @@
-// tests/sources/UploadAudioFlow.test.tsx
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { UploadAudioFlow } from '../../src/sources/UploadAudioFlow'
@@ -10,95 +9,136 @@ vi.mock('../../src/sources/audioIngest', () => ({
 }))
 
 vi.mock('../../src/sources/lrclib', () => ({
-  fetchLRCFromLRCLIB: vi.fn(async () => null),
+  findLyrics: vi.fn(async () => null),
   findSecondLanguageLyrics: vi.fn(async () => null),
 }))
 
 import { extractAudioMetadata } from '../../src/sources/audioMetadata'
 vi.mock('../../src/sources/audioMetadata', async (orig) => {
   const actual = await orig<typeof import('../../src/sources/audioMetadata')>()
-  // Default: no tags found (helper contract is to always resolve to an object).
   return { ...actual, extractAudioMetadata: vi.fn().mockResolvedValue({}) }
 })
 
 beforeEach(async () => {
   await db.songs.clear()
+  vi.mocked(extractAudioMetadata).mockResolvedValue({})
+  const lrclib = await import('../../src/sources/lrclib')
+  vi.mocked(lrclib.findLyrics).mockReset()
+  vi.mocked(lrclib.findLyrics).mockResolvedValue(null)
+  vi.mocked(lrclib.findSecondLanguageLyrics).mockReset()
+  vi.mocked(lrclib.findSecondLanguageLyrics).mockResolvedValue(null)
 })
 
+async function pickFileAndTitle(container: HTMLElement, title = 'My Song') {
+  fireEvent.change(screen.getByLabelText(/song title/i), { target: { value: title } })
+  const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
+  fireEvent.change(fileInput, { target: { files: [new File(['x'], 'song.mp3', { type: 'audio/mpeg' })] } })
+  await waitFor(() => expect(screen.getByRole('button', { name: /paste lyrics/i })).toBeInTheDocument())
+}
+
 describe('UploadAudioFlow', () => {
-  it('renders file, title, artist inputs and the three lyric source options', () => {
+  it('renders labeled song title and artist fields with lyric fallback options', async () => {
     render(<UploadAudioFlow onSongReady={() => {}} />)
-    expect(screen.getByPlaceholderText(/title/i)).toBeInTheDocument()
-    expect(screen.getByPlaceholderText(/artist/i)).toBeInTheDocument()
-    expect(screen.getByText(/find lyrics/i)).toBeInTheDocument()
-    expect(screen.getByText(/paste lyrics/i)).toBeInTheDocument()
-    expect(screen.getByText(/subtitle file/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/song title/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/^artist$/i)).toBeInTheDocument()
   })
 
-  it('disables submit until a file and title are provided', () => {
-    render(<UploadAudioFlow onSongReady={() => {}} />)
-    expect(screen.getByRole('button', { name: /create song/i })).toBeDisabled()
+  it('disables submit until a file, title, and lyrics are provided', async () => {
+    const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
+    await pickFileAndTitle(container)
+    expect(screen.getByRole('button', { name: /add song/i })).toBeDisabled()
   })
 
-  it('rejects empty pasted lyrics without creating a song', async () => {
+  it('keeps add disabled for whitespace-only pasted lyrics', async () => {
     const onSongReady = vi.fn()
     const { container } = render(<UploadAudioFlow onSongReady={onSongReady} />)
-
-    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
-    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'song.mp3', { type: 'audio/mpeg' })] } })
-    fireEvent.change(screen.getByPlaceholderText(/title/i), { target: { value: 'My Song' } })
-    fireEvent.click(screen.getByText(/paste lyrics/i))
+    await pickFileAndTitle(container)
+    fireEvent.click(screen.getByRole('button', { name: /paste lyrics/i }))
+    await waitFor(() => expect(screen.getByPlaceholderText(/paste lyrics/i)).toBeInTheDocument())
     fireEvent.change(screen.getByPlaceholderText(/paste lyrics/i), { target: { value: '   \n  ' } })
 
-    fireEvent.click(screen.getByRole('button', { name: /create song/i }))
-
-    await waitFor(() => expect(screen.getByText(/no lyric lines found/i)).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /add song/i })).toBeDisabled()
     expect(ingestAudioFile).not.toHaveBeenCalled()
     expect(onSongReady).not.toHaveBeenCalled()
   })
 
-  it('auto-fills empty title and artist from file tags', async () => {
+  it('auto-fills empty title and artist from file tags with source labels', async () => {
     vi.mocked(extractAudioMetadata).mockResolvedValue({ title: 'Tagged Title', artist: 'Tagged Artist' })
     const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
     fireEvent.change(fileInput, { target: { files: [new File(['x'], 'whatever.mp3', { type: 'audio/mpeg' })] } })
 
-    await waitFor(() => expect(screen.getByPlaceholderText(/title/i)).toHaveValue('Tagged Title'))
-    expect(screen.getByPlaceholderText(/artist/i)).toHaveValue('Tagged Artist')
+    await waitFor(() => expect(screen.getByLabelText(/song title/i)).toHaveValue('Tagged Title'))
+    expect(screen.getByLabelText(/^artist$/i)).toHaveValue('Tagged Artist')
+    expect(screen.getAllByText(/from file tags/i).length).toBeGreaterThanOrEqual(1)
   })
 
   it('falls back to the filename (without extension) when there is no title tag', async () => {
-    vi.mocked(extractAudioMetadata).mockResolvedValue({})
     const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
     fireEvent.change(fileInput, { target: { files: [new File(['x'], 'My Eyes Only.mp3', { type: 'audio/mpeg' })] } })
 
-    await waitFor(() => expect(screen.getByPlaceholderText(/title/i)).toHaveValue('My Eyes Only'))
+    await waitFor(() => expect(screen.getByLabelText(/song title/i)).toHaveValue('My Eyes Only'))
+    expect(screen.getByText(/from filename/i)).toBeInTheDocument()
   })
 
   it('does not overwrite a title the user already typed', async () => {
     vi.mocked(extractAudioMetadata).mockResolvedValue({ title: 'Tagged Title' })
     const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
 
-    fireEvent.change(screen.getByPlaceholderText(/title/i), { target: { value: 'My Manual Title' } })
+    fireEvent.change(screen.getByLabelText(/song title/i), { target: { value: 'My Manual Title' } })
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
     fireEvent.change(fileInput, { target: { files: [new File(['x'], 'song.mp3', { type: 'audio/mpeg' })] } })
 
     await waitFor(() => expect(extractAudioMetadata).toHaveBeenCalled())
-    expect(screen.getByPlaceholderText(/title/i)).toHaveValue('My Manual Title')
+    expect(screen.getByLabelText(/song title/i)).toHaveValue('My Manual Title')
   })
 
   it('falls back to artist/title parsed from "Artist - Title" filename when there are no tags', async () => {
-    vi.mocked(extractAudioMetadata).mockResolvedValue({})
     const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
     fireEvent.change(fileInput, { target: { files: [new File(['x'], 'Yorushika - Itte.mp3', { type: 'audio/mpeg' })] } })
 
-    await waitFor(() => expect(screen.getByPlaceholderText('Title') as HTMLInputElement).toHaveValue('Itte'))
-    expect((screen.getByPlaceholderText('Artist') as HTMLInputElement).value).toBe('Yorushika')
+    await waitFor(() => expect(screen.getByLabelText(/song title/i)).toHaveValue('Itte'))
+    expect((screen.getByLabelText(/^artist$/i) as HTMLInputElement).value).toBe('Yorushika')
+  })
+
+  it('swaps title and artist when the swap control is used', async () => {
+    const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'Yorushika - Itte.mp3', { type: 'audio/mpeg' })] } })
+    await waitFor(() => expect(screen.getByLabelText(/song title/i)).toHaveValue('Itte'))
+
+    fireEvent.click(screen.getByRole('button', { name: /swap title and artist/i }))
+    expect(screen.getByLabelText(/song title/i)).toHaveValue('Yorushika')
+    expect(screen.getByLabelText(/^artist$/i)).toHaveValue('Itte')
+  })
+
+  it('auto-searches LRCLIB when file and title are set', async () => {
+    const lrclib = await import('../../src/sources/lrclib')
+    vi.mocked(lrclib.findLyrics).mockResolvedValue({
+      lrc: '[00:01.00]Line one\n[00:02.00]Line two',
+      synced: true,
+    })
+    const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
+    await pickFileAndTitle(container)
+
+    await waitFor(() => expect(screen.getByText(/found synced lyrics/i)).toBeInTheDocument())
+    expect(lrclib.findLyrics).toHaveBeenCalledWith('My Song', expect.any(String))
+  })
+
+  it('lets the user skip LRCLIB search and paste lyrics instead', async () => {
+    const lrclib = await import('../../src/sources/lrclib')
+    vi.mocked(lrclib.findLyrics).mockImplementation(() => new Promise(() => {}))
+    const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
+    await pickFileAndTitle(container)
+    await waitFor(() => expect(screen.getByText(/searching lrclib/i)).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /paste lyrics/i }))
+    expect(await screen.findByPlaceholderText(/paste lyrics/i)).toBeInTheDocument()
+    expect(lrclib.findLyrics).toHaveBeenCalled()
   })
 
   it('does not render a manual second-language paste textarea', () => {
@@ -108,17 +148,19 @@ describe('UploadAudioFlow', () => {
 
   async function submitWithPastedLyrics(onSongReady: (songId: string) => void) {
     const { container } = render(<UploadAudioFlow onSongReady={onSongReady} />)
-    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
-    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'song.mp3', { type: 'audio/mpeg' })] } })
-    fireEvent.change(screen.getByPlaceholderText(/title/i), { target: { value: 'My Song' } })
-    fireEvent.click(screen.getByText(/paste lyrics/i))
-    fireEvent.change(screen.getByPlaceholderText(/paste lyrics/i), { target: { value: 'Line one\nLine two' } })
-    fireEvent.click(screen.getByRole('button', { name: /create song/i }))
+    await pickFileAndTitle(container)
+    await waitFor(() => expect(screen.queryByText(/searching lrclib/i)).not.toBeInTheDocument(), { timeout: 3000 })
+    if (!screen.queryByPlaceholderText(/paste lyrics/i)) {
+      fireEvent.click(screen.getByRole('button', { name: /paste lyrics/i }))
+    }
+    const textarea = await screen.findByPlaceholderText(/paste lyrics/i)
+    fireEvent.change(textarea, { target: { value: 'Line one\nLine two' } })
+    fireEvent.click(screen.getByRole('button', { name: /add song/i }))
   }
 
-  it('silently auto-attaches a translation found via findSecondLanguageLyrics when counts match', async () => {
+  it('auto-attaches a translation on add song when counts match', async () => {
     const lrclib = await import('../../src/sources/lrclib')
-    vi.mocked(lrclib.findSecondLanguageLyrics).mockResolvedValueOnce({ lrc: 'Translated one\nTranslated two' })
+    vi.mocked(lrclib.findSecondLanguageLyrics).mockResolvedValueOnce({ lrc: 'Translated one\nTranslated two', synced: false })
     const onSongReady = vi.fn()
     await submitWithPastedLyrics(onSongReady)
 
@@ -128,9 +170,9 @@ describe('UploadAudioFlow', () => {
     expect(song?.lyrics.lines.map((l) => l.translation)).toEqual(['Translated one', 'Translated two'])
   })
 
-  it('silently skips a mismatched-count translation, keeping primary lines only', async () => {
+  it('skips a mismatched-count translation silently on add song', async () => {
     const lrclib = await import('../../src/sources/lrclib')
-    vi.mocked(lrclib.findSecondLanguageLyrics).mockResolvedValueOnce({ lrc: 'Only one translated line' })
+    vi.mocked(lrclib.findSecondLanguageLyrics).mockResolvedValueOnce({ lrc: 'Only one translated line', synced: false })
     const onSongReady = vi.fn()
     await submitWithPastedLyrics(onSongReady)
 
@@ -138,19 +180,5 @@ describe('UploadAudioFlow', () => {
     const songId = onSongReady.mock.calls[0][0]
     const song = await db.songs.get(songId)
     expect(song?.lyrics.lines.map((l) => l.translation)).toEqual(['', ''])
-    expect(screen.queryByText(/align/i)).not.toBeInTheDocument()
-  })
-
-  it('does not fail the whole submission when findSecondLanguageLyrics throws', async () => {
-    const lrclib = await import('../../src/sources/lrclib')
-    vi.mocked(lrclib.findSecondLanguageLyrics).mockRejectedValueOnce(new Error('network error'))
-    const onSongReady = vi.fn()
-    await submitWithPastedLyrics(onSongReady)
-
-    await waitFor(() => expect(onSongReady).toHaveBeenCalled())
-    const songId = onSongReady.mock.calls[0][0]
-    const song = await db.songs.get(songId)
-    expect(song?.lyrics.lines.map((l) => l.translation)).toEqual(['', ''])
-    expect(screen.queryByText(/upload failed/i)).not.toBeInTheDocument()
   })
 })

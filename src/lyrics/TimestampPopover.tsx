@@ -5,6 +5,9 @@ interface Props {
   playhead: () => number
   onCommit: (time: number) => void
   onClose: () => void
+  onScrub?: (time: number) => void
+  onScrubStart?: () => void
+  onScrubEnd?: () => void
 }
 
 function fmt(t: number): string {
@@ -15,10 +18,10 @@ function fmt(t: number): string {
 
 /**
  * Replaces instant tap-to-stamp: opening this popover never overwrites the
- * timestamp by itself. Dragging the slider or tapping "Use current" only
- * updates a local draft; nothing is committed until Done.
+ * timestamp by itself. Dragging the slider previews the audio position in
+ * real time; nothing is committed until Done.
  */
-export function TimestampPopover({ time, playhead, onCommit, onClose }: Props) {
+export function TimestampPopover({ time, playhead: _playhead, onCommit, onClose, onScrub, onScrubStart, onScrubEnd }: Props) {
   const [draft, setDraft] = useState(time)
   const min = Math.max(0, time - 15)
   const max = time + 15
@@ -28,28 +31,30 @@ export function TimestampPopover({ time, playhead, onCommit, onClose }: Props) {
       className="absolute z-20 mt-1 left-0 right-0 rounded-xl border border-cinnabar-accent/60 bg-cinnabar-900 p-3 space-y-2 shadow-xl"
       onClick={(e) => e.stopPropagation()}
     >
+      <p className="text-[10px] text-white/40 text-center">Drag to preview · Done to save · tap outside or another line to cancel</p>
       <input
         type="range"
         min={min}
         max={max}
         step={0.1}
         value={draft}
-        onChange={(e) => setDraft(Number(e.target.value))}
+        onPointerDown={() => onScrubStart?.()}
+        onPointerUp={() => onScrubEnd?.()}
+        onChange={(e) => {
+          const t = Number(e.target.value)
+          setDraft(t)
+          onScrub?.(t)
+        }}
         aria-label="Scrub timestamp"
         className="w-full accent-cinnabar-accent"
       />
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-white/70 tabular-nums">{fmt(draft)}</span>
-        <button
-          onClick={() => setDraft(playhead())}
-          className="px-2 py-1 rounded-lg bg-cinnabar-950 text-cinnabar-accent"
-        >
-          Use current ▶ {fmt(playhead())}
-        </button>
+      <div className="flex items-center justify-center text-xs">
+        <span className="text-white/70 tabular-nums font-semibold">{fmt(draft)}</span>
       </div>
       <button
+        type="button"
         onClick={() => { onCommit(draft); onClose() }}
-        className="w-full py-1.5 rounded-lg bg-cinnabar-accent text-white text-xs font-medium"
+        className="w-full py-1.5 rounded-lg bg-cinnabar-accent text-white text-xs font-medium touch-manipulation"
       >
         Done
       </button>

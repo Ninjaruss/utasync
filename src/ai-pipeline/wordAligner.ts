@@ -43,6 +43,118 @@ export function greedyMatch(
   return result.sort((a, b) => a.sourceIndex - b.sourceIndex)
 }
 
+export interface LineAlignJob {
+  tokens: Token[]
+  targetWords: string[]
+}
+
+interface EmbedSlice { lineIndex: number; alignableIndices: number[]; sourceCount: number; targetCount: number }
+
+function planEmbedBatches(jobs: LineAlignJob[], maxTextsPerBatch: number): EmbedSlice[][] {
+  const slices: EmbedSlice[] = []
+  for (let lineIndex = 0; lineIndex < jobs.length; lineIndex++) {
+    const { tokens, targetWords } = jobs[lineIndex]
+    const alignableIndices = alignableTokenIndices(tokens)
+    if (alignableIndices.length === 0 || targetWords.length === 0) continue
+    slices.push({
+      lineIndex,
+      alignableIndices,
+      sourceCount: alignableIndices.length,
+      targetCount: targetWords.length,
+    })
+  }
+
+  if (slices.length === 0) return []
+
+  const batches: EmbedSlice[][] = []
+  let current: EmbedSlice[] = []
+  let currentTexts = 0
+  for (const slice of slices) {
+    const sliceTexts = slice.sourceCount + slice.targetCount
+    if (currentTexts + sliceTexts > maxTextsPerBatch && current.length > 0) {
+      batches.push(current)
+      current = []
+      currentTexts = 0
+    }
+    current.push(slice)
+    currentTexts += sliceTexts
+  }
+  if (current.length > 0) batches.push(current)
+  return batches
+}
+
+/** Counts embed round-trips for a set of line jobs (1 when everything fits one batch). */
+export function countEmbedBatches(jobs: LineAlignJob[], maxTextsPerBatch = Infinity): number {
+  if (maxTextsPerBatch === Infinity) return jobs.length === 0 ? 0 : 1
+  return planEmbedBatches(jobs, maxTextsPerBatch).length
+}
+
+function alignableTokenIndices(tokens: Token[]): number[] {
+  return tokens
+    .map((_, i) => i)
+    .filter((i) => !isParticleToken(tokens[i]) && tokens[i].surface.trim().length > 0)
+}
+
+function applyTokenMatches(
+  tokens: Token[],
+  alignableIndices: number[],
+  sourceVecs: number[][],
+  targetVecs: number[][],
+): Token[] {
+  const matches = greedyMatch(sourceVecs, targetVecs)
+  const updated = tokens.map((t) => ({ ...t }))
+  for (const m of matches) {
+    const tokenIndex = alignableIndices[m.sourceIndex]
+    updated[tokenIndex] = { ...updated[tokenIndex], alignmentIndices: [m.targetIndex] }
+  }
+  return updated
+}
+
+/**
+ * Aligns multiple lines in as few embedding round-trips as possible. Each job
+ * is independent; lines with no alignable tokens or no target words are copied
+ * through unchanged. `maxTextsPerBatch` splits very large songs into smaller
+ * embed calls (used on memory-constrained / lite-tier phones).
+ */
+export async function alignLinesTokens(
+  jobs: LineAlignJob[],
+  embed: (texts: string[]) => Promise<number[][]>,
+  options?: { maxTextsPerBatch?: number; onBatchProgress?: (done: number, total: number) => void },
+): Promise<Token[][]> {
+  const maxTextsPerBatch = options?.maxTextsPerBatch ?? Infinity
+  const results = jobs.map((j) => j.tokens.map((t) => ({ ...t })))
+
+  const batches = planEmbedBatches(jobs, maxTextsPerBatch)
+  if (batches.length === 0) return results
+
+  let batchDone = 0
+  for (const batch of batches) {
+    const texts: string[] = []
+    for (const slice of batch) {
+      const { tokens, targetWords } = jobs[slice.lineIndex]
+      texts.push(...slice.alignableIndices.map((i) => tokens[i].surface), ...targetWords)
+    }
+    const vecs = await embed(texts)
+    let offset = 0
+    for (const slice of batch) {
+      const sourceVecs = vecs.slice(offset, offset + slice.sourceCount)
+      offset += slice.sourceCount
+      const targetVecs = vecs.slice(offset, offset + slice.targetCount)
+      offset += slice.targetCount
+      results[slice.lineIndex] = applyTokenMatches(
+        jobs[slice.lineIndex].tokens,
+        slice.alignableIndices,
+        sourceVecs,
+        targetVecs,
+      )
+    }
+    batchDone++
+    options?.onBatchProgress?.(batchDone, batches.length)
+  }
+
+  return results
+}
+
 /**
  * Aligns one line's source tokens to translation words, writing matched
  * indices onto each token's `alignmentIndices`. Particles are excluded from
@@ -54,22 +166,6 @@ export async function alignLineTokens(
   targetWords: string[],
   embed: (texts: string[]) => Promise<number[][]>,
 ): Promise<Token[]> {
-  const alignableIndices = sourceTokens
-    .map((_, i) => i)
-    .filter((i) => !isParticleToken(sourceTokens[i]) && sourceTokens[i].surface.trim().length > 0)
-
-  if (alignableIndices.length === 0 || targetWords.length === 0) return sourceTokens
-
-  const sourceTexts = alignableIndices.map((i) => sourceTokens[i].surface)
-  const vecs = await embed([...sourceTexts, ...targetWords])
-  const sourceVecs = vecs.slice(0, sourceTexts.length)
-  const targetVecs = vecs.slice(sourceTexts.length)
-
-  const matches = greedyMatch(sourceVecs, targetVecs)
-  const updated = sourceTokens.map((t) => ({ ...t }))
-  for (const m of matches) {
-    const tokenIndex = alignableIndices[m.sourceIndex]
-    updated[tokenIndex] = { ...updated[tokenIndex], alignmentIndices: [m.targetIndex] }
-  }
-  return updated
+  const [result] = await alignLinesTokens([{ tokens: sourceTokens, targetWords }], embed)
+  return result
 }

@@ -7,7 +7,7 @@ import { PlayerView } from '../../src/player/PlayerView'
 vi.mock('../../src/player/AudioEngine', () => ({
   AudioEngine: class {
     duration = 10; position = 3
-    async load() {} play() {} pause() {} seek() {} destroy() {}
+    async load() {} play() {} pause() {} seek() {} destroy() {} setRate() {} setVolume() {}
     onTimeUpdate() {} onEnd() {}
   },
 }))
@@ -30,14 +30,15 @@ describe('SongScreen Play/Edit toggle', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /edit timestamp for line 1/i })).toBeTruthy())
   })
 
-  it('hides display toggles and the full transport in Edit mode', async () => {
+  it('hides display toggles, speed, and A-B loop in Edit mode', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
-    expect(screen.queryByText(/translation/i)).toBeTruthy() // visible in Play mode
+    expect(screen.getByRole('button', { name: /lyrics display options/i })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     await waitFor(() => expect(screen.getByRole('button', { name: /edit timestamp for line 1/i })).toBeTruthy())
-    expect(screen.queryByText(/^文 Translation$/)).toBeNull()
-    expect(screen.queryByText(/speed/i)).toBeNull()
-    expect(screen.queryByRole('button', { name: /^a /i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /lyrics display options/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /practice tools/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /a loop point/i })).toBeNull()
+    expect(screen.getByLabelText('Volume')).toBeTruthy()
   })
 })

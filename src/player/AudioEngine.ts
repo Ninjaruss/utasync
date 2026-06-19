@@ -12,7 +12,7 @@ export class AudioEngine {
   onTimeUpdate(cb: TimeUpdateHandler) { this.onTimeUpdateCb = cb }
   onEnd(cb: StateHandler) { this.onEndCb = cb }
 
-  load(src: string | File): Promise<void> {
+  load(src: string | File, volume = 1): Promise<void> {
     return new Promise((resolve, reject) => {
       const url = src instanceof File ? URL.createObjectURL(src) : src
       this.destroy()
@@ -20,6 +20,7 @@ export class AudioEngine {
         src: [url],
         format: ['mp3', 'm4a', 'ogg'],
         html5: true,
+        volume,
         onload: () => resolve(),
         onloaderror: (_id, err) => reject(err),
         onend: () => { this.onEndCb?.(); this.stopTicker() },
@@ -39,6 +40,14 @@ export class AudioEngine {
 
   seek(seconds: number) {
     this.howl?.seek(seconds)
+  }
+
+  setRate(rate: number) {
+    this.howl?.rate(rate)
+  }
+
+  setVolume(volume: number) {
+    this.howl?.volume(volume)
   }
 
   get position(): number {

@@ -3,62 +3,171 @@ import { useState } from 'react'
 interface Props {
   originalLines: string[]
   translationLines: string[]
+  /** Pre-computed unmatched translation lines (e.g. from auto-aligner). When
+   *  provided these are used instead of computing extras from the slice. */
+  extraLines?: string[]
   onConfirm: (pairs: Array<{ original: string; translation: string }>) => void
 }
 
-export function AlignmentEditor({ originalLines, translationLines, onConfirm }: Props) {
-  const maxLen = Math.max(originalLines.length, translationLines.length)
-  const [pairs, setPairs] = useState<Array<{ original: string; translation: string }>>(
-    Array.from({ length: maxLen }, (_, i) => ({
-      original: originalLines[i] ?? '',
-      translation: translationLines[i] ?? '',
-    }))
+export function AlignmentEditor({ originalLines, translationLines, extraLines, onConfirm }: Props) {
+  // Translations are the only mutable side; originals are fixed.
+  const [translations, setTranslations] = useState<string[]>(() =>
+    Array.from({ length: originalLines.length }, (_, i) => translationLines[i] ?? '')
   )
 
-  const updatePair = (i: number, field: 'original' | 'translation', value: string) => {
-    setPairs((prev) => prev.map((p, j) => j === i ? { ...p, [field]: value } : p))
+  // Extra translation lines that couldn't be paired
+  const [extras, setExtras] = useState<string[]>(() =>
+    extraLines ?? translationLines.slice(originalLines.length)
+  )
+
+  const update = (i: number, value: string) =>
+    setTranslations((prev) => prev.map((t, j) => (j === i ? value : t)))
+
+  const moveUp = (i: number) => {
+    if (i === 0) return
+    setTranslations((prev) => {
+      const next = [...prev]
+      ;[next[i - 1], next[i]] = [next[i], next[i - 1]]
+      return next
+    })
   }
 
-  const addRow = () => setPairs((prev) => [...prev, { original: '', translation: '' }])
-  const removeRow = (i: number) => setPairs((prev) => prev.filter((_, j) => j !== i))
+  const moveDown = (i: number) => {
+    if (i >= translations.length - 1) return
+    setTranslations((prev) => {
+      const next = [...prev]
+      ;[next[i], next[i + 1]] = [next[i + 1], next[i]]
+      return next
+    })
+  }
+
+  const clearRow = (i: number) =>
+    setTranslations((prev) => prev.map((t, j) => (j === i ? '' : t)))
+
+  const removeExtra = (i: number) =>
+    setExtras((prev) => prev.filter((_, j) => j !== i))
+
+  const promoteExtra = (ei: number) => {
+    // Find the first empty translation slot and fill it with this extra line.
+    const firstEmpty = translations.findIndex((t) => !t.trim())
+    if (firstEmpty >= 0) {
+      setTranslations((prev) => prev.map((t, j) => (j === firstEmpty ? extras[ei] : t)))
+      setExtras((prev) => prev.filter((_, j) => j !== ei))
+    }
+  }
+
+  const handleConfirm = () => {
+    const pairs = originalLines.map((original, i) => ({
+      original,
+      translation: translations[i] ?? '',
+    }))
+    onConfirm(pairs.filter((p) => p.original))
+  }
+
+  const emptyCount = translations.filter((t) => !t.trim()).length
 
   return (
     <div className="min-h-screen bg-cinnabar-950 p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-white font-semibold">Align Lines</h2>
-        <p className="text-white/40 text-xs">Line counts differ — fix pairings below</p>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h2 className="text-white font-semibold">Align translations</h2>
+          <p className="text-white/40 text-xs mt-0.5">
+            Use ↑ ↓ to reorder translations until each row matches its original line.
+          </p>
+        </div>
+        {emptyCount > 0 && (
+          <span className="shrink-0 text-[11px] text-yellow-400/80 mt-0.5">
+            {emptyCount} unmatched
+          </span>
+        )}
       </div>
 
-      <div className="grid grid-cols-2 gap-2 text-xs text-white/40 px-1">
+      {/* Column headers */}
+      <div className="grid grid-cols-[1fr_1fr_auto] gap-2 text-[10px] uppercase tracking-wide text-white/30 px-1">
         <span>Original</span>
         <span>Translation</span>
+        <span className="w-14" />
       </div>
 
-      <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-        {pairs.map((pair, i) => (
+      <div className="space-y-1.5 max-h-[55vh] overflow-y-auto pr-1">
+        {originalLines.map((original, i) => (
           <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+            {/* Original — read only */}
+            <div
+              className="px-2 py-1.5 rounded-lg bg-cinnabar-900/50 text-white/60 text-sm font-jp leading-snug select-none truncate"
+              title={original}
+            >
+              {original || <span className="text-white/20 italic">empty</span>}
+            </div>
+
+            {/* Translation — editable */}
             <input
-              value={pair.original}
-              onChange={(e) => updatePair(i, 'original', e.target.value)}
-              className="bg-cinnabar-900 text-white text-sm px-2 py-1 rounded-lg outline-none border border-cinnabar-800 focus:border-cinnabar-accent font-jp"
+              value={translations[i] ?? ''}
+              onChange={(e) => update(i, e.target.value)}
+              placeholder="—"
+              className={[
+                'bg-cinnabar-900 text-sm px-2 py-1.5 rounded-lg outline-none border focus:border-cinnabar-accent',
+                translations[i]?.trim()
+                  ? 'text-white border-cinnabar-800'
+                  : 'text-white/30 border-cinnabar-800/50',
+              ].join(' ')}
             />
-            <input
-              value={pair.translation}
-              onChange={(e) => updatePair(i, 'translation', e.target.value)}
-              className="bg-cinnabar-900 text-white text-sm px-2 py-1 rounded-lg outline-none border border-cinnabar-800 focus:border-cinnabar-accent"
-            />
-            <button onClick={() => removeRow(i)} className="text-red-400 text-xs hover:text-red-300">✕</button>
+
+            {/* Move + clear controls */}
+            <div className="flex items-center gap-0.5 w-14 justify-end">
+              <button
+                onClick={() => moveUp(i)}
+                disabled={i === 0}
+                className="text-white/30 hover:text-white disabled:opacity-20 text-xs px-1 py-1"
+                aria-label="Move translation up"
+              >↑</button>
+              <button
+                onClick={() => moveDown(i)}
+                disabled={i >= translations.length - 1}
+                className="text-white/30 hover:text-white disabled:opacity-20 text-xs px-1 py-1"
+                aria-label="Move translation down"
+              >↓</button>
+              <button
+                onClick={() => clearRow(i)}
+                className="text-white/20 hover:text-red-400 text-xs px-1 py-1"
+                aria-label="Clear translation"
+              >✕</button>
+            </div>
           </div>
         ))}
       </div>
 
-      <button onClick={addRow} className="text-cinnabar-accent text-sm underline">+ Add line</button>
+      {/* Extra translation lines that had no original counterpart */}
+      {extras.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] uppercase tracking-wide text-white/30">
+            Extra lines — move into place or discard
+          </p>
+          {extras.map((ex, ei) => (
+            <div key={ei} className="flex items-center gap-2">
+              <div className="flex-1 px-2 py-1.5 rounded-lg bg-cinnabar-900 text-white/50 text-sm italic">
+                {ex}
+              </div>
+              <button
+                onClick={() => promoteExtra(ei)}
+                className="text-cinnabar-accent text-xs px-2 py-1 rounded-lg border border-cinnabar-accent/40 hover:bg-cinnabar-accent/10 whitespace-nowrap"
+              >
+                Fill next empty
+              </button>
+              <button
+                onClick={() => removeExtra(ei)}
+                className="text-white/30 hover:text-red-400 text-xs px-2"
+              >✕</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <button
-        onClick={() => onConfirm(pairs.filter((p) => p.original))}
+        onClick={handleConfirm}
         className="w-full py-3 bg-cinnabar-accent text-white rounded-xl font-medium"
       >
-        Confirm Pairings
+        Confirm pairings
       </button>
     </div>
   )

@@ -115,4 +115,24 @@ describe('embedTexts concurrency (request id matching)', () => {
     await expect(callBPromise).rejects.toThrow('boom')
     await expect(callAPromise).resolves.toEqual([[2, 2]])
   })
+
+  it('forwards embed progress messages to onProgress', async () => {
+    const { embedTexts } = await import('../../src/ai-pipeline/textEmbedder')
+
+    const onProgress = vi.fn()
+    const callPromise = embedTexts(['a', 'b', 'c'], { onProgress })
+    await Promise.resolve()
+    fakeWorker.emit({ type: 'loaded' })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const embedMsg = fakeWorker.posted.find((m) => m.type === 'embed')
+    const requestId = (embedMsg!.payload as { requestId: number }).requestId
+
+    fakeWorker.emit({ type: 'progress', payload: { requestId, done: 2, total: 3 } })
+    fakeWorker.emit({ type: 'result', payload: { requestId, vecs: [[1], [2], [3]] } })
+
+    await expect(callPromise).resolves.toEqual([[1], [2], [3]])
+    expect(onProgress).toHaveBeenCalledWith(2, 3)
+  })
 })

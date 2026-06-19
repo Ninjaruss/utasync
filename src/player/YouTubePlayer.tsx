@@ -15,6 +15,8 @@ export interface YouTubePlayerHandle {
   play: () => void
   pause: () => void
   seekTo: (seconds: number) => void
+  setRate: (rate: number) => void
+  setVolume: (volume: number) => void
 }
 
 declare global {
@@ -51,6 +53,12 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
       setPosition(seconds)
       syncPosition(seconds)
     },
+    setRate: (rate: number) => {
+      playerRef.current?.setPlaybackRate(rate)
+    },
+    setVolume: (volume: number) => {
+      playerRef.current?.setVolume(Math.round(volume * 100))
+    },
   }), [setPosition, syncPosition])
 
   useEffect(() => {
@@ -65,6 +73,8 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
         playerVars: { autoplay: 0, rel: 0, start: resumeAt, playsinline: 1 },
         events: {
           onReady: () => {
+            const vol = usePlayerStore.getState().volume
+            playerRef.current?.setVolume(Math.round(vol * 100))
             setDuration(playerRef.current?.getDuration() ?? 0)
             if (resumeAt > 0) {
               playerRef.current?.seekTo(resumeAt, true)

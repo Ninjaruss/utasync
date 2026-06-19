@@ -54,6 +54,8 @@ export interface LyricsData {
   // Confidence of the last auto-alignment (0–1, content-match coverage). When
   // low, auto-align fell back to the proportional method; the UI warns the user.
   alignmentConfidence?: number
+  /** Set after token enrichment is persisted; avoids re-tokenizing on every open. */
+  enrichmentVersion?: number
 }
 
 export interface WordAlignment {

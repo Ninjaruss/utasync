@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { SecondLanguagePanel } from '../../src/lyrics/SecondLanguagePanel'
 import type { TimedLine } from '../../src/core/types'
@@ -13,20 +13,30 @@ const primary: TimedLine[] = [
   { original: '夜の中', startTime: 3, endTime: 5, translation: '' },
 ]
 
-beforeEach(() => findMock.mockReset())
+let pendingSearchResolve: ((value: { lrc: string; synced: boolean } | null) => void) | undefined
+
+beforeEach(() => {
+  findMock.mockReset()
+  pendingSearchResolve = undefined
+})
+
+afterEach(() => {
+  pendingSearchResolve?.(null)
+  pendingSearchResolve = undefined
+})
 
 describe('SecondLanguagePanel', () => {
   it('auto-finds and shows a confirm banner when counts match', async () => {
     findMock.mockResolvedValue({ lrc: 'Your eyes\nIn the night', synced: false })
     render(<SecondLanguagePanel lines={primary} title="t" artist="a" sourceLanguage="ja" onApply={vi.fn()} onClose={vi.fn()} />)
-    expect(await screen.findByText(/found translation/i)).toBeTruthy()
+    expect(await screen.findByText(/does this pairing look right/i)).toBeTruthy()
     expect(screen.getByRole('button', { name: /looks good/i })).toBeTruthy()
   })
 
   it('previews the matched translation lines in the confirm banner', async () => {
     findMock.mockResolvedValue({ lrc: 'Your eyes\nIn the night', synced: false })
     render(<SecondLanguagePanel lines={primary} title="t" artist="a" sourceLanguage="ja" onApply={vi.fn()} onClose={vi.fn()} />)
-    await screen.findByText(/found translation/i)
+    await screen.findByText(/does this pairing look right/i)
     expect(screen.getByText('Your eyes')).toBeTruthy()
     expect(screen.getByText('In the night')).toBeTruthy()
   })
@@ -48,12 +58,36 @@ describe('SecondLanguagePanel', () => {
     expect(await screen.findByPlaceholderText(/paste/i)).toBeTruthy()
   })
 
-  it('shows the alignment editor when pasted line count differs', async () => {
-    findMock.mockResolvedValue(null)
+  it('lets the user skip LRCLIB search and paste manually', () => {
+    findMock.mockImplementation(() => new Promise((resolve) => { pendingSearchResolve = resolve }))
     render(<SecondLanguagePanel lines={primary} title="t" artist="a" sourceLanguage="ja" onApply={vi.fn()} onClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /skip and paste lyrics/i }))
+    expect(screen.getByPlaceholderText(/paste/i)).toBeTruthy()
+    expect(screen.queryByText(/does this pairing look right/i)).toBeNull()
+  })
+
+  it('ignores a late LRCLIB result after the user skipped search', async () => {
+    findMock.mockImplementation(() => new Promise((resolve) => { pendingSearchResolve = resolve }))
+    render(<SecondLanguagePanel lines={primary} title="t" artist="a" sourceLanguage="ja" onApply={vi.fn()} onClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /skip and paste lyrics/i }))
+    expect(screen.getByPlaceholderText(/paste/i)).toBeTruthy()
+    pendingSearchResolve?.({ lrc: 'Your eyes\nIn the night', synced: false })
+    pendingSearchResolve = undefined
+    await Promise.resolve()
+    expect(screen.queryByText(/does this pairing look right/i)).toBeNull()
+    expect(screen.getByPlaceholderText(/paste/i)).toBeTruthy()
+  })
+
+  it('shows the alignment editor when pasted line count differs on untimed lyrics', async () => {
+    findMock.mockResolvedValue(null)
+    const untimed: TimedLine[] = [
+      { original: 'line one', startTime: 0, endTime: 0, translation: '' },
+      { original: 'line two', startTime: 0, endTime: 0, translation: '' },
+    ]
+    render(<SecondLanguagePanel lines={untimed} title="t" artist="a" sourceLanguage="ja" onApply={vi.fn()} onClose={vi.fn()} />)
     const box = await screen.findByPlaceholderText(/paste/i)
     fireEvent.change(box, { target: { value: 'only one line' } })
     fireEvent.click(screen.getByRole('button', { name: /attach/i }))
-    expect(await screen.findByText(/align lines/i)).toBeTruthy()
+    expect(await screen.findByText(/align translations/i)).toBeTruthy()
   })
 })

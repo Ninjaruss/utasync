@@ -1,8 +1,10 @@
 import type { TimedLine, Language } from '../core/types'
 import { parseLRC } from './lrc-parser'
+import { lineWeight } from '../ai-pipeline/aligner'
+import { pairTranslationsToPrimary } from './lineAligner'
 
 // Hiragana, Katakana, or CJK ideographs anywhere => treat as Japanese.
-const JAPANESE_RE = /[぀-ヿ㐀-鿿]/
+export const JAPANESE_RE = /[぀-ヿ㐀-鿿]/
 // A bracketed [mm:ss.xx] timestamp marks an LRC (synced) block.
 const LRC_TIMESTAMP_RE = /\[\d{2}:\d{2}[.:]\d{2,3}\]/
 
@@ -100,30 +102,181 @@ export interface AttachResult {
   mismatchedBlocks: number[]
 }
 
+/** Index of the last line whose startTime is <= `time` (lines must be sorted). */
+function lastActiveLine(lines: TimedLine[], time: number): number {
+  let idx = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startTime <= time) idx = i
+    else break
+  }
+  return idx
+}
+
 /**
- * Attach a second-language block onto the primary timed lines' `translation`
- * field, preserving primary timing/text. Tries a flat whole-song index pairing
- * first (today's behavior, unaffected by header-stripping when counts already
- * matched). Only when flat counts mismatch does it attempt to localize the
- * mismatch to specific stanza blocks — and only when both sides produce the
- * same number of blocks and that count is more than 1, so a single stray
- * blank line never fragments an otherwise-clean pairing.
+ * Merge two independently timed lyric tracks into one list aligned to the song.
+ * Breakpoints come from the union of both tracks' start times — neither language
+ * dictates the other's line structure. Primary text fills `original`, secondary
+ * fills `translation`.
+ */
+export function mergeTimedTracks(primary: TimedLine[], secondary: TimedLine[]): TimedLine[] {
+  if (secondary.length === 0) return primary.map((l) => ({ ...l }))
+  if (primary.length === 0) {
+    return secondary.map((s) => ({
+      startTime: s.startTime,
+      endTime: s.endTime,
+      original: '',
+      translation: s.translation || s.original,
+    }))
+  }
+
+  const sec = secondary.map((s) => ({
+    ...s,
+    translation: s.translation || s.original,
+  }))
+
+  const starts = [...new Set([
+    ...primary.map((l) => l.startTime),
+    ...sec.map((l) => l.startTime),
+  ])].sort((a, b) => a - b)
+
+  const lastEnd = Math.max(
+    primary[primary.length - 1]?.endTime ?? 0,
+    sec[sec.length - 1]?.endTime ?? 0,
+  )
+
+  const result: TimedLine[] = []
+  for (let i = 0; i < starts.length; i++) {
+    const t = starts[i]
+    const nextT = i < starts.length - 1 ? starts[i + 1] : lastEnd
+
+    const pi = lastActiveLine(primary, t)
+    const si = lastActiveLine(sec, t)
+
+    const original = pi >= 0 ? primary[pi].original : ''
+    const translation = si >= 0 ? sec[si].translation : ''
+
+    if (!original && !translation) continue
+
+    const prev = result[result.length - 1]
+    if (prev && prev.original === original && prev.translation === translation) {
+      prev.endTime = nextT
+      continue
+    }
+
+    const merged: TimedLine = { startTime: t, endTime: nextT, original, translation }
+    if (pi >= 0) {
+      if (primary[pi].tokens) merged.tokens = primary[pi].tokens
+      if (primary[pi].reading) merged.reading = primary[pi].reading
+      if (primary[pi].furigana) merged.furigana = primary[pi].furigana
+      if (primary[pi].grammarAnnotations) merged.grammarAnnotations = primary[pi].grammarAnnotations
+    }
+    result.push(merged)
+  }
+
+  return result
+}
+
+/**
+ * Spread plain-text translation lines across the primary track's song time span
+ * proportionally by line length — independent of primary line boundaries.
+ */
+function timePlainSecondaryToSong(
+  texts: string[],
+  primary: TimedLine[],
+  lang: Language | 'other',
+): TimedLine[] {
+  if (texts.length === 0) return []
+  const timedPrimary = primary.filter((l) => l.startTime > 0 || l.endTime > 0)
+  if (timedPrimary.length === 0) {
+    return texts.map((t) => ({ startTime: 0, endTime: 0, original: '', translation: t }))
+  }
+
+  // Same line count: give each translation the primary line's song timestamps
+  // (text is independent; timing comes from the already-aligned primary track).
+  if (texts.length === timedPrimary.length) {
+    return texts.map((t, i) => ({
+      startTime: timedPrimary[i].startTime,
+      endTime: timedPrimary[i].endTime,
+      original: '',
+      translation: t,
+    }))
+  }
+
+  const songStart = timedPrimary[0].startTime
+  const songEnd = Math.max(...timedPrimary.map((l) => l.endTime))
+  const duration = Math.max(songEnd - songStart, 0.1)
+  const sourceLang: Language = lang === 'ja' ? 'ja' : 'en'
+  const weights = texts.map((t) => Math.max(1, lineWeight(t, sourceLang)))
+  const total = weights.reduce((a, b) => a + b, 0)
+
+  const result: TimedLine[] = []
+  let cum = 0
+  for (let i = 0; i < texts.length; i++) {
+    cum += weights[i]
+    const startFrac = (cum - weights[i]) / total
+    const endFrac = cum / total
+    result.push({
+      startTime: songStart + startFrac * duration,
+      endTime: songStart + endFrac * duration,
+      original: '',
+      translation: texts[i],
+    })
+  }
+  return result
+}
+
+/** Parse a synced LRC block into independently timed secondary lines. */
+function parseSecondaryLRC(lrc: string): TimedLine[] {
+  return parseLRC(lrc).map((l) => ({
+    ...l,
+    original: '',
+    translation: l.original,
+  }))
+}
+
+/**
+ * Attach a second-language block by normalizing both sides to the song timeline.
+ *
+ * When the primary is already timed, the secondary is given its own independent
+ * timing (from synced LRC timestamps, or spread across the song span for plain
+ * text) and the two tracks are merged on a union timeline — the translation
+ * no longer inherits the primary's line structure.
+ *
+ * When the primary is untimed, falls back to flat index pairing and stanza-block
+ * pairing so the user can fix mismatches manually.
  */
 export function attachSecondLanguage(primary: TimedLine[], secondary: string): AttachResult {
-  const flatSecondary = stripNonLyricLines(extractSecondLanguageLines(secondary))
+  const primaryHasTiming = primary.some((l) => l.startTime > 0 || l.endTime > 0)
 
-  if (flatSecondary.length === primary.length) {
-    const lines = primary.map((line, i) => ({ ...line, translation: flatSecondary[i] ?? '' }))
-    return { lines, mismatchedBlocks: [] }
+  if (primaryHasTiming) {
+    const flatSecondary = stripNonLyricLines(extractSecondLanguageLines(secondary))
+    const slotPair = pairTranslationsToPrimary(primary, flatSecondary)
+    if (slotPair.method !== 'mismatch') {
+      return { lines: slotPair.lines, mismatchedBlocks: [] }
+    }
+
+    const isTimedLRC = LRC_TIMESTAMP_RE.test(secondary)
+    const secondaryTimed = isTimedLRC
+      ? parseSecondaryLRC(secondary)
+      : timePlainSecondaryToSong(
+          flatSecondary,
+          primary,
+          detectLanguage(secondary),
+        )
+    const lines = mergeTimedTracks(primary, secondaryTimed)
+    return { lines, mismatchedBlocks: [0] }
+  }
+
+  const flatSecondary = stripNonLyricLines(extractSecondLanguageLines(secondary))
+  const slotPair = pairTranslationsToPrimary(primary, flatSecondary)
+  if (slotPair.method !== 'mismatch') {
+    return { lines: slotPair.lines, mismatchedBlocks: [] }
   }
 
   const primaryBlocks = splitPrimaryIntoBlocks(primary)
   const secondaryBlocks = extractSecondLanguageBlocks(secondary)
 
   if (primaryBlocks.length !== secondaryBlocks.length || primaryBlocks.length <= 1) {
-    // Degraded flat best-effort pairing, not block-scoped: there's no real
-    // "block 0" here, so `mismatchedBlocks: [0]` is an overloaded signal
-    // meaning "the whole song", not a detected stanza block.
     const lines = primary.map((line, i) => ({ ...line, translation: flatSecondary[i] ?? '' }))
     return { lines, mismatchedBlocks: [0] }
   }

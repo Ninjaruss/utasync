@@ -1,12 +1,16 @@
 import { describe, it, expect, vi } from 'vitest'
 
-vi.mock('../../../src/language/japanese/phonetics', () => ({
-  toRomaji: async () => 'hoshi',
-  toFurigana: async () => '<ruby>星<rt>ほし</rt></ruby>',
-  toKatakana: async () => 'ホシ',
-}))
+vi.mock('../../../src/language/japanese/phonetics', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/language/japanese/phonetics')>()
+  return {
+    ...actual,
+    toRomaji: async () => 'hoshi',
+    toFurigana: async () => '<ruby>星<rt>ほし</rt></ruby>',
+    toKatakana: async () => 'ホシ',
+  }
+})
 
-import { toRomaji, toFurigana } from '../../../src/language/japanese/phonetics'
+import { toRomaji, toFurigana, katakanaToHiragana } from '../../../src/language/japanese/phonetics'
 
 describe('toRomaji', () => {
   it('converts hiragana to romaji', async () => {
@@ -25,5 +29,12 @@ describe('toFurigana', () => {
     const result = await toFurigana('星')
     expect(result).toContain('<ruby>')
     expect(result).toContain('<rt>')
+  })
+})
+
+describe('katakanaToHiragana', () => {
+  it('converts katakana readings to hiragana for furigana rt tags', () => {
+    expect(katakanaToHiragana('キミ')).toBe('きみ')
+    expect(katakanaToHiragana('ほし')).toBe('ほし')
   })
 })

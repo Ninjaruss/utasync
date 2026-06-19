@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   detectLanguage, attachSecondLanguage, isSameText, pairsToTimedLines,
   hasVisibleTranslation, stripNonLyricLines, extractSecondLanguageBlocks,
+  mergeTimedTracks,
 } from '../../src/lyrics/bilingual'
 import type { TimedLine } from '../../src/core/types'
 
@@ -61,7 +62,7 @@ describe('extractSecondLanguageBlocks', () => {
 describe('attachSecondLanguage', () => {
   const primary: TimedLine[] = [line('君の瞳', 1, 3), line('夜の中', 3, 5)]
 
-  it('pairs plain second-language text by index', () => {
+  it('times plain translation to primary song timestamps when line counts match', () => {
     const result = attachSecondLanguage(primary, 'Your eyes\nIn the night')
     expect(result.lines.map((l) => l.translation)).toEqual(['Your eyes', 'In the night'])
     expect(result.lines[0].original).toBe('君の瞳')
@@ -69,17 +70,30 @@ describe('attachSecondLanguage', () => {
     expect(result.mismatchedBlocks).toEqual([])
   })
 
-  it('pairs a synced second-language LRC by timestamp', () => {
+  it('pairs mixed-script primaries to two translation lines per row when timed', () => {
+    const mixed: TimedLine[] = [
+      { original: 'You always make me so happy 青空に溶けて', startTime: 1, endTime: 5, translation: '' },
+      { original: 'ねえ いつか', startTime: 5, endTime: 7, translation: '' },
+    ]
+    const secondary = 'You always make me so happy\nMelt into the blue sky\nHey, someday'
+    const result = attachSecondLanguage(mixed, secondary)
+    expect(result.mismatchedBlocks).toEqual([])
+    expect(result.lines[0].translation).toBe('You always make me so happy\nMelt into the blue sky')
+    expect(result.lines[0].startTime).toBe(1)
+    expect(result.lines[1].translation).toBe('Hey, someday')
+  })
+
+  it('merges synced LRC by song timeline, not primary line index', () => {
     const lrc = '[00:01.00]Your eyes\n[00:03.00]In the night'
     const result = attachSecondLanguage(primary, lrc)
     expect(result.lines.map((l) => l.translation)).toEqual(['Your eyes', 'In the night'])
     expect(result.mismatchedBlocks).toEqual([])
   })
 
-  it('flags a single whole-song mismatch when line counts differ and no block structure is detected', () => {
+  it('times plain translation across the song span when primary is timed and counts differ', () => {
     const result = attachSecondLanguage(primary, 'Only one line')
     expect(result.mismatchedBlocks).toEqual([0])
-    expect(result.lines.length).toBe(primary.length)
+    expect(result.lines.some((l) => l.translation === 'Only one line')).toBe(true)
   })
 
   it('ignores blank lines in the pasted block when counts already match', () => {
@@ -94,18 +108,23 @@ describe('attachSecondLanguage', () => {
     expect(result.lines.map((l) => l.translation)).toEqual(['Your eyes', 'In the night'])
   })
 
-  it('scopes a mismatch to one stanza block when both sides have matching multi-block structure', () => {
-    // Primary: two stanzas with a >4s gap between them (stanza boundary).
-    const multiStanzaPrimary: TimedLine[] = [
-      line('一行目', 0, 2), line('二行目', 2, 4),
-      line('三行目', 10, 12), line('四行目', 12, 14),
+  it('merges independently timed tracks when breakpoints differ', () => {
+    const primary: TimedLine[] = [line('君の瞳', 1, 3), line('夜の中', 5, 7)]
+    const secondary: TimedLine[] = [
+      { original: '', translation: 'Your eyes', startTime: 1, endTime: 4 },
+      { original: '', translation: 'In the night', startTime: 4, endTime: 7 },
     ]
-    // Secondary: stanza 1 matches (2 lines), stanza 2 is merged into one line.
-    const secondary = 'Line one\nLine two\n\nLines three and four merged'
-    const result = attachSecondLanguage(multiStanzaPrimary, secondary)
-    expect(result.mismatchedBlocks).toEqual([1])
-    expect(result.lines[0].translation).toBe('Line one')
-    expect(result.lines[1].translation).toBe('Line two')
+    const merged = mergeTimedTracks(primary, secondary)
+    expect(merged.length).toBeGreaterThan(primary.length)
+    expect(merged.some((l) => l.original === '君の瞳' && l.translation === 'Your eyes')).toBe(true)
+    expect(merged.some((l) => l.original === '夜の中' && l.translation === 'In the night')).toBe(true)
+  })
+
+  it('flags mismatch only when primary is untimed and line counts differ', () => {
+    const untimed: TimedLine[] = [line('君の瞳'), line('夜の中')]
+    const result = attachSecondLanguage(untimed, 'Only one line')
+    expect(result.mismatchedBlocks).toEqual([0])
+    expect(result.lines.length).toBe(untimed.length)
   })
 })
 

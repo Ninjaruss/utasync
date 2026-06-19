@@ -42,10 +42,38 @@ describe('EditMode', () => {
   it('committing the popover stamps the chosen time', () => {
     const { onChangeLines } = renderEditMode()
     fireEvent.click(screen.getByRole('button', { name: /edit timestamp for line 2/i }))
-    fireEvent.click(screen.getByText(/use current/i))
+    fireEvent.change(screen.getByLabelText('Scrub timestamp'), { target: { value: '9' } })
     fireEvent.click(screen.getByText('Done'))
     const next = onChangeLines.mock.calls[0][0] as TimedLine[]
     expect(next[1].startTime).toBe(9)
+  })
+
+  it('dismissing the popover does not stamp and reverts the preview position', () => {
+    const seek = vi.fn()
+    const onScrubEnd = vi.fn()
+    const { onChangeLines } = renderEditMode({ seek, onScrubStart: vi.fn(), onScrubEnd, playhead: () => 4 })
+    fireEvent.click(screen.getByRole('button', { name: /edit timestamp for line 2/i }))
+    fireEvent.change(screen.getByLabelText('Scrub timestamp'), { target: { value: '9' } })
+    expect(seek).toHaveBeenCalledWith(9)
+    const list = screen.getByLabelText('Lyric lines')
+    fireEvent.click(list)
+    expect(onChangeLines).not.toHaveBeenCalled()
+    expect(seek).toHaveBeenLastCalledWith(4)
+    expect(onScrubEnd).toHaveBeenCalled()
+    expect(screen.queryByLabelText('Scrub timestamp')).toBeNull()
+  })
+
+  it('tapping another lyric cancels an open timestamp preview', () => {
+    const seek = vi.fn()
+    const onScrubEnd = vi.fn()
+    renderEditMode({ seek, onScrubStart: vi.fn(), onScrubEnd, playhead: () => 4 })
+    fireEvent.click(screen.getByRole('button', { name: /edit timestamp for line 2/i }))
+    fireEvent.change(screen.getByLabelText('Scrub timestamp'), { target: { value: '9' } })
+    fireEvent.click(screen.getByText('a'))
+    expect(seek).toHaveBeenCalledWith(4)
+    expect(onScrubEnd).toHaveBeenCalled()
+    expect(screen.queryByLabelText('Scrub timestamp')).toBeNull()
+    expect(screen.getByLabelText('Original text')).toBeTruthy()
   })
 
   it('opens inline editing (does NOT stamp) when the lyric text is tapped', () => {
@@ -97,7 +125,7 @@ describe('EditMode', () => {
   it('shows a locally-stored-audio hint instead of Auto-align when hasAudio is false', () => {
     renderEditMode({ hasAudio: false })
     expect(screen.queryByRole('button', { name: /auto-align/i })).toBeNull()
-    expect(screen.getByText(/needs locally stored audio/i)).toBeTruthy()
+    expect(screen.getByText(/needs uploaded audio/i)).toBeTruthy()
   })
 
   it('marks untimed lines', () => {
@@ -105,10 +133,10 @@ describe('EditMode', () => {
     expect(screen.getByText(/untimed/i)).toBeTruthy()
   })
 
-  it('opens the second-language panel from the footer button', async () => {
+  it('opens the second-language panel from the toolbar', async () => {
     renderEditMode()
-    fireEvent.click(screen.getByRole('button', { name: /2nd language/i }))
-    expect(await screen.findByText(/searching lrclib/i)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /translation/i }))
+    expect(await screen.findByRole('heading', { name: /second language/i })).toBeTruthy()
   })
 
   it('does not clobber an in-progress draft when lines change externally while editing', () => {
@@ -154,5 +182,28 @@ describe('EditMode', () => {
     fireEvent.click(screen.getByLabelText('Edit line 2'))
     expect(screen.queryByLabelText('Confirm delete line 2')).toBeNull()
     expect(screen.getByLabelText('Delete line 2')).toBeTruthy()
+  })
+
+  it('highlights the row under the current playhead', () => {
+    const timedLines: TimedLine[] = [
+      { startTime: 0, endTime: 2, original: 'first', translation: '' },
+      { startTime: 2, endTime: 5, original: 'second', translation: '' },
+    ]
+    const { container } = render(
+      <EditMode
+        lines={timedLines}
+        playhead={() => 1}
+        playheadPosition={1}
+        hasAudio
+        onChangeLines={vi.fn()}
+        onAutoAlign={vi.fn()}
+        title="t"
+        artist="a"
+        sourceLanguage="ja"
+      />,
+    )
+    const rows = container.querySelectorAll('[class*="ring-cinnabar-accent"]')
+    expect(rows.length).toBe(1)
+    expect(rows[0].textContent).toMatch(/first/)
   })
 })

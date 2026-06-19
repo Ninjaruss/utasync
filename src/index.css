@@ -2,6 +2,28 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-cinnabar-950 text-white;
+  }
+
+  img {
+    outline: 1px solid rgba(0, 0, 0, 0.1);
+    outline-offset: -1px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    img {
+      outline-color: rgba(255, 255, 255, 0.1);
+    }
+  }
+}
+
 /* Furigana ruby readings (kuroshiro output) above kanji. */
 .furigana-text ruby rt {
   font-size: 0.5em;

@@ -31,6 +31,20 @@ describe('LyricDisplay dedup', () => {
     expect(screen.getAllByText(/hello/i)).toHaveLength(1)
   })
 
+  it('does not repeat token surfaces on the active line', () => {
+    setStore([
+      {
+        original: '君',
+        startTime: 0,
+        endTime: 2,
+        translation: 'you',
+        tokens: [{ surface: '君', pos: '名詞', startIndex: 0, endIndex: 1, alignmentIndices: [0] }],
+      },
+    ], { lyricsLayout: 'sideBySide', activeLine: 0 })
+    render(<LyricDisplay onLineClick={() => {}} />)
+    expect(screen.getAllByText('君')).toHaveLength(1)
+  })
+
   it('falls back to stacked layout in sideBySide mode when the translation duplicates the original, but keeps the grid when it differs', () => {
     setStore(
       [
@@ -40,7 +54,7 @@ describe('LyricDisplay dedup', () => {
       { lyricsLayout: 'sideBySide' }
     )
     const { container } = render(<LyricDisplay onLineClick={() => {}} />)
-    expect(container.querySelectorAll('.grid-cols-2')).toHaveLength(1)
+    expect(container.querySelectorAll('[class*="grid-cols-2"]')).toHaveLength(1)
   })
 })
 
@@ -74,9 +88,77 @@ describe('word-pair coloring', () => {
     expect(span.style.borderBottomColor).toBe('rgb(156, 163, 175)') // PARTICLE_COLOR #9ca3af
   })
 
-  it('shows no coloring in stacked layout', () => {
-    useLyricsStore.setState({ lyricsLayout: 'stacked', lines: [coloredLine], activeLine: -1 })
+  it('colors matched word pairs in stacked layout when translation is shown', () => {
+    useLyricsStore.setState({ lyricsLayout: 'stacked', showTranslation: true, lines: [coloredLine], activeLine: -1 })
+    render(<LyricDisplay onLineClick={vi.fn()} />)
+    const sourceSpan = screen.getByText('君')
+    const targetSpan = screen.getByText('you')
+    expect(sourceSpan.style.borderBottomColor).not.toBe('')
+    expect(sourceSpan.style.borderBottomColor).toBe(targetSpan.style.borderBottomColor)
+  })
+
+  it('shows no coloring when translation is hidden in stacked layout', () => {
+    useLyricsStore.setState({ lyricsLayout: 'stacked', showTranslation: false, lines: [coloredLine], activeLine: -1 })
     render(<LyricDisplay onLineClick={vi.fn()} />)
     expect(screen.getByText('君').style.borderBottomColor).toBe('')
+  })
+
+  it('colors Japanese tokens in furigana mode (the default for ja)', () => {
+    const line: TimedLine = {
+      ...coloredLine,
+      furigana: '<ruby>君<rt>きみ</rt></ruby>',
+      tokens: [{ surface: '君', reading: 'キミ', pos: '名詞', startIndex: 0, endIndex: 1, alignmentIndices: [0] }],
+    }
+    useLyricsStore.setState({ furiganaMode: 'furigana', lines: [line], activeLine: -1 })
+    render(<LyricDisplay onLineClick={vi.fn()} />)
+    const sourceSpan = screen.getByText('君').closest('span')!
+    const targetSpan = screen.getByText('you')
+    expect(sourceSpan.style.borderBottomColor).not.toBe('')
+    expect(sourceSpan.style.borderBottomColor).toBe(targetSpan.style.borderBottomColor)
+    expect(screen.getByText('きみ')).toBeTruthy()
+  })
+
+  it('highlights a matched word pair on hover in side-by-side mode', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event')
+    const user = userEvent.setup()
+    useLyricsStore.setState({ lines: [coloredLine], activeLine: -1 })
+    const { container } = render(<LyricDisplay onLineClick={vi.fn()} />)
+    const sourceSpan = screen.getByText('君').closest('span')!
+    const targetSpan = screen.getByText('you')
+    expect(sourceSpan.style.backgroundColor).toBe('')
+    await user.hover(sourceSpan)
+    expect(sourceSpan.style.backgroundColor).toBe('rgba(255, 255, 255, 0.1)')
+    expect(targetSpan.style.backgroundColor).toBe('rgba(255, 255, 255, 0.1)')
+  })
+
+  it('highlights a matched word pair on hover in stacked layout', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event')
+    const user = userEvent.setup()
+    useLyricsStore.setState({ lyricsLayout: 'stacked', showTranslation: true, lines: [coloredLine], activeLine: -1 })
+    render(<LyricDisplay onLineClick={vi.fn()} />)
+    const sourceSpan = screen.getByText('君').closest('span')!
+    const targetSpan = screen.getByText('you')
+    await user.hover(targetSpan)
+    expect(sourceSpan.style.backgroundColor).toBe('rgba(255, 255, 255, 0.1)')
+    expect(targetSpan.style.backgroundColor).toBe('rgba(255, 255, 255, 0.1)')
+  })
+})
+
+describe('A-B loop region highlight', () => {
+  it('marks lines inside an active loop window', () => {
+    const loopLines: TimedLine[] = [
+      { startTime: 0, endTime: 2, original: 'in', translation: '' },
+      { startTime: 2, endTime: 5, original: 'out', translation: '' },
+    ]
+    useLyricsStore.setState({ lines: loopLines, activeLine: -1 })
+    const { container } = render(
+      <LyricDisplay
+        onLineClick={vi.fn()}
+        abLoop={{ a: 0, b: 2.5, preRoll: 2, loopCount: 3, crossfadeDuration: 0.3 }}
+      />,
+    )
+    const inLoop = container.querySelector('[class*="border-l-2"]')
+    expect(inLoop?.textContent).toMatch(/in/)
+    expect(container.textContent).toMatch(/out/)
   })
 })

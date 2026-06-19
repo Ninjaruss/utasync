@@ -21,8 +21,11 @@ export default function App() {
     })
   }, [toast])
 
-  const openSong = (id: string) => {
+  const [autoAlignOnOpen, setAutoAlignOnOpen] = useState(false)
+
+  const openSong = (id: string, opts?: { autoAlign?: boolean }) => {
     setSongId(id)
+    setAutoAlignOnOpen(opts?.autoAlign ?? false)
     setAddOpen(false)
     setView('song')
   }
@@ -32,7 +35,8 @@ export default function App() {
       {view === 'song' && songId ? (
         <PlayerView
           songId={songId}
-          onBack={() => setView('library')}
+          autoAlignOnOpen={autoAlignOnOpen}
+          onBack={() => { setView('library'); setAutoAlignOnOpen(false) }}
           onSettings={() => setSettingsOpen(true)}
         />
       ) : (
@@ -43,7 +47,12 @@ export default function App() {
         />
       )}
 
-      {addOpen && <AddSongSheet onSongReady={openSong} onClose={() => setAddOpen(false)} />}
+      {addOpen && (
+        <AddSongSheet
+          onSongReady={(id) => openSong(id, { autoAlign: true })}
+          onClose={() => setAddOpen(false)}
+        />
+      )}
       {settingsOpen && <SettingsSheet onClose={() => setSettingsOpen(false)} />}
     </>
   )

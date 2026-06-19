@@ -3,10 +3,25 @@ import type { TimedLine, Language } from '../core/types'
 import { stampStart, setText, addLine, deleteLine } from './lineOps'
 import { SecondLanguagePanel } from './SecondLanguagePanel'
 import { TimestampPopover } from './TimestampPopover'
+import {
+  editRowSurface,
+  editRowSurfaceActive,
+  lyricRowPlayheadActive,
+  timestampPillBtn,
+  toolbarActionBtn,
+  modeToolbarRow,
+  toolbarSectionLabel,
+} from '../core/ui/toolbarClasses'
+import { lineIndexAtPlayhead } from './lineTiming'
 
 interface Props {
   lines: TimedLine[]
   playhead: () => number
+  /** Current playback position — drives playhead row highlight during edit. */
+  playheadPosition?: number
+  seek?: (time: number) => void
+  onScrubStart?: () => void
+  onScrubEnd?: () => void
   /** Whether this song has locally stored audio for Auto-align to decode (not just an active playback source — YouTube alone doesn't count). */
   hasAudio: boolean
   title: string
@@ -22,10 +37,16 @@ function isTimed(line: TimedLine, first: boolean): boolean {
   return line.startTime > 0 || (first && line.startTime === 0 && line.endTime > 0)
 }
 
-function fmt(t: number, timed: boolean): string {
-  if (!timed) return '—'
+function fmtTime(t: number): string {
+  if (!Number.isFinite(t) || t < 0) return '—'
   const m = Math.floor(t / 60)
   return `${m}:${Math.floor(t % 60).toString().padStart(2, '0')}`
+}
+
+function fmt(line: TimedLine, timed: boolean): string {
+  if (!timed) return '—'
+  if (line.endTime > line.startTime) return `${fmtTime(line.startTime)}–${fmtTime(line.endTime)}`
+  return fmtTime(line.startTime)
 }
 
 interface RowProps {
@@ -42,15 +63,19 @@ interface RowProps {
   onConfirmDelete: () => void
   onOpenPopover: () => void
   popoverOpen: boolean
+  playheadActive: boolean
   playhead: () => number
+  seek?: (time: number) => void
+  onScrubStart?: () => void
+  onScrubEnd?: () => void
   onCommitTime: (t: number) => void
   onClosePopover: () => void
 }
 
 /** One lyric row. Holds local draft text so typing doesn't push a change on every keystroke — committed only on blur, same discipline the old expand-into-panel editor used. */
 function Row({
-  line, index, timed, editing, deleteArmed, onStartEdit, onStopEdit, onCommitText, onAdd,
-  onArmDelete, onConfirmDelete, onOpenPopover, popoverOpen, playhead, onCommitTime, onClosePopover,
+  line, index, timed, editing, deleteArmed, playheadActive, onStartEdit, onStopEdit, onCommitText, onAdd,
+  onArmDelete, onConfirmDelete, onOpenPopover, popoverOpen, playhead, seek, onScrubStart, onScrubEnd, onCommitTime, onClosePopover,
 }: RowProps) {
   const [original, setOriginal] = useState(line.original)
   const [translation, setTranslation] = useState(line.translation)
@@ -71,15 +96,19 @@ function Row({
   }
 
   return (
-    <div className="relative rounded-xl border border-white/10 bg-white/5 px-2 py-2">
+    <div className={[
+      editRowSurface,
+      editing ? editRowSurfaceActive : '',
+      playheadActive && !editing ? lyricRowPlayheadActive : '',
+    ].join(' ')}>
       <div className="flex items-center gap-2">
         <button
           onClick={onOpenPopover}
           aria-label={`Edit timestamp for line ${index + 1}`}
-          className="flex items-center gap-1 shrink-0 rounded-lg border border-white/15 bg-white/5 px-1.5 py-1"
+          className={timestampPillBtn}
         >
           <span className="text-[10px] text-white/40">⏱</span>
-          <span className="text-[11px] tabular-nums text-cinnabar-accent w-9 text-center">{fmt(line.startTime, timed)}</span>
+          <span className="text-[11px] tabular-nums text-cinnabar-accent min-w-[4.5rem] text-center">{fmt(line, timed)}</span>
         </button>
 
         <div className="flex-1 min-w-0">
@@ -127,26 +156,68 @@ function Row({
           className="mt-1.5 w-full bg-cinnabar-950 text-white/80 text-sm px-2 py-1 rounded-lg outline-none border border-cinnabar-800 focus:border-cinnabar-accent"
         />
       ) : (
-        line.translation && <span className="block text-[11px] italic text-white/45 ml-[3.25rem]">{line.translation}</span>
+        line.translation && <span className="block text-[11px] italic text-white/45 mt-1 pl-[4.75rem]">{line.translation}</span>
       )}
 
       {popoverOpen && (
-        <TimestampPopover time={line.startTime} playhead={playhead} onCommit={onCommitTime} onClose={onClosePopover} />
+        <TimestampPopover
+          time={line.startTime}
+          playhead={playhead}
+          onCommit={onCommitTime}
+          onClose={onClosePopover}
+          onScrub={seek}
+          onScrubStart={onScrubStart}
+          onScrubEnd={onScrubEnd}
+        />
       )}
     </div>
   )
 }
 
-export function EditMode({ lines, playhead, hasAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
   const [confirmAutoAlign, setConfirmAutoAlign] = useState(false)
   const [showSecondLang, setShowSecondLang] = useState(false)
   const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const previewReturnRef = useRef(0)
   const hasSecondLang = lines.some((l) => l.translation)
 
   useEffect(() => () => { if (deleteTimer.current) clearTimeout(deleteTimer.current) }, [])
+
+  const revertPreview = () => {
+    seek?.(previewReturnRef.current)
+    onScrubEnd?.()
+  }
+
+  const cancelPopover = () => {
+    if (openPopover === null) return
+    revertPreview()
+    setOpenPopover(null)
+  }
+
+  const openTimestampPopover = (i: number) => {
+    if (openPopover === i) {
+      cancelPopover()
+      return
+    }
+    if (openPopover !== null) revertPreview()
+    previewReturnRef.current = playhead()
+    setOpenPopover(i)
+    seek?.(lines[i].startTime)
+  }
+
+  const startEdit = (i: number) => {
+    if (openPopover !== null && openPopover !== i) cancelPopover()
+    disarmDelete(i)
+    setEditingIndex(i)
+    seek?.(lines[i].startTime)
+  }
+
+  const closePopoverAfterCommit = () => {
+    setOpenPopover(null)
+  }
 
   const armDelete = (i: number) => {
     setDeleteArmed(i)
@@ -171,22 +242,52 @@ export function EditMode({ lines, playhead, hasAudio, title, artist, sourceLangu
     })
   }
 
-  const startEdit = (i: number) => {
-    disarmDelete(i)
-    setEditingIndex(i)
-  }
-
   const stopEdit = () => {
     disarmDelete(null)
     setEditingIndex(null)
   }
 
+  const activePlayheadIndex = playheadPosition !== undefined
+    ? lineIndexAtPlayhead(lines, playheadPosition)
+    : -1
+
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+      <div className={[modeToolbarRow, 'space-y-2'].join(' ')}>
+        <div className="flex items-center gap-2">
+          <p className={[toolbarSectionLabel, 'flex-1'].join(' ')}>Edit lyrics</p>
+          {hasAudio ? (
+            <button
+              type="button"
+              onClick={() => setConfirmAutoAlign(true)}
+              className={toolbarActionBtn}
+            >
+              Auto-align
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setShowSecondLang(true)}
+            className={toolbarActionBtn}
+          >
+            {hasSecondLang ? '2nd language' : '+ Translation'}
+          </button>
+        </div>
+        {!hasAudio && (
+          <p className="text-[10px] text-white/30 text-pretty">Auto-align needs uploaded audio on this song.</p>
+        )}
+        <p className="text-[10px] text-white/30 text-pretty">Tap a line to edit text · ⏱ to set timestamps</p>
+      </div>
+
+      <div
+        className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 space-y-1.5"
+        aria-label="Lyric lines"
+        style={{ scrollbarWidth: 'thin' }}
+        onClick={() => { if (openPopover !== null) cancelPopover() }}
+      >
         {lines.map((line, i) => (
+          <div key={i} onClick={(e) => e.stopPropagation()}>
           <Row
-            key={i}
             line={line}
             index={i}
             timed={isTimed(line, i === 0)}
@@ -198,37 +299,18 @@ export function EditMode({ lines, playhead, hasAudio, title, artist, sourceLangu
             onAdd={() => onChangeLines(addLine(lines, i))}
             onArmDelete={() => armDelete(i)}
             onConfirmDelete={() => confirmDelete(i)}
-            onOpenPopover={() => setOpenPopover(openPopover === i ? null : i)}
+            onOpenPopover={() => openTimestampPopover(i)}
             popoverOpen={openPopover === i}
+            playheadActive={activePlayheadIndex === i}
             playhead={playhead}
-            onCommitTime={(t) => onChangeLines(stampStart(lines, i, t))}
-            onClosePopover={() => setOpenPopover(null)}
-          />
-        ))}
-      </div>
-
-      <div className="border-t border-white/10 shrink-0 p-3 space-y-3">
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-white/30 mb-1">Timing</p>
-          {hasAudio ? (
-            <button onClick={() => setConfirmAutoAlign(true)} className="w-full text-xs rounded-lg border border-white/15 bg-white/6 py-2 text-white/85">
-              ✨ Auto-align
-            </button>
-          ) : (
-            <p className="text-[10px] text-white/35 text-center px-1">
-              Auto-align needs locally stored audio — attach an audio file to this song
-            </p>
-          )}
-        </div>
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-white/30 mb-1">Content</p>
-          <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => onChangeLines(addLine(lines, lines.length - 1))} className="text-xs rounded-lg border border-white/15 bg-white/6 py-2 text-white/85">＋ Add line</button>
-            <button onClick={() => setShowSecondLang(true)} className="text-xs rounded-lg border border-white/15 bg-white/6 py-2 text-white/85">
-              {hasSecondLang ? '↻ Replace 2nd language' : '＋ 2nd language'}
-            </button>
+            seek={seek}
+            onScrubStart={onScrubStart}
+          onScrubEnd={onScrubEnd}
+          onCommitTime={(t) => onChangeLines(stampStart(lines, i, t))}
+          onClosePopover={closePopoverAfterCommit}
+        />
           </div>
-        </div>
+        ))}
       </div>
 
       {confirmAutoAlign && (
