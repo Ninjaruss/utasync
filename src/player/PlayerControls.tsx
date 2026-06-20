@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
-import type { PlaybackState, ABLoop } from '../core/types'
+import type { PlaybackState, ABLoop, ABLoopPlaylistEntry } from '../core/types'
 import { isABLoopActive } from './abLoopUtils'
+import { playlistEntryLabel } from './abLoopPlaylist'
 import {
   toolbarChipBtn,
   toolbarChipBtnActive,
@@ -42,6 +43,17 @@ interface Props {
   abExportCanIncludeSrt?: boolean
   abExportIncludeSrt?: boolean
   onAbExportIncludeSrtChange?: (value: boolean) => void
+  playlistEntries?: ABLoopPlaylistEntry[]
+  playlistActive?: boolean
+  playlistIndex?: number
+  canSaveToPlaylist?: boolean
+  onSaveToPlaylist?: () => void
+  onTogglePlaylist?: () => void
+  onLoadPlaylistEntry?: (entry: ABLoopPlaylistEntry, index: number) => void
+  onMovePlaylistEntry?: (from: number, to: number) => void
+  onRemovePlaylistEntry?: (entryId: string) => void
+  onRenamePlaylistEntry?: (entryId: string, label: string) => void
+  onClearPlaylist?: () => void
 }
 
 function formatTime(s: number): string {
@@ -135,6 +147,7 @@ function CompactVolume({ volumePct, onVolumeChange }: { volumePct: number; onVol
         className="flex-1 accent-cinnabar-accent touch-manipulation h-1"
         aria-label="Volume"
       />
+      <span className="text-white/45 text-xs w-10 text-right tabular-nums shrink-0">{volumePct}%</span>
     </div>
   )
 }
@@ -193,6 +206,195 @@ function ABLoopControls({
       )}
       {abLoopError && (
         <p className="text-[11px] text-red-400/90" role="alert">{abLoopError}</p>
+      )}
+    </div>
+  )
+}
+
+function ABLoopPlaylistControls({
+  entries,
+  playlistActive,
+  playlistIndex,
+  canSave,
+  onSave,
+  onTogglePlaylist,
+  onLoadEntry,
+  onMoveEntry,
+  onRemoveEntry,
+  onRenameEntry,
+  onClear,
+}: {
+  entries: ABLoopPlaylistEntry[]
+  playlistActive: boolean
+  playlistIndex: number
+  canSave: boolean
+  onSave: () => void
+  onTogglePlaylist: () => void
+  onLoadEntry: (entry: ABLoopPlaylistEntry, index: number) => void
+  onMoveEntry: (from: number, to: number) => void
+  onRemoveEntry: (entryId: string) => void
+  onRenameEntry: (entryId: string, label: string) => void
+  onClear: () => void
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
+  const editRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (editingId) editRef.current?.focus()
+  }, [editingId])
+
+  const startRename = (entry: ABLoopPlaylistEntry) => {
+    setEditingId(entry.id)
+    setEditValue(playlistEntryLabel(entry))
+  }
+
+  const commitRename = (entryId: string) => {
+    onRenameEntry(entryId, editValue)
+    setEditingId(null)
+  }
+
+  const hasEntries = entries.length > 0
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className={toolbarSectionLabel}>Loop playlist</p>
+        {playlistActive && hasEntries && (
+          <span className="text-[10px] text-cinnabar-accent tabular-nums font-medium">
+            {playlistIndex + 1}/{entries.length}
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={!canSave}
+          className={[
+            toolbarChipBtn,
+            canSave ? toolbarChipBtnActive : toolbarChipBtnIdle,
+            'disabled:opacity-35',
+          ].join(' ')}
+        >
+          Save loop
+        </button>
+        {hasEntries && (
+          <button
+            type="button"
+            onClick={onTogglePlaylist}
+            className={[
+              toolbarChipBtn,
+              playlistActive ? toolbarChipBtnActive : toolbarChipBtnIdle,
+            ].join(' ')}
+          >
+            {playlistActive ? 'Stop playlist' : 'Play playlist'}
+          </button>
+        )}
+        {hasEntries && (
+          <button
+            type="button"
+            onClick={onClear}
+            className={[toolbarChipBtn, toolbarChipBtnIdle, 'text-white/40'].join(' ')}
+          >
+            Clear list
+          </button>
+        )}
+      </div>
+
+      {!hasEntries && (
+        <p className="text-[11px] text-white/30 text-pretty">
+          Save A-B loops here, then play them in order for practice.
+        </p>
+      )}
+
+      {hasEntries && (
+        <ul className="space-y-1 max-h-36 overflow-y-auto overscroll-contain pr-0.5">
+          {entries.map((entry, i) => {
+            const isCurrent = playlistActive && i === playlistIndex
+            const isEditing = editingId === entry.id
+            return (
+              <li
+                key={entry.id}
+                className={[
+                  'flex items-center gap-1 rounded-lg border px-1.5 py-1 min-h-10',
+                  isCurrent
+                    ? 'border-cinnabar-accent/50 bg-cinnabar-accent/[0.08]'
+                    : 'border-cinnabar-900/80 bg-cinnabar-950/40',
+                ].join(' ')}
+              >
+                <button
+                  type="button"
+                  onClick={() => onLoadEntry(entry, i)}
+                  className="flex-1 min-w-0 text-left px-1 py-1 touch-manipulation"
+                  aria-label={`Load loop ${playlistEntryLabel(entry)}`}
+                >
+                  {isEditing ? (
+                    <input
+                      ref={editRef}
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      onBlur={() => commitRename(entry.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') commitRename(entry.id)
+                        if (e.key === 'Escape') setEditingId(null)
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-full bg-cinnabar-900 text-xs text-white px-1.5 py-0.5 rounded border border-cinnabar-accent/50 outline-none"
+                    />
+                  ) : (
+                    <span className="block text-xs text-white/75 truncate text-pretty tabular-nums">
+                      {playlistEntryLabel(entry)}
+                    </span>
+                  )}
+                </button>
+                <div className="flex items-center shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => startRename(entry)}
+                    className="min-w-8 min-h-8 flex items-center justify-center text-white/25 hover:text-white/60 text-[10px] touch-manipulation"
+                    aria-label="Rename loop"
+                  >
+                    ✎
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onMoveEntry(i, i - 1)}
+                    disabled={i === 0}
+                    className="min-w-8 min-h-8 flex items-center justify-center text-white/30 hover:text-white disabled:opacity-20 text-xs touch-manipulation"
+                    aria-label="Move up"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onMoveEntry(i, i + 1)}
+                    disabled={i >= entries.length - 1}
+                    className="min-w-8 min-h-8 flex items-center justify-center text-white/30 hover:text-white disabled:opacity-20 text-xs touch-manipulation"
+                    aria-label="Move down"
+                  >
+                    ↓
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRemoveEntry(entry.id)}
+                    className="min-w-8 min-h-8 flex items-center justify-center text-white/25 hover:text-red-400 text-xs touch-manipulation"
+                    aria-label="Remove loop"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
+      {playlistActive && hasEntries && (
+        <p className="text-[11px] text-cinnabar-accent/80 text-pretty">
+          Repeats each loop, then advances to the next entry.
+        </p>
       )}
     </div>
   )
@@ -382,6 +584,17 @@ export function PlayerControls({
   abExportCanIncludeSrt,
   abExportIncludeSrt,
   onAbExportIncludeSrtChange,
+  playlistEntries = [],
+  playlistActive = false,
+  playlistIndex = 0,
+  canSaveToPlaylist = false,
+  onSaveToPlaylist,
+  onTogglePlaylist,
+  onLoadPlaylistEntry,
+  onMovePlaylistEntry,
+  onRemovePlaylistEntry,
+  onRenamePlaylistEntry,
+  onClearPlaylist,
 }: Props) {
   const abActive = abLoop.a !== null || abLoop.b !== null || armingAB !== null
   const abLooping = isABLoopActive(abLoop)
@@ -391,11 +604,15 @@ export function PlayerControls({
     if (abActive) setPracticeOpen(true)
   }, [abActive])
 
-  const practiceStatus = abLooping
-    ? 'Looping'
-    : abActive
-      ? 'A-B on'
-      : `Speed ${speedPct}%`
+  const practiceStatus = playlistActive
+    ? `Playlist ${playlistIndex + 1}/${Math.max(playlistEntries.length, 1)}`
+    : abLooping
+      ? 'Looping'
+      : abActive
+        ? 'A-B on'
+        : !practiceOpen && speed !== NORMAL_SPEED
+          ? `${speedPct}%`
+          : ''
 
   return (
     <aside
@@ -461,10 +678,25 @@ export function PlayerControls({
                     onClearAB={onClearAB}
                   />
                 </div>
+                {onSaveToPlaylist && onTogglePlaylist && onLoadPlaylistEntry && onMovePlaylistEntry && onRemovePlaylistEntry && onRenamePlaylistEntry && onClearPlaylist && (
+                  <div className="border-t border-cinnabar-900/50 pt-4">
+                    <ABLoopPlaylistControls
+                      entries={playlistEntries}
+                      playlistActive={playlistActive}
+                      playlistIndex={playlistIndex}
+                      canSave={canSaveToPlaylist}
+                      onSave={onSaveToPlaylist}
+                      onTogglePlaylist={onTogglePlaylist}
+                      onLoadEntry={onLoadPlaylistEntry}
+                      onMoveEntry={onMovePlaylistEntry}
+                      onRemoveEntry={onRemovePlaylistEntry}
+                      onRenameEntry={onRenamePlaylistEntry}
+                      onClear={onClearPlaylist}
+                    />
+                  </div>
+                )}
                 <div className="border-t border-cinnabar-900/50 pt-4">
-                  <p className={[toolbarSectionLabel, 'mb-2'].join(' ')}>
-                    Speed <span className="normal-case tracking-normal text-white/25">· {speedPct}%</span>
-                  </p>
+                  <p className={[toolbarSectionLabel, 'mb-2'].join(' ')}>Speed</p>
                   <SpeedControl speedPct={speedPct} speed={speed} onSpeedChange={onSpeedChange} />
                 </div>
               </div>

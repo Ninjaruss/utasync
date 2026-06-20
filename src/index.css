@@ -26,8 +26,10 @@
 
 /* Furigana ruby readings (kuroshiro output) above kanji. */
 .furigana-text ruby rt {
-  font-size: 0.5em;
-  font-weight: 400;
-  color: rgba(248, 113, 113, 0.85); /* cinnabar accent */
-  user-select: none;
+  font-size: 0.58em;
+  font-weight: 500;
+  color: rgba(252, 165, 165, 0.98);
+  opacity: 1;
+  letter-spacing: 0.03em;
+  text-shadow: 0 0 8px rgba(248, 113, 113, 0.35);
 }

@@ -50,13 +50,18 @@ export interface LyricsLookup {
  * title). Tries the exact /get endpoint, then a fuzzy /search, then a
  * track-only search, always preferring time-synced lyrics so we can align.
  */
+export type FindLyricsStage = 'exact' | 'search'
+
 export async function findLyrics(
   trackName: string,
-  artistName: string
+  artistName: string,
+  onStage?: (stage: FindLyricsStage) => void,
 ): Promise<LyricsLookup | null> {
+  onStage?.('exact')
   const exact = await fetchLRCFromLRCLIB(trackName, artistName)
   if (exact) return { lrc: exact, synced: true }
 
+  onStage?.('search')
   const queries: Array<Record<string, string>> = [
     { track_name: trackName, artist_name: artistName },
     { q: `${artistName} ${trackName}`.trim() },
@@ -85,12 +90,16 @@ export async function findLyrics(
  * attach the wrong translation. When no confident match exists we return null
  * and let the user paste the second language manually.
  */
+export type SecondLanguageSearchStage = 'search'
+
 export async function findSecondLanguageLyrics(
   trackName: string,
   artistName: string,
   primaryLang: Language | 'other',
+  onStage?: (stage: SecondLanguageSearchStage) => void,
 ): Promise<LyricsLookup | null> {
   if (!artistName.trim()) return null
+  onStage?.('search')
   const queries: Array<Record<string, string>> = [
     { track_name: trackName, artist_name: artistName },
     { q: `${artistName} ${trackName}`.trim() },

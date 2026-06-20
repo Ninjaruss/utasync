@@ -23,6 +23,8 @@ export interface Token {
   surface: string
   reading?: string
   pos?: string
+  /** kuromoji pos_detail_1 (e.g. 非自立 for dependent verb stems). */
+  posDetail1?: string
   startIndex: number
   endIndex: number
   alignmentIndices?: number[]
@@ -106,4 +108,12 @@ export interface ABLoop {
   preRoll: number
   loopCount: number
   crossfadeDuration: number
+}
+
+/** Saved A–B segment for loop playlists (per song). */
+export interface ABLoopPlaylistEntry {
+  id: string
+  a: number
+  b: number
+  label?: string
 }

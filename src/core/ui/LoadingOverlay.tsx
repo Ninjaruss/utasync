@@ -6,7 +6,7 @@ interface Props {
   action?: ReactNode
 }
 
-/** Full-screen dimmed overlay with spinner and a short status label. */
+/** Full-screen dimmed overlay with spinner — use for short, indeterminate waits only. */
 export function LoadingOverlay({ message, detail, action }: Props) {
   return (
     <div

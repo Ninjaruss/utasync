@@ -25,6 +25,7 @@ export async function tokenizeJapanese(text: string): Promise<Token[]> {
       surface: t.surface_form,
       reading: t.reading,
       pos: t.pos,
+      posDetail1: t.pos_detail_1 && t.pos_detail_1 !== '*' ? t.pos_detail_1 : undefined,
       startIndex,
       endIndex: index,
     }

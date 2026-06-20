@@ -32,6 +32,8 @@ function languageHints(sourceLanguage?: Language): string[] {
   return ['ja', 'en']
 }
 
+export type ResolveLyricsStage = 'youtube' | 'lrclib-exact' | 'lrclib-search'
+
 /**
  * Resolve lyrics for a song. YouTube native captions are tried first when a
  * video id is available; LRCLIB is the fallback.
@@ -41,18 +43,22 @@ export async function resolveLyricsForSong(opts: {
   artist: string
   videoId?: string | null
   sourceLanguage?: Language
+  onStage?: (stage: ResolveLyricsStage) => void
 }): Promise<LyricsResolveResult> {
-  const { title, artist, videoId, sourceLanguage } = opts
+  const { title, artist, videoId, sourceLanguage, onStage } = opts
   const preferLangs = languageHints(sourceLanguage)
 
   if (videoId) {
+    onStage?.('youtube')
     const captions = await fetchYouTubeCaptionLines(videoId, preferLangs)
     if (captions && captions.length > 0) {
       return { lines: captions, synced: true, source: 'youtube-captions' }
     }
   }
 
-  const found = await findLyrics(title.trim(), artist.trim())
+  const found = await findLyrics(title.trim(), artist.trim(), (stage) => {
+    onStage?.(stage === 'exact' ? 'lrclib-exact' : 'lrclib-search')
+  })
   if (found) return fromLrcLookup(found)
 
   return { lines: [], synced: false, source: 'none' }

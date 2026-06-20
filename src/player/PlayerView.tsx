@@ -21,12 +21,21 @@ import { EditMode } from '../lyrics/EditMode'
 import { computeSyncState } from '../core/db/migrations'
 import { hasVisibleTranslation } from '../lyrics/bilingual'
 import { linesNeedEnrichment, linesNeedAlignment, lineNeedsAlignment, LYRICS_ENRICHMENT_VERSION } from '../lyrics/lyricsEnrichment'
+import { runWhenIdle } from '../core/idle'
 import { alignLinesTokens, countEmbedBatches } from '../ai-pipeline/wordAligner'
-import { preloadEmbedder } from '../ai-pipeline/textEmbedder'
-import { splitTranslationWords } from '../language/wordColors'
+import {
+  japaneseTokenIndices,
+  targetWordBaseOffset,
+  targetWordsForAlignment,
+  buildAlignmentSegments,
+  alignableEnglishTargetPool,
+} from '../lyrics/lineAligner'
+import type { LineAlignJob } from '../ai-pipeline/wordAligner'
 import { LoadingOverlay } from '../core/ui/LoadingOverlay'
 import { abPairError, abLoopPatchFromLineTap, isValidABPair } from './abLoopUtils'
-import { exportAbLoopClip, abLoopHasTimedLyrics } from './abLoopExport'
+import { exportAbLoopClip, abLoopHasTimedLyrics, lyricHintForAbLoop } from './abLoopExport'
+import { createPlaylistEntry } from './abLoopPlaylist'
+import { useAbLoopPlaylistStore } from './abLoopPlaylistStore'
 import { getAudioFile } from '../core/opfs/audio'
 import { PlayerControls } from './PlayerControls'
 import { DisplayMenu } from './DisplayMenu'
@@ -62,10 +71,12 @@ async function enrichLines(lines: TimedLine[], sourceLanguage: Language): Promis
   }))
 }
 
-/** Max texts per embed call on lite-tier phones to limit WebGPU memory spikes. */
-const LITE_EMBED_BATCH_TEXTS = 96
-/** Lines processed per chunk on lite tier so the UI can breathe between batches. */
-const LITE_ALIGN_LINES_PER_CHUNK = 8
+/** Max texts per embed call — limits peak WebGPU / WASM memory per batch. */
+const LITE_EMBED_BATCH_TEXTS = 64
+const FULL_EMBED_BATCH_TEXTS = 96
+/** Lines processed per chunk so the UI can breathe between batches. */
+const LITE_ALIGN_LINES_PER_CHUNK = 6
+const FULL_ALIGN_LINES_PER_CHUNK = 12
 
 /**
  * Computes word-pair alignment for lines that have both tokens and a visible
@@ -75,6 +86,25 @@ const LITE_ALIGN_LINES_PER_CHUNK = 8
  * blocking the rest of the song from displaying.
  * Batches embedding across lines (one or few round-trips per song).
  */
+/** Builds a word-alignment job for one lyric line. */
+function buildAlignJob(line: TimedLine): LineAlignJob {
+  const tokens = line.tokens!
+  const segments = buildAlignmentSegments(line.original, line.translation, tokens)
+  if (segments) {
+    return { tokens, targetWords: [], segments }
+  }
+  const fullTarget = targetWordsForAlignment(line.original, line.translation)
+  const baseOffset = targetWordBaseOffset(line.original, line.translation)
+  const pool = alignableEnglishTargetPool(fullTarget, baseOffset)
+  const jaIndices = japaneseTokenIndices(line.original, tokens)
+  return {
+    tokens,
+    targetWords: pool.words,
+    targetIndexMap: pool.indexMap,
+    alignTokenIndices: jaIndices.length < tokens.length ? jaIndices : undefined,
+  }
+}
+
 async function enrichAlignment(
   lines: TimedLine[],
   onProgress?: (done: number, total: number) => void,
@@ -87,18 +117,15 @@ async function enrichAlignment(
     const { embedTexts } = await import('../ai-pipeline/textEmbedder')
 
     const tier = getDeviceTier()
-    const linesPerChunk = tier === 'lite' ? LITE_ALIGN_LINES_PER_CHUNK : indices.length
-    const maxTextsPerBatch = tier === 'lite' ? LITE_EMBED_BATCH_TEXTS : undefined
+    const linesPerChunk = tier === 'lite' ? LITE_ALIGN_LINES_PER_CHUNK : FULL_ALIGN_LINES_PER_CHUNK
+    const maxTextsPerBatch = tier === 'lite' ? LITE_EMBED_BATCH_TEXTS : FULL_EMBED_BATCH_TEXTS
     const updated = [...lines]
     const totalLines = indices.length
 
     let totalEmbedBatches = 0
     for (let chunkStart = 0; chunkStart < indices.length; chunkStart += linesPerChunk) {
       const chunkIndices = indices.slice(chunkStart, chunkStart + linesPerChunk)
-      const jobs = chunkIndices.map((i) => ({
-        tokens: lines[i].tokens!,
-        targetWords: splitTranslationWords(lines[i].translation),
-      }))
+      const jobs = chunkIndices.map((i) => buildAlignJob(lines[i]))
       totalEmbedBatches += countEmbedBatches(jobs, maxTextsPerBatch)
     }
 
@@ -109,10 +136,7 @@ async function enrichAlignment(
 
     for (let start = 0; start < indices.length; start += linesPerChunk) {
       const chunkIndices = indices.slice(start, start + linesPerChunk)
-      const jobs = chunkIndices.map((i) => ({
-        tokens: lines[i].tokens!,
-        targetWords: splitTranslationWords(lines[i].translation),
-      }))
+      const jobs = chunkIndices.map((i) => buildAlignJob(lines[i]))
       const embedWithProgress = (texts: string[]) =>
         embedTexts(texts, !useEmbedBatchProgress ? {
           onProgress: (done, total) => onProgress?.(done, total),
@@ -134,6 +158,8 @@ async function enrichAlignment(
         onProgress?.(lineChunksDone, totalLines)
       }
       if (tier === 'lite' && start + linesPerChunk < indices.length) {
+        await new Promise((r) => setTimeout(r, 50))
+      } else if (tier === 'full' && start + linesPerChunk < indices.length) {
         await new Promise((r) => setTimeout(r, 0))
       }
     }
@@ -153,6 +179,11 @@ interface Props {
 }
 
 const SEEK_STEP_SEC = 5
+
+function wantsWordPairColoring(): boolean {
+  const { showTranslation, lyricsLayout } = useLyricsStore.getState()
+  return showTranslation || lyricsLayout === 'sideBySide'
+}
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
@@ -187,6 +218,23 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [attachAudioError, setAttachAudioError] = useState('')
   const [showLyricsReimport, setShowLyricsReimport] = useState(false)
   const seekRef = useRef<(time: number) => void>(() => {})
+  const enrichmentJobRef = useRef(0)
+  const playlistCyclesRef = useRef(0)
+  const onLoopCycleRef = useRef<() => void>(() => {})
+  const {
+    playlists,
+    playlistActive,
+    playlistIndex,
+    addEntry,
+    removeEntry,
+    renameEntry,
+    moveEntry,
+    clearPlaylist,
+    setPlaylistActive,
+    setPlaylistIndex,
+    resetSession,
+  } = useAbLoopPlaylistStore()
+  const playlistEntries = playlists[songId] ?? []
   const speedPct = Math.round(speed * 100)
   const volumePct = Math.round(volume * 100)
 
@@ -229,13 +277,41 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
   }
 
+  const deferBackgroundEnrichment = (base: Song, isCancelled: () => boolean) => {
+    if (!linesAreTimed(base.lyrics.lines) || !wantsWordPairColoring()) return () => {}
+    const needsEnrich = linesNeedEnrichment(base.lyrics.lines, base.lyrics.enrichmentVersion)
+    const needsAlign = linesNeedAlignment(base.lyrics.lines)
+    if (!needsEnrich && !needsAlign) return () => {}
+
+    const jobId = ++enrichmentJobRef.current
+    return runWhenIdle(() => {
+      if (isCancelled() || enrichmentJobRef.current !== jobId) return
+      if (needsEnrich) {
+        runLyricsEnrichment(base.lyrics.lines, base.lyrics.sourceLanguage, base.lyrics.enrichmentVersion)
+          .then((enriched) => {
+            if (!isCancelled() && enrichmentJobRef.current === jobId) {
+              void persistEnrichedLines(base, enriched, true)
+            }
+          })
+      } else {
+        runAlignmentOnly(base.lyrics.lines)
+          .then((enriched) => {
+            if (!isCancelled() && enrichmentJobRef.current === jobId) {
+              void persistEnrichedLines(base, enriched, true)
+            }
+          })
+      }
+    }, 6000)
+  }
+
   useEffect(() => {
     let cancelled = false
+    let cancelIdle = () => {}
+    enrichmentJobRef.current++
     db.songs.get(songId).then(async (s) => {
       if (!s || cancelled) return
       setSong(s)
       setLines(s.lyrics.lines)
-      if (getDeviceTier() !== 'manual') preloadEmbedder()
       setMode('play') // a freshly opened song always lands in Play mode
       // Opening a different song starts from the top; reopening the same song
       // (e.g. after a trip to Settings) resumes the persisted position.
@@ -265,23 +341,29 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       }
       const willAutoAlign = autoAlignOnOpen
         && chooseAutoAlignment(!!s.audioStoredPath, s.lyrics.lines, getDeviceTier(), true) !== null
-      if (!willAutoAlign && linesAreTimed(s.lyrics.lines)) {
-        if (linesNeedEnrichment(s.lyrics.lines, s.lyrics.enrichmentVersion)) {
-          runLyricsEnrichment(s.lyrics.lines, s.lyrics.sourceLanguage, s.lyrics.enrichmentVersion)
-            .then((enriched) => {
-              void persistEnrichedLines(s, enriched, !cancelled)
-            })
-        } else if (linesNeedAlignment(s.lyrics.lines)) {
-          runAlignmentOnly(s.lyrics.lines)
-            .then((enriched) => {
-              void persistEnrichedLines(s, enriched, !cancelled)
-            })
-        }
+      if (!willAutoAlign) {
+        cancelIdle = deferBackgroundEnrichment(s, () => cancelled)
       }
     })
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      enrichmentJobRef.current++
+      cancelIdle()
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [songId])
+
+  useEffect(() => {
+    resetSession()
+    playlistCyclesRef.current = 0
+  }, [songId, resetSession])
+
+  useEffect(() => {
+    if (!song || !wantsWordPairColoring() || !linesNeedAlignment(lines)) return
+    const cancel = deferBackgroundEnrichment(song, () => false)
+    return cancel
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showTranslation, lyricsLayout, song?.id, lines])
 
   useEffect(() => {
     const e = engine
@@ -295,6 +377,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       (t) => seekRef.current(t),
       () => usePlayerStore.getState().abLoop,
       () => usePlayerStore.getState().position,
+      () => onLoopCycleRef.current(),
     )
 
     return () => {
@@ -508,6 +591,54 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
 
   const toggleArm = (which: 'a' | 'b') => armAB(armingAB === which ? null : which)
   const abLoopError = abPairError(abLoop.a, abLoop.b)
+
+  const applyPlaylistEntry = (entry: { a: number; b: number }, index: number) => {
+    setABLoop({ a: entry.a, b: entry.b })
+    setPlaylistIndex(index)
+    playlistCyclesRef.current = 0
+    seek(entry.a)
+  }
+
+  onLoopCycleRef.current = () => {
+    const state = useAbLoopPlaylistStore.getState()
+    if (!state.playlistActive) return
+    const entries = state.playlists[songId] ?? []
+    if (entries.length === 0) return
+
+    playlistCyclesRef.current += 1
+    const loopCount = Math.max(1, usePlayerStore.getState().abLoop.loopCount)
+    if (playlistCyclesRef.current < loopCount) return
+
+    playlistCyclesRef.current = 0
+    const nextIndex = state.playlistIndex + 1
+    if (nextIndex >= entries.length) {
+      state.setPlaylistActive(false)
+      return
+    }
+    applyPlaylistEntry(entries[nextIndex], nextIndex)
+  }
+
+  const handleSaveToPlaylist = () => {
+    if (!isValidABPair(abLoop.a, abLoop.b)) return
+    const hint = song ? lyricHintForAbLoop(song.lyrics.lines, abLoop.a!, abLoop.b!) : null
+    addEntry(songId, createPlaylistEntry(abLoop.a!, abLoop.b!, hint ?? undefined))
+  }
+
+  const handleTogglePlaylist = () => {
+    if (playlistActive) {
+      setPlaylistActive(false)
+      playlistCyclesRef.current = 0
+      return
+    }
+    if (playlistEntries.length === 0) return
+    setPlaylistActive(true)
+    applyPlaylistEntry(playlistEntries[0], 0)
+  }
+
+  const handleLoadPlaylistEntry = (entry: { id: string; a: number; b: number }, index: number) => {
+    applyPlaylistEntry(entry, index)
+  }
+
   const abExportCanIncludeSrt = !!(
     song
     && isValidABPair(abLoop.a, abLoop.b)
@@ -750,18 +881,30 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           abExportCanIncludeSrt={abExportCanIncludeSrt}
           abExportIncludeSrt={abExportIncludeSrt}
           onAbExportIncludeSrtChange={setAbExportIncludeSrt}
+          playlistEntries={playlistEntries}
+          playlistActive={playlistActive}
+          playlistIndex={playlistIndex}
+          canSaveToPlaylist={isValidABPair(abLoop.a, abLoop.b)}
+          onSaveToPlaylist={handleSaveToPlaylist}
+          onTogglePlaylist={handleTogglePlaylist}
+          onLoadPlaylistEntry={handleLoadPlaylistEntry}
+          onMovePlaylistEntry={(from, to) => moveEntry(songId, from, to)}
+          onRemovePlaylistEntry={(entryId) => removeEntry(songId, entryId)}
+          onRenamePlaylistEntry={(entryId, label) => renameEntry(songId, entryId, label)}
+          onClearPlaylist={() => clearPlaylist(songId)}
         />
       </div>
 
       {showLyricsReimport && song && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4" onClick={() => setShowLyricsReimport(false)}>
           <div
-            className="w-full max-w-md rounded-2xl bg-cinnabar-950 border border-cinnabar-800 p-4 max-h-[85vh] overflow-y-auto"
+            className="w-full max-w-md rounded-2xl bg-cinnabar-950 border border-cinnabar-800 p-4 max-h-[min(90dvh,32rem)] flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-label="Replace lyrics"
           >
-            <h3 className="text-sm font-semibold text-white mb-3">Replace lyrics</h3>
+            <h3 className="text-sm font-semibold text-white mb-3 shrink-0">Replace lyrics</h3>
+            <div className="flex-1 min-h-0 overflow-y-auto">
             <LyricsImportPanel
               title={song.title}
               artist={song.artist}
@@ -771,6 +914,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               onCancel={() => setShowLyricsReimport(false)}
               applyLabel="Replace lyrics"
             />
+            </div>
           </div>
         </div>
       )}

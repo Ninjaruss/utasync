@@ -193,4 +193,20 @@ describe('embedTexts session cache', () => {
     expect(cached).toEqual([[5], [5]])
     expect(fakeWorker.posted.filter((m) => m.type === 'embed')).toHaveLength(1)
   })
+
+  it('evicts oldest cache entries when over the cap', async () => {
+    const { embedTexts, embeddingCacheSize, MAX_EMBEDDING_CACHE_ENTRIES, clearEmbeddingCache } =
+      await import('../../src/ai-pipeline/textEmbedder')
+    clearEmbeddingCache()
+
+    for (let i = 0; i < MAX_EMBEDDING_CACHE_ENTRIES + 5; i++) {
+      const callPromise = embedTexts([`word-${i}`])
+      await loadModel()
+      const requestId = (fakeWorker.posted.at(-1)!.payload as { requestId: number }).requestId
+      fakeWorker.emit({ type: 'result', payload: { requestId, vecs: [[i]] } })
+      await callPromise
+    }
+
+    expect(embeddingCacheSize()).toBeLessThanOrEqual(MAX_EMBEDDING_CACHE_ENTRIES)
+  })
 })

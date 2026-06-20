@@ -67,29 +67,29 @@ export function AlignmentEditor({ originalLines, translationLines, extraLines, o
   const emptyCount = translations.filter((t) => !t.trim()).length
 
   return (
-    <div className="min-h-screen bg-cinnabar-950 p-4 space-y-4">
-      <div className="flex items-start justify-between gap-2">
+    <div className="h-full min-h-0 flex flex-col p-4 space-y-3">
+      <div className="flex items-start justify-between gap-2 shrink-0">
         <div>
           <h2 className="text-white font-semibold">Align translations</h2>
-          <p className="text-white/40 text-xs mt-0.5">
+          <p className="text-white/40 text-xs mt-0.5 text-pretty">
             Use ↑ ↓ to reorder translations until each row matches its original line.
           </p>
         </div>
         {emptyCount > 0 && (
-          <span className="shrink-0 text-[11px] text-yellow-400/80 mt-0.5">
+          <span className="shrink-0 text-[11px] text-yellow-400/80 mt-0.5 tabular-nums">
             {emptyCount} unmatched
           </span>
         )}
       </div>
 
       {/* Column headers */}
-      <div className="grid grid-cols-[1fr_1fr_auto] gap-2 text-[10px] uppercase tracking-wide text-white/30 px-1">
+      <div className="grid grid-cols-[1fr_1fr_auto] gap-2 text-[10px] uppercase tracking-wide text-white/30 px-1 shrink-0">
         <span>Original</span>
         <span>Translation</span>
         <span className="w-14" />
       </div>
 
-      <div className="space-y-1.5 max-h-[55vh] overflow-y-auto pr-1">
+      <div className="flex-1 min-h-0 space-y-1.5 overflow-y-auto pr-1">
         {originalLines.map((original, i) => (
           <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
             {/* Original — read only */}
@@ -135,11 +135,9 @@ export function AlignmentEditor({ originalLines, translationLines, extraLines, o
             </div>
           </div>
         ))}
-      </div>
-
       {/* Extra translation lines that had no original counterpart */}
       {extras.length > 0 && (
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 pt-2">
           <p className="text-[10px] uppercase tracking-wide text-white/30">
             Extra lines — move into place or discard
           </p>
@@ -162,10 +160,11 @@ export function AlignmentEditor({ originalLines, translationLines, extraLines, o
           ))}
         </div>
       )}
+      </div>
 
       <button
         onClick={handleConfirm}
-        className="w-full py-3 bg-cinnabar-accent text-white rounded-xl font-medium"
+        className="w-full py-3 md:py-2.5 bg-cinnabar-accent text-white rounded-xl font-medium shrink-0"
       >
         Confirm pairings
       </button>

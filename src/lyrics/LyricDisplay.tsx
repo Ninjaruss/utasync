@@ -108,7 +108,7 @@ function PrimaryText({ line, isActive, furiganaMode, colored, hovered, onHover }
   if (showFurigana && line.furigana && !useColoredTokens) {
     return (
       <div
-        className={['font-jp furigana-text', lyricTextTransition, sizeClass, lineHoverClass].join(' ')}
+        className={['font-jp furigana-text select-text', lyricTextTransition, sizeClass, lineHoverClass].join(' ')}
         style={isActive ? { textShadow: '0 0 20px rgba(248,113,113,0.5)' } : undefined}
         dangerouslySetInnerHTML={{ __html: line.furigana }}
       />
@@ -117,7 +117,7 @@ function PrimaryText({ line, isActive, furiganaMode, colored, hovered, onHover }
 
   return (
     <div
-      className={['font-jp', lyricTextTransition, showFurigana ? 'furigana-text' : '', sizeClass, lineHoverClass].join(' ')}
+      className={['font-jp select-text', lyricTextTransition, showFurigana ? 'furigana-text' : '', sizeClass, lineHoverClass].join(' ')}
       style={isActive ? { textShadow: '0 0 20px rgba(248,113,113,0.5)' } : undefined}
     >
       {useColoredTokens ? (
@@ -143,21 +143,34 @@ function ColoredTranslation({
   hovered: HoveredPair | null
   onHover: (pair: HoveredPair | null) => void
 }) {
-  const words = splitTranslationWords(line.translation)
+  const translationLines = line.translation.split('\n')
   if (!line.tokens) return <>{line.translation}</>
+
+  let wordOffset = 0
   return (
     <>
-      {words.map((word, i) => {
-        const color = colorForTranslationWord(line.tokens!, i)
-        const highlighted = isTranslationHighlighted(i, line.tokens!, hovered)
+      {translationLines.map((translationLine, lineIdx) => {
+        const words = splitTranslationWords(translationLine)
+        const lineEl = words.map((word, i) => {
+          const globalIndex = wordOffset + i
+          const color = colorForTranslationWord(line.tokens!, globalIndex)
+          const highlighted = isTranslationHighlighted(globalIndex, line.tokens!, hovered)
+          return (
+            <span
+              key={globalIndex}
+              style={tokenBorderStyle(color, highlighted)}
+              onMouseEnter={() => onHover({ target: globalIndex })}
+              onMouseLeave={() => onHover(null)}
+            >
+              {word}{i < words.length - 1 ? ' ' : ''}
+            </span>
+          )
+        })
+        wordOffset += words.length
         return (
-          <span
-            key={i}
-            style={tokenBorderStyle(color, highlighted)}
-            onMouseEnter={() => onHover({ target: i })}
-            onMouseLeave={() => onHover(null)}
-          >
-            {word}{i < words.length - 1 ? ' ' : ''}
+          <span key={lineIdx}>
+            {lineEl}
+            {lineIdx < translationLines.length - 1 ? <br /> : null}
           </span>
         )
       })}
@@ -177,9 +190,7 @@ function Line({ line, isActive, inLoopRegion, onLineClick, lineRef }: {
   const hasTranslation = hasVisibleTranslation(line)
   // A line whose translation duplicates the original has no second column, so it falls back to the stacked layout even in side-by-side mode.
   const sideBySide = lyricsLayout === 'sideBySide' && hasTranslation
-  const colored = hasTranslation
-    && (sideBySide || showTranslation)
-    && !line.translation.includes('\n')
+  const colored = hasTranslation && (sideBySide || showTranslation)
   const translationHoverClass = isActive
     ? 'group-hover:underline decoration-white/25 underline-offset-4'
     : 'group-hover:underline group-hover:text-white/60 decoration-white/20 underline-offset-4'
@@ -190,10 +201,10 @@ function Line({ line, isActive, inLoopRegion, onLineClick, lineRef }: {
       isActive ? 'text-base italic text-white/70' : 'text-sm italic text-white/35',
       sideBySide ? 'text-left' : 'mt-1.5',
       translationHoverClass,
-      'text-pretty',
+      'text-pretty select-text',
       line.translation.includes('\n') ? 'whitespace-pre-line' : '',
     ].join(' ')}>
-      {colored && line.tokens && !line.translation.includes('\n') ? (
+      {colored && line.tokens ? (
         <ColoredTranslation line={line} hovered={hoveredPair} onHover={setHoveredPair} />
       ) : (
         line.translation
@@ -206,7 +217,7 @@ function Line({ line, isActive, inLoopRegion, onLineClick, lineRef }: {
       ref={lineRef}
       onClick={() => onLineClick(line)}
       className={[
-        'group cursor-pointer select-none rounded-xl',
+        'group cursor-pointer rounded-xl',
         lyricLineTransition,
         isActive ? 'py-4 sm:py-6' : 'py-2.5 sm:py-3',
         sideBySide ? 'text-left' : 'text-center',

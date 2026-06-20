@@ -5,6 +5,8 @@ import { getAudioFile } from '../core/opfs/audio'
 import type { Song } from '../core/types'
 import { alignLyrics, type TranscriptWord } from './aligner'
 import { db } from '../core/db/schema'
+import { ProcessProgress } from '../core/ui/ProcessProgress'
+import { alignSteps, alignStepIndex, type AlignStage } from './alignProgress'
 
 interface Props {
   song: Song
@@ -14,7 +16,7 @@ interface Props {
   autoStart?: boolean
 }
 
-type Stage = 'idle' | 'separating' | 'loading' | 'transcribing' | 'aligning' | 'done' | 'error'
+type Stage = 'idle' | AlignStage | 'done' | 'error'
 
 // Shape of the Whisper worker's transcription result (word-level timestamps).
 interface WhisperChunk { text: string; timestamp: [number, number] }
@@ -117,17 +119,15 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const stageLabel: Record<Stage, string> = {
-    idle: '',
-    separating: 'Separating vocals…',
-    loading: 'Loading AI model…',
-    transcribing: 'Transcribing audio…',
-    aligning: 'Aligning to lyrics…',
-    done: 'Done!',
-    error: 'Error',
-  }
+  const activeSteps = alignSteps(tier)
+  const activeStage: AlignStage | null =
+    stage === 'separating' || stage === 'loading' || stage === 'transcribing' || stage === 'aligning'
+      ? stage
+      : null
+  const taskProgress =
+    activeStage === 'aligning' ? null : progress > 0 ? progress : null
 
-  const stageDetail: Partial<Record<Stage, string>> = {
+  const stageDetail: Partial<Record<AlignStage, string>> = {
     separating: 'Isolating vocals before transcription',
     loading: `First run only — downloading speech model (${WHISPER_DOWNLOAD_HINT})`,
     transcribing: tier === 'lite'
@@ -136,14 +136,28 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
     aligning: 'Matching the transcript to your lyric lines',
   }
 
+  const taskStatus =
+    activeStage && (taskProgress == null || activeStage === 'aligning')
+      ? stageDetail[activeStage] ?? null
+      : null
+
+  const stepsWithDetail = activeSteps.map((step, i) => {
+    const keys: AlignStage[] = tier === 'full'
+      ? ['separating', 'loading', 'transcribing', 'aligning']
+      : ['loading', 'transcribing', 'aligning']
+    const key = keys[i]
+    const extra = key ? stageDetail[key] : undefined
+    return extra ? { ...step, detail: extra } : step
+  })
+
   const tierNote =
     tier === 'full' ? 'Vocal separation + transcription'
     : tier === 'lite' ? 'Transcription only (no vocal separation)'
     : 'Your device does not support on-device AI. Please use tap-sync instead.'
 
   return (
-    <div className="fixed inset-0 bg-black/80 flex items-end justify-center z-50 p-4">
-      <div className="bg-cinnabar-900 rounded-2xl p-6 max-w-sm w-full space-y-4" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/80 flex items-end md:items-center justify-center z-50 p-4">
+      <div className="bg-cinnabar-900 rounded-2xl p-6 max-w-sm w-full space-y-4 max-h-[90dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-white font-semibold text-lg">Auto-Align Lyrics</h2>
         <p className="text-white/50 text-sm">{tierNote}</p>
 
@@ -153,25 +167,14 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
           </button>
         )}
 
-        {(stage !== 'idle' || autoStart) && stage !== 'error' && stage !== 'done' && (
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <div className="w-5 h-5 rounded-full border-2 border-cinnabar-accent border-t-transparent animate-spin shrink-0" />
-              <div>
-                <p className="text-white/80 text-sm font-medium">{stageLabel[stage]}</p>
-                {stageDetail[stage] && <p className="text-white/35 text-xs">{stageDetail[stage]}</p>}
-              </div>
-            </div>
-            <div className="h-2 bg-cinnabar-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-cinnabar-accent rounded-full transition-[width] duration-300 ease-out"
-                style={{ width: progress > 0 ? `${progress}%` : '100%', opacity: progress > 0 ? 1 : 0.4, animation: progress === 0 ? 'pulse 1.5s ease-in-out infinite' : undefined }}
-              />
-            </div>
-            {progress > 0 && (
-              <p className="text-right text-[11px] text-white/30 tabular-nums">{Math.round(progress)}%</p>
-            )}
-          </div>
+        {(stage !== 'idle' || autoStart) && stage !== 'error' && stage !== 'done' && activeStage && (
+          <ProcessProgress
+            steps={stepsWithDetail}
+            currentStepIndex={alignStepIndex(tier, activeStage)}
+            taskProgress={taskProgress}
+            taskStatus={taskStatus}
+            showElapsed={taskProgress == null}
+          />
         )}
 
         {stage === 'error' && <p className="text-red-400 text-sm">{error}</p>}

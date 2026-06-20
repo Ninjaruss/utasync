@@ -1,14 +1,19 @@
 import { getDeviceTier } from './capability'
 import { embedCacheKey } from './embedTextUtils'
 import { getEmbedModel } from './models'
+import { runWhenIdle } from '../core/idle'
 
-// Worker is intentionally long-lived for the app's session (never terminate()d) so the
-// model only loads once; concurrent embedTexts() calls share it and are disambiguated by requestId.
+// Worker is intentionally long-lived while in use; released after idle timeout.
 let worker: Worker | null = null
 let loaded: Promise<void> | null = null
 let nextRequestId = 0
+let idleReleaseTimer: ReturnType<typeof setTimeout> | null = null
 
-/** Session-scoped embedding cache — avoids re-embedding repeated words across lines/songs. */
+/** Cap session cache — unbounded growth was pinning hundreds of MB on long sessions. */
+export const MAX_EMBEDDING_CACHE_ENTRIES = 2048
+const WORKER_IDLE_RELEASE_MS = 3 * 60 * 1000
+
+/** Session-scoped embedding cache — LRU eviction when over MAX_EMBEDDING_CACHE_ENTRIES. */
 const embeddingCache = new Map<string, number[]>()
 
 export interface EmbedTextsOptions {
@@ -17,10 +22,46 @@ export interface EmbedTextsOptions {
 }
 
 function getWorker(): Worker {
+  cancelWorkerRelease()
   if (!worker) {
     worker = new Worker(new URL('./textEmbed.worker.ts', import.meta.url), { type: 'module' })
   }
   return worker
+}
+
+function cancelWorkerRelease(): void {
+  if (idleReleaseTimer) {
+    clearTimeout(idleReleaseTimer)
+    idleReleaseTimer = null
+  }
+}
+
+function scheduleWorkerRelease(): void {
+  cancelWorkerRelease()
+  idleReleaseTimer = setTimeout(() => {
+    worker?.terminate()
+    worker = null
+    loaded = null
+    idleReleaseTimer = null
+  }, WORKER_IDLE_RELEASE_MS)
+}
+
+function cacheGet(key: string): number[] | undefined {
+  const hit = embeddingCache.get(key)
+  if (!hit) return undefined
+  embeddingCache.delete(key)
+  embeddingCache.set(key, hit)
+  return hit
+}
+
+function cacheSet(key: string, vec: number[]): void {
+  if (embeddingCache.has(key)) embeddingCache.delete(key)
+  while (embeddingCache.size >= MAX_EMBEDDING_CACHE_ENTRIES) {
+    const oldest = embeddingCache.keys().next().value
+    if (oldest === undefined) break
+    embeddingCache.delete(oldest)
+  }
+  embeddingCache.set(key, vec)
 }
 
 /** True if a worker response payload's requestId matches the id of the call awaiting it. */
@@ -43,10 +84,10 @@ function ensureLoaded(): Promise<void> {
   return loaded
 }
 
-/** Starts loading the embed model during idle time so the first align batch is faster. */
+/** Low-priority warm-up — does not load the model during initial paint. */
 export function preloadEmbedder(): void {
   if (getDeviceTier() === 'manual') return
-  void ensureLoaded()
+  runWhenIdle(() => { void ensureLoaded() }, 10_000)
 }
 
 /** Clears the session embedding cache (for tests). */
@@ -60,7 +101,7 @@ export function embeddingCacheSize(): number {
 }
 
 function embedChunkSize(): number {
-  return getDeviceTier() === 'lite' ? 32 : 64
+  return getDeviceTier() === 'lite' ? 16 : 24
 }
 
 function embedViaWorker(texts: string[], options?: EmbedTextsOptions): Promise<number[][]> {
@@ -93,14 +134,14 @@ function embedViaWorker(texts: string[], options?: EmbedTextsOptions): Promise<n
 /**
  * Embeds a batch of texts on-device via a worker-hosted multilingual model.
  * One vector per input text, in the same order. Session cache skips texts that
- * were embedded earlier in this app session.
+ * were embedded earlier in this app session (LRU-capped).
  */
 export async function embedTexts(texts: string[], options?: EmbedTextsOptions): Promise<number[][]> {
   if (texts.length === 0) return []
   await ensureLoaded()
 
   const keys = texts.map(embedCacheKey)
-  const result: (number[] | undefined)[] = keys.map((k) => embeddingCache.get(k))
+  const result: (number[] | undefined)[] = keys.map((k) => cacheGet(k))
   const toEmbed: string[] = []
   const seenKeys = new Set<string>()
 
@@ -113,13 +154,20 @@ export async function embedTexts(texts: string[], options?: EmbedTextsOptions): 
   }
 
   if (toEmbed.length === 0) {
-    return result as number[][]
+    scheduleWorkerRelease()
+    return keys.map((k, i) => result[i] ?? cacheGet(k)!) as number[][]
   }
 
   const newVecs = await embedViaWorker(toEmbed, options)
   for (let i = 0; i < toEmbed.length; i++) {
-    embeddingCache.set(embedCacheKey(toEmbed[i]), newVecs[i])
+    cacheSet(embedCacheKey(toEmbed[i]), newVecs[i])
   }
 
-  return keys.map((k) => embeddingCache.get(k)!) as number[][]
+  scheduleWorkerRelease()
+  return keys.map((k, i) => {
+    if (result[i]) return result[i]!
+    const vec = cacheGet(k)
+    if (vec) return vec
+    return embeddingCache.get(k)!
+  })
 }

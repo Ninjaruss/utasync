@@ -1,73 +1,46 @@
-# React + TypeScript + Vite
+# Utasync
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**歌sync** — learn Japanese and English through music, with lyrics that follow the song in real time.
 
-Currently, two official plugins are available:
+Utasync is an offline-first web app that turns YouTube links or your own audio files into a bilingual practice player. Paste a link, sync the lyrics, and study line by line with readings, translations, and tools built for language learners. All playback and AI processing runs in your browser — no account, no server, no subscription.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## What you can do
 
-## React Compiler
+- **Build a song library** — add tracks from YouTube or upload local audio; metadata and lyrics are saved on your device.
+- **Follow synced lyrics** — karaoke-style focus mode highlights the active line; tap any line to seek.
+- **Study both languages** — Japanese lines show romaji and furigana; English lines can show IPA. Add a second-language translation and align it line by line or word by word.
+- **Edit and align** — tap-to-sync timing, manual alignment tools, and optional auto-alignment powered by on-device speech recognition.
+- **Practice harder sections** — A/B loop with crossfade, pitch-preserving speed control, and cloze mode to hide words as you listen.
+- **Go deeper** — word-level alignment, grammar hints, and export to LRC or SRT for use elsewhere.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## How it works
 
-## Expanding the ESLint configuration
+1. **Add a song** from a YouTube URL (synced lyrics fetched when available) or by uploading an audio file.
+2. **Open the player** — lyrics scroll with playback; switch display options for readings, translations, and word coloring.
+3. **Refine timing** — use the tap editor or auto-align when you have local audio; attach lyrics or translations in edit mode.
+4. **Practice** — loop a tricky verse, slow down without changing pitch, or run cloze drills on the active line.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+Your library, audio files, and settings stay on your device (IndexedDB, OPFS, and localStorage). AI models for transcription and alignment download once and are cached for offline reuse.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Free vs Pro
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+| | Free | Trial (2 songs) | Pro |
+|---|---|---|---|
+| YouTube playback + synced lyrics | ✓ | ✓ | ✓ |
+| Tap-to-sync, readings, line seeking | ✓ | ✓ | ✓ |
+| Local audio, speed control, A/B loop | | ✓ | ✓ |
+| Auto-alignment, vocal separation | | ✓ | ✓ |
+| Word alignment, cloze, export | | ✓ | ✓ |
+| Unlimited songs | | | ✓ |
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+Trial songs keep Pro features permanently after you claim them.
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Getting started
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+To run Utasync locally or deploy it yourself, see **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** for prerequisites, installation, and build instructions.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## Tech at a glance
+
+React · Vite · Tailwind CSS · Zustand · Howler.js · Transformers.js (Whisper) · kuromoji · PWA
+
+Design and phase specs live under [`docs/superpowers/`](docs/superpowers/).

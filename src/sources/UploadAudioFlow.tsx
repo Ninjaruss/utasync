@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, type ChangeEvent } from 'react'
 import { db } from '../core/db/schema'
 import { ingestAudioFile } from './audioIngest'
 import { buildSong, linesFromPlainText } from './songBuilder'
-import { findLyrics } from './lrclib'
+import { findLyrics, type FindLyricsStage } from './lrclib'
 import { detectLanguage } from '../lyrics/bilingual'
 import type { Language } from '../core/types'
 import { parseLRC } from '../lyrics/lrc-parser'
@@ -15,7 +15,18 @@ import {
   type MetadataFieldSource,
 } from './audioMetadata'
 import type { TimedLine } from '../core/types'
-import { LoadingOverlay } from '../core/ui/LoadingOverlay'
+import { ProgressOverlay } from '../core/ui/ProgressOverlay'
+import { ProcessProgress } from '../core/ui/ProcessProgress'
+import {
+  FIND_LYRICS_STATUS,
+  findLyricsSubsteps,
+} from '../core/ui/progressUtils'
+import {
+  UPLOAD_SAVE_STEPS,
+  UPLOAD_LYRIC_SEARCH_STEPS,
+  uploadSaveStepIndex,
+  type UploadSavePhase,
+} from './addSongProgress'
 
 type ManualLyricSource = 'paste' | 'subtitle'
 
@@ -55,7 +66,8 @@ export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
   const [lyricsPhase, setLyricsPhase] = useState<LyricsPhase>({ kind: 'idle' })
   const [pasted, setPasted] = useState('')
   const [subtitleFile, setSubtitleFile] = useState<File | null>(null)
-  const [loading, setLoading] = useState<{ message: string; detail?: string } | null>(null)
+  const [saveProgress, setSaveProgress] = useState<{ phase: UploadSavePhase; taskProgress?: number | null } | null>(null)
+  const [lyricSearchStage, setLyricSearchStage] = useState<FindLyricsStage | null>(null)
   const [error, setError] = useState('')
   const searchGenRef = useRef(0)
 
@@ -97,11 +109,16 @@ export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
 
     const gen = ++searchGenRef.current
     setLyricsPhase({ kind: 'searching' })
+    setLyricSearchStage('exact')
     setError('')
 
-    findLyrics(title.trim(), artist.trim())
+    findLyrics(title.trim(), artist.trim(), (stage) => {
+      if (gen !== searchGenRef.current) return
+      setLyricSearchStage(stage)
+    })
       .then((found) => {
         if (gen !== searchGenRef.current) return
+        setLyricSearchStage(null)
         if (found) {
           const lines = found.synced ? parseLRC(found.lrc) : linesFromPlainText(found.lrc)
           setLyricsPhase({ kind: 'found', lines, synced: found.synced })
@@ -111,6 +128,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
       })
       .catch(() => {
         if (gen !== searchGenRef.current) return
+        setLyricSearchStage(null)
         setLyricsPhase({ kind: 'manual', source: 'paste' })
       })
   }, [file, title, artist, lyricsPhase.kind])
@@ -132,37 +150,38 @@ export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
   const handleSubmit = async () => {
     if (!file || !title.trim()) return
     setError('')
-    setLoading({ message: 'Saving song…', detail: 'Writing audio and lyrics to your library' })
+    setSaveProgress({ phase: 'preparing' })
     try {
       const lines = await resolveLines()
       if (lines === null) {
-        setLoading(null)
+        setSaveProgress(null)
         return
       }
       if (lines.length === 0) {
-        setLoading(null)
+        setSaveProgress(null)
         setError('No lyric lines found. Add lyrics before creating the song.')
         return
       }
 
-      setLoading({ message: 'Normalizing lyrics…', detail: 'Finding translation and pairing lines' })
+      setSaveProgress({ phase: 'normalizing' })
       const finalLines = await normalizeImportedLines(title.trim(), artist.trim(), lines)
 
       const primaryLang = detectLanguage(finalLines.map((l) => l.original).join('\n'))
       const sourceLanguage: Language = primaryLang === 'ja' ? 'ja' : 'en'
       const translationLanguage: Language = sourceLanguage === 'ja' ? 'en' : 'ja'
 
-      setLoading({ message: 'Saving audio…', detail: 'Copying file to local storage' })
+      setSaveProgress({ phase: 'saving-audio' })
       const { songId, audioStoredPath } = await ingestAudioFile(file)
       const song = buildSong({
         id: songId, title: title.trim(), artist: artist.trim(), audioStoredPath,
         lines: finalLines, sourceLanguage, translationLanguage,
       })
+      setSaveProgress({ phase: 'saving-song' })
       await db.songs.put(song)
-      setLoading(null)
+      setSaveProgress(null)
       onSongReady(song.id)
     } catch (e: unknown) {
-      setLoading(null)
+      setSaveProgress(null)
       setError(e instanceof Error ? e.message : 'Upload failed')
     }
   }
@@ -185,6 +204,26 @@ export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
     || (lyricsPhase.kind === 'manual' && lyricsPhase.source === 'paste' && pasted.trim())
     || (lyricsPhase.kind === 'manual' && lyricsPhase.source === 'subtitle' && subtitleFile)
 
+  const lyricSearchStatus =
+    lyricsPhase.kind === 'idle'
+      ? 'Starting lyric search…'
+      : lyricSearchStage
+        ? FIND_LYRICS_STATUS[lyricSearchStage]
+        : FIND_LYRICS_STATUS.exact
+
+  const lyricSearchProgress = (extraClassName: string) => (
+    <ProcessProgress
+      compact
+      steps={UPLOAD_LYRIC_SEARCH_STEPS}
+      currentStepIndex={0}
+      taskStatus={lyricSearchStatus}
+      taskSubsteps={lyricsPhase.kind === 'searching' ? findLyricsSubsteps(lyricSearchStage) : undefined}
+      className={extraClassName}
+    />
+  )
+
+  const lyricSearchPanelClass = 'rounded-lg border border-cinnabar-800/80 bg-cinnabar-950/60 p-2.5'
+
   const skipSearchButtons = (
     <div className="flex flex-wrap gap-2">
       <button type="button" className={manualTabClass('paste')} onClick={() => skipLyricSearch('paste')}>
@@ -196,16 +235,26 @@ export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
     </div>
   )
 
+  const fieldClass = 'w-full px-4 py-3 md:py-2 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/30'
+  const fileLabelClass = 'block w-full px-4 py-3 md:py-2 bg-cinnabar-900 text-white/70 rounded-xl border border-cinnabar-800 cursor-pointer text-sm'
+
   return (
-    <div className={embedded ? 'w-full space-y-3' : 'min-h-screen bg-cinnabar-950 flex flex-col items-center justify-center p-6 gap-5'}>
-      {loading && <LoadingOverlay message={loading.message} detail={loading.detail} />}
+    <div className={embedded ? 'w-full flex flex-col flex-1 min-h-0' : 'min-h-screen bg-cinnabar-950 flex flex-col items-center justify-center p-6 gap-5'}>
+      {saveProgress && (
+        <ProgressOverlay
+          steps={UPLOAD_SAVE_STEPS}
+          currentStepIndex={uploadSaveStepIndex(saveProgress.phase)}
+          taskProgress={saveProgress.taskProgress}
+        />
+      )}
 
       {!embedded && (
         <h1 className="text-2xl font-bold text-cinnabar-accent tracking-widest">Upload audio</h1>
       )}
 
-      <div className={embedded ? 'space-y-3' : 'w-full max-w-md space-y-3'}>
-        <label className="block w-full px-4 py-3 bg-cinnabar-900 text-white/70 rounded-xl border border-cinnabar-800 cursor-pointer text-sm">
+      <div className={embedded ? 'flex flex-col flex-1 min-h-0 gap-2 md:gap-2.5' : 'w-full max-w-md space-y-3'}>
+        <div className={embedded ? 'shrink-0 space-y-2 md:space-y-2' : 'space-y-3'}>
+        <label className={fileLabelClass}>
           {file ? file.name : 'Choose an audio file…'}
           <input type="file" accept="audio/*" className="hidden"
             onChange={handleFileChange} />
@@ -215,7 +264,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
           Check the song title and artist — LRCLIB search starts automatically once both are set.
         </p>
 
-        <div className="space-y-2">
+        <div className="space-y-1.5 md:space-y-2">
           <div className="flex items-center justify-between gap-2">
             <label htmlFor="upload-song-title" className="text-xs font-medium text-white/50 uppercase tracking-wide">
               Song title
@@ -232,11 +281,11 @@ export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
               resetLyricsOnMetadataEdit()
             }}
             placeholder="Song title"
-            className="w-full px-4 py-3 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/30"
+            className={fieldClass}
           />
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-1.5 md:space-y-2">
           <div className="flex items-center justify-between gap-2">
             <label htmlFor="upload-song-artist" className="text-xs font-medium text-white/50 uppercase tracking-wide">
               Artist
@@ -253,7 +302,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
               resetLyricsOnMetadataEdit()
             }}
             placeholder="Artist name"
-            className="w-full px-4 py-3 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/30"
+            className={fieldClass}
           />
         </div>
 
@@ -272,22 +321,24 @@ export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
             Swap title and artist
           </button>
         )}
+        </div>
 
         {file && title.trim() && (
-          <div className="rounded-xl border border-cinnabar-800 bg-cinnabar-900/50 p-4 space-y-3">
-            <h2 className="text-sm font-medium text-white/70">Lyrics</h2>
+          <div className={embedded ? 'flex-1 min-h-0 flex flex-col rounded-xl border border-cinnabar-800 bg-cinnabar-900/50 overflow-hidden' : 'rounded-xl border border-cinnabar-800 bg-cinnabar-900/50 p-4 space-y-3'}>
+            <div className={embedded ? 'flex-1 min-h-0 overflow-y-auto p-3 md:p-3 space-y-2 md:space-y-3' : 'space-y-3'}>
+            <h2 className="text-sm font-medium text-white/70 shrink-0">Lyrics</h2>
 
             {lyricsPhase.kind === 'idle' && (
               <div className="space-y-2">
-                <p className="text-white/35 text-xs">Starting LRCLIB search…</p>
+                {lyricSearchProgress(lyricSearchPanelClass)}
                 {skipSearchButtons}
               </div>
             )}
 
             {lyricsPhase.kind === 'searching' && (
               <div className="space-y-2">
-                <p className="text-white/35 text-xs text-center py-1">Searching LRCLIB…</p>
-                <p className="text-white/25 text-[10px] text-center">Skip search and add lyrics manually:</p>
+                {lyricSearchProgress(lyricSearchPanelClass)}
+                <p className="text-white/25 text-[10px] text-center text-pretty">Skip search and add lyrics manually:</p>
                 {skipSearchButtons}
               </div>
             )}
@@ -325,13 +376,13 @@ export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
                     value={pasted}
                     onChange={(e) => setPasted(e.target.value)}
                     placeholder="Paste lyrics, one line per row…"
-                    rows={6}
-                    className="w-full px-4 py-3 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/30"
+                    rows={embedded ? 4 : 6}
+                    className={[fieldClass, embedded ? 'min-h-[5rem] resize-y' : ''].join(' ')}
                   />
                 )}
 
                 {lyricsPhase.source === 'subtitle' && (
-                  <label className="block w-full px-4 py-3 bg-cinnabar-900 text-white/70 rounded-xl border border-cinnabar-800 cursor-pointer text-sm">
+                  <label className={fileLabelClass}>
                     {subtitleFile ? subtitleFile.name : 'Choose a .lrc / .srt / .vtt file…'}
                     <input type="file" accept=".lrc,.srt,.vtt,text/plain" className="hidden"
                       onChange={(e) => setSubtitleFile(e.target.files?.[0] ?? null)} />
@@ -339,17 +390,20 @@ export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
                 )}
               </>
             )}
+            </div>
           </div>
         )}
 
+        <div className={embedded ? 'shrink-0 pt-2 space-y-2' : 'space-y-3'}>
         <button
           onClick={handleSubmit}
-          disabled={!file || !title.trim() || !lyricsReady || !!loading}
-          className="w-full py-3 bg-cinnabar-accent text-white rounded-xl font-medium disabled:opacity-40"
+          disabled={!file || !title.trim() || !lyricsReady || !!saveProgress}
+          className="w-full py-3 md:py-2.5 bg-cinnabar-accent text-white rounded-xl font-medium disabled:opacity-40"
         >
           Add song
         </button>
         {error && <p className="text-red-400 text-sm text-center">{error}</p>}
+        </div>
       </div>
     </div>
   )

@@ -14,6 +14,10 @@ describe('splitTranslationWords', () => {
     expect(splitTranslationWords('Hello, world!')).toEqual(['Hello', 'world'])
     expect(splitTranslationWords('"you" — love.')).toEqual(['you', 'love'])
   })
+
+  it('flattens newline-separated translation lines in order', () => {
+    expect(splitTranslationWords('Beside you\nAdjacent hearts')).toEqual(['Beside', 'you', 'Adjacent', 'hearts'])
+  })
 })
 
 describe('colorForToken', () => {

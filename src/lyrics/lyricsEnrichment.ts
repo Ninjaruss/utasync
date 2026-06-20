@@ -23,7 +23,6 @@ export function linesNeedEnrichment(lines: TimedLine[], enrichmentVersion?: numb
 /** True when one line's tokens exist but word-pair alignment was never computed. */
 export function lineNeedsAlignment(line: TimedLine): boolean {
   if (!line.tokens?.length || !hasVisibleTranslation(line)) return false
-  if (line.translation.includes('\n')) return false
   const alignable = line.tokens.filter(
     (t) => !isParticleToken(t) && t.surface.trim().length > 0,
   )

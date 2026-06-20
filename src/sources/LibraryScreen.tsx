@@ -23,8 +23,8 @@ export function LibraryScreen({ onOpen, onAdd, onSettings }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-cinnabar-950 flex flex-col">
-      <div className="w-full max-w-2xl mx-auto flex flex-col flex-1 min-h-screen">
+    <div className="h-[100dvh] overflow-hidden bg-cinnabar-950 flex flex-col">
+      <div className="w-full max-w-2xl mx-auto flex flex-col flex-1 min-h-0">
       <div className="flex items-center justify-between px-4 py-4 shrink-0">
         <span className="text-cinnabar-accent font-semibold tracking-widest text-lg">歌sync</span>
         <button onClick={onSettings} className="min-h-11 px-2 text-white/40 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out">⚙ Settings</button>

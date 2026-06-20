@@ -131,6 +131,59 @@ describe('word-pair coloring', () => {
     expect(targetSpan.style.backgroundColor).toBe('rgba(255, 255, 255, 0.1)')
   })
 
+  it('colors matched word pairs across newline-separated translation lines', () => {
+    const line: TimedLine = {
+      startTime: 0,
+      endTime: 2,
+      original: '滑り込むキミの横 隣り合わせのハート',
+      translation: 'Beside you\nAdjacent hearts',
+      tokens: [
+        { surface: 'キミ', pos: '名詞', startIndex: 5, endIndex: 7, alignmentIndices: [1] },
+        { surface: '横', pos: '名詞', startIndex: 8, endIndex: 9, alignmentIndices: [0] },
+        { surface: 'ハート', pos: '名詞', startIndex: 16, endIndex: 19, alignmentIndices: [3] },
+      ],
+    }
+    useLyricsStore.setState({ lines: [line], activeLine: -1 })
+    render(<LyricDisplay onLineClick={vi.fn()} />)
+    const kimi = screen.getByText('キミ')
+    const beside = screen.getByText('Beside')
+    const hearts = screen.getByText('hearts')
+    expect(beside.style.borderBottomColor).not.toBe('')
+    expect(hearts.style.borderBottomColor).not.toBe('')
+    expect(kimi.style.borderBottomColor).toBe(screen.getByText('you').style.borderBottomColor)
+    expect(beside.style.borderBottomColor).toBe(
+      screen.getByText('横').style.borderBottomColor,
+    )
+  })
+
+  it('colors Japanese tokens on mixed-script lines against the second translation line', () => {
+    const original = 'You always make me so happy 青空に溶けて'
+    const translation = 'You always make me so happy\nMelt into the blue sky'
+    const jaStart = original.indexOf('青空')
+    const line: TimedLine = {
+      startTime: 0,
+      endTime: 2,
+      original,
+      translation,
+      tokens: [
+        { surface: '青空', pos: '名詞', reading: 'アオゾラ', startIndex: jaStart, endIndex: jaStart + 2, alignmentIndices: [10] },
+        { surface: '溶け', pos: '動詞', reading: 'トケ', startIndex: jaStart + 3, endIndex: jaStart + 5, alignmentIndices: [6] },
+      ],
+    }
+    useLyricsStore.setState({ lines: [line], activeLine: -1 })
+    render(<LyricDisplay onLineClick={vi.fn()} />)
+    const aozora = screen.getByText('青空').closest('span')!
+    const toke = screen.getByText('溶け').closest('span')!
+    const melt = screen.getByText('Melt')
+    const sky = screen.getByText('sky')
+    const soWord = screen.getByText('so')
+    const youWord = screen.getByText('You')
+    expect(aozora.style.borderBottomColor).toBe(sky.style.borderBottomColor)
+    expect(toke.style.borderBottomColor).toBe(melt.style.borderBottomColor)
+    expect(soWord.style.borderBottomColor).toBe('')
+    expect(youWord.style.borderBottomColor).toBe('')
+  })
+
   it('highlights a matched word pair on hover in stacked layout', async () => {
     const { default: userEvent } = await import('@testing-library/user-event')
     const user = userEvent.setup()

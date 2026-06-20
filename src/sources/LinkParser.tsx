@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type ChangeEvent } from 'react'
 import { fetchYouTubeMeta } from './youtube'
-import { resolveLyricsForSong, lyricsSourceLabel } from './lyricsResolver'
+import { resolveLyricsForSong, lyricsSourceLabel, type ResolveLyricsStage } from './lyricsResolver'
 import { db } from '../core/db/schema'
 import { buildSong, linesFromPlainText, type BuildSongInput } from './songBuilder'
 import { detectLanguage } from '../lyrics/bilingual'
@@ -8,7 +8,19 @@ import { ingestAudioFile } from './audioIngest'
 import { normalizeImportedLines } from './importNormalize'
 import type { TimedLine, Language } from '../core/types'
 import { parseSubtitle } from '../lyrics/subtitle-parser'
-import { LoadingOverlay } from '../core/ui/LoadingOverlay'
+import { ProgressOverlay } from '../core/ui/ProgressOverlay'
+import { ProcessProgress } from '../core/ui/ProcessProgress'
+import {
+  RESOLVE_LYRICS_STATUS,
+  resolveLyricsSubsteps,
+} from '../core/ui/progressUtils'
+import {
+  LINK_METADATA_STEPS,
+  LINK_LYRIC_SEARCH_STEPS,
+  linkSaveSteps,
+  linkSaveStepIndex,
+  type LinkSavePhase,
+} from './addSongProgress'
 
 type ManualLyricSource = 'paste' | 'subtitle'
 
@@ -34,14 +46,16 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
   const [lyricsPhase, setLyricsPhase] = useState<LyricsPhase>({ kind: 'idle' })
   const [pasted, setPasted] = useState('')
   const [subtitleFile, setSubtitleFile] = useState<File | null>(null)
-  const [loading, setLoading] = useState<{ message: string; detail?: string } | null>(null)
+  const [metadataLoading, setMetadataLoading] = useState(false)
+  const [saveProgress, setSaveProgress] = useState<{ phase: LinkSavePhase; includeAudio: boolean; taskProgress?: number | null } | null>(null)
+  const [lyricSearchStage, setLyricSearchStage] = useState<ResolveLyricsStage | null>(null)
   const [error, setError] = useState('')
   const searchGenRef = useRef(0)
 
   const loadMetadata = async () => {
     if (!url.trim()) return
     setError('')
-    setLoading({ message: 'Fetching song info…', detail: 'Reading YouTube metadata' })
+    setMetadataLoading(true)
     try {
       const meta = await fetchYouTubeMeta(url)
       setTitle(meta.title)
@@ -50,9 +64,9 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
       setMetaLoaded(true)
       searchGenRef.current++
       setLyricsPhase({ kind: 'idle' })
-      setLoading(null)
+      setMetadataLoading(false)
     } catch (e: unknown) {
-      setLoading(null)
+      setMetadataLoading(false)
       setError(e instanceof Error ? e.message : 'Something went wrong')
     }
   }
@@ -75,11 +89,21 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
 
     const gen = ++searchGenRef.current
     setLyricsPhase({ kind: 'searching' })
+    setLyricSearchStage(videoId ? 'youtube' : 'lrclib-exact')
     setError('')
 
-    resolveLyricsForSong({ title: title.trim(), artist: artist.trim(), videoId })
+    resolveLyricsForSong({
+      title: title.trim(),
+      artist: artist.trim(),
+      videoId,
+      onStage: (stage) => {
+        if (gen !== searchGenRef.current) return
+        setLyricSearchStage(stage)
+      },
+    })
       .then((result) => {
         if (gen !== searchGenRef.current) return
+        setLyricSearchStage(null)
         if (result.lines.length > 0) {
           setLyricsPhase({
             kind: 'found',
@@ -93,6 +117,7 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
       })
       .catch(() => {
         if (gen !== searchGenRef.current) return
+        setLyricSearchStage(null)
         setLyricsPhase({ kind: 'manual', source: 'paste' })
       })
   }, [metaLoaded, title, artist, lyricsPhase.kind])
@@ -114,15 +139,16 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
   const handleCreate = async () => {
     if (!metaLoaded || !title.trim()) return
     setError('')
-    setLoading({ message: 'Saving song…', detail: 'Writing to your library' })
+    const includeAudio = !!audioFile
+    setSaveProgress({ phase: 'preparing', includeAudio })
     try {
       const lines = await resolveLines()
       if (lines === null) {
-        setLoading(null)
+        setSaveProgress(null)
         return
       }
 
-      setLoading({ message: 'Normalizing lyrics…', detail: 'Finding translation and pairing lines' })
+      setSaveProgress({ phase: 'normalizing', includeAudio })
       const finalLines = lines.length
         ? await normalizeImportedLines(title.trim(), artist.trim(), lines)
         : lines
@@ -134,7 +160,7 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
       let audioStoredPath: string | undefined
       let songId: string | undefined
       if (audioFile) {
-        setLoading({ message: 'Saving audio…', detail: 'Copying file to local storage' })
+        setSaveProgress({ phase: 'saving-audio', includeAudio })
         const ingested = await ingestAudioFile(audioFile)
         audioStoredPath = ingested.audioStoredPath
         songId = ingested.songId
@@ -145,11 +171,12 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
         lines: finalLines, sourceLanguage, translationLanguage,
       }
       const song = buildSong(input)
+      setSaveProgress({ phase: 'saving-song', includeAudio })
       await db.songs.put(song)
-      setLoading(null)
+      setSaveProgress(null)
       onSongReady(song.id)
     } catch (e: unknown) {
-      setLoading(null)
+      setSaveProgress(null)
       setError(e instanceof Error ? e.message : 'Something went wrong')
     }
   }
@@ -162,6 +189,30 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
     || (lyricsPhase.kind === 'manual' && lyricsPhase.source === 'paste' && pasted.trim())
     || (lyricsPhase.kind === 'manual' && lyricsPhase.source === 'subtitle' && subtitleFile)
 
+  const lyricSearchStatus =
+    lyricsPhase.kind === 'idle'
+      ? 'Starting lyric search…'
+      : lyricSearchStage
+        ? RESOLVE_LYRICS_STATUS[lyricSearchStage]
+        : RESOLVE_LYRICS_STATUS['lrclib-exact']
+
+  const lyricSearchPanelClass = 'rounded-lg border border-cinnabar-800/80 bg-cinnabar-950/60 p-2.5'
+
+  const lyricSearchProgress = (
+    <ProcessProgress
+      compact
+      steps={LINK_LYRIC_SEARCH_STEPS}
+      currentStepIndex={0}
+      taskStatus={lyricSearchStatus}
+      taskSubsteps={
+        lyricsPhase.kind === 'searching'
+          ? resolveLyricsSubsteps(lyricSearchStage, !!videoId)
+          : undefined
+      }
+      className={lyricSearchPanelClass}
+    />
+  )
+
   const skipSearchButtons = (
     <div className="flex flex-wrap gap-2">
       <button type="button" className={manualTabClass('paste')} onClick={() => skipLyricSearch('paste')}>
@@ -173,9 +224,25 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
     </div>
   )
 
+  const fieldClass = 'w-full px-4 py-3 md:py-2 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/30'
+  const fileLabelClass = 'block w-full px-4 py-3 md:py-2 bg-cinnabar-900 text-white/60 rounded-xl border border-cinnabar-800 cursor-pointer text-xs text-pretty'
+
   return (
-    <div className={embedded ? 'w-full space-y-3' : 'min-h-screen bg-cinnabar-950 flex flex-col items-center justify-center p-6 gap-6'}>
-      {loading && <LoadingOverlay message={loading.message} detail={loading.detail} />}
+    <div className={embedded ? 'w-full flex flex-col flex-1 min-h-0' : 'min-h-screen bg-cinnabar-950 flex flex-col items-center justify-center p-6 gap-6'}>
+      {metadataLoading && (
+        <ProgressOverlay
+          steps={LINK_METADATA_STEPS}
+          currentStepIndex={0}
+          taskStatus="Reading YouTube metadata…"
+        />
+      )}
+      {saveProgress && (
+        <ProgressOverlay
+          steps={linkSaveSteps(saveProgress.includeAudio)}
+          currentStepIndex={linkSaveStepIndex(saveProgress.phase, saveProgress.includeAudio)}
+          taskProgress={saveProgress.taskProgress}
+        />
+      )}
       {!embedded && (
         <>
           <h1 className="text-3xl font-bold text-cinnabar-accent tracking-widest">歌sync</h1>
@@ -183,17 +250,18 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
         </>
       )}
 
-      <div className={embedded ? 'space-y-3' : 'w-full max-w-md space-y-3'}>
+      <div className={embedded ? 'flex flex-col flex-1 min-h-0 gap-2 md:gap-2.5' : 'w-full max-w-md space-y-3'}>
+        <div className={embedded ? 'shrink-0 space-y-2 md:space-y-2' : 'space-y-3'}>
         <input
           value={url}
           onChange={(e) => { setUrl(e.target.value); setMetaLoaded(false) }}
           placeholder="Paste a YouTube link…"
-          className="w-full px-4 py-3 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/30"
+          className={fieldClass}
         />
 
         <label
           aria-label="Attach audio file to unlock AI align and export"
-          className="block w-full px-4 py-3 bg-cinnabar-900 text-white/60 rounded-xl border border-cinnabar-800 cursor-pointer text-xs text-pretty"
+          className={fileLabelClass}
         >
           {audioFile ? audioFile.name : '+ Add audio file (unlocks AI align & export — optional)'}
           <input
@@ -207,8 +275,8 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
         {!metaLoaded ? (
           <button
             onClick={loadMetadata}
-            disabled={!url.trim() || !!loading}
-            className="w-full py-3 bg-cinnabar-accent text-white rounded-xl font-medium disabled:opacity-40"
+            disabled={!url.trim() || metadataLoading || !!saveProgress}
+            className="w-full py-3 md:py-2.5 bg-cinnabar-accent text-white rounded-xl font-medium disabled:opacity-40"
           >
             Continue
           </button>
@@ -218,7 +286,7 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
               Verify title and artist — YouTube captions and LRCLIB are checked automatically.
             </p>
 
-            <div className="space-y-2">
+            <div className="space-y-1.5 md:space-y-2">
               <label htmlFor="link-song-title" className="text-xs font-medium text-white/50 uppercase tracking-wide">
                 Song title
               </label>
@@ -226,11 +294,11 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
                 id="link-song-title"
                 value={title}
                 onChange={(e) => { setTitle(e.target.value); resetLyricsOnMetadataEdit() }}
-                className="w-full px-4 py-3 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent"
+                className={fieldClass}
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-1.5 md:space-y-2">
               <label htmlFor="link-song-artist" className="text-xs font-medium text-white/50 uppercase tracking-wide">
                 Artist
               </label>
@@ -238,24 +306,29 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
                 id="link-song-artist"
                 value={artist}
                 onChange={(e) => { setArtist(e.target.value); resetLyricsOnMetadataEdit() }}
-                className="w-full px-4 py-3 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent"
+                className={fieldClass}
               />
             </div>
+          </>
+        )}
+        </div>
 
-            <div className="rounded-xl border border-cinnabar-800 bg-cinnabar-900/50 p-4 space-y-3">
-              <h2 className="text-sm font-medium text-white/70">Lyrics</h2>
+        {metaLoaded && (
+          <div className={embedded ? 'flex-1 min-h-0 flex flex-col rounded-xl border border-cinnabar-800 bg-cinnabar-900/50 overflow-hidden' : 'rounded-xl border border-cinnabar-800 bg-cinnabar-900/50 p-4 space-y-3'}>
+            <div className={embedded ? 'flex-1 min-h-0 overflow-y-auto p-3 space-y-2 md:space-y-3' : 'space-y-3'}>
+            <h2 className="text-sm font-medium text-white/70 shrink-0">Lyrics</h2>
 
               {lyricsPhase.kind === 'idle' && (
                 <div className="space-y-2">
-                  <p className="text-white/35 text-xs">Checking YouTube captions & LRCLIB…</p>
+                  {lyricSearchProgress}
                   {skipSearchButtons}
                 </div>
               )}
 
               {lyricsPhase.kind === 'searching' && (
                 <div className="space-y-2">
-                  <p className="text-white/35 text-xs text-center py-1">Checking YouTube captions & LRCLIB…</p>
-                  <p className="text-white/25 text-[10px] text-center">Skip search and add lyrics manually:</p>
+                  {lyricSearchProgress}
+                  <p className="text-white/25 text-[10px] text-center text-pretty">Skip search and add lyrics manually:</p>
                   {skipSearchButtons}
                 </div>
               )}
@@ -275,12 +348,12 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
                       value={pasted}
                       onChange={(e) => setPasted(e.target.value)}
                       placeholder="Paste lyrics, one line per row…"
-                      rows={6}
-                      className="w-full px-4 py-3 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/30"
+                      rows={embedded ? 4 : 6}
+                      className={[fieldClass, embedded ? 'min-h-[5rem] resize-y' : ''].join(' ')}
                     />
                   )}
                   {lyricsPhase.source === 'subtitle' && (
-                    <label className="block w-full px-4 py-3 bg-cinnabar-900 text-white/70 rounded-xl border border-cinnabar-800 cursor-pointer text-sm">
+                    <label className={fileLabelClass}>
                       {subtitleFile ? subtitleFile.name : 'Choose a .lrc / .srt / .vtt file…'}
                       <input type="file" accept=".lrc,.srt,.vtt,text/plain" className="hidden"
                         onChange={(e) => setSubtitleFile(e.target.files?.[0] ?? null)} />
@@ -289,18 +362,22 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
                 </>
               )}
             </div>
+          </div>
+        )}
 
+        {metaLoaded && (
+          <div className={embedded ? 'shrink-0 pt-2' : undefined}>
             <button
               onClick={handleCreate}
-              disabled={!lyricsReady || !!loading}
-              className="w-full py-3 bg-cinnabar-accent text-white rounded-xl font-medium disabled:opacity-40"
+              disabled={!lyricsReady || !!saveProgress || metadataLoading}
+              className="w-full py-3 md:py-2.5 bg-cinnabar-accent text-white rounded-xl font-medium disabled:opacity-40"
             >
               Add song
             </button>
-          </>
+          </div>
         )}
 
-        {error && <p className="text-red-400 text-sm text-center">{error}</p>}
+        {error && <p className="text-red-400 text-sm text-center shrink-0">{error}</p>}
       </div>
 
       {!embedded && (

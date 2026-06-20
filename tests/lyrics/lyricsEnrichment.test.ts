@@ -42,11 +42,11 @@ describe('linesNeedAlignment', () => {
     expect(linesNeedAlignment(lines)).toBe(false)
   })
 
-  it('returns false for multi-line translations', () => {
+  it('returns true for multi-line translations when alignment is missing', () => {
     const lines: TimedLine[] = [{
       startTime: 0, endTime: 1, original: '君', translation: 'you\nthere',
       tokens: [{ surface: '君', pos: '名詞', startIndex: 0, endIndex: 1 }],
     }]
-    expect(linesNeedAlignment(lines)).toBe(false)
+    expect(linesNeedAlignment(lines)).toBe(true)
   })
 })

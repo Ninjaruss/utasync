@@ -1,5 +1,7 @@
-import type { TimedLine } from '../core/types'
+import type { TimedLine, Token } from '../core/types'
 import { getDeviceTier } from '../ai-pipeline/capability'
+import { splitTranslationWords } from '../language/wordColors'
+import { isAlignableEnglishWord, normalizeEnglishAlignmentWord } from '../core/language'
 import { JAPANESE_RE, stripNonLyricLines, extractSecondLanguageLines } from './bilingual'
 
 export type PairingMethod = 'index' | 'slots' | 'semantic' | 'mismatch'
@@ -93,6 +95,134 @@ export function expandSlotsAdaptive(originals: string[], targetCount: number): A
 /** @deprecated Prefer expandSlotsAdaptive — minimal expansion without target count. */
 export function expandToAlignmentSlots(originals: string[]): AlignmentSlot[] {
   return buildSlots(originals, new Set())
+}
+
+/**
+ * English words used for JA↔EN pairing. When a mixed-script line's translation
+ * starts with the Latin half already shown in `original`, only the remaining
+ * translation lines are aligned against the Japanese portion.
+ */
+export function targetWordsForAlignment(original: string, translation: string): string[] {
+  const lines = translation.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (lines.length <= 1) return splitTranslationWords(translation)
+  if (isMixedScriptLine(original)) {
+    const { latin } = splitMixedScriptLine(original)
+    if (latin && latinHintScore(latin, lines[0]) >= 0.9) {
+      return splitTranslationWords(lines.slice(1).join('\n'))
+    }
+  }
+  return splitTranslationWords(translation)
+}
+
+/** Content-word pool for alignment; maps each entry back to a full-translation word index. */
+export function alignableEnglishTargetPool(
+  words: string[],
+  baseOffset = 0,
+): { words: string[]; indexMap: number[] } {
+  const aligned: string[] = []
+  const indexMap: number[] = []
+  for (let i = 0; i < words.length; i++) {
+    if (!isAlignableEnglishWord(words[i])) continue
+    aligned.push(normalizeEnglishAlignmentWord(words[i]))
+    indexMap.push(i + baseOffset)
+  }
+  return { words: aligned, indexMap }
+}
+
+export interface AlignmentSegment {
+  alignTokenIndices: number[]
+  targetWords: string[]
+  /** Maps each alignable target index to `splitTranslationWords(translation)` coordinates. */
+  targetIndexMap: number[]
+}
+
+function tokenIndicesInRange(tokens: Token[], start: number, end: number): number[] {
+  const indices: number[] = []
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]
+    if (t.startIndex >= start && t.endIndex <= end) indices.push(i)
+  }
+  return indices
+}
+
+/**
+ * Dual-phrase Japanese lines with one translation line per phrase align each half
+ * independently so monotonic matching does not cross phrase boundaries.
+ */
+export function buildAlignmentSegments(
+  original: string,
+  translation: string,
+  tokens: Token[],
+): AlignmentSegment[] | null {
+  const dualPhrase = splitDualPhraseJapanese(original)
+  const transLines = translation.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (!dualPhrase || transLines.length < 2) return null
+
+  const [phrase1, phrase2] = dualPhrase
+  const p1Start = original.indexOf(phrase1)
+  const p2Start = original.indexOf(phrase2)
+  if (p1Start < 0 || p2Start < 0) return null
+
+  const line0Words = splitTranslationWords(transLines[0])
+  const line1Words = splitTranslationWords(transLines[1])
+  const pool0 = alignableEnglishTargetPool(line0Words, 0)
+  const pool1 = alignableEnglishTargetPool(line1Words, line0Words.length)
+
+  return [
+    {
+      alignTokenIndices: tokenIndicesInRange(tokens, p1Start, p1Start + phrase1.length),
+      targetWords: pool0.words,
+      targetIndexMap: pool0.indexMap,
+    },
+    {
+      alignTokenIndices: tokenIndicesInRange(tokens, p2Start, p2Start + phrase2.length),
+      targetWords: pool1.words,
+      targetIndexMap: pool1.indexMap,
+    },
+  ]
+}
+
+/**
+ * Word index in `splitTranslationWords(translation)` where the alignment target
+ * pool begins. Mixed-script lines that duplicate the Latin half on translation
+ * line 1 align only against line 2+, so stored indices must be shifted for display.
+ */
+export function targetWordBaseOffset(original: string, translation: string): number {
+  const full = splitTranslationWords(translation)
+  const aligned = targetWordsForAlignment(original, translation)
+  if (full.length === aligned.length) return 0
+  const lines = translation.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (lines.length <= 1 || !isMixedScriptLine(original)) return 0
+  const { latin } = splitMixedScriptLine(original)
+  if (latin && latinHintScore(latin, lines[0]) >= 0.9) {
+    return splitTranslationWords(lines[0]).length
+  }
+  return 0
+}
+
+/** Shifts alignment indices from the filtered target pool into full-translation coordinates. */
+export function offsetTokenAlignmentIndices(tokens: Token[], offset: number): Token[] {
+  if (offset === 0) return tokens
+  return tokens.map((t) => {
+    if (!t.alignmentIndices?.length) return t
+    return { ...t, alignmentIndices: t.alignmentIndices.map((i) => i + offset) }
+  })
+}
+
+/** Token indices that fall inside the Japanese portion of a mixed-script line. */
+export function japaneseTokenIndices(original: string, tokens: Token[]): number[] {
+  if (!isMixedScriptLine(original)) return tokens.map((_, i) => i)
+  const { japanese } = splitMixedScriptLine(original)
+  if (!japanese) return tokens.map((_, i) => i)
+  const jaStart = original.indexOf(japanese)
+  if (jaStart < 0) return tokens.map((_, i) => i)
+  const jaEnd = jaStart + japanese.length
+  const indices: number[] = []
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]
+    if (t.startIndex >= jaStart && t.endIndex <= jaEnd) indices.push(i)
+  }
+  return indices
 }
 
 export function mergeSlotTranslations(

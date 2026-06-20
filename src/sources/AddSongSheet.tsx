@@ -67,13 +67,13 @@ function SourceTile({
       onClick={onSelect}
       aria-pressed={selected}
       className={[
-        'w-full text-left rounded-xl border p-3.5 touch-manipulation transition-[color,background-color,border-color,box-shadow] duration-150 ease-out',
+        'w-full text-left rounded-xl border p-3 md:p-2.5 touch-manipulation transition-[color,background-color,border-color,box-shadow] duration-150 ease-out',
         selected
           ? 'border-cinnabar-accent/60 bg-cinnabar-accent/10 shadow-sm shadow-cinnabar-accent/10'
           : 'border-cinnabar-800 bg-cinnabar-900/40 hover:border-cinnabar-accent/30 hover:bg-cinnabar-900/60',
       ].join(' ')}
     >
-      <div className="flex items-start justify-between gap-2 mb-1.5">
+      <div className="flex items-start justify-between gap-2 mb-1 md:mb-0.5">
         <span className="text-sm font-semibold text-white/90">{option.title}</span>
         {option.badge && (
           <span className="shrink-0 text-[10px] uppercase tracking-wide font-medium text-cinnabar-accent bg-cinnabar-accent/15 border border-cinnabar-accent/30 rounded-full px-2 py-0.5">
@@ -81,8 +81,8 @@ function SourceTile({
           </span>
         )}
       </div>
-      <p className="text-[11px] text-white/45 mb-2.5 text-pretty">{option.summary}</p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+      <p className="text-[11px] text-white/45 md:mb-0 mb-2.5 text-pretty">{option.summary}</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 md:hidden">
         <div>
           <p className="text-[10px] uppercase tracking-wide text-white/30 mb-1">Includes</p>
           <ul className="space-y-0.5">
@@ -114,15 +114,19 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
   const [source, setSource] = useState<Source>('upload')
 
   return (
-    <div className="fixed inset-0 z-40 flex flex-col justify-end">
+    <div className="fixed inset-0 z-40 flex flex-col justify-end md:justify-center md:items-center md:p-6">
       <button aria-label="Dismiss" onClick={onClose} className="absolute inset-0 bg-black/60" />
-      <div className="relative bg-cinnabar-950 border-t border-cinnabar-900 rounded-t-2xl p-4 max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between mb-3 shrink-0">
+      <div
+        className="relative bg-cinnabar-950 border-t md:border border-cinnabar-900 rounded-t-2xl md:rounded-2xl p-4 md:p-5 w-full md:max-w-3xl max-h-[90dvh] md:max-h-[min(90vh,44rem)] flex flex-col overflow-hidden"
+        role="dialog"
+        aria-label="Add a song"
+      >
+        <div className="flex items-center justify-between mb-2 md:mb-3 shrink-0">
           <h2 className="text-white font-semibold text-sm text-balance">Add a song</h2>
           <button aria-label="Close" onClick={onClose} className="text-white/40 text-lg leading-none min-h-11 min-w-11 flex items-center justify-center">✕</button>
         </div>
 
-        <div className="space-y-2 mb-4 shrink-0">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3 md:mb-4 shrink-0">
           {SOURCE_OPTIONS.map((option) => (
             <SourceTile
               key={option.id}
@@ -133,7 +137,7 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
           ))}
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto border-t border-cinnabar-900/80 pt-4">
+        <div className="flex-1 min-h-0 flex flex-col border-t border-cinnabar-900/80 pt-3 md:pt-4">
           {source === 'upload'
             ? <UploadAudioFlow embedded onSongReady={onSongReady} />
             : <LinkParser embedded onSongReady={onSongReady} />}

@@ -19,6 +19,12 @@ export default {
         sans: ['system-ui', 'sans-serif'],
         jp: ['"Hiragino Sans"', '"Yu Gothic"', 'system-ui', 'sans-serif'],
       },
+      keyframes: {
+        'progress-enter': {
+          from: { opacity: '0', transform: 'translateY(6px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+      },
     },
   },
   plugins: [],

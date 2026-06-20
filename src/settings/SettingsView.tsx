@@ -10,9 +10,11 @@ import type { Song } from '../core/types'
 
 interface Props {
   onClose: () => void
+  /** When true, omits full-page chrome for sheet embedding. */
+  embedded?: boolean
 }
 
-export function SettingsView({ onClose }: Props) {
+export function SettingsView({ onClose, embedded = false }: Props) {
   const [songs, setSongs] = useState<Song[]>([])
   const [storage, setStorage] = useState<StorageBreakdown | null>(null)
   const [orphanedAudio, setOrphanedAudio] = useState(0)
@@ -59,7 +61,7 @@ export function SettingsView({ onClose }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-cinnabar-950 text-white px-4 py-4 space-y-6 max-w-2xl mx-auto">
+    <div className={embedded ? 'bg-cinnabar-950 text-white px-4 py-4 space-y-5' : 'min-h-screen bg-cinnabar-950 text-white px-4 py-4 space-y-6 max-w-2xl mx-auto'}>
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-semibold text-balance">Settings</h1>
         <button onClick={onClose} className="min-h-11 min-w-11 flex items-center justify-center text-white/40 hover:text-white text-xl touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]" aria-label="Close settings">✕</button>

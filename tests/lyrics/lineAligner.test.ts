@@ -8,6 +8,12 @@ import {
   pairTranslationsToPrimary,
   latinHintScore,
   smartAttachSecondLanguage,
+  targetWordsForAlignment,
+  japaneseTokenIndices,
+  targetWordBaseOffset,
+  offsetTokenAlignmentIndices,
+  buildAlignmentSegments,
+  alignableEnglishTargetPool,
 } from '../../src/lyrics/lineAligner'
 import type { TimedLine } from '../../src/core/types'
 
@@ -116,5 +122,102 @@ describe('mergeSlotTranslations', () => {
     const slots = expandSlotsAdaptive(originals, 2)
     const merged = mergeSlotTranslations(1, slots, ['You always make me so happy', 'Melt into the blue sky'])
     expect(merged[0]).toBe('You always make me so happy\nMelt into the blue sky')
+  })
+})
+
+describe('targetWordsForAlignment', () => {
+  it('skips the duplicated Latin half for mixed-script lines', () => {
+    const original = 'You always make me so happy 青空に溶けて'
+    const translation = 'You always make me so happy\nMelt into the blue sky'
+    expect(targetWordsForAlignment(original, translation)).toEqual([
+      'Melt', 'into', 'the', 'blue', 'sky',
+    ])
+  })
+
+  it('keeps all words for dual-phrase Japanese lines', () => {
+    const original = '滑り込むキミの横 隣り合わせのハート'
+    const translation = 'Beside you as you slide in\nAdjacent hearts'
+    expect(targetWordsForAlignment(original, translation)).toEqual([
+      'Beside', 'you', 'as', 'you', 'slide', 'in', 'Adjacent', 'hearts',
+    ])
+  })
+})
+
+describe('targetWordBaseOffset', () => {
+  it('offsets past the duplicated Latin translation line on mixed-script lines', () => {
+    const original = 'You always make me so happy 青空に溶けて'
+    const translation = 'You always make me so happy\nMelt into the blue sky'
+    expect(targetWordBaseOffset(original, translation)).toBe(6)
+  })
+
+  it('returns zero when the full translation is used for alignment', () => {
+    const original = '滑り込むキミの横 隣り合わせのハート'
+    const translation = 'Beside you as you slide in\nAdjacent hearts'
+    expect(targetWordBaseOffset(original, translation)).toBe(0)
+  })
+})
+
+describe('offsetTokenAlignmentIndices', () => {
+  it('shifts stored indices into full-translation word coordinates', () => {
+    const tokens = [
+      { surface: '溶け', pos: '動詞', startIndex: 0, endIndex: 2, alignmentIndices: [0] },
+      { surface: '青空', pos: '名詞', startIndex: 0, endIndex: 2, alignmentIndices: [4] },
+    ]
+    const shifted = offsetTokenAlignmentIndices(tokens, 6)
+    expect(shifted[0].alignmentIndices).toEqual([6])
+    expect(shifted[1].alignmentIndices).toEqual([10])
+  })
+})
+
+describe('alignableEnglishTargetPool', () => {
+  it('drops function words but keeps content words', () => {
+    const pool = alignableEnglishTargetPool(['Only', 'one', 'step', 'behind'])
+    expect(pool.words).toEqual(['only', 'one', 'step', 'behind'])
+    expect(pool.indexMap).toEqual([0, 1, 2, 3])
+  })
+
+  it('filters the and as from a translation line', () => {
+    const pool = alignableEnglishTargetPool(["I'm", 'the', 'same', 'as', 'always'])
+    expect(pool.words).toEqual(['i', 'same', 'always'])
+    expect(pool.indexMap).toEqual([0, 2, 4])
+  })
+})
+
+describe('buildAlignmentSegments', () => {
+  it('splits dual-phrase lines into per-translation-line segments', () => {
+    const original = '一歩だけ遅れてる いつも通りのあたし'
+    const translation = "Only one step behind\nI'm the same as always"
+    const tokens = [
+      { surface: '一', pos: '名詞', startIndex: 0, endIndex: 1 },
+      { surface: '歩', pos: '名詞', startIndex: 1, endIndex: 2 },
+      { surface: 'だけ', pos: '助詞', startIndex: 2, endIndex: 4 },
+      { surface: '遅れ', pos: '動詞', startIndex: 4, endIndex: 6 },
+      { surface: 'てる', pos: '動詞', startIndex: 6, endIndex: 8 },
+      { surface: 'いつも', pos: '名詞', startIndex: 9, endIndex: 12 },
+      { surface: '通り', pos: '名詞', startIndex: 12, endIndex: 14 },
+      { surface: 'の', pos: '助詞', startIndex: 14, endIndex: 15 },
+      { surface: 'あたし', pos: '名詞', startIndex: 15, endIndex: 18 },
+    ]
+    const segments = buildAlignmentSegments(original, translation, tokens)
+    expect(segments).toHaveLength(2)
+    expect(segments![0].alignTokenIndices).toEqual([0, 1, 2, 3, 4])
+    expect(segments![1].alignTokenIndices).toEqual([5, 6, 7, 8])
+    expect(segments![0].targetWords).toEqual(['only', 'one', 'step', 'behind'])
+    expect(segments![1].targetWords).toEqual(['i', 'same', 'always'])
+    expect(segments![1].targetIndexMap).toEqual([4, 6, 8])
+  })
+})
+
+describe('japaneseTokenIndices', () => {
+  it('limits mixed-script lines to the Japanese substring', () => {
+    const original = 'You always make me so happy 青空に溶けて'
+    const tokens = [
+      { surface: 'You', pos: '名詞', startIndex: 0, endIndex: 3 },
+      { surface: '青空', pos: '名詞', startIndex: 28, endIndex: 30 },
+      { surface: 'に', pos: '助詞', startIndex: 30, endIndex: 31 },
+      { surface: '溶け', pos: '動詞', startIndex: 31, endIndex: 33 },
+      { surface: 'て', pos: '助詞', startIndex: 33, endIndex: 34 },
+    ]
+    expect(japaneseTokenIndices(original, tokens)).toEqual([1, 2, 3, 4])
   })
 })
