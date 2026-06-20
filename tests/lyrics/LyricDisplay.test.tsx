@@ -184,6 +184,36 @@ describe('word-pair coloring', () => {
     expect(youWord.style.borderBottomColor).toBe('')
   })
 
+  it('colors both sides when alignment skips English function words', () => {
+    const original = '一歩だけ遅れてる いつも通りのあたし'
+    const translation = "Only one step behind\nI'm the same as always"
+    const words = ['Only', 'one', 'step', 'behind', "I'm", 'the', 'same', 'as', 'always']
+    const line: TimedLine = {
+      startTime: 0,
+      endTime: 2,
+      original,
+      translation,
+      tokens: [
+        { surface: 'だけ', pos: '助詞', startIndex: 2, endIndex: 4, alignmentIndices: [words.indexOf('Only')] },
+        { surface: '遅れ', pos: '動詞', startIndex: 4, endIndex: 6, alignmentIndices: [words.indexOf('behind')] },
+        { surface: 'いつも', pos: '名詞', startIndex: 9, endIndex: 12, alignmentIndices: [words.indexOf('always')] },
+        { surface: 'あたし', pos: '名詞', startIndex: 15, endIndex: 18, alignmentIndices: [words.indexOf("I'm")] },
+      ],
+    }
+    useLyricsStore.setState({ lines: [line], activeLine: -1 })
+    render(<LyricDisplay onLineClick={vi.fn()} />)
+    const only = screen.getByText('Only')
+    const behind = screen.getByText('behind')
+    const always = screen.getByText('always')
+    const im = screen.getByText("I'm")
+    const dake = screen.getByText('だけ')
+    expect(dake.style.borderBottomColor).toBe(only.style.borderBottomColor)
+    expect(screen.getByText('遅れ').style.borderBottomColor).toBe(behind.style.borderBottomColor)
+    expect(screen.getByText('いつも').style.borderBottomColor).toBe(always.style.borderBottomColor)
+    expect(screen.getByText('あたし').style.borderBottomColor).toBe(im.style.borderBottomColor)
+    expect(screen.getByText('the').style.borderBottomColor).toBe('')
+  })
+
   it('highlights a matched word pair on hover in stacked layout', async () => {
     const { default: userEvent } = await import('@testing-library/user-event')
     const user = userEvent.setup()

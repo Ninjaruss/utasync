@@ -34,6 +34,23 @@ describe('linesNeedAlignment', () => {
     expect(linesNeedAlignment(lines)).toBe(false)
   })
 
+  it('returns true when alignment indices are stale or out of display range', () => {
+    const lines: TimedLine[] = [{
+      startTime: 0,
+      endTime: 1,
+      original: 'You always make me so happy 青空に溶けて',
+      translation: 'You always make me so happy\nMelt into the blue sky',
+      tokens: [{
+        surface: '青空',
+        pos: '名詞',
+        startIndex: 28,
+        endIndex: 30,
+        alignmentIndices: [0],
+      }],
+    }]
+    expect(linesNeedAlignment(lines)).toBe(true)
+  })
+
   it('returns false for particle-only lines', () => {
     const lines: TimedLine[] = [{
       startTime: 0, endTime: 1, original: 'が', translation: 'subject marker',

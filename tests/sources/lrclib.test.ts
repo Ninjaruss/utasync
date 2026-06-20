@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 global.fetch = vi.fn()
 const mockFetch = (value: unknown) => vi.mocked(fetch).mockResolvedValue(value as Response)
 
-import { searchLRCLIB, fetchLRCFromLRCLIB, findSecondLanguageLyrics } from '../../src/sources/lrclib'
+import { searchLRCLIB, fetchLRCFromLRCLIB, findSecondLanguageInLRCLIB } from '../../src/sources/lrclib'
 
 describe('searchLRCLIB', () => {
   beforeEach(() => { vi.resetAllMocks() })
@@ -30,7 +30,7 @@ describe('searchLRCLIB', () => {
   })
 })
 
-describe('findSecondLanguageLyrics', () => {
+describe('findSecondLanguageInLRCLIB', () => {
   beforeEach(() => { vi.resetAllMocks() })
 
   it('picks a result whose script differs from the primary language', async () => {
@@ -41,7 +41,7 @@ describe('findSecondLanguageLyrics', () => {
         { id: 2, name: 'Song', artistName: 'A', syncedLyrics: '[00:01.00]Your eyes' }, // en
       ]),
     })
-    const result = await findSecondLanguageLyrics('Song', 'A', 'ja')
+    const result = await findSecondLanguageInLRCLIB('Song', 'A', 'ja')
     expect(result).not.toBeNull()
     expect(result!.lrc).toContain('Your eyes')
     expect(result!.synced).toBe(true)
@@ -54,8 +54,20 @@ describe('findSecondLanguageLyrics', () => {
         { id: 1, name: 'Song', artistName: 'A', syncedLyrics: '[00:01.00]君の瞳' },
       ]),
     })
-    const result = await findSecondLanguageLyrics('Song', 'A', 'ja')
+    const result = await findSecondLanguageInLRCLIB('Song', 'A', 'ja')
     expect(result).toBeNull()
+  })
+
+  it('skips results whose duration is far from the target', async () => {
+    mockFetch({
+      ok: true,
+      json: async () => ([
+        { id: 1, name: 'Song', artistName: 'A', duration: 60, syncedLyrics: 'Wrong song English' },
+        { id: 2, name: 'Song', artistName: 'A', duration: 240, syncedLyrics: 'Correct English' },
+      ]),
+    })
+    const result = await findSecondLanguageInLRCLIB('Song', 'A', 'ja', 241)
+    expect(result?.lrc).toBe('Correct English')
   })
 })
 

@@ -20,7 +20,7 @@ vi.mock('../../src/sources/lyricsResolver', () => ({
   lyricsSourceLabel: vi.fn(() => 'LRCLIB (plain)'),
 }))
 
-vi.mock('../../src/sources/lrclib', () => ({
+vi.mock('../../src/sources/secondLanguageResolver', () => ({
   findSecondLanguageLyrics: vi.fn(async () => null),
 }))
 
@@ -77,8 +77,12 @@ describe('LinkParser', () => {
   })
 
   it('auto-attaches a translation on add song when counts match', async () => {
-    const lrclib = await import('../../src/sources/lrclib')
-    vi.mocked(lrclib.findSecondLanguageLyrics).mockResolvedValueOnce({ lrc: 'Translated one\nTranslated two', synced: false })
+    const secondLang = await import('../../src/sources/secondLanguageResolver')
+    vi.mocked(secondLang.findSecondLanguageLyrics).mockResolvedValueOnce({
+      lrc: 'Translated one\nTranslated two',
+      synced: false,
+      source: 'lyrics-ovh',
+    })
     const onSongReady = vi.fn()
     await continueToLyricsFound(onSongReady)
     const songId = onSongReady.mock.calls[0][0]

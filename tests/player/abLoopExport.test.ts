@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   abLoopExportBasename,
+  abLoopPlaylistExportBasename,
   sliceLinesForAbExport,
   exportAbLoopSRT,
   encodeWavSegment,
@@ -8,8 +9,11 @@ import {
   sanitizeFilenamePart,
   lyricHintForAbLoop,
   truncateLyricSnippet,
+  getValidPlaylistExportSegments,
+  combineSrtLinesForPlaylistExport,
+  concatenateAbLoopSegments,
 } from '../../src/player/abLoopExport'
-import type { TimedLine } from '../../src/core/types'
+import type { ABLoopPlaylistEntry, TimedLine } from '../../src/core/types'
 
 const lines: TimedLine[] = [
   { startTime: 5, endTime: 8, original: 'Before loop', translation: '' },
@@ -107,5 +111,71 @@ describe('createZipArchive', () => {
       expect(bytes[0]).toBe(0x50)
       expect(bytes[1]).toBe(0x4b)
     })
+  })
+})
+
+describe('getValidPlaylistExportSegments', () => {
+  it('keeps valid entries in order and drops invalid pairs', () => {
+    const entries: ABLoopPlaylistEntry[] = [
+      { id: '1', a: 10, b: 20 },
+      { id: '2', a: 30, b: 25 },
+      { id: '3', a: 40, b: 50 },
+    ]
+    expect(getValidPlaylistExportSegments(entries).map((e) => e.id)).toEqual(['1', '3'])
+  })
+})
+
+describe('abLoopPlaylistExportBasename', () => {
+  it('includes artist, title, and loop count', () => {
+    expect(abLoopPlaylistExportBasename('Yorushika', 'Itte', 3)).toBe(
+      'Yorushika - Itte — AB loop playlist (3 loops)',
+    )
+  })
+})
+
+describe('combineSrtLinesForPlaylistExport', () => {
+  it('offsets lyrics across concatenated segments', () => {
+    const segments = [
+      { a: 12, b: 20 },
+      { a: 25, b: 28 },
+    ]
+    const combined = combineSrtLinesForPlaylistExport(lines, segments)
+    expect(combined.map((l) => l.original)).toEqual(['Inside loop', 'Also inside', 'After loop'])
+    expect(combined[0].startTime).toBe(0)
+    expect(combined[1].startTime).toBe(2)
+    expect(combined[2].startTime).toBe(8)
+    expect(combined[2].endTime).toBe(11)
+  })
+})
+
+describe('concatenateAbLoopSegments', () => {
+  it('concatenates multiple slices into one wav payload', () => {
+    const sampleRate = 100
+    const length = sampleRate * 3
+    const channel = new Float32Array(length)
+    channel.fill(0.5)
+    const buffer = {
+      sampleRate,
+      length,
+      numberOfChannels: 1,
+      getChannelData: () => channel,
+    } as AudioBuffer
+
+    const wav = concatenateAbLoopSegments(buffer, [
+      { a: 0.5, b: 1.0 },
+      { a: 2.0, b: 2.5 },
+    ])
+    expect(String.fromCharCode(...wav.slice(0, 4))).toBe('RIFF')
+    expect(wav.length).toBe(44 + (50 + 50) * 2)
+  })
+
+  it('throws when no segments are provided', () => {
+    const buffer = {
+      sampleRate: 44100,
+      length: 44100,
+      numberOfChannels: 1,
+      getChannelData: () => new Float32Array(44100),
+    } as AudioBuffer
+    expect(() => concatenateAbLoopSegments(buffer, [])).toThrow(/No valid loop segments/)
   })
 })

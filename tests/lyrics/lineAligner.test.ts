@@ -14,6 +14,8 @@ import {
   offsetTokenAlignmentIndices,
   buildAlignmentSegments,
   alignableEnglishTargetPool,
+  alignmentIndicesAreValid,
+  buildAlignJob,
 } from '../../src/lyrics/lineAligner'
 import type { TimedLine } from '../../src/core/types'
 
@@ -219,5 +221,68 @@ describe('japaneseTokenIndices', () => {
       { surface: 'て', pos: '助詞', startIndex: 33, endIndex: 34 },
     ]
     expect(japaneseTokenIndices(original, tokens)).toEqual([1, 2, 3, 4])
+  })
+})
+
+describe('alignmentIndicesAreValid', () => {
+  it('rejects out-of-bounds translation indices', () => {
+    const timed = line('君', 'you')
+    timed.tokens = [{ surface: '君', pos: '名詞', startIndex: 0, endIndex: 1, alignmentIndices: [3] }]
+    expect(alignmentIndicesAreValid(timed)).toBe(false)
+  })
+
+  it('rejects mixed-script Japanese tokens pointing into the duplicated Latin line', () => {
+    const original = 'You always make me so happy 青空に溶けて'
+    const translation = 'You always make me so happy\nMelt into the blue sky'
+    const jaStart = original.indexOf('青空')
+    const timed = line(original, translation)
+    timed.tokens = [
+      { surface: '青空', pos: '名詞', startIndex: jaStart, endIndex: jaStart + 2, alignmentIndices: [0] },
+    ]
+    expect(alignmentIndicesAreValid(timed)).toBe(false)
+  })
+
+  it('accepts indices mapped into the Japanese translation half', () => {
+    const original = 'You always make me so happy 青空に溶けて'
+    const translation = 'You always make me so happy\nMelt into the blue sky'
+    const jaStart = original.indexOf('青空')
+    const timed = line(original, translation)
+    timed.tokens = [
+      { surface: '青空', pos: '名詞', startIndex: jaStart, endIndex: jaStart + 2, alignmentIndices: [10] },
+      { surface: '溶け', pos: '動詞', startIndex: jaStart + 3, endIndex: jaStart + 5, alignmentIndices: [6] },
+    ]
+    expect(alignmentIndicesAreValid(timed)).toBe(true)
+  })
+
+  it('rejects dual-phrase tokens pointing across segment boundaries', () => {
+    const original = '一歩だけ遅れてる いつも通りのあたし'
+    const translation = "Only one step behind\nI'm the same as always"
+    const timed = line(original, translation)
+    timed.tokens = [
+      { surface: 'いつも', pos: '名詞', startIndex: 9, endIndex: 12, alignmentIndices: [0] },
+    ]
+    expect(alignmentIndicesAreValid(timed)).toBe(false)
+  })
+})
+
+describe('buildAlignJob', () => {
+  it('maps filtered English targets back to full-translation indices', () => {
+    const original = 'You always make me so happy 青空に溶けて'
+    const translation = 'You always make me so happy\nMelt into the blue sky'
+    const timed = line(original, translation)
+    timed.tokens = [{ surface: '青空', pos: '名詞', startIndex: 0, endIndex: 2 }]
+    const job = buildAlignJob(timed)
+    expect(job.targetIndexMap).toEqual([6, 9, 10])
+    expect(job.targetWords).toEqual(['melt', 'blue', 'sky'])
+  })
+
+  it('uses per-line segments for dual-phrase Japanese lines', () => {
+    const original = '一歩だけ遅れてる いつも通りのあたし'
+    const translation = "Only one step behind\nI'm the same as always"
+    const timed = line(original, translation)
+    timed.tokens = [{ surface: '一', pos: '名詞', startIndex: 0, endIndex: 1 }]
+    const job = buildAlignJob(timed)
+    expect(job.segments).toHaveLength(2)
+    expect(job.segments![1].targetIndexMap).toEqual([4, 6, 8])
   })
 })

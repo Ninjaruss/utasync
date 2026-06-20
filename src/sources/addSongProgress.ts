@@ -30,10 +30,6 @@ export const LINK_LYRIC_SEARCH_STEPS: ProcessStep[] = [
   { label: 'Searching for lyrics', detail: 'Checking YouTube captions and LRCLIB' },
 ]
 
-export const SECOND_LANGUAGE_SEARCH_STEPS: ProcessStep[] = [
-  { label: 'Searching LRCLIB', detail: 'Looking for a second-language lyric file by title and artist' },
-]
-
 export const SECOND_LANGUAGE_ALIGN_STEPS: ProcessStep[] = [
   { label: 'Normalizing lyrics', detail: 'Matching translation lines to your lyrics' },
 ]

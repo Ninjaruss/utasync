@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { EditMode } from '../../src/lyrics/EditMode'
 import type { TimedLine } from '../../src/core/types'
 
-vi.mock('../../src/sources/lrclib', () => ({
+vi.mock('../../src/sources/secondLanguageResolver', () => ({
   findSecondLanguageLyrics: () => new Promise(() => {}),
 }))
 

@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import type { PlaybackState, ABLoop, ABLoopPlaylistEntry } from '../core/types'
 import { isABLoopActive } from './abLoopUtils'
-import { playlistEntryLabel } from './abLoopPlaylist'
+import {
+  PLAYLIST_REPEAT_PRESETS,
+  playlistEntryLabel,
+  playlistRepeatHelpText,
+  playlistRepeatLabel,
+} from './abLoopPlaylist'
 import {
   toolbarChipBtn,
   toolbarChipBtnActive,
@@ -46,6 +51,8 @@ interface Props {
   playlistEntries?: ABLoopPlaylistEntry[]
   playlistActive?: boolean
   playlistIndex?: number
+  playlistRepeatCount?: number
+  onPlaylistRepeatCountChange?: (count: number) => void
   canSaveToPlaylist?: boolean
   onSaveToPlaylist?: () => void
   onTogglePlaylist?: () => void
@@ -54,6 +61,10 @@ interface Props {
   onRemovePlaylistEntry?: (entryId: string) => void
   onRenamePlaylistEntry?: (entryId: string, label: string) => void
   onClearPlaylist?: () => void
+  showPlaylistExport?: boolean
+  onExportPlaylist?: () => void
+  playlistExporting?: boolean
+  playlistExportError?: string | null
 }
 
 function formatTime(s: number): string {
@@ -215,6 +226,8 @@ function ABLoopPlaylistControls({
   entries,
   playlistActive,
   playlistIndex,
+  playlistRepeatCount,
+  onPlaylistRepeatCountChange,
   canSave,
   onSave,
   onTogglePlaylist,
@@ -223,10 +236,16 @@ function ABLoopPlaylistControls({
   onRemoveEntry,
   onRenameEntry,
   onClear,
+  canExport,
+  onExport,
+  exporting,
+  exportError,
 }: {
   entries: ABLoopPlaylistEntry[]
   playlistActive: boolean
   playlistIndex: number
+  playlistRepeatCount: number
+  onPlaylistRepeatCountChange: (count: number) => void
   canSave: boolean
   onSave: () => void
   onTogglePlaylist: () => void
@@ -235,6 +254,10 @@ function ABLoopPlaylistControls({
   onRemoveEntry: (entryId: string) => void
   onRenameEntry: (entryId: string, label: string) => void
   onClear: () => void
+  canExport?: boolean
+  onExport?: () => void
+  exporting?: boolean
+  exportError?: string | null
 }) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
@@ -255,6 +278,7 @@ function ABLoopPlaylistControls({
   }
 
   const hasEntries = entries.length > 0
+  const showRepeatSetting = hasEntries || playlistActive
 
   return (
     <div className="space-y-2">
@@ -266,6 +290,29 @@ function ABLoopPlaylistControls({
           </span>
         )}
       </div>
+
+      {showRepeatSetting && onPlaylistRepeatCountChange && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] text-white/40">Repeats per loop</p>
+          <div className="flex flex-wrap gap-1.5">
+            {PLAYLIST_REPEAT_PRESETS.map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => onPlaylistRepeatCountChange(preset)}
+                className={[
+                  toolbarChipBtn,
+                  playlistRepeatCount === preset ? toolbarChipBtnActive : toolbarChipBtnIdle,
+                ].join(' ')}
+                aria-label={`Repeat each loop ${playlistRepeatLabel(preset)} times before advancing`}
+                aria-pressed={playlistRepeatCount === preset}
+              >
+                {playlistRepeatLabel(preset)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-1.5">
         <button
@@ -301,7 +348,25 @@ function ABLoopPlaylistControls({
             Clear list
           </button>
         )}
+        {hasEntries && canExport && onExport && (
+          <button
+            type="button"
+            onClick={onExport}
+            disabled={exporting}
+            className={[
+              toolbarChipBtn,
+              toolbarChipBtnActive,
+              'disabled:opacity-40',
+            ].join(' ')}
+          >
+            {exporting ? 'Exporting…' : 'Export playlist'}
+          </button>
+        )}
       </div>
+
+      {exportError && (
+        <p className="text-[11px] text-red-400/90" role="alert">{exportError}</p>
+      )}
 
       {!hasEntries && (
         <p className="text-[11px] text-white/30 text-pretty">
@@ -393,7 +458,7 @@ function ABLoopPlaylistControls({
 
       {playlistActive && hasEntries && (
         <p className="text-[11px] text-cinnabar-accent/80 text-pretty">
-          Repeats each loop, then advances to the next entry.
+          {playlistRepeatHelpText(playlistRepeatCount)}
         </p>
       )}
     </div>
@@ -587,6 +652,8 @@ export function PlayerControls({
   playlistEntries = [],
   playlistActive = false,
   playlistIndex = 0,
+  playlistRepeatCount = 3,
+  onPlaylistRepeatCountChange,
   canSaveToPlaylist = false,
   onSaveToPlaylist,
   onTogglePlaylist,
@@ -595,6 +662,10 @@ export function PlayerControls({
   onRemovePlaylistEntry,
   onRenamePlaylistEntry,
   onClearPlaylist,
+  showPlaylistExport,
+  onExportPlaylist,
+  playlistExporting,
+  playlistExportError,
 }: Props) {
   const abActive = abLoop.a !== null || abLoop.b !== null || armingAB !== null
   const abLooping = isABLoopActive(abLoop)
@@ -684,6 +755,8 @@ export function PlayerControls({
                       entries={playlistEntries}
                       playlistActive={playlistActive}
                       playlistIndex={playlistIndex}
+                      playlistRepeatCount={playlistRepeatCount}
+                      onPlaylistRepeatCountChange={onPlaylistRepeatCountChange ?? (() => {})}
                       canSave={canSaveToPlaylist}
                       onSave={onSaveToPlaylist}
                       onTogglePlaylist={onTogglePlaylist}
@@ -692,6 +765,10 @@ export function PlayerControls({
                       onRemoveEntry={onRemovePlaylistEntry}
                       onRenameEntry={onRenamePlaylistEntry}
                       onClear={onClearPlaylist}
+                      canExport={showPlaylistExport}
+                      onExport={onExportPlaylist}
+                      exporting={playlistExporting}
+                      exportError={playlistExportError}
                     />
                   </div>
                 )}

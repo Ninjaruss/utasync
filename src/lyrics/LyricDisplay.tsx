@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useLyricsStore } from './LyricsStore'
 import type { TimedLine, FuriganaMode, Token } from '../core/types'
 import { isSameText, hasVisibleTranslation } from './bilingual'
-import { colorForToken, colorForTranslationWord, splitTranslationWords } from '../language/wordColors'
+import { colorForToken, colorForTranslationWord, splitTranslationLines } from '../language/wordColors'
 import { katakanaToHiragana } from '../language/japanese/phonetics'
 import type { ABLoop } from '../core/types'
 import { isABLoopActive } from '../player/abLoopUtils'
@@ -143,14 +143,13 @@ function ColoredTranslation({
   hovered: HoveredPair | null
   onHover: (pair: HoveredPair | null) => void
 }) {
-  const translationLines = line.translation.split('\n')
+  const translationLineWords = splitTranslationLines(line.translation)
   if (!line.tokens) return <>{line.translation}</>
 
   let wordOffset = 0
   return (
     <>
-      {translationLines.map((translationLine, lineIdx) => {
-        const words = splitTranslationWords(translationLine)
+      {translationLineWords.map((words, lineIdx) => {
         const lineEl = words.map((word, i) => {
           const globalIndex = wordOffset + i
           const color = colorForTranslationWord(line.tokens!, globalIndex)
@@ -170,7 +169,7 @@ function ColoredTranslation({
         return (
           <span key={lineIdx}>
             {lineEl}
-            {lineIdx < translationLines.length - 1 ? <br /> : null}
+            {lineIdx < translationLineWords.length - 1 ? <br /> : null}
           </span>
         )
       })}

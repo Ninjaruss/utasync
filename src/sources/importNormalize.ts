@@ -1,4 +1,4 @@
-import { findSecondLanguageLyrics } from './lrclib'
+import { findSecondLanguageLyrics } from './secondLanguageResolver'
 import { smartAttachSecondLanguage } from '../lyrics/lineAligner'
 import { detectLanguage } from '../lyrics/bilingual'
 import type { TimedLine } from '../core/types'

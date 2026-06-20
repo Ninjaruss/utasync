@@ -22,6 +22,7 @@ import {
   targetWordBaseOffset,
   targetWordsForAlignment,
   buildAlignmentSegments,
+  buildAlignJob,
 } from '../../src/lyrics/lineAligner'
 import { splitTranslationWords } from '../../src/language/wordColors'
 import type { Token } from '../../src/core/types'
@@ -660,5 +661,28 @@ describe('alignLineTokens — My Eyes Only lyric pattern', () => {
     // Must not pair to function words
     expect(result.some((t) => t.alignmentIndices?.includes(words.indexOf('the')))).toBe(false)
     expect(result.some((t) => t.alignmentIndices?.includes(words.indexOf('as')))).toBe(false)
+  })
+
+  it('buildAlignJob stores display-space indices for mixed-script lines', async () => {
+    const original = 'You always make me so happy 青空に溶けて'
+    const translation = 'You always make me so happy\nMelt into the blue sky'
+    const jaStart = original.indexOf('青空')
+    const tokens: Token[] = [
+      { surface: '青空', pos: '名詞', reading: 'アオゾラ', startIndex: jaStart, endIndex: jaStart + 2 },
+      { surface: '溶け', pos: '動詞', reading: 'トケ', startIndex: jaStart + 3, endIndex: jaStart + 5 },
+    ]
+    const line = { startTime: 0, endTime: 1, original, translation, tokens }
+    const job = buildAlignJob(line)
+    const words = splitTranslationWords(translation)
+    const embed = async (texts: string[]): Promise<number[][]> =>
+      texts.map((t) => {
+        if (t === 'aozora' || t === 'sky') return [1, 0, 0]
+        if (t === 'toke' || t === 'melt') return [0, 1, 0]
+        if (t === 'blue') return [0, 0, 1]
+        return [0.1, 0.1, 0.1]
+      })
+    const [result] = await alignLinesTokens([job], embed)
+    expect(result[0].alignmentIndices).toEqual([words.indexOf('sky')])
+    expect(result[1].alignmentIndices).toEqual([words.indexOf('Melt')])
   })
 })

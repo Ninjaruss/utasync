@@ -1,5 +1,5 @@
 import { downloadBlob } from '../lyrics/exporter'
-import type { TimedLine } from '../core/types'
+import type { ABLoopPlaylistEntry, TimedLine } from '../core/types'
 import { isValidABPair } from './abLoopUtils'
 
 /** Remove characters that are invalid in cross-platform file names. */
@@ -73,6 +73,90 @@ export function abLoopHasTimedLyrics(lines: TimedLine[], a: number, b: number): 
   return sliceLinesForAbExport(lines, a, b).length > 0
 }
 
+/** Playlist segments with valid A–B pairs, in saved order. */
+export function getValidPlaylistExportSegments(
+  entries: ABLoopPlaylistEntry[],
+): ABLoopPlaylistEntry[] {
+  return entries.filter((e) => isValidABPair(e.a, e.b))
+}
+
+export function abLoopPlaylistExportBasename(
+  artist: string,
+  title: string,
+  segmentCount: number,
+): string {
+  const artistPart = sanitizeFilenamePart(artist || 'Unknown artist')
+  const titlePart = sanitizeFilenamePart(title || 'Untitled')
+  const countLabel = segmentCount === 1 ? '1 loop' : `${segmentCount} loops`
+  return `${artistPart} - ${titlePart} — AB loop playlist (${countLabel})`
+}
+
+export function abLoopPlaylistHasTimedLyrics(
+  lines: TimedLine[],
+  entries: ABLoopPlaylistEntry[],
+): boolean {
+  return getValidPlaylistExportSegments(entries).some((e) =>
+    abLoopHasTimedLyrics(lines, e.a, e.b),
+  )
+}
+
+/** Shift each segment's lyrics so timestamps continue across the concatenated clip. */
+export function combineSrtLinesForPlaylistExport(
+  lines: TimedLine[],
+  segments: { a: number; b: number }[],
+): TimedLine[] {
+  let offset = 0
+  const combined: TimedLine[] = []
+  for (const { a, b } of segments) {
+    const sliced = sliceLinesForAbExport(lines, a, b)
+    for (const line of sliced) {
+      combined.push({
+        ...line,
+        startTime: line.startTime + offset,
+        endTime: line.endTime + offset,
+      })
+    }
+    offset += b - a
+  }
+  return combined
+}
+
+export function concatenateAbLoopSegments(
+  audioBuffer: AudioBuffer,
+  segments: { a: number; b: number }[],
+): Uint8Array {
+  if (segments.length === 0) throw new Error('No valid loop segments to export.')
+
+  const sampleRate = audioBuffer.sampleRate
+  const numChannels = audioBuffer.numberOfChannels
+  const parts: { startSample: number; length: number }[] = []
+  let totalLength = 0
+
+  for (const { a, b } of segments) {
+    const startSample = Math.max(0, Math.floor(a * sampleRate))
+    const endSample = Math.min(audioBuffer.length, Math.ceil(b * sampleRate))
+    const length = Math.max(0, endSample - startSample)
+    parts.push({ startSample, length })
+    totalLength += length
+  }
+
+  if (totalLength === 0) throw new Error('No valid loop segments to export.')
+
+  const channels: Float32Array[] = []
+  for (let ch = 0; ch < numChannels; ch++) {
+    const out = new Float32Array(totalLength)
+    let writeOffset = 0
+    const src = audioBuffer.getChannelData(ch)
+    for (const { startSample, length } of parts) {
+      out.set(src.subarray(startSample, startSample + length), writeOffset)
+      writeOffset += length
+    }
+    channels.push(out)
+  }
+
+  return encodeWavFromChannels(sampleRate, channels)
+}
+
 export function exportAbLoopSRT(lines: TimedLine[]): string {
   return lines
     .map((l, i) => {
@@ -101,6 +185,16 @@ export function encodeWavSegment(audioBuffer: AudioBuffer, startSec: number, end
   const endSample = Math.min(audioBuffer.length, Math.ceil(endSec * sampleRate))
   const numChannels = audioBuffer.numberOfChannels
   const length = Math.max(0, endSample - startSample)
+  const channels: Float32Array[] = []
+  for (let ch = 0; ch < numChannels; ch++) {
+    channels.push(audioBuffer.getChannelData(ch).subarray(startSample, startSample + length))
+  }
+  return encodeWavFromChannels(sampleRate, channels)
+}
+
+function encodeWavFromChannels(sampleRate: number, channels: Float32Array[]): Uint8Array {
+  const numChannels = channels.length
+  const length = channels[0]?.length ?? 0
   const bytesPerSample = 2
   const blockAlign = numChannels * bytesPerSample
   const dataSize = length * blockAlign
@@ -124,7 +218,7 @@ export function encodeWavSegment(audioBuffer: AudioBuffer, startSec: number, end
   let offset = 44
   for (let i = 0; i < length; i++) {
     for (let ch = 0; ch < numChannels; ch++) {
-      const sample = audioBuffer.getChannelData(ch)[startSample + i] ?? 0
+      const sample = channels[ch]?.[i] ?? 0
       const clamped = Math.max(-1, Math.min(1, sample))
       view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true)
       offset += 2
@@ -246,6 +340,44 @@ export async function exportAbLoopClip(options: {
 
     downloadBlob(new Blob([wavData as BlobPart], { type: 'audio/wav' }), `${basename}.wav`)
     return { basename, includedSrt: false }
+  } finally {
+    await ctx.close()
+  }
+}
+
+export async function exportAbLoopPlaylistClip(options: {
+  audioFile: File
+  lines: TimedLine[]
+  artist: string
+  title: string
+  entries: ABLoopPlaylistEntry[]
+  includeSrt?: boolean
+}): Promise<{ basename: string; includedSrt: boolean; segmentCount: number }> {
+  const { audioFile, lines, artist, title, entries, includeSrt = false } = options
+  const segments = getValidPlaylistExportSegments(entries)
+  if (segments.length === 0) {
+    throw new Error('Save at least one valid A-B loop before exporting the playlist.')
+  }
+
+  const basename = abLoopPlaylistExportBasename(artist, title, segments.length)
+  const ctx = new AudioContext()
+  try {
+    const decoded = await ctx.decodeAudioData(await audioFile.arrayBuffer())
+    const wavData = concatenateAbLoopSegments(decoded, segments)
+    const combinedLines = combineSrtLinesForPlaylistExport(lines, segments)
+    const shouldIncludeSrt = includeSrt && combinedLines.length > 0
+
+    if (shouldIncludeSrt) {
+      const zipFiles: { name: string; data: Uint8Array }[] = [
+        { name: `${basename}.wav`, data: wavData },
+        { name: `${basename}.srt`, data: new TextEncoder().encode(exportAbLoopSRT(combinedLines)) },
+      ]
+      downloadBlob(createZipArchive(zipFiles), `${basename}.zip`)
+      return { basename, includedSrt: true, segmentCount: segments.length }
+    }
+
+    downloadBlob(new Blob([wavData as BlobPart], { type: 'audio/wav' }), `${basename}.wav`)
+    return { basename, includedSrt: false, segmentCount: segments.length }
   } finally {
     await ctx.close()
   }

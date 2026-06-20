@@ -23,18 +23,11 @@ import { hasVisibleTranslation } from '../lyrics/bilingual'
 import { linesNeedEnrichment, linesNeedAlignment, lineNeedsAlignment, enrichmentMadeProgress, LYRICS_ENRICHMENT_VERSION } from '../lyrics/lyricsEnrichment'
 import { runWhenIdle } from '../core/idle'
 import { alignLinesTokens, countEmbedBatches } from '../ai-pipeline/wordAligner'
-import {
-  japaneseTokenIndices,
-  targetWordBaseOffset,
-  targetWordsForAlignment,
-  buildAlignmentSegments,
-  alignableEnglishTargetPool,
-} from '../lyrics/lineAligner'
-import type { LineAlignJob } from '../ai-pipeline/wordAligner'
+import { buildAlignJob } from '../lyrics/lineAligner'
 import { LoadingOverlay } from '../core/ui/LoadingOverlay'
 import { abPairError, abLoopPatchFromLineTap, isValidABPair } from './abLoopUtils'
-import { exportAbLoopClip, abLoopHasTimedLyrics, lyricHintForAbLoop } from './abLoopExport'
-import { createPlaylistEntry } from './abLoopPlaylist'
+import { exportAbLoopClip, exportAbLoopPlaylistClip, abLoopHasTimedLyrics, abLoopPlaylistHasTimedLyrics, getValidPlaylistExportSegments, lyricHintForAbLoop } from './abLoopExport'
+import { createPlaylistEntry, shouldAdvancePlaylistAfterCycle } from './abLoopPlaylist'
 import { useAbLoopPlaylistStore } from './abLoopPlaylistStore'
 import { getAudioFile } from '../core/opfs/audio'
 import { PlayerControls } from './PlayerControls'
@@ -86,25 +79,6 @@ const FULL_ALIGN_LINES_PER_CHUNK = 12
  * blocking the rest of the song from displaying.
  * Batches embedding across lines (one or few round-trips per song).
  */
-/** Builds a word-alignment job for one lyric line. */
-function buildAlignJob(line: TimedLine): LineAlignJob {
-  const tokens = line.tokens!
-  const segments = buildAlignmentSegments(line.original, line.translation, tokens)
-  if (segments) {
-    return { tokens, targetWords: [], segments }
-  }
-  const fullTarget = targetWordsForAlignment(line.original, line.translation)
-  const baseOffset = targetWordBaseOffset(line.original, line.translation)
-  const pool = alignableEnglishTargetPool(fullTarget, baseOffset)
-  const jaIndices = japaneseTokenIndices(line.original, tokens)
-  return {
-    tokens,
-    targetWords: pool.words,
-    targetIndexMap: pool.indexMap,
-    alignTokenIndices: jaIndices.length < tokens.length ? jaIndices : undefined,
-  }
-}
-
 async function enrichAlignment(
   lines: TimedLine[],
   onProgress?: (done: number, total: number) => void,
@@ -216,6 +190,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [lyricsLoading, setLyricsLoading] = useState<{ message: string; detail?: string } | null>(null)
   const [wordColorProgress, setWordColorProgress] = useState<{ done: number; total: number } | null>(null)
   const [abExporting, setAbExporting] = useState(false)
+  const [abExportKind, setAbExportKind] = useState<'loop' | 'playlist' | null>(null)
   const [abExportError, setAbExportError] = useState('')
   const [abExportIncludeSrt, setAbExportIncludeSrt] = useState(false)
   const [attachingAudio, setAttachingAudio] = useState(false)
@@ -230,6 +205,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     playlists,
     playlistActive,
     playlistIndex,
+    playlistRepeatCount,
     addEntry,
     removeEntry,
     renameEntry,
@@ -237,6 +213,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     clearPlaylist,
     setPlaylistActive,
     setPlaylistIndex,
+    setPlaylistRepeatCount,
     resetSession,
   } = useAbLoopPlaylistStore()
   const playlistEntries = playlists[songId] ?? []
@@ -470,11 +447,21 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
   }
 
+  const pausePlayback = () => {
+    if (isYouTube) ytRef.current?.pause()
+    else engine.pause()
+    if (usePlayerStore.getState().playbackState === 'playing') {
+      setPlaybackState('paused')
+    }
+  }
+
   const beginAlignment = (mode: AlignMode) => {
     if (mode === 'tap') {
       if (isYouTube) ytRef.current?.play()
       else engine.play()
       setPlaybackState('playing')
+    } else {
+      pausePlayback()
     }
     setAlignMode(mode)
   }
@@ -629,8 +616,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     if (entries.length === 0) return
 
     playlistCyclesRef.current += 1
-    const loopCount = Math.max(1, usePlayerStore.getState().abLoop.loopCount)
-    if (playlistCyclesRef.current < loopCount) return
+    const repeatCount = state.playlistRepeatCount
+    if (!shouldAdvancePlaylistAfterCycle(playlistCyclesRef.current, repeatCount)) return
 
     playlistCyclesRef.current = 0
     const nextIndex = state.playlistIndex + 1
@@ -664,9 +651,14 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
 
   const abExportCanIncludeSrt = !!(
     song
-    && isValidABPair(abLoop.a, abLoop.b)
-    && abLoopHasTimedLyrics(song.lyrics.lines, abLoop.a!, abLoop.b!)
+    && (
+      (isValidABPair(abLoop.a, abLoop.b)
+        && abLoopHasTimedLyrics(song.lyrics.lines, abLoop.a!, abLoop.b!))
+      || abLoopPlaylistHasTimedLyrics(song.lyrics.lines, playlistEntries)
+    )
   )
+  const validPlaylistExportEntries = getValidPlaylistExportSegments(playlistEntries)
+  const showPlaylistExport = hasLocalAudio && validPlaylistExportEntries.length > 0
 
   const handleAttachLocalAudio = async (file: File) => {
     if (!song) return
@@ -727,6 +719,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const handleExportAbLoop = async () => {
     if (!song?.audioStoredPath || !isValidABPair(abLoop.a, abLoop.b)) return
     setAbExportError('')
+    setAbExportKind('loop')
     setAbExporting(true)
     try {
       const audioFile = await getAudioFile(song.id)
@@ -743,6 +736,30 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       setAbExportError(e instanceof Error ? e.message : 'Export failed')
     } finally {
       setAbExporting(false)
+      setAbExportKind(null)
+    }
+  }
+
+  const handleExportAbLoopPlaylist = async () => {
+    if (!song?.audioStoredPath || validPlaylistExportEntries.length === 0) return
+    setAbExportError('')
+    setAbExportKind('playlist')
+    setAbExporting(true)
+    try {
+      const audioFile = await getAudioFile(song.id)
+      await exportAbLoopPlaylistClip({
+        audioFile,
+        lines: song.lyrics.lines,
+        artist: song.artist,
+        title: song.title,
+        entries: playlistEntries,
+        includeSrt: abExportIncludeSrt && abExportCanIncludeSrt,
+      })
+    } catch (e: unknown) {
+      setAbExportError(e instanceof Error ? e.message : 'Export failed')
+    } finally {
+      setAbExporting(false)
+      setAbExportKind(null)
     }
   }
 
@@ -764,7 +781,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     >
       {lyricsLoading && <LoadingOverlay message={lyricsLoading.message} detail={lyricsLoading.detail} />}
       {abExporting && (
-        <LoadingOverlay message="Exporting A-B loop…" detail="Trimming audio and syncing subtitles" />
+        <LoadingOverlay
+          message={abExportKind === 'playlist' ? 'Exporting loop playlist…' : 'Exporting A-B loop…'}
+          detail="Trimming audio and syncing subtitles"
+        />
       )}
       {/* Top bar */}
       <header className="flex items-center gap-2 px-4 py-2.5 border-b border-cinnabar-900 shrink-0">
@@ -911,6 +931,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           playlistEntries={playlistEntries}
           playlistActive={playlistActive}
           playlistIndex={playlistIndex}
+          playlistRepeatCount={playlistRepeatCount}
+          onPlaylistRepeatCountChange={setPlaylistRepeatCount}
           canSaveToPlaylist={isValidABPair(abLoop.a, abLoop.b)}
           onSaveToPlaylist={handleSaveToPlaylist}
           onTogglePlaylist={handleTogglePlaylist}
@@ -919,6 +941,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           onRemovePlaylistEntry={(entryId) => removeEntry(songId, entryId)}
           onRenamePlaylistEntry={(entryId, label) => renameEntry(songId, entryId, label)}
           onClearPlaylist={() => clearPlaylist(songId)}
+          showPlaylistExport={showPlaylistExport}
+          onExportPlaylist={handleExportAbLoopPlaylist}
+          playlistExporting={abExporting}
+          playlistExportError={abExportError}
         />
       </div>
 

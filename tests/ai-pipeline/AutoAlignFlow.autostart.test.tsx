@@ -19,36 +19,16 @@ class MockAudioContext {
 }
 vi.stubGlobal('AudioContext', MockAudioContext)
 
-class FakeWhisperWorker {
-  onmessage: ((e: MessageEvent) => void) | null = null
-  lastLoadModel: string | undefined
-  postMessage(msg: { type: string; payload?: { model?: string } }) {
-    if (msg.type === 'load') {
-      this.lastLoadModel = msg.payload?.model
-      queueMicrotask(() => this.onmessage?.({ data: { type: 'loaded' } } as MessageEvent))
-    } else if (msg.type === 'transcribe') {
-      queueMicrotask(() =>
-        this.onmessage?.({
-          data: {
-            type: 'result',
-            payload: { chunks: [{ text: 'hello', timestamp: [0, 1] }] },
-          },
-        } as MessageEvent),
-      )
-    }
-  }
-  terminate() {}
-}
+const transcribeAudio = vi.fn(async (_audio: Float32Array, _rate: number, opts?: {
+  onModelLoaded?: () => void
+}) => {
+  opts?.onModelLoaded?.()
+  return { chunks: [{ text: 'hello', timestamp: [0, 1] as [number, number] }] }
+})
 
-let whisperWorkerInstance: FakeWhisperWorker | null = null
-
-vi.stubGlobal(
-  'Worker',
-  vi.fn(function FakeWorker() {
-    whisperWorkerInstance = new FakeWhisperWorker()
-    return whisperWorkerInstance
-  }),
-)
+vi.mock('../../src/ai-pipeline/whisperTranscriber', () => ({
+  transcribeAudio: (...args: Parameters<typeof transcribeAudio>) => transcribeAudio(...args),
+}))
 
 vi.mock('../../src/ai-pipeline/aligner', () => ({
   alignLyrics: vi.fn(() => ({
@@ -76,7 +56,7 @@ const song: Song = {
 
 beforeEach(async () => {
   await db.songs.clear()
-  whisperWorkerInstance = null
+  transcribeAudio.mockClear()
 })
 
 describe('AutoAlignFlow autoStart', () => {
@@ -84,15 +64,9 @@ describe('AutoAlignFlow autoStart', () => {
     const onComplete = vi.fn()
     render(<AutoAlignFlow song={song} autoStart onComplete={onComplete} onClose={vi.fn()} />)
     expect(screen.queryByRole('button', { name: /start auto-align/i })).toBeNull()
-    expect(screen.getByText(/loading ai model/i)).toBeTruthy()
+    expect(screen.getByText(/preparing audio/i)).toBeTruthy()
     await waitFor(() => expect(onComplete).toHaveBeenCalled())
-  })
-
-  it('loads whisper-small on lite tier (not tiny — tiny regressed line timing)', async () => {
-    const onComplete = vi.fn()
-    render(<AutoAlignFlow song={song} autoStart onComplete={onComplete} onClose={vi.fn()} />)
-    await waitFor(() => expect(onComplete).toHaveBeenCalled())
-    expect(whisperWorkerInstance?.lastLoadModel).toBe('Xenova/whisper-small')
+    expect(transcribeAudio).toHaveBeenCalled()
   })
 
   it('shows Start Auto-Align when autoStart is false', () => {

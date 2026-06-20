@@ -10,6 +10,9 @@ vi.mock('../../src/sources/audioIngest', () => ({
 
 vi.mock('../../src/sources/lrclib', () => ({
   findLyrics: vi.fn(async () => null),
+}))
+
+vi.mock('../../src/sources/secondLanguageResolver', () => ({
   findSecondLanguageLyrics: vi.fn(async () => null),
 }))
 
@@ -25,8 +28,9 @@ beforeEach(async () => {
   const lrclib = await import('../../src/sources/lrclib')
   vi.mocked(lrclib.findLyrics).mockReset()
   vi.mocked(lrclib.findLyrics).mockResolvedValue(null)
-  vi.mocked(lrclib.findSecondLanguageLyrics).mockReset()
-  vi.mocked(lrclib.findSecondLanguageLyrics).mockResolvedValue(null)
+  const secondLang = await import('../../src/sources/secondLanguageResolver')
+  vi.mocked(secondLang.findSecondLanguageLyrics).mockReset()
+  vi.mocked(secondLang.findSecondLanguageLyrics).mockResolvedValue(null)
 })
 
 async function pickFileAndTitle(container: HTMLElement, title = 'My Song') {
@@ -159,8 +163,12 @@ describe('UploadAudioFlow', () => {
   }
 
   it('auto-attaches a translation on add song when counts match', async () => {
-    const lrclib = await import('../../src/sources/lrclib')
-    vi.mocked(lrclib.findSecondLanguageLyrics).mockResolvedValueOnce({ lrc: 'Translated one\nTranslated two', synced: false })
+    const secondLang = await import('../../src/sources/secondLanguageResolver')
+    vi.mocked(secondLang.findSecondLanguageLyrics).mockResolvedValueOnce({
+      lrc: 'Translated one\nTranslated two',
+      synced: false,
+      source: 'lyrics-ovh',
+    })
     const onSongReady = vi.fn()
     await submitWithPastedLyrics(onSongReady)
 
@@ -171,8 +179,12 @@ describe('UploadAudioFlow', () => {
   })
 
   it('skips a mismatched-count translation silently on add song', async () => {
-    const lrclib = await import('../../src/sources/lrclib')
-    vi.mocked(lrclib.findSecondLanguageLyrics).mockResolvedValueOnce({ lrc: 'Only one translated line', synced: false })
+    const secondLang = await import('../../src/sources/secondLanguageResolver')
+    vi.mocked(secondLang.findSecondLanguageLyrics).mockResolvedValueOnce({
+      lrc: 'Only one translated line',
+      synced: false,
+      source: 'lyrics-ovh',
+    })
     const onSongReady = vi.fn()
     await submitWithPastedLyrics(onSongReady)
 

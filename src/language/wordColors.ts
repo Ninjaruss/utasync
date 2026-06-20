@@ -1,7 +1,8 @@
 import type { Token } from '../core/types'
 import { isParticleToken } from '../core/language'
 
-function splitTranslationLineWords(line: string): string[] {
+/** Splits one translation line into display/alignment word tokens (no newlines). */
+export function splitTranslationLineWords(line: string): string[] {
   return line
     .split(/\s+/)
     .map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''))
@@ -13,6 +14,16 @@ export function splitTranslationWords(text: string): string[] {
   return text
     .split(/\n/)
     .flatMap((line) => splitTranslationLineWords(line))
+}
+
+/** Per-line word groups; flattened order matches `splitTranslationWords(text)`. */
+export function splitTranslationLines(text: string): string[][] {
+  return text.split('\n').map((line) => splitTranslationLineWords(line))
+}
+
+/** Word count in the coordinate space used by `alignmentIndices`. */
+export function translationWordCount(translation: string): number {
+  return splitTranslationWords(translation).length
 }
 
 /** Muted, fixed color for grammatical particles — distinct from the cycling match palette so it reads as "this is a particle," not "this is paired with something." */

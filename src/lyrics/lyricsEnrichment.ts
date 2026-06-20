@@ -1,6 +1,7 @@
 import type { TimedLine } from '../core/types'
 import { isParticleToken } from '../core/language'
 import { hasVisibleTranslation } from './bilingual'
+import { alignmentIndicesAreValid } from './lineAligner'
 
 /** Bump when persisted enrichment shape changes and songs should re-normalize once. */
 export const LYRICS_ENRICHMENT_VERSION = 1
@@ -27,7 +28,8 @@ export function lineNeedsAlignment(line: TimedLine): boolean {
     (t) => !isParticleToken(t) && t.surface.trim().length > 0,
   )
   if (alignable.length === 0) return false
-  return !alignable.some((t) => t.alignmentIndices?.length)
+  if (!alignable.some((t) => t.alignmentIndices?.length)) return true
+  return !alignmentIndicesAreValid(line)
 }
 
 /** True when any line still needs word-pair alignment. */

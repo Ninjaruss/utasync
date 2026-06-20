@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { getDeviceTier } from './capability'
-import { getWhisperModel, WHISPER_DOWNLOAD_HINT } from './models'
+import { WHISPER_DOWNLOAD_HINT } from './models'
 import { getAudioFile } from '../core/opfs/audio'
 import type { Song } from '../core/types'
 import { alignLyrics, type TranscriptWord } from './aligner'
 import { db } from '../core/db/schema'
 import { ProcessProgress } from '../core/ui/ProcessProgress'
 import { alignSteps, alignStepIndex, type AlignStage } from './alignProgress'
+import { transcribeAudio, type LoadProgress } from './whisperTranscriber'
 
 interface Props {
   song: Song
@@ -18,16 +19,29 @@ interface Props {
 
 type Stage = 'idle' | AlignStage | 'done' | 'error'
 
-// Shape of the Whisper worker's transcription result (word-level timestamps).
-interface WhisperChunk { text: string; timestamp: [number, number] }
-interface WhisperResult { text: string; chunks?: WhisperChunk[] }
+function formatLoadStatus(p: LoadProgress): string | null {
+  if (p.status === 'download' || p.status === 'progress') {
+    const file = (p as { file?: string; name?: string }).file
+      ?? (p as { file?: string; name?: string }).name
+    if (file && typeof p.progress === 'number') {
+      return `Downloading ${file} (${Math.round(p.progress)}%)`
+    }
+    if (typeof p.progress === 'number' && p.progress > 0) {
+      return `Downloading speech model (${Math.round(p.progress)}%)`
+    }
+    return `First run — downloading speech model (${WHISPER_DOWNLOAD_HINT})`
+  }
+  if (p.status === 'initiate') return 'Checking for cached speech model…'
+  return null
+}
 
 export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: Props) {
   const tier = getDeviceTier()
   const [stage, setStage] = useState<Stage>(() =>
-    autoStart && tier !== 'manual' ? 'loading' : 'idle',
+    autoStart && tier !== 'manual' ? 'preparing' : 'idle',
   )
   const [progress, setProgress] = useState(0)
+  const [loadDetail, setLoadDetail] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [lowConfidence, setLowConfidence] = useState(false)
 
@@ -35,6 +49,10 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
     try {
       let audioData: Float32Array | null = null
       let sampleRate = 44100
+
+      setStage('preparing')
+      setProgress(0)
+      setLoadDetail(null)
 
       if (song.audioStoredPath) {
         const file = await getAudioFile(song.id)
@@ -50,6 +68,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
 
       if (tier === 'full') {
         setStage('separating')
+        setProgress(0)
         const worker = new Worker(new URL('./demucs.worker.ts', import.meta.url), { type: 'module' })
         worker.postMessage({ type: 'load' })
         await new Promise<void>((res, rej) => {
@@ -71,19 +90,24 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       // for transcription stalling.
       setStage('loading')
       setProgress(0)
-      const whisperWorker = new Worker(new URL('./whisper.worker.ts', import.meta.url), { type: 'module' })
-      whisperWorker.postMessage({ type: 'load', payload: { model: getWhisperModel(tier) } })
+      setLoadDetail('Loading speech model from cache…')
 
-      const transcriptResult = await new Promise<WhisperResult>((res, rej) => {
-        whisperWorker.onmessage = (e) => {
-          if (e.data.type === 'loaded') {
-            setStage('transcribing')
-            setProgress(0)
-            whisperWorker.postMessage({ type: 'transcribe', payload: { audioData, sampleRate } })
-          } else if (e.data.type === 'result') { whisperWorker.terminate(); res(e.data.payload) }
-          else if (e.data.type === 'error') rej(e.data.payload)
-          else if (e.data.type === 'progress') setProgress(e.data.payload.progress ?? 0)
-        }
+      let sawDownload = false
+      const transcriptResult = await transcribeAudio(audioData, sampleRate, {
+        onLoadProgress: (p) => {
+          const detail = formatLoadStatus(p)
+          if (detail) {
+            sawDownload = true
+            setLoadDetail(detail)
+          }
+          if (typeof p.progress === 'number') setProgress(p.progress)
+        },
+        onModelLoaded: () => {
+          if (!sawDownload) setLoadDetail(null)
+          setStage('transcribing')
+          setProgress(0)
+        },
+        onTranscribeProgress: (pct) => setProgress(pct),
       })
 
       setStage('aligning')
@@ -121,15 +145,16 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
 
   const activeSteps = alignSteps(tier)
   const activeStage: AlignStage | null =
-    stage === 'separating' || stage === 'loading' || stage === 'transcribing' || stage === 'aligning'
+    stage === 'preparing' || stage === 'separating' || stage === 'loading' || stage === 'transcribing' || stage === 'aligning'
       ? stage
       : null
   const taskProgress =
-    activeStage === 'aligning' ? null : progress > 0 ? progress : null
+    activeStage === 'aligning' || activeStage === 'preparing' ? null : progress > 0 ? progress : null
 
   const stageDetail: Partial<Record<AlignStage, string>> = {
+    preparing: 'Reading and decoding your audio file — longer songs take longer here',
     separating: 'Isolating vocals before transcription',
-    loading: `First run only — downloading speech model (${WHISPER_DOWNLOAD_HINT})`,
+    loading: loadDetail ?? `Loading speech model from cache (first run downloads ${WHISPER_DOWNLOAD_HINT})`,
     transcribing: tier === 'lite'
       ? 'On-device speech recognition — can take a few minutes on phones'
       : 'Running on-device speech recognition',
@@ -137,14 +162,14 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
   }
 
   const taskStatus =
-    activeStage && (taskProgress == null || activeStage === 'aligning')
+    activeStage && (taskProgress == null || activeStage === 'aligning' || activeStage === 'loading')
       ? stageDetail[activeStage] ?? null
       : null
 
   const stepsWithDetail = activeSteps.map((step, i) => {
     const keys: AlignStage[] = tier === 'full'
-      ? ['separating', 'loading', 'transcribing', 'aligning']
-      : ['loading', 'transcribing', 'aligning']
+      ? ['preparing', 'separating', 'loading', 'transcribing', 'aligning']
+      : ['preparing', 'loading', 'transcribing', 'aligning']
     const key = keys[i]
     const extra = key ? stageDetail[key] : undefined
     return extra ? { ...step, detail: extra } : step

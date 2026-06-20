@@ -19,10 +19,6 @@ export const RESOLVE_LYRICS_STATUS = {
   'lrclib-search': 'Searching LRCLIB catalog…',
 } as const
 
-export const SECOND_LANGUAGE_SEARCH_STATUS = {
-  search: 'Searching LRCLIB for a translation…',
-} as const
-
 export function resolveLyricsSubsteps(
   stage: keyof typeof RESOLVE_LYRICS_STATUS | null,
   includeYouTube: boolean,

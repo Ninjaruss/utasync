@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { splitTranslationWords, colorForToken, colorForTranslationWord, PARTICLE_COLOR, PAIR_COLORS } from '../../src/language/wordColors'
+import {
+  splitTranslationWords,
+  splitTranslationLines,
+  splitTranslationLineWords,
+  translationWordCount,
+  colorForToken,
+  colorForTranslationWord,
+  PARTICLE_COLOR,
+  PAIR_COLORS,
+} from '../../src/language/wordColors'
 import type { Token } from '../../src/core/types'
 
 const tok = (surface: string, pos: string, alignmentIndices?: number[]): Token =>
@@ -17,6 +26,25 @@ describe('splitTranslationWords', () => {
 
   it('flattens newline-separated translation lines in order', () => {
     expect(splitTranslationWords('Beside you\nAdjacent hearts')).toEqual(['Beside', 'you', 'Adjacent', 'hearts'])
+  })
+
+  it('splitTranslationLines flattens to the same global indices as splitTranslationWords', () => {
+    const text = "Only one step behind\nI'm the same as always"
+    const flat = splitTranslationWords(text)
+    const lines = splitTranslationLines(text)
+    let offset = 0
+    for (const words of lines) {
+      for (let i = 0; i < words.length; i++) {
+        expect(words[i]).toBe(flat[offset + i])
+      }
+      offset += words.length
+    }
+    expect(offset).toBe(flat.length)
+    expect(translationWordCount(text)).toBe(flat.length)
+  })
+
+  it('splitTranslationLineWords strips punctuation on a single line', () => {
+    expect(splitTranslationLineWords('Hello, world!')).toEqual(['Hello', 'world'])
   })
 })
 

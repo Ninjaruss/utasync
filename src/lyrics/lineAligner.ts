@@ -1,9 +1,10 @@
 import type { TimedLine, Token } from '../core/types'
 import { getDeviceTier } from '../ai-pipeline/capability'
-import { splitTranslationWords } from '../language/wordColors'
+import { splitTranslationWords, splitTranslationLineWords, translationWordCount } from '../language/wordColors'
 import { isAlignableEnglishWord, normalizeEnglishAlignmentWord } from '../core/language'
 import { JAPANESE_RE, stripNonLyricLines, extractSecondLanguageLines } from './bilingual'
 import { applyLineTextPatch } from './lineOps'
+import type { LineAlignJob } from '../ai-pipeline/wordAligner'
 
 export type PairingMethod = 'index' | 'slots' | 'semantic' | 'mismatch'
 
@@ -164,8 +165,8 @@ export function buildAlignmentSegments(
   const p2Start = original.indexOf(phrase2)
   if (p1Start < 0 || p2Start < 0) return null
 
-  const line0Words = splitTranslationWords(transLines[0])
-  const line1Words = splitTranslationWords(transLines[1])
+  const line0Words = splitTranslationLineWords(transLines[0])
+  const line1Words = splitTranslationLineWords(transLines[1])
   const pool0 = alignableEnglishTargetPool(line0Words, 0)
   const pool1 = alignableEnglishTargetPool(line1Words, line0Words.length)
 
@@ -208,6 +209,76 @@ export function offsetTokenAlignmentIndices(tokens: Token[], offset: number): To
     if (!t.alignmentIndices?.length) return t
     return { ...t, alignmentIndices: t.alignmentIndices.map((i) => i + offset) }
   })
+}
+
+/**
+ * True when stored `alignmentIndices` are in the same coordinate space as
+ * `splitTranslationWords(translation)` / `ColoredTranslation` display indices.
+ */
+export function alignmentIndicesAreValid(line: TimedLine): boolean {
+  if (!line.tokens?.length || !line.translation?.trim()) return true
+
+  const wordCount = translationWordCount(line.translation)
+  const alignedTokens = line.tokens.filter(
+    (t) => t.alignmentIndices?.length && t.surface.trim().length > 0,
+  )
+  if (alignedTokens.length === 0) return false
+
+  for (const token of alignedTokens) {
+    for (const idx of token.alignmentIndices!) {
+      if (idx < 0 || idx >= wordCount) return false
+    }
+  }
+
+  const segments = buildAlignmentSegments(line.original, line.translation, line.tokens)
+  if (segments) {
+    for (const segment of segments) {
+      const allowed = new Set(segment.targetIndexMap)
+      for (const tokenIndex of segment.alignTokenIndices) {
+        const indices = line.tokens[tokenIndex]?.alignmentIndices
+        if (!indices?.length) continue
+        for (const idx of indices) {
+          if (!allowed.has(idx)) return false
+        }
+      }
+    }
+  }
+
+  if (isMixedScriptLine(line.original)) {
+    const baseOffset = targetWordBaseOffset(line.original, line.translation)
+    if (baseOffset > 0) {
+      const jaSet = new Set(japaneseTokenIndices(line.original, line.tokens))
+      for (let i = 0; i < line.tokens.length; i++) {
+        if (!jaSet.has(i)) continue
+        const indices = line.tokens[i].alignmentIndices
+        if (!indices?.length) continue
+        for (const idx of indices) {
+          if (idx < baseOffset) return false
+        }
+      }
+    }
+  }
+
+  return true
+}
+
+/** Builds a word-alignment job for one lyric line (used by PlayerView enrichment). */
+export function buildAlignJob(line: TimedLine): LineAlignJob {
+  const tokens = line.tokens!
+  const segments = buildAlignmentSegments(line.original, line.translation, tokens)
+  if (segments) {
+    return { tokens, targetWords: [], segments }
+  }
+  const fullTarget = targetWordsForAlignment(line.original, line.translation)
+  const baseOffset = targetWordBaseOffset(line.original, line.translation)
+  const pool = alignableEnglishTargetPool(fullTarget, baseOffset)
+  const jaIndices = japaneseTokenIndices(line.original, tokens)
+  return {
+    tokens,
+    targetWords: pool.words,
+    targetIndexMap: pool.indexMap,
+    alignTokenIndices: jaIndices.length < tokens.length ? jaIndices : undefined,
+  }
 }
 
 /** Token indices that fall inside the Japanese portion of a mixed-script line. */

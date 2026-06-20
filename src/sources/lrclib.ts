@@ -1,5 +1,10 @@
 import type { Language } from '../core/types'
-import { detectLanguage } from '../lyrics/bilingual'
+import {
+  sameArtist,
+  isAlternateLanguage,
+  durationMatches,
+  rankByDuration,
+} from './lyricsMatch'
 
 export interface LRCLIBResult {
   id: number
@@ -80,52 +85,34 @@ export async function findLyrics(
 }
 
 /**
- * Best-effort lookup of a *different-language* version of a song's lyrics — e.g.
- * an English or romaji entry to pair with Japanese. Searches LRCLIB and returns
- * the first result whose lyric script differs from `primaryLang`, preferring
- * synced lyrics. Returns null when no alternate-language entry exists.
- *
- * Only same-artist queries are used: a broad title-only search risks matching a
- * different song with the same title in the other language, which would silently
- * attach the wrong translation. When no confident match exists we return null
- * and let the user paste the second language manually.
+ * LRCLIB-only lookup of a *different-language* version of a song's lyrics.
+ * Prefer synced lyrics and, when provided, results whose duration matches
+ * within ±2 seconds. Returns null when no alternate-language LRCLIB entry exists.
  */
-export type SecondLanguageSearchStage = 'search'
-
-export async function findSecondLanguageLyrics(
+export async function findSecondLanguageInLRCLIB(
   trackName: string,
   artistName: string,
   primaryLang: Language | 'other',
-  onStage?: (stage: SecondLanguageSearchStage) => void,
+  durationSec?: number,
 ): Promise<LyricsLookup | null> {
   if (!artistName.trim()) return null
-  onStage?.('search')
   const queries: Array<Record<string, string>> = [
     { track_name: trackName, artist_name: artistName },
     { q: `${artistName} ${trackName}`.trim() },
+    { track_name: trackName },
   ]
 
   for (const q of queries) {
-    const results = await searchLRCLIBRaw(q)
+    const results = rankByDuration(await searchLRCLIBRaw(q), durationSec)
     for (const r of results) {
-      // Guard against unrelated matches: the candidate must be by the same artist.
       if (!sameArtist(r.artistName, artistName)) continue
+      if (!durationMatches(r.duration, durationSec)) continue
       const text = r.syncedLyrics ?? r.plainLyrics
-      if (!text) continue
-      if (detectLanguage(text) !== primaryLang) {
-        return { lrc: text, synced: !!r.syncedLyrics }
-      }
+      if (!text || !isAlternateLanguage(text, primaryLang)) continue
+      return { lrc: text, synced: !!r.syncedLyrics }
     }
   }
   return null
-}
-
-function sameArtist(a: string, b: string): boolean {
-  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
-  const na = norm(a)
-  const nb = norm(b)
-  if (!na || !nb) return false
-  return na === nb || na.includes(nb) || nb.includes(na)
 }
 
 async function searchLRCLIBRaw(query: Record<string, string>): Promise<LRCLIBResult[]> {

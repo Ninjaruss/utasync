@@ -1,12 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { TimedLine, Language } from '../core/types'
 import { extractSecondLanguageLines, pairsToTimedLines, hasVisibleTranslation } from './bilingual'
-import { findSecondLanguageLyrics } from '../sources/lrclib'
 import { AlignmentEditor } from './AlignmentEditor'
 import { smartAttachSecondLanguage } from './lineAligner'
 import { ProgressOverlay } from '../core/ui/ProgressOverlay'
-import { SECOND_LANGUAGE_SEARCH_STATUS } from '../core/ui/progressUtils'
-import { SECOND_LANGUAGE_ALIGN_STEPS, SECOND_LANGUAGE_SEARCH_STEPS } from '../sources/addSongProgress'
+import { SECOND_LANGUAGE_ALIGN_STEPS } from '../sources/addSongProgress'
+import { getSecondLanguageSearchSection } from './lyricSiteLinks'
 
 interface Props {
   lines: TimedLine[]
@@ -19,28 +18,61 @@ interface Props {
 
 type Phase =
   | { kind: 'current' }
-  | { kind: 'searching' }
   | { kind: 'confirm'; paired: TimedLine[]; secondary: string }
   | { kind: 'aligning' }
   | { kind: 'align'; originalLines: string[]; translationLines: string[]; extraLines: string[] }
   | { kind: 'paste' }
 
+function FindLyricsOnlineSection({
+  title,
+  artist,
+  sourceLanguage,
+}: {
+  title: string
+  artist: string
+  sourceLanguage: Language
+}) {
+  const section = getSecondLanguageSearchSection(title, artist, sourceLanguage)
+  const hasMetadata = Boolean(title.trim() || artist.trim())
+
+  return (
+    <div className="rounded-lg border border-cinnabar-800/80 bg-cinnabar-950/60 p-2.5 space-y-2">
+      <p className="text-white/50 text-xs text-pretty">{section.title}</p>
+      <p className="text-white/35 text-[11px] text-pretty leading-snug">{section.subtitle}</p>
+      {hasMetadata ? (
+        <ul className="space-y-1.5">
+          {section.links.map((link) => (
+            <li key={link.id}>
+              <a
+                href={link.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-cinnabar-accent text-sm hover:underline underline-offset-2 touch-manipulation"
+              >
+                {link.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-white/35 text-xs text-pretty">
+          Add a song title or artist to pre-fill search links.
+        </p>
+      )}
+    </div>
+  )
+}
+
 export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onApply, onClose }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: 'current' })
   const [pasted, setPasted] = useState('')
-  const searchCancelledRef = useRef(false)
+  const searchSection = getSecondLanguageSearchSection(title, artist, sourceLanguage)
 
   const translatedLines = lines.filter((l) => hasVisibleTranslation(l))
 
-  const startSearch = () => {
-    searchCancelledRef.current = false
-    setPhase({ kind: 'searching' })
-    const primaryLang = sourceLanguage === 'ja' ? 'ja' : 'other'
-    findSecondLanguageLyrics(title, artist, primaryLang).then((found) => {
-      if (searchCancelledRef.current) return
-      if (found) route(found.lrc)
-      else setPhase({ kind: 'paste' })
-    })
+  const openPaste = () => {
+    setPasted('')
+    setPhase({ kind: 'paste' })
   }
 
   /**
@@ -56,10 +88,9 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
         setPhase({ kind: 'confirm', paired: result.lines, secondary })
         return
       }
-      const origLines = lines.map((l) => l.original)
       setPhase({
         kind: 'align',
-        originalLines: origLines,
+        originalLines: lines.map((l) => l.original),
         translationLines: result.lines.map((l) => l.translation),
         extraLines: [],
       })
@@ -73,11 +104,6 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
       })
     }
   }
-
-  useEffect(() => {
-    if (phase.kind !== 'searching') return
-    return () => { searchCancelledRef.current = true }
-  }, [phase.kind])
 
   if (phase.kind === 'aligning') {
     return (
@@ -103,25 +129,6 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
   }
 
   return (
-    <>
-      {phase.kind === 'searching' && (
-        <ProgressOverlay
-          steps={SECOND_LANGUAGE_SEARCH_STEPS}
-          currentStepIndex={0}
-          taskStatus={SECOND_LANGUAGE_SEARCH_STATUS.search}
-          action={
-            <button
-              onClick={() => {
-                searchCancelledRef.current = true
-                setPhase({ kind: 'paste' })
-              }}
-              className="mt-2 w-full min-h-11 px-4 py-2 rounded-lg border border-white/20 text-white/70 text-xs hover:text-white hover:border-white/40 touch-manipulation transition-[color,border-color] duration-150 ease-out"
-            >
-              Skip and paste lyrics
-            </button>
-          }
-        />
-      )}
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4">
       <div className="w-full max-w-md rounded-2xl bg-cinnabar-900 border border-cinnabar-800 p-4 flex flex-col max-h-[min(90dvh,28rem)] overflow-hidden">
         <div className="flex items-center justify-between shrink-0 mb-3">
@@ -150,15 +157,18 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
             ) : (
               <p className="text-white/50 text-sm">No second-language lyrics attached yet.</p>
             )}
+            <FindLyricsOnlineSection title={title} artist={artist} sourceLanguage={sourceLanguage} />
             <div className="flex flex-wrap gap-2">
+              {translatedLines.length > 0 && (
+                <button
+                  onClick={openPaste}
+                  className="px-3 py-1.5 rounded-lg bg-cinnabar-accent text-white text-sm min-h-11"
+                >
+                  Replace translation
+                </button>
+              )}
               <button
-                onClick={startSearch}
-                className="px-3 py-1.5 rounded-lg bg-cinnabar-accent text-white text-sm min-h-11"
-              >
-                {translatedLines.length > 0 ? 'Replace from LRCLIB' : 'Search LRCLIB'}
-              </button>
-              <button
-                onClick={() => setPhase({ kind: 'paste' })}
+                onClick={openPaste}
                 className="px-3 py-1.5 rounded-lg bg-cinnabar-900 text-white/70 text-sm min-h-11"
               >
                 Paste lyrics
@@ -189,7 +199,7 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
                 const transLines = phase.paired.map((l) => l.translation)
                 setPhase({ kind: 'align', originalLines: origLines, translationLines: transLines, extraLines: [] })
               }} className="px-3 py-1.5 rounded-lg bg-cinnabar-900 text-white/70 text-sm min-h-11">Fix pairings</button>
-              <button onClick={() => setPhase({ kind: 'paste' })}
+              <button onClick={openPaste}
                 className="px-3 py-1.5 rounded-lg bg-cinnabar-900 text-white/70 text-sm min-h-11">Use different / paste</button>
             </div>
           </div>
@@ -197,11 +207,11 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
 
         {phase.kind === 'paste' && (
           <div className="space-y-3 flex flex-col min-h-0">
-            <p className="text-white/50 text-xs shrink-0">Paste the translation or an LRC block — one line per row.</p>
+            <FindLyricsOnlineSection title={title} artist={artist} sourceLanguage={sourceLanguage} />
             <textarea
               value={pasted}
               onChange={(e) => setPasted(e.target.value)}
-              placeholder="Paste second-language lyrics or an LRC block, one line per row…"
+              placeholder={searchSection.pasteHint}
               rows={5}
               className="w-full flex-1 min-h-[6rem] px-3 py-2 bg-cinnabar-900 text-white text-sm rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/30 font-jp resize-y"
             />
@@ -225,6 +235,5 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
         </div>
       </div>
     </div>
-    </>
   )
 }
