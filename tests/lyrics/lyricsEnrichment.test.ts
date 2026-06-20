@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { linesNeedEnrichment, linesNeedAlignment, LYRICS_ENRICHMENT_VERSION } from '../../src/lyrics/lyricsEnrichment'
+import { linesNeedEnrichment, linesNeedAlignment, enrichmentMadeProgress, LYRICS_ENRICHMENT_VERSION } from '../../src/lyrics/lyricsEnrichment'
 import type { TimedLine } from '../../src/core/types'
 
 describe('linesNeedEnrichment', () => {
@@ -48,5 +48,27 @@ describe('linesNeedAlignment', () => {
       tokens: [{ surface: '君', pos: '名詞', startIndex: 0, endIndex: 1 }],
     }]
     expect(linesNeedAlignment(lines)).toBe(true)
+  })
+})
+
+describe('enrichmentMadeProgress', () => {
+  it('returns true when alignment indices are added', () => {
+    const before: TimedLine[] = [{
+      startTime: 0, endTime: 1, original: '君', translation: 'you',
+      tokens: [{ surface: '君', pos: '名詞', startIndex: 0, endIndex: 1 }],
+    }]
+    const after: TimedLine[] = [{
+      ...before[0],
+      tokens: [{ surface: '君', pos: '名詞', startIndex: 0, endIndex: 1, alignmentIndices: [0] }],
+    }]
+    expect(enrichmentMadeProgress(before, after)).toBe(true)
+  })
+
+  it('returns false when alignment still missing after a no-op pass', () => {
+    const lines: TimedLine[] = [{
+      startTime: 0, endTime: 1, original: '君', translation: 'you',
+      tokens: [{ surface: '君', pos: '名詞', startIndex: 0, endIndex: 1 }],
+    }]
+    expect(enrichmentMadeProgress(lines, lines)).toBe(false)
   })
 })

@@ -10,17 +10,16 @@ export function stampStart(lines: TimedLine[], i: number, time: number): TimedLi
 }
 
 /**
- * Update original and/or translation. Changing `original` invalidates derived
- * enrichment (reading/furigana/tokens/grammar) so the player re-enriches it.
- * Changing `translation` also invalidates `tokens`, since each token's
- * `alignmentIndices` is computed against the translation's word array and
- * would otherwise point at stale positions in the new translation text.
+ * Apply original/translation text changes and drop derived enrichment that would
+ * be stale (readings, tokens, word-pair indices, grammar annotations).
  */
-export function setText(lines: TimedLine[], i: number, patch: { original?: string; translation?: string }): TimedLine[] {
-  const cur = lines[i]
-  const next: TimedLine = { ...cur, ...patch }
-  const originalChanged = patch.original !== undefined && patch.original !== cur.original
-  const translationChanged = patch.translation !== undefined && patch.translation !== cur.translation
+export function applyLineTextPatch(
+  line: TimedLine,
+  patch: { original?: string; translation?: string },
+): TimedLine {
+  const next: TimedLine = { ...line, ...patch }
+  const originalChanged = patch.original !== undefined && patch.original !== line.original
+  const translationChanged = patch.translation !== undefined && patch.translation !== line.translation
   if (originalChanged) {
     delete next.reading
     delete next.furigana
@@ -29,7 +28,12 @@ export function setText(lines: TimedLine[], i: number, patch: { original?: strin
   if (originalChanged || translationChanged) {
     delete next.tokens
   }
-  return replaceAt(lines, i, next)
+  return next
+}
+
+/** Update one line's original and/or translation (see `applyLineTextPatch`). */
+export function setText(lines: TimedLine[], i: number, patch: { original?: string; translation?: string }): TimedLine[] {
+  return replaceAt(lines, i, applyLineTextPatch(lines[i], patch))
 }
 
 export function addLine(lines: TimedLine[], afterIndex: number): TimedLine[] {

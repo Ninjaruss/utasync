@@ -20,7 +20,7 @@ import { linesAreTimed, chooseAutoAlignment, type AlignMode } from './alignmentP
 import { EditMode } from '../lyrics/EditMode'
 import { computeSyncState } from '../core/db/migrations'
 import { hasVisibleTranslation } from '../lyrics/bilingual'
-import { linesNeedEnrichment, linesNeedAlignment, lineNeedsAlignment, LYRICS_ENRICHMENT_VERSION } from '../lyrics/lyricsEnrichment'
+import { linesNeedEnrichment, linesNeedAlignment, lineNeedsAlignment, enrichmentMadeProgress, LYRICS_ENRICHMENT_VERSION } from '../lyrics/lyricsEnrichment'
 import { runWhenIdle } from '../core/idle'
 import { alignLinesTokens, countEmbedBatches } from '../ai-pipeline/wordAligner'
 import {
@@ -185,6 +185,10 @@ function wantsWordPairColoring(): boolean {
   return showTranslation || lyricsLayout === 'sideBySide'
 }
 
+function canRunWordAlignment(): boolean {
+  return getDeviceTier() !== 'manual'
+}
+
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   return (
@@ -219,6 +223,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [showLyricsReimport, setShowLyricsReimport] = useState(false)
   const seekRef = useRef<(time: number) => void>(() => {})
   const enrichmentJobRef = useRef(0)
+  const wordColorJobRef = useRef(0)
   const playlistCyclesRef = useRef(0)
   const onLoopCycleRef = useRef<() => void>(() => {})
   const {
@@ -240,12 +245,16 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
 
   const runWordColoring = async (lines: TimedLine[]) => {
     const total = lines.filter(lineNeedsAlignment).length
-    if (total === 0) return lines
+    if (total === 0 || !canRunWordAlignment()) return lines
+    const jobId = ++wordColorJobRef.current
     setWordColorProgress({ done: 0, total })
     try {
-      return await enrichAlignment(lines, (done, t) => setWordColorProgress({ done, total: t }))
+      const result = await enrichAlignment(lines, (done, t) => {
+        if (wordColorJobRef.current === jobId) setWordColorProgress({ done, total: t })
+      })
+      return wordColorJobRef.current === jobId ? result : lines
     } finally {
-      setWordColorProgress(null)
+      if (wordColorJobRef.current === jobId) setWordColorProgress(null)
     }
   }
 
@@ -277,29 +286,29 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
   }
 
-  const deferBackgroundEnrichment = (base: Song, isCancelled: () => boolean) => {
-    if (!linesAreTimed(base.lyrics.lines) || !wantsWordPairColoring()) return () => {}
-    const needsEnrich = linesNeedEnrichment(base.lyrics.lines, base.lyrics.enrichmentVersion)
-    const needsAlign = linesNeedAlignment(base.lyrics.lines)
+  const deferBackgroundEnrichment = (base: Song, linesToProcess: TimedLine[], isCancelled: () => boolean) => {
+    if (!canRunWordAlignment() || !linesAreTimed(linesToProcess) || !wantsWordPairColoring()) return () => {}
+    const needsEnrich = linesNeedEnrichment(linesToProcess, base.lyrics.enrichmentVersion)
+    const needsAlign = linesNeedAlignment(linesToProcess)
     if (!needsEnrich && !needsAlign) return () => {}
 
     const jobId = ++enrichmentJobRef.current
     return runWhenIdle(() => {
       if (isCancelled() || enrichmentJobRef.current !== jobId) return
+      const persistIfProgress = (enriched: TimedLine[]) => {
+        if (
+          !isCancelled()
+          && enrichmentJobRef.current === jobId
+          && enrichmentMadeProgress(linesToProcess, enriched, base.lyrics.enrichmentVersion)
+        ) {
+          void persistEnrichedLines(base, enriched, true)
+        }
+      }
       if (needsEnrich) {
-        runLyricsEnrichment(base.lyrics.lines, base.lyrics.sourceLanguage, base.lyrics.enrichmentVersion)
-          .then((enriched) => {
-            if (!isCancelled() && enrichmentJobRef.current === jobId) {
-              void persistEnrichedLines(base, enriched, true)
-            }
-          })
+        runLyricsEnrichment(linesToProcess, base.lyrics.sourceLanguage, base.lyrics.enrichmentVersion)
+          .then(persistIfProgress)
       } else {
-        runAlignmentOnly(base.lyrics.lines)
-          .then((enriched) => {
-            if (!isCancelled() && enrichmentJobRef.current === jobId) {
-              void persistEnrichedLines(base, enriched, true)
-            }
-          })
+        runAlignmentOnly(linesToProcess).then(persistIfProgress)
       }
     }, 6000)
   }
@@ -342,7 +351,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       const willAutoAlign = autoAlignOnOpen
         && chooseAutoAlignment(!!s.audioStoredPath, s.lyrics.lines, getDeviceTier(), true) !== null
       if (!willAutoAlign) {
-        cancelIdle = deferBackgroundEnrichment(s, () => cancelled)
+        cancelIdle = deferBackgroundEnrichment(s, s.lyrics.lines, () => cancelled)
       }
     })
     return () => {
@@ -359,11 +368,13 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   }, [songId, resetSession])
 
   useEffect(() => {
-    if (!song || !wantsWordPairColoring() || !linesNeedAlignment(lines)) return
-    const cancel = deferBackgroundEnrichment(song, () => false)
+    if (!song || !canRunWordAlignment() || !wantsWordPairColoring() || !linesNeedAlignment(lines)) return
+    const cancel = deferBackgroundEnrichment(song, lines, () => false)
     return cancel
+  // Intentionally omit `lines` — pairing/edit handlers run alignment directly; this
+  // effect only re-queues when translation display toggles or the song changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showTranslation, lyricsLayout, song?.id, lines])
+  }, [showTranslation, lyricsLayout, song?.id])
 
   useEffect(() => {
     const e = engine
@@ -484,8 +495,13 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     // memory before we load the embedding model for word-pair coloring.
     const yieldMs = getDeviceTier() === 'lite' ? 150 : 0
     setTimeout(() => {
-      runLyricsEnrichment(updated.lyrics.lines, updated.lyrics.sourceLanguage, updated.lyrics.enrichmentVersion)
-        .then((enriched) => { void persistEnrichedLines(updated, enriched, true) })
+      const before = updated.lyrics.lines
+      runLyricsEnrichment(before, updated.lyrics.sourceLanguage, updated.lyrics.enrichmentVersion)
+        .then((enriched) => {
+          if (enrichmentMadeProgress(before, enriched, updated.lyrics.enrichmentVersion)) {
+            void persistEnrichedLines(updated, enriched, true)
+          }
+        })
     }, yieldMs)
   }
 
@@ -510,12 +526,19 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       enrichLines(lines, song.lyrics.sourceLanguage)
         .then(runWordColoring)
         .then((enriched) => {
-          if (enriched.length === lines.length) void persistEnrichedLines(updated, enriched, true)
+          if (
+            enriched.length === lines.length
+            && enrichmentMadeProgress(lines, enriched, updated.lyrics.enrichmentVersion)
+          ) {
+            void persistEnrichedLines(updated, enriched, true)
+          }
         })
-    } else if (linesNeedAlignment(lines)) {
+    } else if (linesNeedAlignment(lines) && canRunWordAlignment()) {
       runWordColoring(lines)
         .then((enriched) => {
-          if (enriched.length === lines.length) void persistEnrichedLines(updated, enriched, true)
+          if (enriched.length === lines.length && enrichmentMadeProgress(lines, enriched, updated.lyrics.enrichmentVersion)) {
+            void persistEnrichedLines(updated, enriched, true)
+          }
         })
     }
   }
@@ -693,7 +716,11 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     await db.songs.put(updated)
     if (linesNeedEnrichment(imported, undefined)) {
       runLyricsEnrichment(imported, sourceLanguage)
-        .then((enriched) => { void persistEnrichedLines(updated, enriched, true) })
+        .then((enriched) => {
+          if (enrichmentMadeProgress(imported, enriched, undefined)) {
+            void persistEnrichedLines(updated, enriched, true)
+          }
+        })
     }
   }
 

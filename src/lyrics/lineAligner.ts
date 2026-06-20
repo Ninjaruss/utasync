@@ -3,6 +3,7 @@ import { getDeviceTier } from '../ai-pipeline/capability'
 import { splitTranslationWords } from '../language/wordColors'
 import { isAlignableEnglishWord, normalizeEnglishAlignmentWord } from '../core/language'
 import { JAPANESE_RE, stripNonLyricLines, extractSecondLanguageLines } from './bilingual'
+import { applyLineTextPatch } from './lineOps'
 
 export type PairingMethod = 'index' | 'slots' | 'semantic' | 'mismatch'
 
@@ -260,7 +261,7 @@ function cleanTranslations(translations: string[]): string[] {
 }
 
 function applyTranslations(primary: TimedLine[], merged: string[]): TimedLine[] {
-  return primary.map((line, i) => ({ ...line, translation: merged[i] ?? '' }))
+  return primary.map((line, i) => applyLineTextPatch(line, { translation: merged[i] ?? '' }))
 }
 
 /**

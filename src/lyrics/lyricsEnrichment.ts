@@ -34,3 +34,16 @@ export function lineNeedsAlignment(line: TimedLine): boolean {
 export function linesNeedAlignment(lines: TimedLine[]): boolean {
   return lines.some(lineNeedsAlignment)
 }
+
+/** True when enrichment or word-pair alignment made forward progress. */
+export function enrichmentMadeProgress(
+  before: TimedLine[],
+  after: TimedLine[],
+  enrichmentVersion?: number,
+): boolean {
+  if (linesNeedEnrichment(before, enrichmentVersion) && !linesNeedEnrichment(after, LYRICS_ENRICHMENT_VERSION)) {
+    return true
+  }
+  if (linesNeedAlignment(before) && !linesNeedAlignment(after)) return true
+  return false
+}

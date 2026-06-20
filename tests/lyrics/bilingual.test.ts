@@ -181,4 +181,17 @@ describe('pairsToTimedLines', () => {
       { original: 'a', startTime: 0, endTime: 1, translation: 'x' },
     ])
   })
+
+  it('clears tokens when translation changes so word-pair coloring re-runs', () => {
+    const existing: TimedLine[] = [{
+      original: '君',
+      startTime: 0,
+      endTime: 1,
+      translation: '',
+      tokens: [{ surface: '君', pos: '名詞', startIndex: 0, endIndex: 1, alignmentIndices: [0] }],
+    }]
+    const result = pairsToTimedLines(existing, [{ original: '君', translation: 'you' }])
+    expect(result[0].translation).toBe('you')
+    expect(result[0].tokens).toBeUndefined()
+  })
 })

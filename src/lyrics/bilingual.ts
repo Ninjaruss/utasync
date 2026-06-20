@@ -2,6 +2,7 @@ import type { TimedLine, Language } from '../core/types'
 import { parseLRC } from './lrc-parser'
 import { lineWeight } from '../ai-pipeline/aligner'
 import { pairTranslationsToPrimary } from './lineAligner'
+import { applyLineTextPatch } from './lineOps'
 
 // Hiragana, Katakana, or CJK ideographs anywhere => treat as Japanese.
 export const JAPANESE_RE = /[぀-ヿ㐀-鿿]/
@@ -303,8 +304,7 @@ export function pairsToTimedLines(
   existing: TimedLine[],
   pairs: Array<{ original: string; translation: string }>,
 ): TimedLine[] {
-  return existing.map((line, i) => ({
-    ...line,
+  return existing.map((line, i) => applyLineTextPatch(line, {
     original: pairs[i]?.original ?? line.original,
     translation: pairs[i]?.translation ?? line.translation,
   }))
