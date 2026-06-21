@@ -1,9 +1,91 @@
 import { defineConfig } from 'vitest/config'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
-import type { Connect, PreviewServer, ViteDevServer } from 'vite'
+import type { Connect, Plugin, PreviewServer, ViteDevServer } from 'vite'
+
+// @xenova/transformers is tested against onnxruntime-web 1.14.0, but this repo
+// also depends on onnxruntime-web 1.26 for demucs. npm hoists 1.26, which breaks
+// Whisper model loading with a misleading "Unsupported model type: whisper".
+const ORT_WASM_DIR = fileURLToPath(
+  new URL('node_modules/@xenova/transformers/dist/', import.meta.url),
+)
+
+function serveOnnxWasmFile(
+  req: Connect.IncomingMessage,
+  res: import('node:http').ServerResponse,
+  next: Connect.NextFunction,
+) {
+  const url = req.url?.split('?')[0]
+  if (!url?.startsWith('/onnx-wasm/') || !url.endsWith('.wasm')) {
+    next()
+    return
+  }
+  const name = url.slice('/onnx-wasm/'.length)
+  if (name.includes('..') || name.includes('/')) {
+    next()
+    return
+  }
+  try {
+    const data = readFileSync(join(ORT_WASM_DIR, name))
+    res.setHeader('Content-Type', 'application/wasm')
+    res.setHeader('Content-Length', String(data.length))
+    res.end(data)
+  } catch {
+    next()
+  }
+}
+
+/** Serve ONNX Runtime WASM from @xenova/transformers locally (avoids CDN stream drops). */
+const serveOnnxWasm: Plugin = {
+  name: 'serve-onnx-wasm',
+  configureServer(server: ViteDevServer) {
+    server.middlewares.use(serveOnnxWasmFile)
+  },
+  configurePreviewServer(server: PreviewServer) {
+    server.middlewares.use(serveOnnxWasmFile)
+  },
+  generateBundle() {
+    for (const name of readdirSync(ORT_WASM_DIR)) {
+      if (!name.endsWith('.wasm')) continue
+      this.emitFile({
+        type: 'asset',
+        fileName: `onnx-wasm/${name}`,
+        source: readFileSync(join(ORT_WASM_DIR, name)),
+      })
+    }
+  },
+}
+
+const ORT_FOR_TRANSFORMERS = fileURLToPath(
+  new URL(
+    'node_modules/@xenova/transformers/node_modules/onnxruntime-web/dist/ort-web.min.js',
+    import.meta.url,
+  ),
+)
+
+function usesTransformersOnnx(importer: string | undefined): boolean {
+  if (!importer) return false
+  const path = importer.replace(/\\/g, '/')
+  return (
+    path.includes('@xenova/transformers')
+    || path.includes('/ai-pipeline/whisper')
+    || path.includes('/ai-pipeline/whisperPipeline')
+  )
+}
+
+/** Route transformers.js to its compatible onnxruntime-web build. */
+const onnxRuntimeForTransformers: Plugin = {
+  name: 'onnxruntime-for-transformers',
+  enforce: 'pre',
+  resolveId(source, importer) {
+    if (source !== 'onnxruntime-web') return null
+    if (!usesTransformersOnnx(importer)) return null
+    return ORT_FOR_TRANSFORMERS
+  },
+}
 
 // ---------------------------------------------------------------------------
 // kuromoji source patches
@@ -119,13 +201,19 @@ const serveRawDict = {
 
 export default defineConfig({
   plugins: [
+    onnxRuntimeForTransformers,
+    serveOnnxWasm,
     serveRawDict,
     kuromojiRollupShim,
     react(),
     VitePWA({
       registerType: 'autoUpdate',
       workbox: {
-        globPatterns: ['**/*.{js,css,html,woff2,png,svg,ico}'],
+        globPatterns: ['**/*.{js,css,html,woff2,png,svg,ico,wasm}'],
+        // ONNX Runtime wasm blobs are 9–26 MB and only needed when AI features
+        // run, so keep them out of the precache (Workbox caps precache entries at
+        // 2 MiB) and cache them at runtime on first use instead.
+        globIgnores: ['**/ort-wasm*.wasm'],
         runtimeCaching: [
           {
             urlPattern: /\/models\/.*\.onnx$/,
@@ -133,6 +221,15 @@ export default defineConfig({
             options: {
               cacheName: 'ai-models-v1',
               expiration: { maxAgeSeconds: 60 * 60 * 24 * 30 },
+            },
+          },
+          {
+            urlPattern: /ort-wasm.*\.wasm$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'onnx-runtime-v1',
+              expiration: { maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [0, 200] },
             },
           },
         ],
@@ -157,11 +254,16 @@ export default defineConfig({
     // aren't reachable from the initial module graph. Without pre-declaring
     // them, Vite discovers them at runtime when auto-align starts, re-optimizes,
     // and forces a full page reload. Pre-bundling them up front avoids that.
-    include: ['@xenova/transformers', 'onnxruntime-web'],
-    // kuromoji is pre-bundled by esbuild in dev; patch its loaders there.
+    include: ['@xenova/transformers'],
     esbuildOptions: {
+      alias: {
+        'onnxruntime-web': ORT_FOR_TRANSFORMERS,
+      },
       plugins: [kuromojiEsbuildShim],
     },
+  },
+  build: {
+    target: 'esnext',
   },
   worker: { format: 'es' },
   test: {
