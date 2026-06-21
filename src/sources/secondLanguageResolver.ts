@@ -21,6 +21,15 @@ export interface SecondLanguageSearchAttempt {
 
 export type SecondLanguageSearchReport = SecondLanguageSearchAttempt[]
 
+export interface SecondLanguageSearchOptions {
+  /** Skip lyrics.ovh (Genius/AZLyrics aggregate) — LRCLIB only. */
+  skipLyricsOvh?: boolean
+  /** Cap lyrics.ovh fetch attempts during import/save. */
+  maxOvhAttempts?: number
+  /** Per-request lyrics.ovh timeout (default 55s). */
+  ovhTimeoutMs?: number
+}
+
 function summarizeOvhAttempts(attempts: LyricsOvhSearchAttempt[]): string {
   if (attempts.some((a) => a.outcome === 'found')) return 'found translation'
   const timeouts = attempts.filter((a) => a.outcome === 'timeout').length
@@ -45,6 +54,7 @@ export async function findSecondLanguageLyrics(
   onStage?: (stage: SecondLanguageSearchStage) => void,
   durationSec?: number,
   onReport?: (report: SecondLanguageSearchReport) => void,
+  options?: SecondLanguageSearchOptions,
 ): Promise<SecondLanguageLookup | null> {
   const report: SecondLanguageSearchReport = []
 
@@ -69,6 +79,11 @@ export async function findSecondLanguageLyrics(
   }
   report.push({ provider: 'lrclib', outcome: 'not-found' })
 
+  if (options?.skipLyricsOvh) {
+    onReport?.(report)
+    return null
+  }
+
   onStage?.('lyrics-ovh')
   const ovhAttempts: LyricsOvhSearchAttempt[] = []
   const ovh = await findSecondLanguageInLyricsOvh(
@@ -76,6 +91,10 @@ export async function findSecondLanguageLyrics(
     artistName,
     primaryLang,
     (attempt) => ovhAttempts.push(attempt),
+    {
+      maxAttempts: options?.maxOvhAttempts,
+      timeoutMs: options?.ovhTimeoutMs,
+    },
   )
   if (ovh) {
     report.push({ provider: 'lyrics-ovh', outcome: 'found' })

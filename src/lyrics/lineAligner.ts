@@ -2,7 +2,7 @@ import type { TimedLine, Token } from '../core/types'
 import { getDeviceTier } from '../ai-pipeline/capability'
 import { splitTranslationWords, splitTranslationLineWords, translationWordCount } from '../language/wordColors'
 import { isAlignableEnglishWord, normalizeEnglishAlignmentWord } from '../core/language'
-import { JAPANESE_RE, stripNonLyricLines, extractSecondLanguageLines } from './bilingual'
+import { JAPANESE_RE, stripNonLyricLines, extractSecondLanguageLines, normalizeTranslationLines } from './bilingual'
 import { applyLineTextPatch } from './lineOps'
 import type { LineAlignJob } from '../ai-pipeline/wordAligner'
 
@@ -336,6 +336,51 @@ function applyTranslations(primary: TimedLine[], merged: string[]): TimedLine[] 
 }
 
 /**
+ * True when 1:1 index pairing is lexically plausible. Pure JA↔EN rows cannot be
+ * validated without embeddings, so those always return false and fall through to
+ * semantic alignment (avoids title-line offsets and other count-equal mismatches).
+ */
+export function indexPairingLooksValid(originals: string[], translations: string[]): boolean {
+  let scored = 0
+  let total = 0
+  for (let i = 0; i < originals.length; i++) {
+    const o = originals[i].trim()
+    const t = translations[i]?.trim() ?? ''
+    if (!o || !t) continue
+
+    if (isMixedScriptLine(o)) {
+      scored++
+      total += latinHintScore(splitMixedScriptLine(o).latin, t)
+      continue
+    }
+    if (JAPANESE_RE.test(o) && !LATIN_WORD.test(o)) return false
+    if (LATIN_WORD.test(o) && !JAPANESE_RE.test(o)) {
+      scored++
+      total += latinHintScore(o, t)
+    }
+  }
+  if (scored === 0) return false
+  return total / scored >= 0.35
+}
+
+/**
+ * True when slots carry structural signal — at least one primary line expanded
+ * into multiple slots (mixed EN+JA or dual-phrase Japanese). Without it, slot
+ * pairing degenerates into blind position-based assignment, which is no more
+ * trustworthy than index pairing and must be validated the same way.
+ */
+export function slotsHaveStructure(slots: AlignmentSlot[]): boolean {
+  const perLine = new Map<number, number>()
+  for (const slot of slots) {
+    perLine.set(slot.lineIndex, (perLine.get(slot.lineIndex) ?? 0) + 1)
+  }
+  for (const count of perLine.values()) {
+    if (count > 1) return true
+  }
+  return false
+}
+
+/**
  * Structure-aware pairing: index, adaptive slots (mixed + dual-phrase JA), or mismatch.
  */
 export function pairTranslationsToPrimary(
@@ -347,7 +392,7 @@ export function pairTranslationsToPrimary(
 
   if (trans.length === primary.length && trans.length > 0) {
     const allMixedOrSimple = originals.every((o) => !o.trim() || isMixedScriptLine(o) || !splitDualPhraseJapanese(o))
-    if (allMixedOrSimple) {
+    if (allMixedOrSimple && indexPairingLooksValid(originals, trans)) {
       return { lines: applyTranslations(primary, trans), method: 'index' }
     }
   }
@@ -427,6 +472,45 @@ export interface SmartAttachResult {
   method: PairingMethod
 }
 
+export interface SmartAttachOptions {
+  /** Import/save hot path: skip embedding; use index pairing when counts match. */
+  preferFast?: boolean
+  /** Skip semantic DP when originals + translations exceed this (default 48). */
+  maxSemanticLines?: number
+  /** Abort semantic alignment after this many ms (default 12s). */
+  semanticTimeoutMs?: number
+}
+
+// High enough to cover a full song on both sides (originals + translations);
+// the timeout below is the real guard against a slow on-device model, not this.
+export const DEFAULT_MAX_SEMANTIC_LINES = 240
+export const DEFAULT_SEMANTIC_TIMEOUT_MS = 20_000
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v) },
+      (e) => { clearTimeout(timer); reject(e) },
+    )
+  })
+}
+
+/** Blind 1:1 index pairing when counts match — used as a fast import fallback. */
+function indexPairingFallback(primary: TimedLine[], translations: string[]): SmartAttachResult | null {
+  const trans = cleanTranslations(translations)
+  if (trans.length !== primary.length || trans.length === 0) return null
+  return {
+    lines: applyTranslations(primary, trans),
+    mismatchedBlocks: [],
+    method: 'index',
+  }
+}
+
+function semanticLineBudget(originals: string[], translations: string[]): number {
+  return originals.length + translations.length
+}
+
 /**
  * Best-effort automatic pairing: structure-aware slots first, then on-device
  * semantic alignment (slot-level, then line-level) when counts still differ.
@@ -435,54 +519,93 @@ export async function smartAttachSecondLanguage(
   primary: TimedLine[],
   secondary: string,
   embedFn?: (texts: string[]) => Promise<number[][]>,
+  options?: SmartAttachOptions,
 ): Promise<SmartAttachResult> {
-  const trans = cleanTranslations(extractSecondLanguageLines(secondary))
+  const trans = cleanTranslations(
+    normalizeTranslationLines(extractSecondLanguageLines(secondary), primary.length),
+  )
 
   const structural = pairTranslationsToPrimary(primary, trans)
-  if (structural.method !== 'mismatch') {
-    return { lines: structural.lines, mismatchedBlocks: [], method: structural.method }
+  const originals = primary.map((l) => l.original)
+  // Trust 'slots' only when slots carry real structure (mixed EN+JA or
+  // dual-phrase Japanese). Plain 1:1 slots over pure JA↔EN are blind position
+  // pairing — defer to semantic alignment, which handles title/verse offsets.
+  if (structural.method === 'slots') {
+    const slots = expandSlotsAdaptive(originals, trans.length)
+    if (slotsHaveStructure(slots) || indexPairingLooksValid(originals, trans)) {
+      return { lines: structural.lines, mismatchedBlocks: [], method: 'slots' }
+    }
+  }
+  if (structural.method === 'index') {
+    return { lines: structural.lines, mismatchedBlocks: [], method: 'index' }
+  }
+
+  if (options?.preferFast) {
+    const fallback = indexPairingFallback(primary, trans)
+    if (fallback) return fallback
+    return { lines: structural.lines, mismatchedBlocks: [0], method: 'mismatch' }
+  }
+
+  const maxLines = options?.maxSemanticLines ?? DEFAULT_MAX_SEMANTIC_LINES
+  const slots = expandSlotsAdaptive(originals, trans.length)
+  const semanticBudget = Math.max(
+    semanticLineBudget(originals, trans),
+    semanticLineBudget(slots.map((s) => s.hint), trans),
+  )
+  if (semanticBudget > maxLines) {
+    const fallback = indexPairingFallback(primary, trans)
+    if (fallback) return fallback
+    return { lines: structural.lines, mismatchedBlocks: [0], method: 'mismatch' }
   }
 
   if (!embedFn) {
     try {
       if (getDeviceTier() === 'manual') {
+        const fallback = indexPairingFallback(primary, trans)
+        if (fallback) return fallback
         return { lines: structural.lines, mismatchedBlocks: [0], method: 'mismatch' }
       }
       const { embedTexts } = await import('../ai-pipeline/textEmbedder')
       embedFn = embedTexts
     } catch {
+      const fallback = indexPairingFallback(primary, trans)
+      if (fallback) return fallback
       return { lines: structural.lines, mismatchedBlocks: [0], method: 'mismatch' }
     }
   }
 
-  try {
-    const originals = primary.map((l) => l.original)
-    const slots = expandSlotsAdaptive(originals, trans.length)
+  const timeoutMs = options?.semanticTimeoutMs ?? DEFAULT_SEMANTIC_TIMEOUT_MS
 
-    if (slots.length === trans.length && slots.length > 0) {
-      const { aligned, extras } = await autoAlignLines(
-        slots.map((s) => s.hint),
-        trans,
-        embedFn,
-      )
-      if (extras.length === 0) {
-        const merged = mergeSlotTranslations(primary.length, slots, aligned)
-        return {
-          lines: applyTranslations(primary, merged),
-          mismatchedBlocks: [],
-          method: 'semantic',
+  try {
+    const runSemantic = async (): Promise<SmartAttachResult> => {
+      if (slots.length === trans.length && slots.length > 0) {
+        const { aligned, extras } = await autoAlignLines(
+          slots.map((s) => s.hint),
+          trans,
+          embedFn!,
+        )
+        if (extras.length === 0) {
+          const merged = mergeSlotTranslations(primary.length, slots, aligned)
+          return {
+            lines: applyTranslations(primary, merged),
+            mismatchedBlocks: [],
+            method: 'semantic',
+          }
         }
+      }
+
+      const { aligned, extras } = await autoAlignLines(originals, trans, embedFn!)
+      return {
+        lines: applyTranslations(primary, aligned),
+        mismatchedBlocks: extras.length > 0 ? [0] : [],
+        method: 'semantic',
       }
     }
 
-    const { aligned, extras } = await autoAlignLines(originals, trans, embedFn)
-    const lines = applyTranslations(primary, aligned)
-    return {
-      lines,
-      mismatchedBlocks: extras.length > 0 ? [0] : [],
-      method: 'semantic',
-    }
+    return await withTimeout(runSemantic(), timeoutMs, 'Semantic line alignment')
   } catch {
+    const fallback = indexPairingFallback(primary, trans)
+    if (fallback) return fallback
     return { lines: structural.lines, mismatchedBlocks: [0], method: 'mismatch' }
   }
 }

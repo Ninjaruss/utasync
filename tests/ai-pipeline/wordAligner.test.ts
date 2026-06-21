@@ -8,6 +8,7 @@ import {
   alignLinesTokens,
   countEmbedBatches,
   tokenEmbedText,
+  tokenGlossText,
   targetEmbedText,
   exactTextMatchScore,
   buildScoreMatrix,
@@ -37,17 +38,24 @@ const tok = (surface: string, pos = '名詞', reading?: string, posDetail1?: str
 })
 
 describe('tokenEmbedText', () => {
+  it('returns native surface for the embedding model (not romaji)', () => {
+    expect(tokenEmbedText(tok('君', '名詞', 'キミ'))).toBe('君')
+    expect(tokenEmbedText(tok('世界', '名詞', 'セカイ'))).toBe('世界')
+  })
+})
+
+describe('tokenGlossText', () => {
   it('romanizes kuromoji reading when it differs from surface', () => {
-    expect(tokenEmbedText(tok('君', '名詞', 'キミ'))).toBe('kimi')
+    expect(tokenGlossText(tok('君', '名詞', 'キミ'))).toBe('kimi')
   })
   it('romanizes kana-only surfaces', () => {
-    expect(tokenEmbedText(tok('ねえ', '感動詞', 'ねえ'))).toBe('nee')
+    expect(tokenGlossText(tok('ねえ', '感動詞', 'ねえ'))).toBe('nee')
   })
   it('romanizes reading even when surface is also kana', () => {
-    expect(tokenEmbedText(tok('スキ', '形容詞', 'スキ'))).toBe('suki')
+    expect(tokenGlossText(tok('スキ', '形容詞', 'スキ'))).toBe('suki')
   })
   it('falls back to kanji romaji map when reading is missing', () => {
-    expect(tokenEmbedText(tok('愛'))).toBe('ai')
+    expect(tokenGlossText(tok('愛'))).toBe('ai')
   })
 })
 
@@ -165,10 +173,10 @@ describe('alignLineTokens — multi-token lines', () => {
     const targetWords = ['I', 'like', 'you']
     const embed = async (texts: string[]): Promise<number[][]> =>
       texts.map((t) => {
-        if (t === 'kimi' || t === 'you') return [1, 0, 0]
-        if (t === 'suki' || t === 'like') return [0, 1, 0]
+        if (t === '君' || t === 'kimi' || t === 'you') return [1, 0, 0]
+        if (t === '好き' || t === 'suki' || t === 'like') return [0, 1, 0]
         if (t === 'i') return [0, 0, 1]
-        if (t === 'koto') return [0.88, 0.05, 0.07] // close to you, not like
+        if (t === 'こと' || t === 'koto') return [0.88, 0.05, 0.07] // close to you, not like
         return [0, 0, 0]
       })
     const result = await alignLineTokens(tokens, targetWords, embed)
@@ -190,9 +198,9 @@ describe('alignLineTokens — multi-token lines', () => {
     const targetWords = ['Hey', 'someday', 'will', 'we', 'meet']
     const embed = async (texts: string[]): Promise<number[][]> =>
       texts.map((t) => {
-        if (t === 'nee' || t === 'hey') return [1, 0, 0, 0, 0]
-        if (t === 'itsuka' || t === 'someday') return [0, 1, 0, 0, 0]
-        if (t === 'a' || t === 'meet') return [0, 0, 0, 0, 1]
+        if (t === 'ねえ' || t === 'nee' || t === 'hey') return [1, 0, 0, 0, 0]
+        if (t === 'いつか' || t === 'itsuka' || t === 'someday') return [0, 1, 0, 0, 0]
+        if (t === '会' || t === 'a' || t === 'meet') return [0, 0, 0, 0, 1]
         if (t === 'will') return [0, 0, 1, 0, 0]
         if (t === 'we') return [0, 0, 0, 1, 0]
         return [0, 0, 0, 0, 0]
@@ -348,9 +356,9 @@ describe('alignLineTokens', () => {
 describe('alignLinesTokens', () => {
   const embed = async (texts: string[]): Promise<number[][]> =>
     texts.map((t) => {
-      if (t === 'kimi' || t === 'you') return [1, 0, 0]
-      if (t === 'suki' || t === 'like') return [0, 1, 0]
-      if (t === 'ai' || t === 'love') return [0, 0, 1]
+      if (t === '君' || t === 'kimi' || t === 'you') return [1, 0, 0]
+      if (t === '好き' || t === 'suki' || t === 'like') return [0, 1, 0]
+      if (t === '愛' || t === 'ai' || t === 'love') return [0, 0, 1]
       return [0, 0, 0]
     })
 
@@ -362,7 +370,7 @@ describe('alignLinesTokens', () => {
     ]
     const results = await alignLinesTokens(jobs, embedSpy)
     expect(embedSpy).toHaveBeenCalledTimes(1)
-    expect(embedSpy.mock.calls[0][0]).toEqual(['kimi', 'suki', 'you', 'like', 'ai', 'love'])
+    expect(embedSpy.mock.calls[0][0]).toEqual(['君', '好き', 'you', 'like', '愛', 'love'])
     expect(results[0][0].alignmentIndices).toEqual([0])
     expect(results[0][1].alignmentIndices).toEqual([1])
     expect(results[1][0].alignmentIndices).toEqual([0])
@@ -376,7 +384,7 @@ describe('alignLinesTokens', () => {
     ]
     await alignLinesTokens(jobs, embedSpy)
     expect(embedSpy).toHaveBeenCalledTimes(1)
-    expect(embedSpy.mock.calls[0][0]).toEqual(['kimi', 'you'])
+    expect(embedSpy.mock.calls[0][0]).toEqual(['君', 'you'])
   })
 
   it('splits large batches when maxTextsPerBatch is set', async () => {
@@ -439,7 +447,8 @@ describe('buildAlignmentUnits', () => {
     const units = buildAlignmentUnits(tokens)
     expect(units).toHaveLength(1)
     expect(units[0].tokenIndices).toEqual([0, 1])
-    expect(units[0].embedText).toBe('renai')
+    expect(units[0].embedText).toBe('恋愛')
+    expect(units[0].glossText).toBe('renai')
   })
 
   it('does not merge unrelated adjacent nouns', () => {
@@ -619,8 +628,8 @@ describe('alignLineTokens — My Eyes Only lyric pattern', () => {
     const targetWords = ['Dissolving', 'in', 'love']
     const embed = async (texts: string[]): Promise<number[][]> =>
       texts.map((t) => {
-        if (t === 'koi' || t === 'love') return [0, 0, 1]
-        if (t === 'toke' || t === 'dissolving' || t === 'melt') return [1, 0, 0]
+        if (t === '恋' || t === 'koi' || t === 'love') return [0, 0, 1]
+        if (t === '溶け' || t === 'toke' || t === 'dissolving' || t === 'melt') return [1, 0, 0]
         if (t === 'in') return [0, 1, 0]
         return [0.1, 0.1, 0.1]
       })
@@ -684,5 +693,16 @@ describe('alignLineTokens — My Eyes Only lyric pattern', () => {
     const [result] = await alignLinesTokens([job], embed)
     expect(result[0].alignmentIndices).toEqual([words.indexOf('sky')])
     expect(result[1].alignmentIndices).toEqual([words.indexOf('Melt')])
+  })
+})
+
+describe('lyricGloss — AKFG vocabulary', () => {
+  it('links rolling/korogaru and world/sekai for exact-match scoring', async () => {
+    const { glossMatchesTarget } = await import('../../src/ai-pipeline/lyricGloss')
+    expect(glossMatchesTarget('korogaru', 'rolling')).toBe(true)
+    expect(glossMatchesTarget('rooringu', 'rolling')).toBe(true)
+    expect(glossMatchesTarget('sekai', 'world')).toBe(true)
+    expect(glossMatchesTarget('asa', 'morning')).toBe(true)
+    expect(exactTextMatchScore('korogaru', 'rolling')).toBe(1)
   })
 })

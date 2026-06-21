@@ -69,15 +69,16 @@ async function fetchOvhJson<T>(
 async function fetchOvhLyrics(
   artist: string,
   title: string,
+  timeoutMs = LYRICS_TIMEOUT_MS,
 ): Promise<{ lyrics: string | null; outcome: LyricsOvhAttemptOutcome; detail?: string }> {
   const result = await fetchOvhJson<OvhLyricsResponse>(
     `https://api.lyrics.ovh/v1/${encodePathSegment(artist)}/${encodePathSegment(title)}`,
-    LYRICS_TIMEOUT_MS,
+    timeoutMs,
   )
   if (!result.ok) {
     const detail =
       result.reason === 'timeout'
-        ? `timed out after ${Math.round(LYRICS_TIMEOUT_MS / 1000)}s`
+        ? `timed out after ${Math.round(timeoutMs / 1000)}s`
         : result.reason === 'http-error'
           ? `HTTP ${result.status ?? 'error'}`
           : 'network error'
@@ -149,11 +150,19 @@ function uniqueAttempts(
  * Plain-text lyrics from Genius, AZLyrics, and other sources aggregated by
  * lyrics.ovh. Useful when LRCLIB only has the primary-language entry.
  */
+export interface LyricsOvhSearchOptions {
+  /** Per-request timeout (default 55s). */
+  timeoutMs?: number
+  /** Cap fetch attempts (default: all ranked candidates). */
+  maxAttempts?: number
+}
+
 export async function findSecondLanguageInLyricsOvh(
   trackName: string,
   artistName: string,
   primaryLang: Language | 'other',
   onAttempt?: (attempt: LyricsOvhSearchAttempt) => void,
+  options?: LyricsOvhSearchOptions,
 ): Promise<PlainLyricsLookup | null> {
   if (!artistName.trim() || !trackName.trim()) return null
 
@@ -175,13 +184,18 @@ export async function findSecondLanguageInLyricsOvh(
     }
   }
 
-  const attempts = uniqueAttempts([
+  const allAttempts = uniqueAttempts([
     { artist: trimmedArtist, title: trimmedTitle },
     ...rankSuggestions(suggestions, trimmedArtist, trimmedTitle).slice(0, 8),
   ])
+  const attempts = options?.maxAttempts != null
+    ? allAttempts.slice(0, options.maxAttempts)
+    : allAttempts
+
+  const timeoutMs = options?.timeoutMs ?? LYRICS_TIMEOUT_MS
 
   for (const { artist, title } of attempts) {
-    const { lyrics, outcome, detail } = await fetchOvhLyrics(artist, title)
+    const { lyrics, outcome, detail } = await fetchOvhLyrics(artist, title, timeoutMs)
     if (!lyrics) {
       onAttempt?.({ artist, title, outcome, detail })
       continue

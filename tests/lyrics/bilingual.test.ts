@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   detectLanguage, attachSecondLanguage, isSameText, pairsToTimedLines,
   hasVisibleTranslation, stripNonLyricLines, extractSecondLanguageBlocks,
-  mergeTimedTracks,
+  normalizeTranslationLines, mergeTimedTracks,
 } from '../../src/lyrics/bilingual'
 import type { TimedLine } from '../../src/core/types'
 
@@ -38,6 +38,27 @@ describe('stripNonLyricLines', () => {
   })
   it('leaves real lyrics alone', () => {
     expect(stripNonLyricLines(['Your eyes', 'In the night'])).toEqual(['Your eyes', 'In the night'])
+  })
+})
+
+describe('normalizeTranslationLines', () => {
+  it('splits a single pasted paragraph into sentences when primary has many lines', () => {
+    const block = [
+      "If possible, I'd like to repaint the world. It's nothing outrageous like ending wars. Rolling, rolling.",
+    ]
+    const lines = normalizeTranslationLines(block, 12)
+    expect(lines).toHaveLength(3)
+    expect(lines[0]).toContain('repaint the world')
+    expect(lines[2]).toBe('Rolling, rolling.')
+  })
+
+  it('flattens embedded newlines inside one pasted row', () => {
+    expect(normalizeTranslationLines(['Line one\nLine two'], 5)).toEqual(['Line one', 'Line two'])
+  })
+
+  it('leaves already-split lines unchanged', () => {
+    const lines = ['A', 'B', 'C']
+    expect(normalizeTranslationLines(lines, 3)).toEqual(lines)
   })
 })
 

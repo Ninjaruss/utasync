@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   isMixedScriptLine,
   splitMixedScriptLine,
@@ -8,6 +8,8 @@ import {
   pairTranslationsToPrimary,
   latinHintScore,
   smartAttachSecondLanguage,
+  indexPairingLooksValid,
+  DEFAULT_MAX_SEMANTIC_LINES,
   targetWordsForAlignment,
   japaneseTokenIndices,
   targetWordBaseOffset,
@@ -81,6 +83,153 @@ describe('pairTranslationsToPrimary — My Eyes Only pattern', () => {
     expect(lines[6].translation).toBe('Beside you as you slide in\nAdjacent hearts')
     expect(lines[7].translation).toBe("One step at a time\nI'm having trouble looking at you")
     expect(lines[3].translation).toBe('Hey, someday')
+  })
+})
+
+describe('indexPairingLooksValid', () => {
+  it('rejects pure Japanese originals paired with English by index', () => {
+    expect(indexPairingLooksValid(
+      ['出来れば世界を僕は塗り変えたい', 'ローリング ローリング'],
+      ["If possible, I'd like to repaint the world", 'Rolling, rolling'],
+    )).toBe(false)
+  })
+
+  it('accepts mixed-script lines when the Latin half echoes in translation', () => {
+    expect(indexPairingLooksValid(
+      ['You always make me so happy 青空に溶けて'],
+      ['You always make me so happy'],
+    )).toBe(true)
+  })
+})
+
+describe('smartAttachSecondLanguage — AKFG excerpt', () => {
+  const primary: TimedLine[] = [
+    line('転がる岩、君に朝が降る'),
+    line(''),
+    line('出来れば世界を僕は塗り変えたい'),
+    line('戦争をなくすような大逸れたことじゃない'),
+    line('ローリング ローリング'),
+    line('初めから持ってないのに胸が痛んだ 僕らはきっとこの先も'),
+  ]
+
+  const english = [
+    "If possible, I'd like to repaint the world",
+    "It's nothing outrageous like ending wars",
+    'Rolling, rolling',
+    "Even though I never had it from the start, my chest hurt — we'll surely continue on",
+  ]
+
+  const vec = (id: number): number[] => {
+    const v = new Array(8).fill(0)
+    v[id % 8] = 1
+    return v
+  }
+
+  const embedMap: Record<string, number> = {
+    '転がる岩、君に朝が降る': 0,
+    '出来れば世界を僕は塗り変えたい': 1,
+    '戦争をなくすような大逸れたことじゃない': 2,
+    'ローリング ローリング': 3,
+    '初めから持ってないのに胸が痛んだ 僕らはきっとこの先も': 4,
+    "If possible, I'd like to repaint the world": 1,
+    "It's nothing outrageous like ending wars": 2,
+    'Rolling, rolling': 3,
+    "Even though I never had it from the start, my chest hurt — we'll surely continue on": 4,
+  }
+
+  const embedFn = async (texts: string[]) =>
+    texts.map((t) => vec(embedMap[t.trim()] ?? 7))
+
+  it('semantically pairs lines instead of attaching the whole song to the title row', async () => {
+    const secondary = english.join('\n')
+    const result = await smartAttachSecondLanguage(primary, secondary, embedFn)
+    expect(result.method).toBe('semantic')
+    expect(result.mismatchedBlocks).toEqual([])
+    expect(result.lines[0].translation).toBe('')
+    expect(result.lines[2].translation).toBe("If possible, I'd like to repaint the world")
+    expect(result.lines[4].translation).toBe('Rolling, rolling')
+  })
+
+  it('does not use naive index pairing when JA and EN line counts match but content is offset', () => {
+    const originals = primary.map((l) => l.original)
+    const paddedEnglish = ['Rock and roll morning light falls on you', ...english]
+    const { method } = pairTranslationsToPrimary(primary, paddedEnglish)
+    expect(method).not.toBe('index')
+  })
+
+  it('smartAttach defers blind plain-slot pairing to semantic alignment', async () => {
+    // 5 pure-JA non-empty lines + 5 English lines = plain 1:1 slots with no
+    // mixed/dual-phrase structure. Must run semantic, not blind slot pairing.
+    const offsetEnglish = ['Rock and roll morning light falls on you', ...english.slice(0, 4)]
+    const embedFn = vi.fn(async (texts: string[]) => texts.map(() => new Array(4).fill(0)))
+    const result = await smartAttachSecondLanguage(primary, offsetEnglish.join('\n'), embedFn)
+    expect(result.method).toBe('semantic')
+    expect(embedFn).toHaveBeenCalled()
+  })
+
+  it('preferFast skips semantic alignment and uses index fallback when counts match', async () => {
+    const equalPrimary = english.map((t) => line(t))
+    const embedFn = vi.fn(async () => [])
+    const result = await smartAttachSecondLanguage(equalPrimary, english.join('\n'), embedFn, {
+      preferFast: true,
+    })
+    expect(embedFn).not.toHaveBeenCalled()
+    expect(result.method).toBe('index')
+    expect(result.mismatchedBlocks).toEqual([])
+  })
+
+  it('preferFast returns mismatch for count-offset AKFG-style lyrics without embedding', async () => {
+    const embedFn = vi.fn(async () => [])
+    const result = await smartAttachSecondLanguage(primary, english.join('\n'), embedFn, {
+      preferFast: true,
+    })
+    expect(embedFn).not.toHaveBeenCalled()
+    expect(result.method).toBe('mismatch')
+    expect(result.mismatchedBlocks).toEqual([0])
+  })
+})
+
+describe('smartAttachSecondLanguage — semantic guards', () => {
+  it('skips embedding when line budget exceeds maxSemanticLines', async () => {
+    const primary = Array.from({ length: 30 }, (_, i) => line(`行${i}`))
+    const secondary = Array.from({ length: 20 }, (_, i) => `Line ${i}`).join('\n')
+    const embedFn = vi.fn(async () => [])
+    const result = await smartAttachSecondLanguage(primary, secondary, embedFn, {
+      maxSemanticLines: 40,
+    })
+    expect(embedFn).not.toHaveBeenCalled()
+    expect(result.method).toBe('mismatch')
+  })
+
+  it('runs semantic alignment for full-song line counts under the default budget', async () => {
+    const primary = Array.from({ length: 30 }, (_, i) => line(`行${i}`))
+    const secondary = Array.from({ length: 20 }, (_, i) => `Line ${i}`).join('\n')
+    const embedFn = vi.fn(async (texts: string[]) => texts.map(() => new Array(4).fill(0)))
+    await smartAttachSecondLanguage(primary, secondary, embedFn, {
+      maxSemanticLines: DEFAULT_MAX_SEMANTIC_LINES,
+    })
+    expect(embedFn).toHaveBeenCalled()
+  })
+
+  it('falls back when semantic alignment exceeds timeout', async () => {
+    const primary: TimedLine[] = [
+      line('転がる岩、君に朝が降る'),
+      line(''),
+      line('出来れば世界を僕は塗り変えたい'),
+      line('ローリング ローリング'),
+    ]
+    const secondary = [
+      "If possible, I'd like to repaint the world",
+      'Rolling, rolling',
+    ].join('\n')
+    const slowEmbed = vi.fn(
+      () => new Promise<number[][]>((resolve) => setTimeout(() => resolve([]), 500)),
+    )
+    const result = await smartAttachSecondLanguage(primary, secondary, slowEmbed, {
+      semanticTimeoutMs: 30,
+    })
+    expect(slowEmbed).toHaveBeenCalled()
+    expect(result.method).toBe('mismatch')
   })
 })
 

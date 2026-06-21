@@ -50,6 +50,25 @@ export function extractSecondLanguageLines(secondary: string): string[] {
     .filter((l) => l.length > 0)
 }
 
+/**
+ * Flatten embedded newlines and, when the paste is one long block but the primary
+ * has many lines, split on sentence boundaries so we do not attach the whole song
+ * to a single primary row.
+ */
+export function normalizeTranslationLines(lines: string[], primaryLineCount: number): string[] {
+  let flat = lines.flatMap((l) => l.split('\n').map((e) => e.trim()).filter(Boolean))
+  if (flat.length !== 1 || primaryLineCount <= 1) return flat
+
+  const sentences = flat[0]
+    .split(/(?<=[.!?…])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (sentences.length >= 2 && sentences.length <= primaryLineCount * 1.5) {
+    return sentences
+  }
+  return flat
+}
+
 const GAP_THRESHOLD_S = 4
 
 // Common non-lyric annotation lines that show up in pasted/LRCLIB text but

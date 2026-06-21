@@ -86,4 +86,17 @@ describe('colorForTranslationWord', () => {
     const tokens = [tok('君', '名詞', [0])]
     expect(colorForTranslationWord(tokens, 5)).toBeNull()
   })
+
+  it('gives every source token mapped to the same word — and that word — one shared color', () => {
+    // Many-to-one: 君 and こと both map to translation word "you" (index 1).
+    const tokens = [tok('君', '名詞', [1]), tok('こと', '名詞', [1]), tok('好き', '名詞', [3])]
+    const shared = colorForTranslationWord(tokens, 1)
+    expect(shared).not.toBeNull()
+    expect(colorForToken(tokens, 0)).toBe(shared)
+    expect(colorForToken(tokens, 1)).toBe(shared)
+    // A different pair keeps a distinct color, consistent on both sides.
+    const other = colorForTranslationWord(tokens, 3)
+    expect(other).not.toBe(shared)
+    expect(colorForToken(tokens, 2)).toBe(other)
+  })
 })

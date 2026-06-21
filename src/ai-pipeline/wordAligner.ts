@@ -17,11 +17,13 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 
 export interface MatchPair { sourceIndex: number; targetIndex: number; score: number }
 
-// Tuned for multilingual MiniLM-style embeddings: cross-language pairs often
-// score lower than same-language pairs, so 0.55 left most lyric lines unmatched.
-export const MATCH_THRESHOLD = 0.45
+// With native-script source embeddings, correct cross-lingual pairs score high
+// (gloss=1.0, or ~0.6–1.0 from the model) while spurious matches to "magnet"
+// English words (i/like/it) sit ~0.5–0.6. A 0.55 floor favors precision —
+// a missing (uncolored) word is far less confusing than a wrong pairing.
+export const MATCH_THRESHOLD = 0.55
 /** Second-pass floor for tokens still unmatched after greedy pairing. */
-export const RELAXED_MATCH_THRESHOLD = 0.35
+export const RELAXED_MATCH_THRESHOLD = 0.45
 /** Small boost when source/target positions within a line are proportionally close. */
 export const POSITION_BONUS = 0.08
 /** DP assignment is used when target word count is at or below this (2^m states). */
@@ -42,8 +44,23 @@ function readingToRomaji(reading: string): string {
   return kanaToRomaji(katakanaToHiragana(reading)).trim().toLowerCase()
 }
 
-/** Text sent to the embedder for a source token (romaji reading when available). */
+/**
+ * Text sent to the embedder for a source token. The multilingual model was
+ * trained on native scripts — romanizing first is out-of-distribution and
+ * collapses unrelated words onto the same target (e.g. sekai/boku/nurikae all
+ * landing on one English word). Native surface scores far higher and more
+ * discriminately (世界→world 0.97 vs sekai→world 0.71/possible 0.69).
+ */
 export function tokenEmbedText(token: Token): string {
+  return token.surface.trim()
+}
+
+/**
+ * Romaji key for the gloss / exact-match signal (combined with embedding
+ * similarity in `pairScore`). Uses kuromoji reading, kana, or curated kanji
+ * romaji maps so curated glosses like sekai→world keep firing.
+ */
+export function tokenGlossText(token: Token): string {
   const surface = token.surface.trim()
   if (!surface) return surface
   const compoundRomaji = KANJI_ROMAJI[surface]
@@ -443,7 +460,10 @@ export function matchTokens(
 
 export interface AlignmentUnit {
   tokenIndices: number[]
+  /** Native-script text fed to the embedding model. */
   embedText: string
+  /** Romaji key for gloss / exact-match scoring. */
+  glossText: string
 }
 
 function isNounToken(token: Token): boolean {
@@ -495,7 +515,11 @@ export function buildAlignmentUnits(tokens: Token[], alignTokenIndices?: Readonl
     for (let k = start; k <= i; k++) {
       if (isAlignableToken(tokens[k])) indices.push(k)
     }
-    units.push({ tokenIndices: indices, embedText: tokenEmbedText(merged) })
+    units.push({
+      tokenIndices: indices,
+      embedText: tokenEmbedText(merged),
+      glossText: tokenGlossText(merged),
+    })
     i++
   }
   return units
@@ -621,7 +645,8 @@ export async function alignLinesTokens(
     const vecs = expandVectors(await embed(unique), indexMap)
     let offset = 0
     for (const slice of batch) {
-      const sourceTexts = slice.units.map((u) => u.embedText)
+      // Embedding ran on native-script `embedText`; gloss/exact scoring uses romaji `glossText`.
+      const sourceTexts = slice.units.map((u) => u.glossText)
       const targetTexts = slice.targetWords.map(targetEmbedText)
       const sourceVecs = vecs.slice(offset, offset + slice.units.length)
       offset += slice.units.length
