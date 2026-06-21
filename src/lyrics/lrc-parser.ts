@@ -1,7 +1,8 @@
 import type { TimedLine } from '../core/types'
 
 const TIMESTAMP_RE = /^\[(\d{2}):(\d{2})\.(\d{2,3})\]/
-const METADATA_RE = /^\[(?:ti|ar|al|by|offset|re|ve):/i
+const METADATA_RE = /^\[(?:ti|ar|al|by|re|ve):/i
+const OFFSET_RE = /^\[offset:\s*([+-]?\d+)\]/i
 
 function parseTimestamp(line: string): { time: number; text: string } | null {
   const match = line.match(TIMESTAMP_RE)
@@ -18,12 +19,19 @@ function parseTimestamp(line: string): { time: number; text: string } | null {
 
 export function parseLRC(lrc: string): TimedLine[] {
   const lines: Array<{ startTime: number; text: string }> = []
+  let offsetSec = 0
 
   for (const raw of lrc.split('\n')) {
     const trimmed = raw.trim()
-    if (!trimmed || METADATA_RE.test(trimmed)) continue
+    if (!trimmed) continue
+    const offsetMatch = trimmed.match(OFFSET_RE)
+    if (offsetMatch) {
+      offsetSec = parseInt(offsetMatch[1], 10) / 1000
+      continue
+    }
+    if (METADATA_RE.test(trimmed)) continue
     const parsed = parseTimestamp(trimmed)
-    if (parsed) lines.push({ startTime: parsed.time, text: parsed.text })
+    if (parsed) lines.push({ startTime: Math.max(0, parsed.time + offsetSec), text: parsed.text })
   }
 
   lines.sort((a, b) => a.startTime - b.startTime)

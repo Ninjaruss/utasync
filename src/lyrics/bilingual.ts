@@ -7,7 +7,16 @@ import { applyLineTextPatch } from './lineOps'
 // Hiragana, Katakana, or CJK ideographs anywhere => treat as Japanese.
 export const JAPANESE_RE = /[぀-ヿ㐀-鿿]/
 // A bracketed [mm:ss.xx] timestamp marks an LRC (synced) block.
-const LRC_TIMESTAMP_RE = /\[\d{2}:\d{2}[.:]\d{2,3}\]/
+export const LRC_TIMESTAMP_RE = /\[\d{2}:\d{2}[.:]\d{2,3}\]/
+
+export function isSyncedSecondaryLRC(secondary: string): boolean {
+  return LRC_TIMESTAMP_RE.test(secondary)
+}
+
+/** True when the primary track carries real song timestamps (not all zeros). */
+export function primaryHasTiming(primary: TimedLine[]): boolean {
+  return primary.some((l) => l.startTime > 0 || l.endTime > 0)
+}
 
 /**
  * Case- and whitespace-insensitive equality used to suppress redundant display
@@ -69,6 +78,15 @@ export function normalizeTranslationLines(lines: string[], primaryLineCount: num
   return flat
 }
 
+/** Pull translation lines from a paste, preserving blank-line stanza blocks when present. */
+export function extractTranslationsForAttach(secondary: string, primaryLineCount: number): string[] {
+  const blocks = extractSecondLanguageBlocks(secondary)
+  if (blocks.length > 1) {
+    return blocks.flatMap((block) => normalizeTranslationLines(block, primaryLineCount))
+  }
+  return normalizeTranslationLines(extractSecondLanguageLines(secondary), primaryLineCount)
+}
+
 const GAP_THRESHOLD_S = 4
 
 // Common non-lyric annotation lines that show up in pasted/LRCLIB text but
@@ -100,7 +118,7 @@ export function extractSecondLanguageBlocks(secondary: string): string[][] {
 }
 
 /** Split already-timed primary lines into stanza blocks using gaps between line starts as a proxy for blank-line stanza breaks (which don't survive into TimedLine[]). Untimed primary stays a single block, so any mismatch always falls back to flat pairing — there's no timing signal to detect stanza boundaries on that side. */
-function splitPrimaryIntoBlocks(primary: TimedLine[]): TimedLine[][] {
+export function splitPrimaryIntoBlocks(primary: TimedLine[]): TimedLine[][] {
   if (!primary.some((l) => l.endTime > 0)) return [primary]
   const blocks: TimedLine[][] = []
   let current: TimedLine[] = []
@@ -165,6 +183,7 @@ export function mergeTimedTracks(primary: TimedLine[], secondary: TimedLine[]): 
   )
 
   const result: TimedLine[] = []
+  let lastTranslationSecIndex = -1
   for (let i = 0; i < starts.length; i++) {
     const t = starts[i]
     const nextT = i < starts.length - 1 ? starts[i + 1] : lastEnd
@@ -173,7 +192,17 @@ export function mergeTimedTracks(primary: TimedLine[], secondary: TimedLine[]): 
     const si = lastActiveLine(sec, t)
 
     const original = pi >= 0 ? primary[pi].original : ''
-    const translation = si >= 0 ? sec[si].translation : ''
+    const secStartsHere = si >= 0 && sec[si].startTime === t
+    const priStartsHere = pi >= 0 && primary[pi].startTime === t
+    let translation = ''
+    if (si >= 0) {
+      if (priStartsHere && si !== lastTranslationSecIndex) {
+        translation = sec[si].translation
+        lastTranslationSecIndex = si
+      } else if (secStartsHere && !priStartsHere) {
+        translation = sec[si].translation
+      }
+    }
 
     if (!original && !translation) continue
 
@@ -246,12 +275,125 @@ function timePlainSecondaryToSong(
 }
 
 /** Parse a synced LRC block into independently timed secondary lines. */
-function parseSecondaryLRC(lrc: string): TimedLine[] {
+export function parseSecondaryLRC(lrc: string): TimedLine[] {
   return parseLRC(lrc).map((l) => ({
     ...l,
     original: '',
     translation: l.original,
   }))
+}
+
+/**
+ * Build an independently timed translation track from row-level content pairing.
+ * Each non-empty translation (including newline-split slots) inherits its primary
+ * row's timestamps; unmapped extras are spread across the song tail.
+ */
+export function buildSecondaryTimedFromPairing(
+  primary: TimedLine[],
+  paired: TimedLine[],
+  extras: string[] = [],
+): TimedLine[] {
+  const timed: TimedLine[] = []
+  for (let i = 0; i < primary.length; i++) {
+    const trans = paired[i]?.translation?.trim()
+    if (!trans) continue
+    const { startTime, endTime } = primary[i]
+    timed.push({ startTime, endTime, original: '', translation: trans })
+  }
+  if (extras.length > 0) {
+    const timedPrimary = primary.filter((l) => l.startTime > 0 || l.endTime > 0)
+    if (timedPrimary.length > 0) {
+      const songStart = timedPrimary[0].startTime
+      const songEnd = Math.max(...timedPrimary.map((l) => l.endTime), songStart + 0.1)
+      timed.push(
+        ...timePlainSecondaryToSong(extras, [{
+          startTime: songStart,
+          endTime: songEnd,
+          original: '',
+          translation: '',
+        }], 'other'),
+      )
+    } else {
+      for (const t of extras) {
+        timed.push({ startTime: 0, endTime: 0, original: '', translation: t })
+      }
+    }
+  }
+  return timed
+}
+
+/**
+ * Union-timeline merge is for count/structure mismatch. When content pairing
+ * already maps one translation row per primary row, keep the row layout.
+ */
+export function shouldUseTimelineMerge(
+  primary: TimedLine[],
+  flatTranslations: string[],
+  contentMethod: 'index' | 'slots' | 'semantic' | 'timeline' | 'mismatch',
+  extras: string[] = [],
+): boolean {
+  if (contentMethod === 'mismatch') return true
+  if (extras.length > 0) return true
+  if (flatTranslations.length !== primary.length) return true
+  return false
+}
+
+/**
+ * Merge primary and secondary on a union song timeline. Synced LRC uses its own
+ * timestamps; plain text uses content pairing when available, otherwise spreads
+ * lines proportionally across the primary song span.
+ */
+export function mergeSecondLanguageTimeline(
+  primary: TimedLine[],
+  secondary: string,
+  paired: TimedLine[],
+  flatTranslations: string[],
+  extras: string[] = [],
+  contentPairingTrusted = true,
+): TimedLine[] {
+  if (isSyncedSecondaryLRC(secondary)) {
+    return mergeTimedTracks(primary, parseSecondaryLRC(secondary))
+  }
+
+  const lang = detectLanguage(secondary)
+  const hasPairedContent = contentPairingTrusted && paired.some((l) => l.translation?.trim())
+  const secondaryTimed = hasPairedContent
+    ? buildSecondaryTimedFromPairing(primary, paired, extras)
+    : timePlainSecondaryToSong(flatTranslations, primary, lang)
+
+  if (secondaryTimed.length === 0 && flatTranslations.length > 0) {
+    return mergeTimedTracks(primary, timePlainSecondaryToSong(flatTranslations, primary, lang))
+  }
+  return mergeTimedTracks(primary, secondaryTimed)
+}
+
+/**
+ * Attach paired translations to a timed primary — row layout when counts match,
+ * union timeline when they do not.
+ */
+export function attachTimedSecondLanguage(
+  primary: TimedLine[],
+  secondary: string,
+  paired: TimedLine[],
+  flatTranslations: string[],
+  method: 'index' | 'slots' | 'semantic' | 'timeline' | 'mismatch',
+  extras: string[] = [],
+): TimedLine[] {
+  if (isSyncedSecondaryLRC(secondary)) {
+    return mergeTimedTracks(primary, parseSecondaryLRC(secondary))
+  }
+  const trusted = method !== 'mismatch'
+  if (!shouldUseTimelineMerge(primary, flatTranslations, method, extras)) {
+    return paired
+  }
+  return mergeSecondLanguageTimeline(
+    primary,
+    secondary,
+    paired,
+    flatTranslations,
+    extras,
+    trusted,
+  )
 }
 
 /**
@@ -266,28 +408,20 @@ function parseSecondaryLRC(lrc: string): TimedLine[] {
  * pairing so the user can fix mismatches manually.
  */
 export function attachSecondLanguage(primary: TimedLine[], secondary: string): AttachResult {
-  const primaryHasTiming = primary.some((l) => l.startTime > 0 || l.endTime > 0)
+  const flatSecondary = stripNonLyricLines(extractSecondLanguageLines(secondary))
 
-  if (primaryHasTiming) {
-    const flatSecondary = stripNonLyricLines(extractSecondLanguageLines(secondary))
+  if (primaryHasTiming(primary)) {
     const slotPair = pairTranslationsToPrimary(primary, flatSecondary)
-    if (slotPair.method !== 'mismatch') {
-      return { lines: slotPair.lines, mismatchedBlocks: [] }
-    }
-
-    const isTimedLRC = LRC_TIMESTAMP_RE.test(secondary)
-    const secondaryTimed = isTimedLRC
-      ? parseSecondaryLRC(secondary)
-      : timePlainSecondaryToSong(
-          flatSecondary,
-          primary,
-          detectLanguage(secondary),
-        )
-    const lines = mergeTimedTracks(primary, secondaryTimed)
-    return { lines, mismatchedBlocks: [0] }
+    const lines = attachTimedSecondLanguage(
+      primary,
+      secondary,
+      slotPair.lines,
+      flatSecondary,
+      slotPair.method,
+    )
+    return { lines, mismatchedBlocks: [] }
   }
 
-  const flatSecondary = stripNonLyricLines(extractSecondLanguageLines(secondary))
   const slotPair = pairTranslationsToPrimary(primary, flatSecondary)
   if (slotPair.method !== 'mismatch') {
     return { lines: slotPair.lines, mismatchedBlocks: [] }

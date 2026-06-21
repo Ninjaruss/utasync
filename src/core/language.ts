@@ -8,7 +8,7 @@ export function isParticleToken(token: Token): boolean {
   return token.pos?.startsWith('助詞') ?? false
 }
 
-function isDependentVerbStem(token: Token): boolean {
+export function isDependentVerbStem(token: Token): boolean {
   const pos = token.pos ?? ''
   const detail = token.posDetail1 ?? ''
   return pos.includes('非自立') || detail.includes('非自立')
@@ -22,6 +22,8 @@ export function isAlignableToken(token: Token): boolean {
   if (!token.surface.trim()) return false
   if (ALIGNABLE_PARTICLE_SURFACES.has(token.surface)) return true
   if (isParticleToken(token)) return false
+  // Latin tokens in mixed-script lyric lines (e.g. "You" in "You always … 青空")
+  if (/^[A-Za-z']+$/.test(token.surface.trim())) return false
   const pos = token.pos ?? ''
   if (pos.startsWith('助動詞')) return false
   if (pos.startsWith('記号')) return false
@@ -98,10 +100,15 @@ export function normalizeEnglishAlignmentWord(word: string): string {
 }
 
 /** Whether an English translation word may be paired with a Japanese token. */
+/** Function words that still participate in alignment when a curated JA gloss exists. */
+const GLOSS_ALIGNED_FUNCTION_WORDS = new Set(['after', 'about', 'up'])
+
 export function isAlignableEnglishWord(word: string): boolean {
   const stripped = stripEnglishPunctuation(word.trim())
   if (!stripped) return false
   const normalized = normalizeEnglishAlignmentWord(stripped)
-  if (ENGLISH_FUNCTION_WORDS.has(normalized)) return false
+  if (ENGLISH_FUNCTION_WORDS.has(normalized)) {
+    return GLOSS_ALIGNED_FUNCTION_WORDS.has(normalized)
+  }
   return true
 }

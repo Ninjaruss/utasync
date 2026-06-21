@@ -3,6 +3,8 @@ import 'fake-indexeddb/auto'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { db } from '../../src/core/db/schema'
 import { PlayerView } from '../../src/player/PlayerView'
+import { linePlaybackStart } from '../../src/lyrics/lineTiming'
+import type { TimedLine } from '../../src/core/types'
 
 const play = vi.fn()
 const pause = vi.fn()
@@ -57,16 +59,18 @@ describe('PlayerView keyboard shortcuts', () => {
   it('seeks backward and forward with arrow keys after clicking lyrics', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
+    const helloLine: TimedLine = { startTime: 1, endTime: 3, original: 'hello', translation: '' }
+    const helloPlayback = linePlaybackStart(helloLine)
     fireEvent.click(screen.getByText('hello'))
-    await waitFor(() => expect(seek).toHaveBeenCalledWith(1))
+    await waitFor(() => expect(seek.mock.calls.at(-1)?.[0]).toBeCloseTo(helloPlayback))
 
     seek.mockClear()
     fireEvent.keyDown(window, { code: 'ArrowRight', key: 'ArrowRight' })
-    expect(seek).toHaveBeenCalledWith(6)
+    expect(seek.mock.calls.at(-1)?.[0]).toBeCloseTo(helloPlayback + 5)
 
     seek.mockClear()
     fireEvent.keyDown(window, { code: 'ArrowLeft', key: 'ArrowLeft' })
-    expect(seek).toHaveBeenCalledWith(1)
+    expect(seek.mock.calls.at(-1)?.[0]).toBeCloseTo(helloPlayback)
   })
 
   it('moves to the next and previous lyric with up and down arrows', async () => {
@@ -87,15 +91,17 @@ describe('PlayerView keyboard shortcuts', () => {
 
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('one')).toBeTruthy())
+    const lineOne: TimedLine = { startTime: 1, endTime: 3, original: 'one', translation: '' }
+    const lineTwo: TimedLine = { startTime: 5, endTime: 7, original: 'two', translation: '' }
     fireEvent.click(screen.getByText('one'))
-    await waitFor(() => expect(seek).toHaveBeenCalledWith(1))
+    await waitFor(() => expect(seek.mock.calls.at(-1)?.[0]).toBeCloseTo(linePlaybackStart(lineOne)))
 
     seek.mockClear()
     fireEvent.keyDown(window, { code: 'ArrowDown', key: 'ArrowDown' })
-    expect(seek).toHaveBeenCalledWith(5)
+    expect(seek.mock.calls.at(-1)?.[0]).toBeCloseTo(linePlaybackStart(lineTwo))
 
     seek.mockClear()
     fireEvent.keyDown(window, { code: 'ArrowUp', key: 'ArrowUp' })
-    expect(seek).toHaveBeenCalledWith(1)
+    expect(seek.mock.calls.at(-1)?.[0]).toBeCloseTo(linePlaybackStart(lineOne))
   })
 })

@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   detectLanguage, attachSecondLanguage, isSameText, pairsToTimedLines,
   hasVisibleTranslation, stripNonLyricLines, extractSecondLanguageBlocks,
-  normalizeTranslationLines, mergeTimedTracks,
+  normalizeTranslationLines, mergeTimedTracks, extractTranslationsForAttach,
+  buildSecondaryTimedFromPairing, mergeSecondLanguageTimeline,
 } from '../../src/lyrics/bilingual'
 import type { TimedLine } from '../../src/core/types'
 
@@ -38,6 +39,13 @@ describe('stripNonLyricLines', () => {
   })
   it('leaves real lyrics alone', () => {
     expect(stripNonLyricLines(['Your eyes', 'In the night'])).toEqual(['Your eyes', 'In the night'])
+  })
+})
+
+describe('extractTranslationsForAttach', () => {
+  it('preserves blank-line stanza blocks instead of flattening to one list', () => {
+    const text = 'Line A1\nLine A2\n\nLine B1\nLine B2'
+    expect(extractTranslationsForAttach(text, 10)).toEqual(['Line A1', 'Line A2', 'Line B1', 'Line B2'])
   })
 })
 
@@ -99,6 +107,7 @@ describe('attachSecondLanguage', () => {
     const secondary = 'You always make me so happy\nMelt into the blue sky\nHey, someday'
     const result = attachSecondLanguage(mixed, secondary)
     expect(result.mismatchedBlocks).toEqual([])
+    expect(result.lines).toHaveLength(2)
     expect(result.lines[0].translation).toBe('You always make me so happy\nMelt into the blue sky')
     expect(result.lines[0].startTime).toBe(1)
     expect(result.lines[1].translation).toBe('Hey, someday')
@@ -113,7 +122,7 @@ describe('attachSecondLanguage', () => {
 
   it('times plain translation across the song span when primary is timed and counts differ', () => {
     const result = attachSecondLanguage(primary, 'Only one line')
-    expect(result.mismatchedBlocks).toEqual([0])
+    expect(result.mismatchedBlocks).toEqual([])
     expect(result.lines.some((l) => l.translation === 'Only one line')).toBe(true)
   })
 
@@ -141,11 +150,64 @@ describe('attachSecondLanguage', () => {
     expect(merged.some((l) => l.original === '夜の中' && l.translation === 'In the night')).toBe(true)
   })
 
+  it('does not repeat one translation on every primary breakpoint', () => {
+    const primary: TimedLine[] = [line('君の瞳', 1, 3), line('夜の中', 3, 5)]
+    const secondary: TimedLine[] = [
+      { original: '', translation: 'Only one line', startTime: 1, endTime: 5 },
+    ]
+    const merged = mergeTimedTracks(primary, secondary)
+    expect(merged.filter((l) => l.translation === 'Only one line')).toHaveLength(1)
+  })
+
+  it('keeps row layout when timed primary and translation counts match', () => {
+    const result = attachSecondLanguage(primary, 'Your eyes\nIn the night')
+    expect(result.lines).toHaveLength(2)
+    expect(result.lines.map((l) => l.translation)).toEqual(['Your eyes', 'In the night'])
+  })
+
   it('flags mismatch only when primary is untimed and line counts differ', () => {
     const untimed: TimedLine[] = [line('君の瞳'), line('夜の中')]
     const result = attachSecondLanguage(untimed, 'Only one line')
     expect(result.mismatchedBlocks).toEqual([0])
     expect(result.lines.length).toBe(untimed.length)
+  })
+})
+
+describe('buildSecondaryTimedFromPairing', () => {
+  it('assigns each paired translation the primary row timestamps', () => {
+    const primary: TimedLine[] = [
+      line('君の瞳', 1, 3),
+      line('夜の中', 3, 5),
+    ]
+    const paired: TimedLine[] = [
+      { ...primary[0], translation: 'Your eyes' },
+      { ...primary[1], translation: 'In the night' },
+    ]
+    const timed = buildSecondaryTimedFromPairing(primary, paired)
+    expect(timed).toEqual([
+      { startTime: 1, endTime: 3, original: '', translation: 'Your eyes' },
+      { startTime: 3, endTime: 5, original: '', translation: 'In the night' },
+    ])
+  })
+
+  it('preserves newline-joined slot translations on one timed row', () => {
+    const primary: TimedLine[] = [line('mixed', 1, 5)]
+    const paired: TimedLine[] = [{
+      ...primary[0],
+      translation: 'English half\nJapanese half',
+    }]
+    expect(buildSecondaryTimedFromPairing(primary, paired)[0].translation)
+      .toBe('English half\nJapanese half')
+  })
+})
+
+describe('mergeSecondLanguageTimeline', () => {
+  it('union-merges timed primary with proportionally timed plain text when pairing is untrusted', () => {
+    const primary: TimedLine[] = [line('君の瞳', 1, 3), line('夜の中', 3, 5)]
+    const paired = primary.map((l) => ({ ...l, translation: '' }))
+    const merged = mergeSecondLanguageTimeline(primary, 'Only one line', paired, ['Only one line'], [], false)
+    expect(merged.some((l) => l.translation === 'Only one line')).toBe(true)
+    expect(merged.some((l) => l.original === '君の瞳')).toBe(true)
   })
 })
 

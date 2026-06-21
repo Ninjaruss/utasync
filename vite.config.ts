@@ -223,15 +223,9 @@ export default defineConfig({
               expiration: { maxAgeSeconds: 60 * 60 * 24 * 30 },
             },
           },
-          {
-            urlPattern: /ort-wasm.*\.wasm$/,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'onnx-runtime-v1',
-              expiration: { maxAgeSeconds: 60 * 60 * 24 * 30 },
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
+          // ONNX wasm is served from /onnx-wasm/ on the same origin — do not
+          // CacheFirst it here; a truncated SW entry causes "Content-Length
+          // header exceeds response Body" when ORT loads the wasm.
         ],
       },
       manifest: {

@@ -3,12 +3,13 @@ import { useState, useEffect, useRef, type ChangeEvent } from 'react'
 import { db } from '../core/db/schema'
 import { ingestAudioFile } from './audioIngest'
 import { buildSong, linesFromPlainText } from './songBuilder'
-import { findLyrics, type FindLyricsStage } from './lrclib'
+import { findLyrics, type FindLyricsStage, type LyricsLookupMatch } from './lrclib'
 import { detectLanguage } from '../lyrics/bilingual'
 import type { Language } from '../core/types'
 import { parseLRC } from '../lyrics/lrc-parser'
 import { parseSubtitle } from '../lyrics/subtitle-parser'
 import { normalizeImportedLines } from './importNormalize'
+import { LyricsFoundConfirm, lyricsFoundReadyToApply } from '../lyrics/LyricsFoundConfirm'
 import {
   extractAudioMetadata,
   resolveTrackMetadata,
@@ -33,13 +34,15 @@ type ManualLyricSource = 'paste' | 'subtitle'
 type LyricsPhase =
   | { kind: 'idle' }
   | { kind: 'searching' }
-  | { kind: 'found'; lines: TimedLine[]; synced: boolean }
+  | { kind: 'found'; lines: TimedLine[]; synced: boolean; match?: LyricsLookupMatch }
   | { kind: 'manual'; source: ManualLyricSource }
 
 interface Props {
   onSongReady: (songId: string) => void
   /** When true, renders inside AddSongSheet without standalone page chrome. */
   embedded?: boolean
+  /** Called when lyric search or save is in progress — parent can guard dismiss. */
+  onBusyChange?: (busy: boolean) => void
 }
 
 const SOURCE_LABEL: Record<MetadataFieldSource, string> = {
@@ -56,7 +59,7 @@ function FieldSourceBadge({ source }: { source: MetadataFieldSource | null }) {
   )
 }
 
-export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
+export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }: Props) {
   const [file, setFile] = useState<File | null>(null)
   const [title, setTitle] = useState('')
   const [artist, setArtist] = useState('')
@@ -69,7 +72,13 @@ export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
   const [saveProgress, setSaveProgress] = useState<{ phase: UploadSavePhase; taskProgress?: number | null } | null>(null)
   const [lyricSearchStage, setLyricSearchStage] = useState<FindLyricsStage | null>(null)
   const [error, setError] = useState('')
+  const [matchConfirmed, setMatchConfirmed] = useState(false)
   const searchGenRef = useRef(0)
+
+  const isBusy = !!saveProgress || lyricsPhase.kind === 'searching'
+  useEffect(() => {
+    onBusyChange?.(isBusy)
+  }, [isBusy, onBusyChange])
 
   async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0] ?? null
@@ -98,6 +107,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
 
   const skipLyricSearch = (source: ManualLyricSource = 'paste') => {
     searchGenRef.current++
+    setMatchConfirmed(false)
     setLyricsPhase({ kind: 'manual', source })
     setError('')
   }
@@ -121,7 +131,8 @@ export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
         setLyricSearchStage(null)
         if (found) {
           const lines = found.synced ? parseLRC(found.lrc) : linesFromPlainText(found.lrc)
-          setLyricsPhase({ kind: 'found', lines, synced: found.synced })
+          setMatchConfirmed(false)
+          setLyricsPhase({ kind: 'found', lines, synced: found.synced, match: found.match })
         } else {
           setLyricsPhase({ kind: 'manual', source: 'paste' })
         }
@@ -200,7 +211,8 @@ export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
     `px-3 py-1.5 rounded-lg text-xs ${lyricsPhase.kind === 'manual' && lyricsPhase.source === s ? 'bg-cinnabar-accent text-white' : 'bg-cinnabar-900 text-white/50'}`
 
   const lyricsReady =
-    lyricsPhase.kind === 'found'
+    (lyricsPhase.kind === 'found'
+      && lyricsFoundReadyToApply(title, artist, lyricsPhase.match, matchConfirmed))
     || (lyricsPhase.kind === 'manual' && lyricsPhase.source === 'paste' && pasted.trim())
     || (lyricsPhase.kind === 'manual' && lyricsPhase.source === 'subtitle' && subtitleFile)
 
@@ -344,26 +356,17 @@ export function UploadAudioFlow({ onSongReady, embedded = false }: Props) {
             )}
 
             {lyricsPhase.kind === 'found' && (
-              <div className="space-y-2">
-                <p className="text-green-400/90 text-sm">
-                  Found {lyricsPhase.synced ? 'synced' : 'plain'} lyrics ({lyricsPhase.lines.length} lines)
-                </p>
-                <ul className="space-y-1 max-h-28 overflow-y-auto rounded-lg bg-cinnabar-950 border border-cinnabar-800 p-2">
-                  {lyricsPhase.lines.slice(0, 3).map((l, i) => (
-                    <li key={i} className="text-xs text-white/60 truncate">{l.original || '—'}</li>
-                  ))}
-                  {lyricsPhase.lines.length > 3 && (
-                    <li className="text-[10px] text-white/30">+{lyricsPhase.lines.length - 3} more…</li>
-                  )}
-                </ul>
-                <button
-                  type="button"
-                  onClick={useDifferentLyrics}
-                  className="text-xs text-white/40 hover:text-white/70 underline underline-offset-2"
-                >
-                  Use different lyrics
-                </button>
-              </div>
+              <LyricsFoundConfirm
+                queriedTitle={title}
+                queriedArtist={artist}
+                lines={lyricsPhase.lines}
+                synced={lyricsPhase.synced}
+                sourceLabel="LRCLIB"
+                match={lyricsPhase.match}
+                confirmed={matchConfirmed}
+                onConfirm={() => setMatchConfirmed(true)}
+                onUseDifferent={useDifferentLyrics}
+              />
             )}
 
             {lyricsPhase.kind === 'manual' && (

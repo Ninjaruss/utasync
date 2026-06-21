@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
+import { createPortal } from 'react-dom'
 import type { PlaybackState, ABLoop, ABLoopPlaylistEntry } from '../core/types'
 import { isABLoopActive } from './abLoopUtils'
 import {
@@ -259,15 +260,62 @@ function ABLoopPlaylistControls({
   exporting?: boolean
   exportError?: string | null
 }) {
+  const [listOpen, setListOpen] = useState(entries.length > 0 || playlistActive)
+  const [menuId, setMenuId] = useState<string | null>(null)
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
   const editRef = useRef<HTMLInputElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLUListElement>(null)
+  const hadEntriesRef = useRef(entries.length > 0)
+
+  useEffect(() => {
+    if (playlistActive) setListOpen(true)
+  }, [playlistActive])
+
+  useEffect(() => {
+    if (entries.length > 0 && !hadEntriesRef.current) setListOpen(true)
+    hadEntriesRef.current = entries.length > 0
+  }, [entries.length])
 
   useEffect(() => {
     if (editingId) editRef.current?.focus()
   }, [editingId])
 
+  useLayoutEffect(() => {
+    if (!menuId || !triggerRef.current) return
+    const rect = triggerRef.current.getBoundingClientRect()
+    setMenuPos({ top: rect.bottom + 2, right: window.innerWidth - rect.right })
+  }, [menuId])
+
+  useEffect(() => {
+    if (!menuId) return
+    const close = () => setMenuId(null)
+    const list = listRef.current
+    list?.addEventListener('scroll', close)
+    window.addEventListener('resize', close)
+    return () => {
+      list?.removeEventListener('scroll', close)
+      window.removeEventListener('resize', close)
+    }
+  }, [menuId])
+
+  useEffect(() => {
+    if (!menuId) return
+    const onPointerDown = (e: Event) => {
+      const target = e.target as Node
+      if (triggerRef.current?.contains(target)) return
+      if (dropdownRef.current?.contains(target)) return
+      setMenuId(null)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [menuId])
+
   const startRename = (entry: ABLoopPlaylistEntry) => {
+    setMenuId(null)
     setEditingId(entry.id)
     setEditValue(playlistEntryLabel(entry))
   }
@@ -278,41 +326,22 @@ function ABLoopPlaylistControls({
   }
 
   const hasEntries = entries.length > 0
-  const showRepeatSetting = hasEntries || playlistActive
 
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <p className={toolbarSectionLabel}>Loop playlist</p>
-        {playlistActive && hasEntries && (
-          <span className="text-[10px] text-cinnabar-accent tabular-nums font-medium">
-            {playlistIndex + 1}/{entries.length}
-          </span>
+        <p className={toolbarSectionLabel}>Saved loops</p>
+        {hasEntries && (
+          <button
+            type="button"
+            onClick={() => setListOpen((v) => !v)}
+            className="text-[11px] text-white/40 hover:text-white/65 touch-manipulation tabular-nums"
+            aria-expanded={listOpen}
+          >
+            {entries.length} saved {listOpen ? '▴' : '▾'}
+          </button>
         )}
       </div>
-
-      {showRepeatSetting && onPlaylistRepeatCountChange && (
-        <div className="space-y-1.5">
-          <p className="text-[11px] text-white/40">Repeats per loop</p>
-          <div className="flex flex-wrap gap-1.5">
-            {PLAYLIST_REPEAT_PRESETS.map((preset) => (
-              <button
-                key={preset}
-                type="button"
-                onClick={() => onPlaylistRepeatCountChange(preset)}
-                className={[
-                  toolbarChipBtn,
-                  playlistRepeatCount === preset ? toolbarChipBtnActive : toolbarChipBtnIdle,
-                ].join(' ')}
-                aria-label={`Repeat each loop ${playlistRepeatLabel(preset)} times before advancing`}
-                aria-pressed={playlistRepeatCount === preset}
-              >
-                {playlistRepeatLabel(preset)}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div className="flex flex-wrap gap-1.5">
         <button
@@ -325,7 +354,7 @@ function ABLoopPlaylistControls({
             'disabled:opacity-35',
           ].join(' ')}
         >
-          Save loop
+          Save current loop
         </button>
         {hasEntries && (
           <button
@@ -336,130 +365,141 @@ function ABLoopPlaylistControls({
               playlistActive ? toolbarChipBtnActive : toolbarChipBtnIdle,
             ].join(' ')}
           >
-            {playlistActive ? 'Stop playlist' : 'Play playlist'}
-          </button>
-        )}
-        {hasEntries && (
-          <button
-            type="button"
-            onClick={onClear}
-            className={[toolbarChipBtn, toolbarChipBtnIdle, 'text-white/40'].join(' ')}
-          >
-            Clear list
-          </button>
-        )}
-        {hasEntries && canExport && onExport && (
-          <button
-            type="button"
-            onClick={onExport}
-            disabled={exporting}
-            className={[
-              toolbarChipBtn,
-              toolbarChipBtnActive,
-              'disabled:opacity-40',
-            ].join(' ')}
-          >
-            {exporting ? 'Exporting…' : 'Export playlist'}
+            {playlistActive ? `Stop (${playlistIndex + 1}/${entries.length})` : 'Play all'}
           </button>
         )}
       </div>
 
-      {exportError && (
-        <p className="text-[11px] text-red-400/90" role="alert">{exportError}</p>
-      )}
-
       {!hasEntries && (
         <p className="text-[11px] text-white/30 text-pretty">
-          Save A-B loops here, then play them in order for practice.
+          Set A and B, then save loops here to practice them in order.
         </p>
       )}
 
-      {hasEntries && (
-        <ul className="space-y-1 max-h-36 overflow-y-auto overscroll-contain pr-0.5">
-          {entries.map((entry, i) => {
-            const isCurrent = playlistActive && i === playlistIndex
-            const isEditing = editingId === entry.id
-            return (
-              <li
-                key={entry.id}
-                className={[
-                  'flex items-center gap-1 rounded-lg border px-1.5 py-1 min-h-10',
-                  isCurrent
-                    ? 'border-cinnabar-accent/50 bg-cinnabar-accent/[0.08]'
-                    : 'border-cinnabar-900/80 bg-cinnabar-950/40',
-                ].join(' ')}
-              >
+      {hasEntries && listOpen && (
+        <>
+          <div className="space-y-1">
+            <p className="text-[10px] text-white/35">Repeats before next loop</p>
+            <div className="flex flex-wrap gap-1.5">
+              {PLAYLIST_REPEAT_PRESETS.map((preset) => (
                 <button
+                  key={preset}
                   type="button"
-                  onClick={() => onLoadEntry(entry, i)}
-                  className="flex-1 min-w-0 text-left px-1 py-1 touch-manipulation"
-                  aria-label={`Load loop ${playlistEntryLabel(entry)}`}
+                  onClick={() => onPlaylistRepeatCountChange(preset)}
+                  className={[
+                    toolbarChipBtn,
+                    playlistRepeatCount === preset ? toolbarChipBtnActive : toolbarChipBtnIdle,
+                  ].join(' ')}
+                  aria-label={`Repeat each loop ${playlistRepeatLabel(preset)} times before advancing`}
+                  aria-pressed={playlistRepeatCount === preset}
                 >
-                  {isEditing ? (
-                    <input
-                      ref={editRef}
-                      value={editValue}
-                      onChange={(e) => setEditValue(e.target.value)}
-                      onBlur={() => commitRename(entry.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') commitRename(entry.id)
-                        if (e.key === 'Escape') setEditingId(null)
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      className="w-full bg-cinnabar-900 text-xs text-white px-1.5 py-0.5 rounded border border-cinnabar-accent/50 outline-none"
-                    />
-                  ) : (
-                    <span className="block text-xs text-white/75 truncate text-pretty tabular-nums">
-                      {playlistEntryLabel(entry)}
-                    </span>
-                  )}
+                  {playlistRepeatLabel(preset)}
                 </button>
-                <div className="flex items-center shrink-0">
+              ))}
+            </div>
+          </div>
+
+          <ul ref={listRef} className="space-y-1 max-h-32 md:max-h-56 overflow-y-auto overscroll-contain">
+            {entries.map((entry, i) => {
+              const isCurrent = playlistActive && i === playlistIndex
+              const isEditing = editingId === entry.id
+              const menuOpen = menuId === entry.id
+              return (
+                <li
+                  key={entry.id}
+                  className={[
+                    'relative flex items-center gap-1 rounded-lg border min-h-10',
+                    isCurrent
+                      ? 'border-cinnabar-accent/50 bg-cinnabar-accent/[0.08]'
+                      : 'border-cinnabar-900/80 bg-cinnabar-950/40',
+                  ].join(' ')}
+                >
                   <button
                     type="button"
-                    onClick={() => startRename(entry)}
-                    className="min-w-8 min-h-8 flex items-center justify-center text-white/25 hover:text-white/60 text-[10px] touch-manipulation"
-                    aria-label="Rename loop"
+                    onClick={() => onLoadEntry(entry, i)}
+                    className="flex-1 min-w-0 text-left px-2.5 py-1.5 touch-manipulation"
+                    aria-label={`Load loop ${playlistEntryLabel(entry)}`}
+                    aria-current={isCurrent ? 'true' : undefined}
                   >
-                    ✎
+                    {isEditing ? (
+                      <input
+                        ref={editRef}
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onBlur={() => commitRename(entry.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') commitRename(entry.id)
+                          if (e.key === 'Escape') setEditingId(null)
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-full bg-cinnabar-900 text-xs text-white px-1.5 py-0.5 rounded border border-cinnabar-accent/50 outline-none"
+                      />
+                    ) : (
+                      <span className="block text-xs text-white/75 truncate tabular-nums">
+                        {playlistEntryLabel(entry)}
+                      </span>
+                    )}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => onMoveEntry(i, i - 1)}
-                    disabled={i === 0}
-                    className="min-w-8 min-h-8 flex items-center justify-center text-white/30 hover:text-white disabled:opacity-20 text-xs touch-manipulation"
-                    aria-label="Move up"
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onMoveEntry(i, i + 1)}
-                    disabled={i >= entries.length - 1}
-                    className="min-w-8 min-h-8 flex items-center justify-center text-white/30 hover:text-white disabled:opacity-20 text-xs touch-manipulation"
-                    aria-label="Move down"
-                  >
-                    ↓
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onRemoveEntry(entry.id)}
-                    className="min-w-8 min-h-8 flex items-center justify-center text-white/25 hover:text-red-400 text-xs touch-manipulation"
-                    aria-label="Remove loop"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </li>
-            )
-          })}
-        </ul>
+                  <div className="relative shrink-0 pr-0.5">
+                    <button
+                      ref={menuOpen ? triggerRef : undefined}
+                      type="button"
+                      onClick={() => setMenuId(menuOpen ? null : entry.id)}
+                      className="min-w-9 min-h-9 flex items-center justify-center text-white/30 hover:text-white/70 text-sm touch-manipulation"
+                      aria-label={`Options for loop ${playlistEntryLabel(entry)}`}
+                      aria-expanded={menuOpen}
+                    >
+                      ⋯
+                    </button>
+                    {menuOpen && menuPos && createPortal(
+                      <div
+                        ref={dropdownRef}
+                        style={{ top: menuPos.top, right: menuPos.right }}
+                        className="fixed z-50 w-36 rounded-lg border border-cinnabar-800 bg-cinnabar-900 shadow-lg shadow-black/40 py-1"
+                      >
+                        <button type="button" onClick={() => startRename(entry)} className="w-full text-left px-3 py-2 text-xs text-white/75 hover:bg-white/5">Rename</button>
+                        <button type="button" disabled={i === 0} onClick={() => { onMoveEntry(i, i - 1); setMenuId(null) }} className="w-full text-left px-3 py-2 text-xs text-white/75 hover:bg-white/5 disabled:opacity-30">Move up</button>
+                        <button type="button" disabled={i >= entries.length - 1} onClick={() => { onMoveEntry(i, i + 1); setMenuId(null) }} className="w-full text-left px-3 py-2 text-xs text-white/75 hover:bg-white/5 disabled:opacity-30">Move down</button>
+                        <button type="button" onClick={() => { onRemoveEntry(entry.id); setMenuId(null) }} className="w-full text-left px-3 py-2 text-xs text-red-400/90 hover:bg-white/5">Remove</button>
+                      </div>,
+                      document.body,
+                    )}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+
+          {playlistActive && (
+            <p className="text-[11px] text-cinnabar-accent/80 text-pretty">
+              {playlistRepeatHelpText(playlistRepeatCount)}
+            </p>
+          )}
+
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+            {canExport && onExport && (
+              <button
+                type="button"
+                onClick={onExport}
+                disabled={exporting}
+                className="text-cinnabar-accent/90 hover:text-cinnabar-accent disabled:opacity-40 touch-manipulation"
+              >
+                {exporting ? 'Exporting…' : 'Export all loops'}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClear}
+              className="text-white/35 hover:text-white/60 touch-manipulation"
+            >
+              Clear all
+            </button>
+          </div>
+        </>
       )}
 
-      {playlistActive && hasEntries && (
-        <p className="text-[11px] text-cinnabar-accent/80 text-pretty">
-          {playlistRepeatHelpText(playlistRepeatCount)}
-        </p>
+      {exportError && (
+        <p className="text-[11px] text-red-400/90" role="alert">{exportError}</p>
       )}
     </div>
   )
@@ -588,7 +628,7 @@ function MoreMenu({
         <div
           role="dialog"
           aria-label="More playback options"
-          className="absolute left-0 md:left-auto md:right-0 bottom-full mb-2 z-50 w-60 rounded-xl border border-cinnabar-800 bg-cinnabar-900 shadow-xl shadow-black/40 p-3 space-y-3"
+          className="absolute left-0 md:left-auto md:right-0 bottom-full mb-2 z-50 w-60 max-w-[calc(100vw-2rem)] rounded-xl border border-cinnabar-800 bg-cinnabar-900 shadow-xl shadow-black/40 p-3 space-y-3"
         >
           {showAbExport && onExportAb && (
             <section aria-label="Export loop">

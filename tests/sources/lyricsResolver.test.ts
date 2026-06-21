@@ -34,7 +34,11 @@ describe('resolveLyricsForSong', () => {
 
   it('falls back to synced LRCLIB when captions are missing', async () => {
     vi.mocked(fetchYouTubeCaptionLines).mockResolvedValueOnce(null)
-    vi.mocked(findLyrics).mockResolvedValueOnce({ lrc: '[00:01.00]Line', synced: true })
+    vi.mocked(findLyrics).mockResolvedValueOnce({
+      lrc: '[00:01.00]Line',
+      synced: true,
+      match: { track: 'Song', artist: 'Artist', matchScore: 0.99, matchKind: 'exact' },
+    })
     const result = await resolveLyricsForSong({
       title: 'Song',
       artist: 'Artist',
@@ -42,6 +46,7 @@ describe('resolveLyricsForSong', () => {
     })
     expect(result.source).toBe('lrclib-synced')
     expect(result.synced).toBe(true)
+    expect(result.match?.track).toBe('Song')
   })
 
   it('skips YouTube when no video id', async () => {

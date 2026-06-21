@@ -77,8 +77,8 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
 
   /**
    * Route a secondary block:
-   * - Primary already timed → normalize both to the song timeline via attachSecondLanguage.
-   * - Primary untimed → semantic NW aligner (capable devices) or flat fallback.
+   * - Timed primary: semantic/slots pairing, then union-timeline merge (line counts may differ).
+   * - Untimed primary: row pairing; manual review via AlignmentEditor when counts still disagree.
    */
   const route = async (secondary: string) => {
     setPhase({ kind: 'aligning' })

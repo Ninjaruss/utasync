@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { getWhisperModel, getEmbedModel, WHISPER_MODEL_FULL, WHISPER_MODEL_LITE, EMBED_MODEL } from '../../src/ai-pipeline/models'
+import {
+  getWhisperModel,
+  getWhisperDownloadHint,
+  getEmbedModel,
+  WHISPER_MODEL_FULL,
+  WHISPER_MODEL_LITE,
+  WHISPER_DOWNLOAD_HINT,
+  EMBED_MODEL,
+} from '../../src/ai-pipeline/models'
 
 describe('getWhisperModel', () => {
   it('uses whisper-small on full tier', () => {
@@ -12,6 +20,13 @@ describe('getWhisperModel', () => {
   })
   it('uses whisper-small on manual tier (fallback if ever invoked)', () => {
     expect(getWhisperModel('manual')).toBe(WHISPER_MODEL_FULL)
+  })
+})
+
+describe('getWhisperDownloadHint', () => {
+  it('reports the whisper-small download size for capable tiers', () => {
+    expect(getWhisperDownloadHint('full')).toBe(WHISPER_DOWNLOAD_HINT)
+    expect(getWhisperDownloadHint('lite')).toBe('~240MB')
   })
 })
 

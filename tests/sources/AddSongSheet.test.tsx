@@ -29,4 +29,13 @@ describe('AddSongSheet', () => {
     fireEvent.click(screen.getByRole('button', { name: /close/i }))
     expect(onClose).toHaveBeenCalled()
   })
+
+  it('does not close when the backdrop is tapped', () => {
+    const onClose = vi.fn()
+    const { container } = render(<AddSongSheet onSongReady={vi.fn()} onClose={onClose} />)
+    const backdrop = container.querySelector('[aria-hidden="true"]')
+    expect(backdrop).toBeTruthy()
+    fireEvent.click(backdrop!)
+    expect(onClose).not.toHaveBeenCalled()
+  })
 })

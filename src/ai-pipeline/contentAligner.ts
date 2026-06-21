@@ -28,18 +28,33 @@ function buildTransChars(words: TranscriptWord[]): TransChar[] {
   for (const w of words) {
     const n = normalizeForMatch(w.word)
     const k = Math.max(1, n.length)
+    const duration = w.endTime - w.startTime
     let j = 0
     for (const ch of n) {
-      out.push({ ch, time: w.startTime + (w.endTime - w.startTime) * ((j + 0.5) / k) })
+      // First char anchors to word onset — mid-word interpolation was pushing
+      // line starts ~50–150ms late vs. when the singer actually begins.
+      const time =
+        j === 0
+          ? w.startTime
+          : j === k - 1
+            ? w.endTime
+            : w.startTime + duration * ((j + 0.5) / k)
+      out.push({ ch, time })
       j++
     }
   }
   return out
 }
 
-// Longest common subsequence over the two char streams. Returns, for each lyric
-// char index, the matched transcript time or -1 (monotonic by construction).
-function lcsMatchTimes(A: LyricChar[], B: TransChar[]): Float64Array {
+interface LcsMatch {
+  /** Matched transcript time per lyric char index, or -1 (monotonic by construction). */
+  matchTime: Float64Array
+  /** Matched transcript char index per lyric char index, or -1. */
+  matchBIndex: Int32Array
+}
+
+// Longest common subsequence over the two char streams.
+function lcsMatchTimes(A: LyricChar[], B: TransChar[]): LcsMatch {
   const m = A.length, n = B.length
   const dp: Uint16Array[] = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1))
   for (let i = 1; i <= m; i++) {
@@ -49,23 +64,50 @@ function lcsMatchTimes(A: LyricChar[], B: TransChar[]): Float64Array {
     }
   }
   const matchTime = new Float64Array(m).fill(-1)
+  const matchBIndex = new Int32Array(m).fill(-1)
   let i = m, j = n
   while (i > 0 && j > 0) {
-    if (A[i - 1].ch === B[j - 1].ch) { matchTime[i - 1] = B[j - 1].time; i--; j-- }
+    if (A[i - 1].ch === B[j - 1].ch) { matchTime[i - 1] = B[j - 1].time; matchBIndex[i - 1] = j - 1; i--; j-- }
     else if (dp[i - 1][j] >= dp[i][j - 1]) i--
     else j--
   }
-  return matchTime
+  return { matchTime, matchBIndex }
 }
 
-// Earliest matched time per line; NaN where a line had no matched char.
-function anchorsByLine(A: LyricChar[], matchTime: Float64Array, lineCount: number): Float64Array {
+// Minimum run of *consecutive* lyric chars matched to *consecutive* transcript
+// chars before a match is trusted to anchor a line's time. Japanese has a small,
+// heavily-repeated character set (の/に/は/を/...), so a single isolated char can
+// coincidentally LCS-match the wrong occurrence far away in the transcript —
+// that one stray match would otherwise drag the whole line's start time off,
+// even while the song's aggregate per-character confidence stays high (most
+// *other* chars matched correctly). A real word/phrase match naturally produces
+// several consecutive char matches in a row, so requiring a short run filters
+// out the single-char coincidences without rejecting genuine short words.
+const MIN_RELIABLE_RUN = 2
+
+// Earliest *reliably* matched time per line; NaN where a line had no run of
+// MIN_RELIABLE_RUN+ consecutive matched chars.
+function anchorsByLine(A: LyricChar[], match: LcsMatch, lineCount: number): Float64Array {
+  const { matchTime, matchBIndex } = match
   const anchors = new Float64Array(lineCount).fill(NaN)
-  for (let idx = 0; idx < A.length; idx++) {
-    const mt = matchTime[idx]
-    if (mt < 0) continue
-    const li = A[idx].line
-    if (Number.isNaN(anchors[li]) || mt < anchors[li]) anchors[li] = mt
+  const m = A.length
+  let runStart = 0
+  for (let idx = 0; idx <= m; idx++) {
+    const continuesRun =
+      idx < m
+      && matchBIndex[idx] >= 0
+      && idx > runStart
+      && matchBIndex[idx] === matchBIndex[idx - 1] + 1
+      && A[idx].line === A[idx - 1].line
+    if (continuesRun) continue
+
+    // Run [runStart, idx) just ended — commit it if long enough and matched.
+    if (idx > runStart && matchBIndex[runStart] >= 0 && idx - runStart >= MIN_RELIABLE_RUN) {
+      const li = A[runStart].line
+      const mt = matchTime[runStart]
+      if (Number.isNaN(anchors[li]) || mt < anchors[li]) anchors[li] = mt
+    }
+    runStart = idx
   }
   return anchors
 }
@@ -133,11 +175,11 @@ export function alignByContent(
     return { lines: lineTexts.map((_, li) => buildLine(li, 0, 0)), confidence: 0 }
   }
 
-  const matchTime = lcsMatchTimes(A, B)
-  const matched = Array.from(matchTime).reduce((acc, t) => acc + (t >= 0 ? 1 : 0), 0)
+  const match = lcsMatchTimes(A, B)
+  const matched = Array.from(match.matchTime).reduce((acc, t) => acc + (t >= 0 ? 1 : 0), 0)
   const confidence = matched / A.length
 
-  const anchors = anchorsByLine(A, matchTime, lineCount)
+  const anchors = anchorsByLine(A, match, lineCount)
   // Robustify: a later line anchored earlier than an earlier kept line is a wrong
   // match against a repeated phrase — drop it so it interpolates from neighbours.
   let lastKept = -Infinity

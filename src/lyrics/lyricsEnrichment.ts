@@ -4,7 +4,7 @@ import { hasVisibleTranslation } from './bilingual'
 import { alignmentIndicesAreValid } from './lineAligner'
 
 /** Bump when persisted enrichment shape changes and songs should re-normalize once. */
-export const LYRICS_ENRICHMENT_VERSION = 1
+export const LYRICS_ENRICHMENT_VERSION = 4
 
 /** True when tokenization still needs to run for these lines. */
 export function linesNeedEnrichment(lines: TimedLine[], enrichmentVersion?: number): boolean {
@@ -28,12 +28,16 @@ export function lineNeedsAlignment(line: TimedLine): boolean {
     (t) => !isParticleToken(t) && t.surface.trim().length > 0,
   )
   if (alignable.length === 0) return false
-  if (!alignable.some((t) => t.alignmentIndices?.length)) return true
+  // `undefined` = never attempted; `[]` = attempted with no match above threshold.
+  if (alignable.some((t) => t.alignmentIndices === undefined)) return true
   return !alignmentIndicesAreValid(line)
 }
 
 /** True when any line still needs word-pair alignment. */
-export function linesNeedAlignment(lines: TimedLine[]): boolean {
+export function linesNeedAlignment(lines: TimedLine[], enrichmentVersion?: number): boolean {
+  if (enrichmentVersion !== undefined && enrichmentVersion < LYRICS_ENRICHMENT_VERSION) {
+    return lines.some((line) => line.tokens?.length && hasVisibleTranslation(line))
+  }
   return lines.some(lineNeedsAlignment)
 }
 

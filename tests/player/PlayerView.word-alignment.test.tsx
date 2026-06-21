@@ -3,6 +3,7 @@ import 'fake-indexeddb/auto'
 import { render, screen, waitFor } from '@testing-library/react'
 import { db } from '../../src/core/db/schema'
 import { PlayerView } from '../../src/player/PlayerView'
+import { LYRICS_ENRICHMENT_VERSION } from '../../src/lyrics/lyricsEnrichment'
 
 vi.mock('../../src/player/AudioEngine', () => ({
   AudioEngine: class {
@@ -71,7 +72,7 @@ describe('PlayerView word alignment', () => {
           tokens: [{ surface: '君', startIndex: 0, endIndex: 1, alignmentIndices: [0] }],
         }],
         sourceLanguage: 'ja', translationLanguage: 'en', alignmentMode: 'manual',
-        enrichmentVersion: 1,
+        enrichmentVersion: LYRICS_ENRICHMENT_VERSION,
       },
       syncState: 'synced', createdAt: new Date(), isTrialSong: false,
     } as never)
@@ -139,7 +140,7 @@ describe('PlayerView word alignment', () => {
       expect(useLyricsStore.getState().lines[0].tokens?.length).toBeGreaterThan(0)
     })
     const saved = await db.songs.get('song1')
-    expect(saved?.lyrics.enrichmentVersion).toBe(1)
+    expect(saved?.lyrics.enrichmentVersion).toBe(LYRICS_ENRICHMENT_VERSION)
 
     unmount()
     render(<PlayerView songId="song1" onBack={vi.fn()} />)

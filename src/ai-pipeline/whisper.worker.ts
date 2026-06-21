@@ -1,61 +1,92 @@
 /// <reference lib="webworker" />
-import { pipeline, env } from '@xenova/transformers'
+import { getWhisperModel } from './models'
+import { MODEL_INIT_HINT, ModelLoadProgressTracker, type ModelLoadProgress } from './modelLoadProgress'
+import { loadWhisperAsrPipeline } from './whisperPipeline'
+import { whisperLanguageFor } from './whisperLanguage'
+import type { Language } from '../core/types'
 
-env.allowLocalModels = false
-env.useBrowserCache = true
+let asr: Awaited<ReturnType<typeof loadWhisperAsrPipeline>> | null = null
 
-let asr: Awaited<ReturnType<typeof pipeline>> | null = null
+function postLoadProgress(payload: ModelLoadProgress | Record<string, unknown>) {
+  self.postMessage({ type: 'load-progress', payload })
+}
 
 self.onmessage = async (e: MessageEvent) => {
   const { type, payload } = e.data
 
-  if (type === 'load') {
-    const model = (payload as { model?: string } | undefined)?.model ?? 'Xenova/whisper-small'
-    self.postMessage({ type: 'progress', payload: { status: 'loading', progress: 0 } })
-    asr = await pipeline('automatic-speech-recognition', model, {
-      progress_callback: (p: { status?: string; progress?: number }) =>
-        self.postMessage({ type: 'progress', payload: p }),
+  try {
+    if (type === 'load') {
+      const model = (payload as { model?: string } | undefined)?.model ?? getWhisperModel('lite')
+      const tracker = new ModelLoadProgressTracker()
+      let initHintTimer: ReturnType<typeof setTimeout> | null = null
+
+      const scheduleInitHint = () => {
+        if (initHintTimer) clearTimeout(initHintTimer)
+        initHintTimer = setTimeout(() => {
+          initHintTimer = null
+          postLoadProgress(MODEL_INIT_HINT)
+        }, 600)
+      }
+
+      const clearInitHint = () => {
+        if (initHintTimer) {
+          clearTimeout(initHintTimer)
+          initHintTimer = null
+        }
+      }
+
+      postLoadProgress({ status: 'initiate', phase: 'download' })
+
+      asr = await loadWhisperAsrPipeline(model, (raw) => {
+        if (raw.status === 'download' || raw.status === 'progress') clearInitHint()
+        const update = tracker.ingest(raw)
+        postLoadProgress(update)
+        if (raw.status === 'done') scheduleInitHint()
+      })
+
+      clearInitHint()
+      self.postMessage({ type: 'loaded' })
+      return
+    }
+
+    if (type === 'transcribe') {
+      if (!asr) { self.postMessage({ type: 'error', payload: 'Model not loaded' }); return }
+      const { audioData, sampleRate, language } = payload as {
+        audioData: Float32Array
+        sampleRate: number
+        language?: Language
+      }
+
+      const resampled = sampleRate === 16000 ? audioData : resampleTo16k(audioData, sampleRate)
+
+      const CHUNK_LENGTH_S = 30
+      const STRIDE_LENGTH_S = 5
+
+      const jumpSamples = (CHUNK_LENGTH_S - 2 * STRIDE_LENGTH_S) * 16000
+      const totalChunks = Math.max(1, Math.ceil(resampled.length / jumpSamples))
+      let doneChunks = 0
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await (asr as any)(resampled, {
+        return_timestamps: 'word',
+        language: whisperLanguageFor(language),
+        task: 'transcribe',
+        chunk_length_s: CHUNK_LENGTH_S,
+        stride_length_s: STRIDE_LENGTH_S,
+        chunk_callback: () => {
+          doneChunks++
+          const progress = Math.min(100, Math.round((doneChunks / totalChunks) * 100))
+          self.postMessage({ type: 'progress', payload: { status: 'transcribing', progress } })
+        },
+      })
+
+      self.postMessage({ type: 'result', payload: result })
+    }
+  } catch (err) {
+    self.postMessage({
+      type: 'error',
+      payload: err instanceof Error ? err.message : String(err),
     })
-    self.postMessage({ type: 'loaded' })
-    return
-  }
-
-  if (type === 'transcribe') {
-    if (!asr) { self.postMessage({ type: 'error', payload: 'Model not loaded' }); return }
-    const { audioData, sampleRate } = payload as { audioData: Float32Array; sampleRate: number }
-
-    const resampled = sampleRate === 16000 ? audioData : resampleTo16k(audioData, sampleRate)
-
-    const CHUNK_LENGTH_S = 30
-    const STRIDE_LENGTH_S = 5
-
-    // Whisper slides a 30s window forward by (chunk_length - 2*stride) seconds
-    // per step (see chunk_callback in transformers.js). Estimating the total
-    // chunk count lets us turn each completed chunk into a real progress %, so
-    // the bar advances during the (multi-minute) transcribe phase instead of
-    // sitting frozen at 0%.
-    const jumpSamples = (CHUNK_LENGTH_S - 2 * STRIDE_LENGTH_S) * 16000
-    const totalChunks = Math.max(1, Math.ceil(resampled.length / jumpSamples))
-    let doneChunks = 0
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = await (asr as any)(resampled, {
-      return_timestamps: 'word',
-      language: 'japanese',
-      task: 'transcribe',
-      // Without chunking, Whisper only processes the first 30s of audio, so a
-      // full song gets no word timestamps past ~30s. Chunk across the whole
-      // track (30s windows, 5s overlap so words at boundaries aren't lost).
-      chunk_length_s: CHUNK_LENGTH_S,
-      stride_length_s: STRIDE_LENGTH_S,
-      chunk_callback: () => {
-        doneChunks++
-        const progress = Math.min(100, Math.round((doneChunks / totalChunks) * 100))
-        self.postMessage({ type: 'progress', payload: { status: 'transcribing', progress } })
-      },
-    })
-
-    self.postMessage({ type: 'result', payload: result })
   }
 }
 

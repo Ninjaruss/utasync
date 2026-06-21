@@ -17,7 +17,7 @@ export default {
       },
       fontFamily: {
         sans: ['system-ui', 'sans-serif'],
-        jp: ['"Hiragino Sans"', '"Yu Gothic"', 'system-ui', 'sans-serif'],
+        jp: ['"Hiragino Sans"', '"Yu Gothic"', '"Noto Sans JP"', '"Noto Sans CJK JP"', 'system-ui', 'sans-serif'],
       },
       keyframes: {
         'progress-enter': {

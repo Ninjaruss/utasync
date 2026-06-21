@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { LinkParser } from './LinkParser'
 import { UploadAudioFlow } from './UploadAudioFlow'
+import { ConfirmDialog } from '../core/ui/ConfirmDialog'
 
 type Source = 'upload' | 'link'
 
@@ -112,18 +113,48 @@ function SourceTile({
 
 export function AddSongSheet({ onSongReady, onClose }: Props) {
   const [source, setSource] = useState<Source>('upload')
+  const [busy, setBusy] = useState(false)
+  const [confirmClose, setConfirmClose] = useState(false)
+
+  const requestClose = () => {
+    if (busy) setConfirmClose(true)
+    else onClose()
+  }
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col justify-end md:justify-center md:items-center md:p-6">
-      <button aria-label="Dismiss" onClick={onClose} className="absolute inset-0 bg-black/60" />
+      <button
+        type="button"
+        aria-label="Dismiss"
+        onClick={requestClose}
+        className="absolute inset-0 bg-black/60"
+      />
       <div
         className="relative bg-cinnabar-950 border-t md:border border-cinnabar-900 rounded-t-2xl md:rounded-2xl p-4 md:p-5 w-full md:max-w-3xl max-h-[90dvh] md:max-h-[min(90vh,44rem)] flex flex-col overflow-hidden"
         role="dialog"
         aria-label="Add a song"
+        aria-modal="true"
       >
+        {confirmClose && (
+          <ConfirmDialog
+            title="Discard this song?"
+            message="Lyric search or saving is still in progress. Closing now will lose your progress."
+            confirmLabel="Discard"
+            cancelLabel="Keep working"
+            onConfirm={() => { setConfirmClose(false); onClose() }}
+            onCancel={() => setConfirmClose(false)}
+          />
+        )}
+
         <div className="flex items-center justify-between mb-2 md:mb-3 shrink-0">
           <h2 className="text-white font-semibold text-sm text-balance">Add a song</h2>
-          <button aria-label="Close" onClick={onClose} className="text-white/40 text-lg leading-none min-h-11 min-w-11 flex items-center justify-center">✕</button>
+          <button
+            aria-label="Close"
+            onClick={requestClose}
+            className="text-white/40 text-lg leading-none min-h-11 min-w-11 flex items-center justify-center touch-manipulation hover:text-white/70"
+          >
+            ✕
+          </button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3 md:mb-4 shrink-0">
@@ -139,8 +170,8 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
 
         <div className="flex-1 min-h-0 flex flex-col border-t border-cinnabar-900/80 pt-3 md:pt-4">
           {source === 'upload'
-            ? <UploadAudioFlow embedded onSongReady={onSongReady} />
-            : <LinkParser embedded onSongReady={onSongReady} />}
+            ? <UploadAudioFlow embedded onSongReady={onSongReady} onBusyChange={setBusy} />
+            : <LinkParser embedded onSongReady={onSongReady} onBusyChange={setBusy} />}
         </div>
       </div>
     </div>

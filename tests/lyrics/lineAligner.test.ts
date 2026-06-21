@@ -18,6 +18,9 @@ import {
   alignableEnglishTargetPool,
   alignmentIndicesAreValid,
   buildAlignJob,
+  isRepetitionOnlyLine,
+  trimTranslationForRepetitionLine,
+  autoAlignLines,
 } from '../../src/lyrics/lineAligner'
 import type { TimedLine } from '../../src/core/types'
 
@@ -102,6 +105,30 @@ describe('indexPairingLooksValid', () => {
   })
 })
 
+describe('smartAttachSecondLanguage — timed union merge', () => {
+  it('union-merges instead of flagging mismatch when translation line count differs', async () => {
+    const primary: TimedLine[] = [
+      line('君の瞳', '', 1, 3),
+      line('夜の中', '', 3, 5),
+    ]
+    const result = await smartAttachSecondLanguage(primary, 'Only one line', async () => [])
+    expect(result.mismatchedBlocks).toEqual([])
+    expect(result.method).toBe('timeline')
+    expect(result.lines.filter((l) => l.translation === 'Only one line')).toHaveLength(1)
+    expect(result.lines.some((l) => l.original === '君の瞳')).toBe(true)
+  })
+
+  it('keeps one row per primary line when counts match after semantic pairing', async () => {
+    const primary: TimedLine[] = [
+      line('君の瞳', '', 1, 3),
+      line('夜の中', '', 3, 5),
+    ]
+    const result = await smartAttachSecondLanguage(primary, 'Your eyes\nIn the night', async () => [])
+    expect(result.lines).toHaveLength(2)
+    expect(result.lines.map((l) => l.translation)).toEqual(['Your eyes', 'In the night'])
+  })
+})
+
 describe('smartAttachSecondLanguage — AKFG excerpt', () => {
   const primary: TimedLine[] = [
     line('転がる岩、君に朝が降る'),
@@ -150,11 +177,34 @@ describe('smartAttachSecondLanguage — AKFG excerpt', () => {
     expect(result.lines[4].translation).toBe('Rolling, rolling')
   })
 
+  it('does not assign translations to blank primary rows during semantic alignment', async () => {
+    const secondary = english.join('\n')
+    const result = await smartAttachSecondLanguage(primary, secondary, embedFn)
+    expect(result.lines[1].original).toBe('')
+    expect(result.lines[1].translation).toBe('')
+    expect(result.lines[2].translation).toBe("If possible, I'd like to repaint the world")
+  })
+
   it('does not use naive index pairing when JA and EN line counts match but content is offset', () => {
     const originals = primary.map((l) => l.original)
     const paddedEnglish = ['Rock and roll morning light falls on you', ...english]
     const { method } = pairTranslationsToPrimary(primary, paddedEnglish)
     expect(method).not.toBe('index')
+  })
+
+  it('does not use index pairing when counts match but primary has blank rows', () => {
+    const withBlank: TimedLine[] = [
+      line(''),
+      line('出来れば世界を僕は塗り変えたい'),
+      line('ローリング ローリング'),
+    ]
+    const trans = [
+      "If possible, I'd like to repaint the world",
+      'Rolling, rolling',
+    ]
+    const { method, lines } = pairTranslationsToPrimary(withBlank, trans)
+    expect(method).not.toBe('index')
+    expect(lines[0].translation).toBe('')
   })
 
   it('smartAttach defers blind plain-slot pairing to semantic alignment', async () => {
@@ -380,6 +430,12 @@ describe('alignmentIndicesAreValid', () => {
     expect(alignmentIndicesAreValid(timed)).toBe(false)
   })
 
+  it('accepts an attempted alignment with no pairs (empty index arrays)', () => {
+    const timed = line('謎', 'mystery')
+    timed.tokens = [{ surface: '謎', pos: '名詞', startIndex: 0, endIndex: 1, alignmentIndices: [] }]
+    expect(alignmentIndicesAreValid(timed)).toBe(true)
+  })
+
   it('rejects mixed-script Japanese tokens pointing into the duplicated Latin line', () => {
     const original = 'You always make me so happy 青空に溶けて'
     const translation = 'You always make me so happy\nMelt into the blue sky'
@@ -433,5 +489,52 @@ describe('buildAlignJob', () => {
     const job = buildAlignJob(timed)
     expect(job.segments).toHaveLength(2)
     expect(job.segments![1].targetIndexMap).toEqual([4, 6, 8])
+  })
+})
+
+describe('trimTranslationForRepetitionLine', () => {
+  it('detects repetition-only Japanese lines', () => {
+    expect(isRepetitionOnlyLine('ローリング ローリング')).toBe(true)
+    expect(isRepetitionOnlyLine('心絡まって ローリング ローリング')).toBe(false)
+  })
+
+  it('keeps only the repeated English tail for chorus rows', () => {
+    expect(trimTranslationForRepetitionLine(
+      'ローリング ローリング',
+      "I don't understand, rolling, rolling",
+    )).toBe('rolling, rolling')
+  })
+})
+
+describe('autoAlignLines — adjacent EN merge', () => {
+  const vec = (id: number): number[] => {
+    const v = new Array(8).fill(0)
+    v[id % 8] = 1
+    return v
+  }
+
+  it('merges two short English lines onto one long Japanese line', async () => {
+    const originals = [
+      '岩は転がって 僕たちを何処かに連れて行くように ように',
+      '凍てつく世界を転がるように走り出した',
+    ]
+    const translations = [
+      'The rocks roll us',
+      'As if taking us somewhere',
+      'We started running as if rolling on the freezing world',
+    ]
+    const embedMap: Record<string, number> = {
+      [originals[0]]: 0,
+      [originals[1]]: 1,
+      [translations[0]]: 2,
+      [translations[1]]: 3,
+      [translations[2]]: 1,
+      [`${translations[0]}\n${translations[1]}`]: 0,
+    }
+    const embedFn = async (texts: string[]) => texts.map((t) => vec(embedMap[t.trim()] ?? 7))
+    const { aligned, extras } = await autoAlignLines(originals, translations, embedFn)
+    expect(aligned[0]).toBe('The rocks roll us\nAs if taking us somewhere')
+    expect(aligned[1]).toBe('We started running as if rolling on the freezing world')
+    expect(extras).toEqual([])
   })
 })

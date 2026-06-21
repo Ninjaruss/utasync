@@ -40,6 +40,38 @@ describe('alignByContent (exact match)', () => {
   })
 })
 
+describe('alignByContent (spurious single-char matches)', () => {
+  it('does not anchor a line to an isolated single-character coincidence', () => {
+    // Line 1 is a single common particle with nothing else around it in the
+    // lyric — any match for it is, by definition, a 1-character coincidence,
+    // not real evidence of where it's sung. Line 2's real words appear later,
+    // together, at 30s. Pre-fix, anchorsByLine took *any* matched char as the
+    // line's anchor, so line 1 would pin to wherever 'は' happened to LCS-match
+    // (here, the earliest occurrence at 2s) — implying the line starts playing
+    // during unrelated audio. It should instead have no reliable anchor and
+    // fall back to interpolation (0, since it's the leading unanchored line).
+    const lines = ['は', 'ねこ']
+    const words: TranscriptWord[] = [
+      { word: 'は', startTime: 2, endTime: 2.4 }, // coincidental, not line 1's real audio
+      { word: 'ねこ', startTime: 30, endTime: 30.8 },
+    ]
+    const { lines: out } = alignByContent(lines, words, undefined, 'ja')
+    expect(out[0].startTime).toBe(0)
+    expect(out[1].startTime).toBeGreaterThanOrEqual(30)
+  })
+
+  it('still anchors a short line when its match is a contiguous multi-char run', () => {
+    const lines = ['は', 'ねこは']
+    const words: TranscriptWord[] = [
+      { word: 'は', startTime: 2, endTime: 2.4 }, // coincidental, ignored
+      { word: 'ねこ', startTime: 30, endTime: 30.8 },
+      { word: 'は', startTime: 30.8, endTime: 31.2 }, // contiguous with 'ねこ' above — real run
+    ]
+    const { lines: out } = alignByContent(lines, words, undefined, 'ja')
+    expect(out[1].startTime).toBeGreaterThanOrEqual(30)
+  })
+})
+
 describe('alignByContent (repeated lines)', () => {
   it('does not place a later repeated line earlier than a previous line', () => {
     // "ねえ" appears 3 times; the transcript has them at 5s, 50s, 90s.

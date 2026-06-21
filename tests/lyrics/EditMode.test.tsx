@@ -139,6 +139,14 @@ describe('EditMode', () => {
     expect(await screen.findByRole('heading', { name: /second language/i })).toBeTruthy()
   })
 
+  it('pauses playback when opening the second-language panel', async () => {
+    const onPausePlayback = vi.fn()
+    renderEditMode({ onPausePlayback })
+    fireEvent.click(screen.getByRole('button', { name: /translation/i }))
+    expect(onPausePlayback).toHaveBeenCalledTimes(1)
+    expect(await screen.findByRole('heading', { name: /second language/i })).toBeTruthy()
+  })
+
   it('does not clobber an in-progress draft when lines change externally while editing', () => {
     const { rerender } = renderEditMode()
     fireEvent.click(screen.getByText('b'))

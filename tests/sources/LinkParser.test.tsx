@@ -69,11 +69,13 @@ describe('LinkParser', () => {
     const resolver = await import('../../src/sources/lyricsResolver')
     const onSongReady = vi.fn()
     await continueToLyricsFound(onSongReady)
-    expect(resolver.resolveLyricsForSong).toHaveBeenCalledWith({
-      title: 'Test Song',
-      artist: 'Test Artist',
-      videoId: 'abc123',
-    })
+    expect(resolver.resolveLyricsForSong).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Test Song',
+        artist: 'Test Artist',
+        videoId: 'abc123',
+      }),
+    )
   })
 
   it('auto-attaches a translation on add song when counts match', async () => {
@@ -97,7 +99,7 @@ describe('LinkParser', () => {
     render(<LinkParser onSongReady={onSongReady} />)
     fireEvent.change(screen.getByPlaceholderText(/paste a youtube link/i), { target: { value: 'https://youtu.be/abc123' } })
     fireEvent.click(screen.getByRole('button', { name: /continue/i }))
-    await waitFor(() => expect(screen.getByText(/checking youtube captions/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/fetching youtube captions/i)).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /paste lyrics/i }))
     await waitFor(() => expect(screen.getByPlaceholderText(/paste lyrics/i)).toBeInTheDocument())
     expect(resolver.resolveLyricsForSong).toHaveBeenCalled()

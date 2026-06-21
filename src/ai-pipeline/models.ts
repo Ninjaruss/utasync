@@ -10,6 +10,11 @@ export function getWhisperModel(_tier: DeviceTier): string {
   return WHISPER_MODEL_FULL
 }
 
+/** Shown in auto-align loading copy for the tier's speech model. */
+export function getWhisperDownloadHint(_tier: DeviceTier): string {
+  return WHISPER_DOWNLOAD_HINT
+}
+
 /** Multilingual sentence embeddings for word-pair coloring and semantic line attach. */
 export const EMBED_MODEL = 'Xenova/paraphrase-multilingual-MiniLM-L12-v2'
 

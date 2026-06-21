@@ -66,6 +66,7 @@ function ColoredTokens({
         return (
           <span
             key={i}
+            className="yomitan-text"
             style={tokenBorderStyle(color, highlighted)}
             onMouseEnter={() => onHover({ source: i })}
             onMouseLeave={() => onHover(null)}
@@ -100,7 +101,7 @@ function PrimaryText({ line, isActive, furiganaMode, colored, hovered, onHover }
   hovered: HoveredPair | null
   onHover: (pair: HoveredPair | null) => void
 }) {
-  const sizeClass = isActive ? 'text-2xl font-semibold text-white' : 'text-base font-normal text-white/45 group-hover:text-white/75'
+  const sizeClass = isActive ? 'text-xl sm:text-2xl font-semibold text-white' : 'text-base font-normal text-white/45 group-hover:text-white/75'
   const lineHoverClass = 'group-hover:underline decoration-white/30 underline-offset-4'
   const useColoredTokens = colored && line.tokens && line.tokens.length > 0
   const showFurigana = furiganaMode === 'furigana'
@@ -108,7 +109,8 @@ function PrimaryText({ line, isActive, furiganaMode, colored, hovered, onHover }
   if (showFurigana && line.furigana && !useColoredTokens) {
     return (
       <div
-        className={['font-jp furigana-text select-text', lyricTextTransition, sizeClass, lineHoverClass].join(' ')}
+        lang="ja"
+        className={['font-jp furigana-text yomitan-text select-text', lyricTextTransition, sizeClass, lineHoverClass].join(' ')}
         style={isActive ? { textShadow: '0 0 20px rgba(248,113,113,0.5)' } : undefined}
         dangerouslySetInnerHTML={{ __html: line.furigana }}
       />
@@ -117,7 +119,8 @@ function PrimaryText({ line, isActive, furiganaMode, colored, hovered, onHover }
 
   return (
     <div
-      className={['font-jp select-text', lyricTextTransition, showFurigana ? 'furigana-text' : '', sizeClass, lineHoverClass].join(' ')}
+      lang="ja"
+      className={['font-jp yomitan-text select-text', lyricTextTransition, showFurigana ? 'furigana-text' : '', sizeClass, lineHoverClass].join(' ')}
       style={isActive ? { textShadow: '0 0 20px rgba(248,113,113,0.5)' } : undefined}
     >
       {useColoredTokens ? (
@@ -195,7 +198,10 @@ function Line({ line, isActive, inLoopRegion, onLineClick, lineRef }: {
     : 'group-hover:underline group-hover:text-white/60 decoration-white/20 underline-offset-4'
 
   const translationEl = hasTranslation && (showTranslation || sideBySide) ? (
-    <div className={[
+    <div
+      lang="en"
+      translate="no"
+      className={[
       lyricTextTransition,
       isActive ? 'text-base italic text-white/70' : 'text-sm italic text-white/35',
       sideBySide ? 'text-left' : 'mt-1.5',

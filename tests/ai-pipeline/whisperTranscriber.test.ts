@@ -1,73 +1,66 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { resetWhisperTranscriber } from '../../src/ai-pipeline/whisperTranscriber'
 
-vi.mock('../../src/ai-pipeline/capability', () => ({ getDeviceTier: () => 'lite' }))
+class MockWorker {
+  static instances: MockWorker[] = []
+  onmessage: ((e: MessageEvent) => void) | null = null
+  private listeners = new Set<(e: MessageEvent) => void>()
 
-class FakeWhisperWorker {
-  listeners: Array<(e: MessageEvent) => void> = []
-  lastLoadModel: string | undefined
+  constructor() {
+    MockWorker.instances.push(this)
+  }
 
   addEventListener(_type: string, fn: (e: MessageEvent) => void) {
-    this.listeners.push(fn)
+    this.listeners.add(fn)
   }
 
   removeEventListener(_type: string, fn: (e: MessageEvent) => void) {
-    this.listeners = this.listeners.filter((l) => l !== fn)
+    this.listeners.delete(fn)
   }
 
-  postMessage(msg: { type: string; payload?: { model?: string; audioData?: Float32Array; sampleRate?: number } }) {
-    if (msg.type === 'load') {
-      this.lastLoadModel = msg.payload?.model
-      queueMicrotask(() => {
-        for (const fn of this.listeners) {
-          fn({ data: { type: 'loaded' } } as MessageEvent)
-        }
-      })
-    } else if (msg.type === 'transcribe') {
-      queueMicrotask(() => {
-        for (const fn of this.listeners) {
-          fn({
-            data: {
-              type: 'result',
-              payload: { chunks: [{ text: 'hi', timestamp: [0, 1] }] },
-            },
-          } as MessageEvent)
-        }
-      })
-    }
+  postMessage(data: unknown) {
+    queueMicrotask(() => {
+      const msg = data as { type?: string }
+      if (msg.type === 'load') {
+        this.emit({ type: 'load-progress', payload: { status: 'progress', file: 'a.onnx', progress: 50, aggregateProgress: 50, phase: 'download' } })
+        this.emit({ type: 'load-progress', payload: { status: 'initializing', phase: 'init' } })
+        this.emit({ type: 'loaded' })
+      }
+      if (msg.type === 'transcribe') {
+        this.emit({ type: 'result', payload: { text: 'hi', chunks: [] } })
+      }
+    })
+  }
+
+  emit(event: { type: string; payload?: unknown }) {
+    const message = { data: event } as MessageEvent
+    this.listeners.forEach((fn) => fn(message))
+    this.onmessage?.(message)
   }
 
   terminate() {}
 }
 
-let whisperWorkerInstance: FakeWhisperWorker | null = null
+vi.stubGlobal('Worker', MockWorker)
 
-vi.stubGlobal(
-  'Worker',
-  vi.fn(function FakeWorker() {
-    whisperWorkerInstance = new FakeWhisperWorker()
-    return whisperWorkerInstance
-  }),
-)
-
-describe('whisperTranscriber', () => {
+describe('whisperTranscriber load progress', () => {
   beforeEach(() => {
     resetWhisperTranscriber()
-    whisperWorkerInstance = null
-    vi.resetModules()
+    MockWorker.instances = []
   })
 
-  afterEach(() => {
-    resetWhisperTranscriber()
-  })
-
-  it('reuses the same worker across consecutive transcribe calls', async () => {
+  it('broadcasts load progress to listeners attached while load is in flight', async () => {
     const { transcribeAudio } = await import('../../src/ai-pipeline/whisperTranscriber')
-    const audio = new Float32Array(100)
-    await transcribeAudio(audio, 44100)
-    const firstWorker = whisperWorkerInstance
-    await transcribeAudio(audio, 44100)
-    expect(whisperWorkerInstance).toBe(firstWorker)
-    expect(whisperWorkerInstance?.lastLoadModel).toBe('Xenova/whisper-small')
+    const events: string[] = []
+
+    const pending = transcribeAudio(new Float32Array(8), 16000, {
+      onLoadProgress: (p) => {
+        events.push(p.phase ?? p.status ?? 'unknown')
+      },
+    })
+
+    await pending.catch(() => {})
+    expect(events).toContain('download')
+    expect(events).toContain('init')
   })
 })

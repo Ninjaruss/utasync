@@ -12,7 +12,7 @@ import {
   editToolbarRow,
   toolbarSectionLabel,
 } from '../core/ui/toolbarClasses'
-import { lineIndexAtPlayhead } from './lineTiming'
+import { lineIndexAtPlayhead, linePlaybackStart } from './lineTiming'
 
 interface Props {
   lines: TimedLine[]
@@ -35,6 +35,8 @@ interface Props {
   onTapSync?: () => void
   /** Re-fetch / replace main lyrics from captions, LRCLIB, paste, or file. */
   onReplaceLyrics?: () => void
+  /** Pause playback when opening a modal workflow (second language, etc.). */
+  onPausePlayback?: () => void
 }
 
 const DELETE_CONFIRM_MS = 3000
@@ -180,7 +182,7 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
@@ -189,6 +191,11 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
   const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const previewReturnRef = useRef(0)
   const hasSecondLang = lines.some((l) => l.translation)
+
+  const openSecondLang = () => {
+    onPausePlayback?.()
+    setShowSecondLang(true)
+  }
 
   useEffect(() => () => { if (deleteTimer.current) clearTimeout(deleteTimer.current) }, [])
 
@@ -211,14 +218,14 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
     if (openPopover !== null) revertPreview()
     previewReturnRef.current = playhead()
     setOpenPopover(i)
-    seek?.(lines[i].startTime)
+    seek?.(linePlaybackStart(lines[i]))
   }
 
   const startEdit = (i: number) => {
     if (openPopover !== null && openPopover !== i) cancelPopover()
     disarmDelete(i)
     setEditingIndex(i)
-    seek?.(lines[i].startTime)
+    seek?.(linePlaybackStart(lines[i]))
   }
 
   const closePopoverAfterCommit = () => {
@@ -283,7 +290,7 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
           ) : null}
           <button
             type="button"
-            onClick={() => setShowSecondLang(true)}
+            onClick={openSecondLang}
             className={toolbarActionBtn}
           >
             {hasSecondLang ? '2nd language' : '+ Translation'}

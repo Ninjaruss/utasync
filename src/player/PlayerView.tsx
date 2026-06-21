@@ -26,6 +26,7 @@ import { alignLinesTokens, countEmbedBatches } from '../ai-pipeline/wordAligner'
 import { buildAlignJob } from '../lyrics/lineAligner'
 import { LoadingOverlay } from '../core/ui/LoadingOverlay'
 import { abPairError, abLoopPatchFromLineTap, isValidABPair } from './abLoopUtils'
+import { linePlaybackStart } from '../lyrics/lineTiming'
 import { exportAbLoopClip, exportAbLoopPlaylistClip, abLoopHasTimedLyrics, abLoopPlaylistHasTimedLyrics, getValidPlaylistExportSegments, lyricHintForAbLoop } from './abLoopExport'
 import { createPlaylistEntry, shouldAdvancePlaylistAfterCycle } from './abLoopPlaylist'
 import { useAbLoopPlaylistStore } from './abLoopPlaylistStore'
@@ -37,6 +38,8 @@ import { LyricsImportPanel } from '../lyrics/LyricsImportPanel'
 import { attachAudioToSong } from '../sources/audioIngest'
 import { inferSourceLanguage } from '../sources/lyricsResolver'
 import { WordColorProgressBanner } from './WordColorProgressBanner'
+import { PlayEditToggle } from './PlayEditToggle'
+import { ConfirmDialog } from '../core/ui/ConfirmDialog'
 import { displayToolbarRow } from '../core/ui/toolbarClasses'
 
 const AutoAlignFlow = lazy(() => import('../ai-pipeline/AutoAlignFlow'))
@@ -196,6 +199,12 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [attachingAudio, setAttachingAudio] = useState(false)
   const [attachAudioError, setAttachAudioError] = useState('')
   const [showLyricsReimport, setShowLyricsReimport] = useState(false)
+  const [lyricsReimportBusy, setLyricsReimportBusy] = useState(false)
+  const [confirmLyricsReimportClose, setConfirmLyricsReimportClose] = useState(false)
+  const requestLyricsReimportClose = () => {
+    if (lyricsReimportBusy) setConfirmLyricsReimportClose(true)
+    else setShowLyricsReimport(false)
+  }
   const seekRef = useRef<(time: number) => void>(() => {})
   const enrichmentJobRef = useRef(0)
   const wordColorJobRef = useRef(0)
@@ -266,7 +275,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const deferBackgroundEnrichment = (base: Song, linesToProcess: TimedLine[], isCancelled: () => boolean) => {
     if (!canRunWordAlignment() || !linesAreTimed(linesToProcess) || !wantsWordPairColoring()) return () => {}
     const needsEnrich = linesNeedEnrichment(linesToProcess, base.lyrics.enrichmentVersion)
-    const needsAlign = linesNeedAlignment(linesToProcess)
+    const needsAlign = linesNeedAlignment(linesToProcess, base.lyrics.enrichmentVersion)
     if (!needsEnrich && !needsAlign) return () => {}
 
     const jobId = ++enrichmentJobRef.current
@@ -345,7 +354,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   }, [songId, resetSession])
 
   useEffect(() => {
-    if (!song || !canRunWordAlignment() || !wantsWordPairColoring() || !linesNeedAlignment(lines)) return
+    if (!song || !canRunWordAlignment() || !wantsWordPairColoring() || !linesNeedAlignment(lines, song.lyrics.enrichmentVersion)) return
     const cancel = deferBackgroundEnrichment(song, lines, () => false)
     return cancel
   // Intentionally omit `lines` — pairing/edit handlers run alignment directly; this
@@ -411,7 +420,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     const lyricLines = useLyricsStore.getState().lines
     if (index < 0 || index >= lyricLines.length) return
     useLyricsStore.setState({ activeLine: index })
-    const time = lyricLines[index].startTime
+    const time = linePlaybackStart(lyricLines[index])
     if (isYouTube) ytRef.current?.seekTo(time)
     else engine.seek(time)
     setPosition(time)
@@ -520,7 +529,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
             void persistEnrichedLines(updated, enriched, true)
           }
         })
-    } else if (linesNeedAlignment(lines) && canRunWordAlignment()) {
+    } else if (linesNeedAlignment(lines, updated.lyrics.enrichmentVersion) && canRunWordAlignment()) {
       runWordColoring(lines)
         .then((enriched) => {
           if (enriched.length === lines.length && enrichmentMadeProgress(lines, enriched, updated.lyrics.enrichmentVersion)) {
@@ -791,17 +800,12 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         <button onClick={onBack} className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-white/40 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]">← Back</button>
         {song && (
           <div className="flex-1 min-w-0 px-1">
-            <p className="text-sm text-white/85 truncate font-medium text-balance">{song.title}</p>
-            {song.artist && <p className="text-[11px] text-white/35 truncate text-pretty">{song.artist}</p>}
+            <p className="text-sm text-white/85 truncate font-medium">{song.title}</p>
+            {song.artist && <p className="text-[11px] text-white/35 truncate">{song.artist}</p>}
           </div>
         )}
         <div className="flex items-center gap-2 shrink-0">
-          <div className="inline-flex bg-white/8 rounded-full p-1 gap-0.5">
-            <button onClick={() => setMode('play')}
-              className={`min-h-9 px-3.5 text-xs rounded-[calc(9999px-4px)] touch-manipulation transition-[color,background-color,transform] duration-150 ease-out active:scale-[0.96] ${mode === 'play' ? 'bg-cinnabar-accent text-white font-semibold' : 'text-white/50 hover:text-white/70'}`}>Play</button>
-            <button onClick={() => setMode('edit')}
-              className={`min-h-9 px-3.5 text-xs rounded-[calc(9999px-4px)] touch-manipulation transition-[color,background-color,transform] duration-150 ease-out active:scale-[0.96] ${mode === 'edit' ? 'bg-cinnabar-accent text-white font-semibold' : 'text-white/50 hover:text-white/70'}`}>Edit</button>
-          </div>
+          <PlayEditToggle mode={mode} onChange={setMode} />
           <button onClick={() => onSettings?.()} className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-white/40 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]">Settings</button>
         </div>
       </header>
@@ -856,7 +860,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
 
       {/* Main: lyrics + controls. Controls dock to the bottom on mobile, sidebar on md+. */}
       <div className="flex flex-1 min-h-0 flex-col md:flex-row md:items-stretch">
-        <div className="flex flex-1 min-h-0 flex-col min-w-0 md:max-w-[calc(100%-17rem)] lg:max-w-none">
+        <div className="flex flex-1 min-h-0 flex-col min-w-0">
           {mode === 'play' ? (
             <LyricDisplay
               abLoop={abLoop}
@@ -870,7 +874,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               } else {
                 const idx = useLyricsStore.getState().lines.indexOf(line)
                 if (idx >= 0) useLyricsStore.setState({ activeLine: idx })
-                seek(line.startTime)
+                seek(linePlaybackStart(line))
               }
             }} />
           ) : (
@@ -890,6 +894,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               showTapSync={canPlayback && lyricsUntimed}
               onTapSync={() => beginAlignment('tap')}
               onReplaceLyrics={() => setShowLyricsReimport(true)}
+              onPausePlayback={pausePlayback}
             />
           )}
         </div>
@@ -949,14 +954,41 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       </div>
 
       {showLyricsReimport && song && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4" onClick={() => setShowLyricsReimport(false)}>
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4"
+          onClick={requestLyricsReimportClose}
+        >
           <div
-            className="w-full max-w-md rounded-2xl bg-cinnabar-950 border border-cinnabar-800 p-4 max-h-[min(90dvh,32rem)] flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-md rounded-2xl bg-cinnabar-950 border border-cinnabar-800 p-4 max-h-[min(90dvh,32rem)] flex flex-col overflow-hidden"
             role="dialog"
             aria-label="Replace lyrics"
+            aria-modal="true"
           >
-            <h3 className="text-sm font-semibold text-white mb-3 shrink-0">Replace lyrics</h3>
+            {confirmLyricsReimportClose && (
+              <ConfirmDialog
+                title="Close lyric search?"
+                message="Lyrics are still being fetched. Closing now will cancel the search."
+                confirmLabel="Close"
+                cancelLabel="Keep searching"
+                onConfirm={() => {
+                  setConfirmLyricsReimportClose(false)
+                  setShowLyricsReimport(false)
+                }}
+                onCancel={() => setConfirmLyricsReimportClose(false)}
+              />
+            )}
+            <div className="flex items-center justify-between mb-3 shrink-0">
+              <h3 className="text-sm font-semibold text-white">Replace lyrics</h3>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={requestLyricsReimportClose}
+                className="text-white/40 min-h-10 min-w-10 flex items-center justify-center hover:text-white/70"
+              >
+                ✕
+              </button>
+            </div>
             <div className="flex-1 min-h-0 overflow-y-auto">
             <LyricsImportPanel
               title={song.title}
@@ -964,7 +996,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               videoId={ytVideoId}
               sourceLanguage={song.lyrics.sourceLanguage}
               onApply={handleReplaceLyrics}
-              onCancel={() => setShowLyricsReimport(false)}
+              onCancel={requestLyricsReimportClose}
+              onBusyChange={setLyricsReimportBusy}
               applyLabel="Replace lyrics"
             />
             </div>

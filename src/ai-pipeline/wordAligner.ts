@@ -1,6 +1,6 @@
 import { toRomaji as kanaToRomaji } from 'wanakana'
 import type { Token } from '../core/types'
-import { isAlignableToken, isParticleToken } from '../core/language'
+import { isAlignableToken, isParticleToken, isDependentVerbStem } from '../core/language'
 import type { AlignmentSegment } from '../lyrics/lineAligner'
 import { katakanaToHiragana } from '../language/japanese/phonetics'
 import { glossMatchesTarget, KANJI_ROMAJI, romajiShareGloss } from './lyricGloss'
@@ -10,6 +10,7 @@ export { isParticleToken, isAlignableToken }
 
 /** Embedding vectors from the embedder are pre-normalized, so dot product IS cosine similarity. */
 export function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length !== b.length) return 0
   let dot = 0
   for (let i = 0; i < a.length; i++) dot += a[i] * b[i]
   return dot
@@ -143,7 +144,7 @@ export function exactTextMatchScore(sourceText: string, targetText: string): num
  * so the English "I"/"you" has no source word — fuzzy embedding similarity to it
  * is almost always spurious (持っ→I, 見え→you). Require a gloss/exact hit.
  */
-const GLOSS_ONLY_TARGETS = new Set(['i', 'you'])
+const GLOSS_ONLY_TARGETS = new Set(['i', 'you', 'she', 'he', 'it', 'they', 'we', 'me', 'him', 'her', 'us', 'them'])
 
 /** Combined embedding similarity and exact romaji/gloss match (no position bonus). */
 export function pairScore(
@@ -274,7 +275,7 @@ export function optimalOneToOneMatch(scores: number[][], threshold = MATCH_THRES
   return result.sort((a, b) => a.sourceIndex - b.sourceIndex)
 }
 
-type MonotonicAction = 'skip_source' | 'skip_target' | 'match_one_to_one' | 'match_many_to_one'
+type MonotonicAction = 'skip_source' | 'skip_target' | 'match_one_to_one'
 
 /**
  * Monotonic sequence alignment: source/target indices never decrease, naturally
@@ -348,16 +349,13 @@ export function monotonicSequenceMatch(scores: number[][], threshold = MATCH_THR
       j--
       continue
     }
+    // Only 'match_one_to_one' reaches here (skip_source/skip_target handled above).
     const tgt = matchTarget[i][j]
     if (tgt !== null) {
       result.push({ sourceIndex: i - 1, targetIndex: tgt, score: scores[i - 1][tgt] })
     }
-    if (act === 'match_one_to_one') {
-      i--
-      j--
-    } else {
-      i--
-    }
+    i--
+    j--
   }
 
   return result.sort((a, b) => a.sourceIndex - b.sourceIndex)
@@ -456,8 +454,9 @@ export function matchTokens(
   const monoTotal = monotonic.reduce((sum, m) => sum + m.score, 0)
   const optTotal = optimal.reduce((sum, m) => sum + m.score, 0)
   // Monotonic alignment skips filler English words well, but global one-to-one
-  // handles inverted JA/EN word order (SOV vs SVO); pick the stronger assignment.
-  const primary = optTotal >= monoTotal ? optimal : monotonic
+  // handles inverted JA/EN word order (SOV vs SVO). Prefer monotonic when scores
+  // are close so spurious optimal pairs do not steal filler-adjacent targets.
+  const primary = monoTotal >= optTotal * 0.92 ? monotonic : optimal
   const extended = extendManyToOne(scores, sourceTexts, targetTexts, primary, threshold)
   return [...primary, ...extended]
 }
@@ -474,10 +473,44 @@ function isNounToken(token: Token): boolean {
   return token.pos?.startsWith('名詞') ?? false
 }
 
+/** Suffix nouns merged only when the full compound is in KANJI_ROMAJI. */
+const NOUN_SET_SUFFIXES = new Set(['寸前'])
+
+function isBoundVerbStem(token: Token): boolean {
+  if (!token.pos?.startsWith('名詞')) return false
+  const s = token.surface
+  return /[\u3040-\u309f\u30a0-\u30ff]$/.test(s) && s.length >= 2
+}
+
+function isVerbMorphologyPart(token: Token): boolean {
+  if (isParticleToken(token)) return false
+  const pos = token.pos ?? ''
+  return pos.startsWith('動詞') || pos.startsWith('助動詞') || pos.startsWith('接尾辞')
+}
+
 function shouldMergeCompound(left: Token, right: Token): boolean {
   if (!isAlignableToken(left) || !isAlignableToken(right)) return false
+  if (isNounToken(left) && NOUN_SET_SUFFIXES.has(right.surface)) {
+    return KANJI_ROMAJI[mergeSurface(left.surface, right.surface)] !== undefined
+  }
   if (!isNounToken(left) || !isNounToken(right)) return false
   return KANJI_ROMAJI[mergeSurface(left.surface, right.surface)] !== undefined
+}
+
+function isIndependentVerb(token: Token): boolean {
+  const pos = token.pos ?? ''
+  if (!pos.startsWith('動詞')) return false
+  return !isDependentVerbStem(token) && !(token.posDetail1 ?? '').includes('接尾辞')
+}
+
+function shouldMergeVerbChain(left: Token, right: Token): boolean {
+  if (!isVerbMorphologyPart(left) || !isVerbMorphologyPart(right)) return false
+  if (isParticleToken(right)) return false
+  // Main verb + auxiliary (遅れ+てる, 溶け+…): align the stem only.
+  if (isIndependentVerb(left) && (isDependentVerbStem(right) || right.pos?.startsWith('助動詞'))) {
+    return false
+  }
+  return true
 }
 
 function mergeSurface(a: string, b: string): string {
@@ -491,7 +524,7 @@ function mergeReading(a?: string, b?: string): string | undefined {
   return left ?? right
 }
 
-/** Merges adjacent nominal tokens (e.g. 恋+愛) into one alignment unit. */
+/** Merges adjacent nominal tokens (e.g. 恋+愛, 爆発+寸前) and verb inflection chains (覗き+込ま+れ). */
 export function buildAlignmentUnits(tokens: Token[], alignTokenIndices?: ReadonlySet<number>): AlignmentUnit[] {
   const units: AlignmentUnit[] = []
   let i = 0
@@ -500,6 +533,96 @@ export function buildAlignmentUnits(tokens: Token[], alignTokenIndices?: Readonl
       i++
       continue
     }
+
+    // Colloquial question stem (どう+し+た → どうした).
+    if (
+      tokens[i].surface === 'どう'
+      && i + 1 < tokens.length
+      && tokens[i + 1].surface === 'し'
+    ) {
+      const start = i
+      let merged = tokens[i]
+      let j = i + 1
+      merged = {
+        ...merged,
+        surface: mergeSurface(merged.surface, tokens[j].surface),
+        reading: mergeReading(merged.reading, tokens[j].reading),
+        endIndex: tokens[j].endIndex,
+      }
+      j++
+      if (j < tokens.length && tokens[j].pos?.startsWith('助動詞')) {
+        merged = {
+          ...merged,
+          surface: mergeSurface(merged.surface, tokens[j].surface),
+          reading: mergeReading(merged.reading, tokens[j].reading),
+          endIndex: tokens[j].endIndex,
+        }
+        j++
+      }
+      if (KANJI_ROMAJI[merged.surface] !== undefined) {
+        units.push({
+          tokenIndices: Array.from({ length: j - start }, (_, k) => start + k),
+          embedText: tokenEmbedText(merged),
+          glossText: tokenGlossText(merged),
+        })
+        i = j
+        continue
+      }
+    }
+
+    // Bound noun + verb (覗き+込ま+れ) — kuromoji often parses the stem as 名詞.
+    if (
+      isBoundVerbStem(tokens[i])
+      && i + 1 < tokens.length
+      && tokens[i + 1].pos?.startsWith('動詞')
+    ) {
+      const start = i
+      let merged = tokens[i]
+      let j = start + 1
+      while (j < tokens.length && !isParticleToken(tokens[j]) && isVerbMorphologyPart(tokens[j])) {
+        const isFirstVerbPart = j === start + 1
+        if (!isFirstVerbPart && !shouldMergeVerbChain(tokens[j - 1], tokens[j])) break
+        merged = {
+          ...merged,
+          surface: mergeSurface(merged.surface, tokens[j].surface),
+          reading: mergeReading(merged.reading, tokens[j].reading),
+          endIndex: tokens[j].endIndex,
+        }
+        j++
+      }
+      if (KANJI_ROMAJI[merged.surface] !== undefined) {
+        units.push({
+          tokenIndices: Array.from({ length: j - start }, (_, k) => start + k),
+          embedText: tokenEmbedText(merged),
+          glossText: tokenGlossText(merged),
+        })
+        i = j
+        continue
+      }
+    }
+
+    // Verb inflection runs — one unit even when inner morphemes are 非自立.
+    if (isVerbMorphologyPart(tokens[i])) {
+      const start = i
+      let merged = tokens[i]
+      while (i + 1 < tokens.length && shouldMergeVerbChain(tokens[i], tokens[i + 1])) {
+        i++
+        merged = {
+          ...merged,
+          surface: mergeSurface(merged.surface, tokens[i].surface),
+          reading: mergeReading(merged.reading, tokens[i].reading),
+          endIndex: tokens[i].endIndex,
+        }
+      }
+      units.push({
+        tokenIndices: Array.from({ length: i - start + 1 }, (_, k) => start + k),
+        embedText: tokenEmbedText(merged),
+        glossText: tokenGlossText(merged),
+      })
+      i++
+      continue
+    }
+
     if (!isAlignableToken(tokens[i])) {
       i++
       continue
@@ -516,9 +639,7 @@ export function buildAlignmentUnits(tokens: Token[], alignTokenIndices?: Readonl
       }
     }
     const indices: number[] = []
-    for (let k = start; k <= i; k++) {
-      if (isAlignableToken(tokens[k])) indices.push(k)
-    }
+    for (let k = start; k <= i; k++) indices.push(k)
     units.push({
       tokenIndices: indices,
       embedText: tokenEmbedText(merged),
@@ -616,7 +737,20 @@ function applyUnitMatches(
       updated[tokenIndex] = { ...updated[tokenIndex], alignmentIndices: [fullTargetIndex] }
     }
   }
-  return updated
+  return finalizeAlignmentTokens(updated, new Set(units.flatMap((u) => u.tokenIndices)))
+}
+
+/** Marks alignable tokens that were aligned with `[]` when pairing found no match. */
+export function finalizeAlignmentTokens(
+  tokens: Token[],
+  attemptedIndices?: ReadonlySet<number>,
+): Token[] {
+  return tokens.map((t, i) => {
+    if (attemptedIndices && !attemptedIndices.has(i)) return t
+    if (!isAlignableToken(t) || !t.surface.trim()) return t
+    if (t.alignmentIndices !== undefined) return t
+    return { ...t, alignmentIndices: [] }
+  })
 }
 
 /**

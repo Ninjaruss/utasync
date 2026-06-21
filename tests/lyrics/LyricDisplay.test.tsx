@@ -156,6 +156,16 @@ describe('word-pair coloring', () => {
     )
   })
 
+  it('marks sung Japanese for dictionary extensions with lang="ja"', () => {
+    useLyricsStore.setState({
+      lines: [{ startTime: 0, endTime: 2, original: '君', translation: 'you' }],
+      activeLine: -1,
+      lyricsLayout: 'sideBySide',
+    })
+    const { container } = render(<LyricDisplay onLineClick={vi.fn()} />)
+    expect(container.querySelector('[lang="ja"].yomitan-text')).toBeTruthy()
+  })
+
   it('colors Japanese tokens on mixed-script lines against the second translation line', () => {
     const original = 'You always make me so happy 青空に溶けて'
     const translation = 'You always make me so happy\nMelt into the blue sky'

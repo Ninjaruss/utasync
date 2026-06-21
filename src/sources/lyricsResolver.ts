@@ -1,9 +1,11 @@
 import type { TimedLine, Language } from '../core/types'
-import { findLyrics, type LyricsLookup } from './lrclib'
+import { findLyrics, type LyricsLookup, type LyricsLookupMatch } from './lrclib'
 import { parseLRC } from '../lyrics/lrc-parser'
 import { linesFromPlainText } from './songBuilder'
 import { fetchYouTubeCaptionLines } from './youtubeCaptions'
 import { detectLanguage } from '../lyrics/bilingual'
+
+export type { LyricsLookupMatch }
 
 export type LyricsResolveSource =
   | 'youtube-captions'
@@ -11,10 +13,15 @@ export type LyricsResolveSource =
   | 'lrclib-plain'
   | 'none'
 
+/** Source when lyrics were actually found (excludes `'none'`). */
+export type LyricsResolveFoundSource = Exclude<LyricsResolveSource, 'none'>
+
 export interface LyricsResolveResult {
   lines: TimedLine[]
   synced: boolean
   source: LyricsResolveSource
+  /** Set for LRCLIB hits — title/artist of the entry lyrics came from. */
+  match?: LyricsLookupMatch
 }
 
 function fromLrcLookup(lookup: LyricsLookup): LyricsResolveResult {
@@ -23,6 +30,7 @@ function fromLrcLookup(lookup: LyricsLookup): LyricsResolveResult {
     lines,
     synced: lookup.synced,
     source: lookup.synced ? 'lrclib-synced' : 'lrclib-plain',
+    match: lookup.match,
   }
 }
 

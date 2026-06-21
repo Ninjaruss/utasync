@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import type { FuriganaMode, LyricsLayout } from '../core/types'
+import { useOutsideDismiss } from '../core/ui/useOutsideDismiss'
 import {
   displayMenuTrigger,
   displayMenuTriggerActive,
@@ -69,14 +70,7 @@ export function DisplayMenu({
   const customized = hasNonDefaultDisplay(isJapanese, furiganaMode, showTranslation, lyricsLayout)
   const summary = displaySummary(isJapanese, furiganaMode, showTranslation, lyricsLayout)
 
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (e: PointerEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [open])
+  useOutsideDismiss(rootRef, open, () => setOpen(false))
 
   if (!isJapanese && !hasTranslation) return null
 

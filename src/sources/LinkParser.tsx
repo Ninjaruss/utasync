@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type ChangeEvent } from 'react'
 import { fetchYouTubeMeta } from './youtube'
-import { resolveLyricsForSong, lyricsSourceLabel, type ResolveLyricsStage } from './lyricsResolver'
+import { resolveLyricsForSong, lyricsSourceLabel, type LyricsResolveFoundSource, type ResolveLyricsStage } from './lyricsResolver'
 import { db } from '../core/db/schema'
 import { buildSong, linesFromPlainText, type BuildSongInput } from './songBuilder'
 import { detectLanguage } from '../lyrics/bilingual'
@@ -10,6 +10,8 @@ import type { TimedLine, Language } from '../core/types'
 import { parseSubtitle } from '../lyrics/subtitle-parser'
 import { ProgressOverlay } from '../core/ui/ProgressOverlay'
 import { ProcessProgress } from '../core/ui/ProcessProgress'
+import { LyricsFoundConfirm, lyricsFoundReadyToApply } from '../lyrics/LyricsFoundConfirm'
+import type { LyricsLookupMatch } from './lrclib'
 import {
   RESOLVE_LYRICS_STATUS,
   resolveLyricsSubsteps,
@@ -27,16 +29,17 @@ type ManualLyricSource = 'paste' | 'subtitle'
 type LyricsPhase =
   | { kind: 'idle' }
   | { kind: 'searching' }
-  | { kind: 'found'; lines: TimedLine[]; synced: boolean; sourceLabel: string }
+  | { kind: 'found'; lines: TimedLine[]; synced: boolean; sourceLabel: string; source: LyricsResolveFoundSource; match?: LyricsLookupMatch }
   | { kind: 'manual'; source: ManualLyricSource }
 
 interface Props {
   onSongReady: (songId: string) => void
   /** When true, renders inside AddSongSheet without standalone page chrome. */
   embedded?: boolean
+  onBusyChange?: (busy: boolean) => void
 }
 
-export function LinkParser({ onSongReady, embedded = false }: Props) {
+export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Props) {
   const [url, setUrl] = useState('')
   const [audioFile, setAudioFile] = useState<File | null>(null)
   const [title, setTitle] = useState('')
@@ -50,7 +53,13 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
   const [saveProgress, setSaveProgress] = useState<{ phase: LinkSavePhase; includeAudio: boolean; taskProgress?: number | null } | null>(null)
   const [lyricSearchStage, setLyricSearchStage] = useState<ResolveLyricsStage | null>(null)
   const [error, setError] = useState('')
+  const [matchConfirmed, setMatchConfirmed] = useState(false)
   const searchGenRef = useRef(0)
+
+  const isBusy = !!saveProgress || metadataLoading || lyricsPhase.kind === 'searching'
+  useEffect(() => {
+    onBusyChange?.(isBusy)
+  }, [isBusy, onBusyChange])
 
   const loadMetadata = async () => {
     if (!url.trim()) return
@@ -80,6 +89,7 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
 
   const skipLyricSearch = (source: ManualLyricSource) => {
     searchGenRef.current++
+    setMatchConfirmed(false)
     setLyricsPhase({ kind: 'manual', source })
     setError('')
   }
@@ -104,12 +114,15 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
       .then((result) => {
         if (gen !== searchGenRef.current) return
         setLyricSearchStage(null)
-        if (result.lines.length > 0) {
+        if (result.lines.length > 0 && result.source !== 'none') {
+          setMatchConfirmed(false)
           setLyricsPhase({
             kind: 'found',
             lines: result.lines,
             synced: result.synced,
             sourceLabel: lyricsSourceLabel(result.source),
+            source: result.source,
+            match: result.match,
           })
         } else {
           setLyricsPhase({ kind: 'manual', source: 'paste' })
@@ -185,7 +198,8 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
     `px-3 py-1.5 rounded-lg text-xs ${lyricsPhase.kind === 'manual' && lyricsPhase.source === s ? 'bg-cinnabar-accent text-white' : 'bg-cinnabar-900 text-white/50'}`
 
   const lyricsReady =
-    lyricsPhase.kind === 'found'
+    (lyricsPhase.kind === 'found'
+      && lyricsFoundReadyToApply(title, artist, lyricsPhase.match, matchConfirmed))
     || (lyricsPhase.kind === 'manual' && lyricsPhase.source === 'paste' && pasted.trim())
     || (lyricsPhase.kind === 'manual' && lyricsPhase.source === 'subtitle' && subtitleFile)
 
@@ -334,9 +348,18 @@ export function LinkParser({ onSongReady, embedded = false }: Props) {
               )}
 
               {lyricsPhase.kind === 'found' && (
-                <p className="text-green-400/90 text-sm text-pretty">
-                  Found {lyricsPhase.synced ? 'synced' : 'plain'} lyrics from {lyricsPhase.sourceLabel} ({lyricsPhase.lines.length} lines)
-                </p>
+                <LyricsFoundConfirm
+                  queriedTitle={title}
+                  queriedArtist={artist}
+                  lines={lyricsPhase.lines}
+                  synced={lyricsPhase.synced}
+                  sourceLabel={lyricsPhase.sourceLabel}
+                  match={lyricsPhase.match}
+                  fromVideoCaptions={lyricsPhase.source === 'youtube-captions'}
+                  confirmed={matchConfirmed}
+                  onConfirm={() => setMatchConfirmed(true)}
+                  onUseDifferent={() => skipLyricSearch('paste')}
+                />
               )}
 
               {lyricsPhase.kind === 'manual' && (

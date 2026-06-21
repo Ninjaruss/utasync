@@ -38,6 +38,12 @@ describe('parseLRC', () => {
     expect(lines[0].original).toBe('Line one')
   })
 
+  it('applies [offset:] metadata in milliseconds', () => {
+    const lrc = `[offset:-500]\n[00:10.00]Line one`
+    const lines = parseLRC(lrc)
+    expect(lines[0].startTime).toBeCloseTo(9.5)
+  })
+
   it('returns empty array for empty input', () => {
     expect(parseLRC('')).toEqual([])
   })

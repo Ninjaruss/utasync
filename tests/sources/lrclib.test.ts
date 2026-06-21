@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 global.fetch = vi.fn()
 const mockFetch = (value: unknown) => vi.mocked(fetch).mockResolvedValue(value as Response)
 
-import { searchLRCLIB, fetchLRCFromLRCLIB, findSecondLanguageInLRCLIB } from '../../src/sources/lrclib'
+import { searchLRCLIB, fetchLRCFromLRCLIB, findSecondLanguageInLRCLIB, findLyrics } from '../../src/sources/lrclib'
 
 describe('searchLRCLIB', () => {
   beforeEach(() => { vi.resetAllMocks() })
@@ -92,5 +92,77 @@ describe('fetchLRCFromLRCLIB', () => {
     })
     const lrc = await fetchLRCFromLRCLIB('Test Song', 'Test Artist')
     expect(lrc).toBeNull()
+  })
+})
+
+describe('findLyrics', () => {
+  beforeEach(() => { vi.resetAllMocks() })
+
+  it('picks the best fuzzy title match from search results', async () => {
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('/api/get')) {
+        return { ok: false, status: 404 } as Response
+      }
+      return {
+        ok: true,
+        json: async () => ([
+          { id: 1, name: 'Totally Different', artistName: 'Other', syncedLyrics: '[00:01.00]Wrong' },
+          { id: 2, name: 'Blinding Lights', artistName: 'The Weeknd', syncedLyrics: '[00:01.00]Right song' },
+        ]),
+      } as Response
+    })
+
+    const result = await findLyrics('Blinding Lghts', 'The Weeknd')
+    expect(result?.lrc).toContain('Right song')
+    expect(result?.synced).toBe(true)
+    expect(result?.match?.track).toBe('Blinding Lights')
+    expect(result?.match?.artist).toBe('The Weeknd')
+    expect(result?.match?.matchKind).toBe('fuzzy')
+  })
+
+  it('tries cleaned title variants when exact metadata fails', async () => {
+    const searchUrls: string[] = []
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('/api/search')) searchUrls.push(url)
+      if (url.includes('/api/get')) {
+        return { ok: false, status: 404 } as Response
+      }
+      return {
+        ok: true,
+        json: async () => ([
+          { id: 1, name: 'My Song', artistName: 'Artist', syncedLyrics: '[00:01.00]Found' },
+        ]),
+      } as Response
+    })
+
+    await findLyrics('My Song (Official Video)', 'Artist')
+    expect(searchUrls.some((u) => u.includes('track_name=My+Song'))).toBe(true)
+  })
+
+  it('finds a typo rock title via distinctive phrase search', async () => {
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('/api/get')) {
+        return { ok: false, status: 404 } as Response
+      }
+      if (url.includes('Morning+Light+Falls') || url.includes('morning+light+falls')) {
+        return {
+          ok: true,
+          json: async () => ([{
+            id: 1,
+            name: "Rockn' Roll, Morning Light Falls on You",
+            artistName: 'ASIAN KUNG-FU GENERATION',
+            syncedLyrics: '[00:01.00]Dekireba sekai o',
+          }]),
+        } as Response
+      }
+      return { ok: true, json: async () => [] } as Response
+    })
+
+    const result = await findLyrics('Rock n Roll Morning Light Falls Onto You', 'Asian Kung-Fu Generation')
+    expect(result?.lrc).toContain('Dekireba')
+    expect(result?.synced).toBe(true)
   })
 })

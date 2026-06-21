@@ -4,13 +4,15 @@ import { linesFromPlainText } from '../sources/songBuilder'
 import { parseSubtitle } from './subtitle-parser'
 import { resolveLyricsForSong, lyricsSourceLabel, type LyricsResolveSource } from '../sources/lyricsResolver'
 import { normalizeImportedLines } from '../sources/importNormalize'
+import { LyricsFoundConfirm, lyricsFoundReadyToApply } from './LyricsFoundConfirm'
+import type { LyricsLookupMatch } from '../sources/lrclib'
 
 type ManualLyricSource = 'paste' | 'subtitle'
 
 type LyricsPhase =
   | { kind: 'idle' }
   | { kind: 'searching' }
-  | { kind: 'found'; lines: TimedLine[]; synced: boolean; source: LyricsResolveSource }
+  | { kind: 'found'; lines: TimedLine[]; synced: boolean; source: LyricsResolveSource; match?: LyricsLookupMatch }
   | { kind: 'manual'; source: ManualLyricSource }
 
 interface Props {
@@ -21,6 +23,7 @@ interface Props {
   /** Called when user confirms a lyrics set. */
   onApply: (lines: TimedLine[]) => void
   onCancel: () => void
+  onBusyChange?: (busy: boolean) => void
   applyLabel?: string
 }
 
@@ -31,6 +34,7 @@ export function LyricsImportPanel({
   sourceLanguage,
   onApply,
   onCancel,
+  onBusyChange,
   applyLabel = 'Use these lyrics',
 }: Props) {
   const [lyricsPhase, setLyricsPhase] = useState<LyricsPhase>({ kind: 'idle' })
@@ -38,7 +42,13 @@ export function LyricsImportPanel({
   const [subtitleFile, setSubtitleFile] = useState<File | null>(null)
   const [error, setError] = useState('')
   const [applying, setApplying] = useState(false)
+  const [matchConfirmed, setMatchConfirmed] = useState(false)
   const searchGenRef = useRef(0)
+
+  const isBusy = applying || lyricsPhase.kind === 'searching'
+  useEffect(() => {
+    onBusyChange?.(isBusy)
+  }, [isBusy, onBusyChange])
 
   const runSearch = () => {
     if (!title.trim()) return
@@ -50,11 +60,13 @@ export function LyricsImportPanel({
       .then((result) => {
         if (gen !== searchGenRef.current) return
         if (result.lines.length > 0) {
+          setMatchConfirmed(false)
           setLyricsPhase({
             kind: 'found',
             lines: result.lines,
             synced: result.synced,
             source: result.source,
+            match: result.match,
           })
         } else {
           setLyricsPhase({ kind: 'manual', source: 'paste' })
@@ -74,6 +86,7 @@ export function LyricsImportPanel({
 
   const skipLyricSearch = (source: ManualLyricSource) => {
     searchGenRef.current++
+    setMatchConfirmed(false)
     setLyricsPhase({ kind: 'manual', source })
     setError('')
   }
@@ -115,7 +128,8 @@ export function LyricsImportPanel({
     `px-3 py-1.5 rounded-lg text-xs touch-manipulation ${lyricsPhase.kind === 'manual' && lyricsPhase.source === s ? 'bg-cinnabar-accent text-white' : 'bg-cinnabar-900 text-white/50'}`
 
   const lyricsReady =
-    lyricsPhase.kind === 'found'
+    (lyricsPhase.kind === 'found'
+      && lyricsFoundReadyToApply(title, artist, lyricsPhase.match, matchConfirmed))
     || (lyricsPhase.kind === 'manual' && lyricsPhase.source === 'paste' && pasted.trim())
     || (lyricsPhase.kind === 'manual' && lyricsPhase.source === 'subtitle' && subtitleFile)
 
@@ -161,10 +175,18 @@ export function LyricsImportPanel({
         )}
 
         {lyricsPhase.kind === 'found' && (
-          <p className="text-green-400/90 text-sm text-pretty">
-            Found {lyricsPhase.synced ? 'synced' : 'plain'} lyrics from{' '}
-            {lyricsSourceLabel(lyricsPhase.source)} ({lyricsPhase.lines.length} lines)
-          </p>
+          <LyricsFoundConfirm
+            queriedTitle={title}
+            queriedArtist={artist}
+            lines={lyricsPhase.lines}
+            synced={lyricsPhase.synced}
+            sourceLabel={lyricsSourceLabel(lyricsPhase.source)}
+            match={lyricsPhase.match}
+            fromVideoCaptions={lyricsPhase.source === 'youtube-captions'}
+            confirmed={matchConfirmed}
+            onConfirm={() => setMatchConfirmed(true)}
+            onUseDifferent={() => skipLyricSearch('paste')}
+          />
         )}
 
         {lyricsPhase.kind === 'manual' && (

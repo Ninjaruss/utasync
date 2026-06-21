@@ -1,6 +1,8 @@
 import { getDeviceTier } from './capability'
 import { getWhisperModel } from './models'
 import { runWhenIdle } from '../core/idle'
+import type { ModelLoadPhase } from './modelLoadProgress'
+import type { Language } from '../core/types'
 
 export interface TranscriptChunk {
   text: string
@@ -15,13 +17,17 @@ export interface WhisperTranscript {
 export interface LoadProgress {
   status?: string
   progress?: number
+  aggregateProgress?: number
   file?: string
+  phase?: ModelLoadPhase
+  filesCompleted?: number
 }
 
 // Worker is intentionally long-lived while in use; released after idle timeout.
 let worker: Worker | null = null
 let loaded: Promise<void> | null = null
 let idleReleaseTimer: ReturnType<typeof setTimeout> | null = null
+const loadProgressListeners = new Set<(p: LoadProgress) => void>()
 
 const WORKER_IDLE_RELEASE_MS = 3 * 60 * 1000
 
@@ -56,21 +62,32 @@ export function resetWhisperTranscriber(): void {
   worker?.terminate()
   worker = null
   loaded = null
+  loadProgressListeners.clear()
+}
+
+function broadcastLoadProgress(p: LoadProgress): void {
+  loadProgressListeners.forEach((fn) => fn(p))
 }
 
 function ensureLoaded(onProgress?: (p: LoadProgress) => void): Promise<void> {
+  if (onProgress) loadProgressListeners.add(onProgress)
+
   if (!loaded) {
     loaded = new Promise((resolve, reject) => {
       const w = getWorker()
       const onMessage = (e: MessageEvent) => {
-        if (e.data.type === 'progress') {
-          onProgress?.(e.data.payload as LoadProgress)
+        if (e.data.type === 'load-progress') {
+          broadcastLoadProgress(e.data.payload as LoadProgress)
         } else if (e.data.type === 'loaded') {
           w.removeEventListener('message', onMessage)
+          loadProgressListeners.clear()
           resolve()
         } else if (e.data.type === 'error') {
           w.removeEventListener('message', onMessage)
+          w.terminate()
+          worker = null
           loaded = null
+          loadProgressListeners.clear()
           reject(new Error(String(e.data.payload)))
         }
       }
@@ -78,7 +95,10 @@ function ensureLoaded(onProgress?: (p: LoadProgress) => void): Promise<void> {
       w.postMessage({ type: 'load', payload: { model: getWhisperModel(getDeviceTier()) } })
     })
   }
-  return loaded
+
+  return loaded.finally(() => {
+    if (onProgress) loadProgressListeners.delete(onProgress)
+  })
 }
 
 /** Low-priority warm-up — does not load the model during initial paint. */
@@ -91,6 +111,7 @@ export async function transcribeAudio(
   audioData: Float32Array,
   sampleRate: number,
   options?: {
+    language?: Language
     onLoadProgress?: (p: LoadProgress) => void
     onModelLoaded?: () => void
     onTranscribeProgress?: (progress: number) => void
@@ -116,7 +137,7 @@ export async function transcribeAudio(
       }
     }
     w.addEventListener('message', onMessage)
-    w.postMessage({ type: 'transcribe', payload: { audioData, sampleRate } })
+    w.postMessage({ type: 'transcribe', payload: { audioData, sampleRate, language: options?.language } })
   })
 
   scheduleWorkerRelease()

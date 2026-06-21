@@ -7,6 +7,7 @@ import {
   alignLineTokens,
   alignLinesTokens,
   countEmbedBatches,
+  finalizeAlignmentTokens,
   tokenEmbedText,
   tokenGlossText,
   targetEmbedText,
@@ -81,6 +82,10 @@ describe('isAlignableToken', () => {
     expect(isAlignableToken(tok('好き', '形容詞'))).toBe(true)
     expect(isAlignableToken(tok('会', '動詞,自立,*,*,*,*,*'))).toBe(true)
     expect(isAlignableToken(tok('だけ', '助詞', 'ダケ', '副助詞'))).toBe(true)
+  })
+  it('excludes Latin script tokens in mixed-script lines', () => {
+    expect(isAlignableToken(tok('You', '名詞'))).toBe(false)
+    expect(isAlignableToken(tok('happy', '名詞'))).toBe(false)
   })
 })
 
@@ -158,6 +163,18 @@ describe('extendManyToOne', () => {
     const primary = [{ sourceIndex: 0, targetIndex: 0, score: 0.9 }]
     const extra = extendManyToOne(scores, sourceTexts, targetTexts, primary, 0.5)
     expect(extra.some((m) => m.sourceIndex === 2 && m.targetIndex === 0)).toBe(true)
+  })
+})
+
+describe('finalizeAlignmentTokens', () => {
+  it('marks unmatched alignable tokens with empty alignmentIndices', () => {
+    const tokens: Token[] = [
+      tok('君', '名詞'),
+      tok('が', '助詞'),
+    ]
+    const result = finalizeAlignmentTokens(tokens, new Set([0]))
+    expect(result[0].alignmentIndices).toEqual([])
+    expect(result[1].alignmentIndices).toBeUndefined()
   })
 })
 
@@ -258,6 +275,9 @@ describe('cosineSimilarity', () => {
   })
   it('returns 0 for orthogonal vectors', () => {
     expect(cosineSimilarity([1, 0], [0, 1])).toBeCloseTo(0)
+  })
+  it('returns 0 instead of NaN for mismatched vector dimensions', () => {
+    expect(cosineSimilarity([1, 0, 0], [1, 0])).toBe(0)
   })
 })
 
@@ -447,6 +467,23 @@ describe('buildAlignmentUnits', () => {
       tok('空', '名詞', 'ソラ'),
     ]
     expect(buildAlignmentUnits(tokens)).toHaveLength(2)
+  })
+
+  it('merges bound-noun verb stems and keeps 爆発 / 寸前 separate', () => {
+    const tokens: Token[] = [
+      tok('覗き', '名詞', 'ノゾキ'),
+      tok('込ま', '動詞', 'コマ', '自立'),
+      tok('れ', '動詞', 'レ', '接尾辞'),
+      tok('て', '助詞', 'テ', '接続助詞'),
+      tok('爆発', '名詞', 'バクハツ'),
+      tok('寸前', '名詞', 'スンゼン'),
+    ]
+    const units = buildAlignmentUnits(tokens)
+    expect(units).toHaveLength(3)
+    expect(units[0].tokenIndices).toEqual([0, 1, 2])
+    expect(units[0].glossText).toBe('nozokikomare')
+    expect(units[1].embedText).toBe('爆発')
+    expect(units[2].embedText).toBe('寸前')
   })
 })
 
@@ -661,6 +698,27 @@ describe('alignLineTokens — My Eyes Only lyric pattern', () => {
     // Must not pair to function words
     expect(result.some((t) => t.alignmentIndices?.includes(words.indexOf('the')))).toBe(false)
     expect(result.some((t) => t.alignmentIndices?.includes(words.indexOf('as')))).toBe(false)
+  })
+
+  it('pairs 覗き込まれて 爆発寸前 as one verb phrase, exploding, and verge', async () => {
+    const tokens: Token[] = [
+      tok('覗き', '名詞', 'ノゾキ'),
+      tok('込ま', '動詞', 'コマ', '自立'),
+      tok('れ', '動詞', 'レ', '接尾辞'),
+      tok('て', '助詞', 'テ', '接続助詞'),
+      tok('爆発', '名詞', 'バクハツ'),
+      tok('寸前', '名詞', 'スンゼン'),
+    ]
+    const targetWords = ['peeks', 'verge', 'exploding']
+    const embed = async (texts: string[]): Promise<number[][]> =>
+      texts.map(() => [0.2, 0.2, 0.2])
+    const result = await alignLineTokens(tokens, targetWords, embed)
+    expect(result[0].alignmentIndices).toEqual([0])
+    expect(result[1].alignmentIndices).toEqual([0])
+    expect(result[2].alignmentIndices).toEqual([0])
+    expect(result[4].alignmentIndices).toEqual([2])
+    expect(result[5].alignmentIndices).toEqual([1])
+    expect(result[3].alignmentIndices).toBeUndefined()
   })
 
   it('buildAlignJob stores display-space indices for mixed-script lines', async () => {

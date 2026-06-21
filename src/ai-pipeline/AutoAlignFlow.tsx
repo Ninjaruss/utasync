@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
 import { getDeviceTier } from './capability'
-import { WHISPER_DOWNLOAD_HINT } from './models'
+import { getWhisperDownloadHint } from './models'
+import { decodeAudioFileToMono } from '../core/audio/decodeToMono'
 import { getAudioFile } from '../core/opfs/audio'
 import type { Song } from '../core/types'
 import { alignLyrics, type TranscriptWord } from './aligner'
 import { db } from '../core/db/schema'
 import { ProcessProgress } from '../core/ui/ProcessProgress'
+import { ConfirmDialog } from '../core/ui/ConfirmDialog'
 import { alignSteps, alignStepIndex, type AlignStage } from './alignProgress'
-import { transcribeAudio, type LoadProgress } from './whisperTranscriber'
+import { resetWhisperTranscriber, transcribeAudio, type LoadProgress } from './whisperTranscriber'
 
 interface Props {
   song: Song
@@ -19,33 +21,51 @@ interface Props {
 
 type Stage = 'idle' | AlignStage | 'done' | 'error'
 
-function formatLoadStatus(p: LoadProgress): string | null {
+function formatLoadStatus(p: LoadProgress, downloadHint: string): string | null {
+  if (p.phase === 'init' || p.status === 'initializing') {
+    return 'Initializing speech model — can take 1–2 minutes after files finish downloading'
+  }
   if (p.status === 'download' || p.status === 'progress') {
-    const file = (p as { file?: string; name?: string }).file
-      ?? (p as { file?: string; name?: string }).name
-    if (file && typeof p.progress === 'number') {
-      return `Downloading ${file} (${Math.round(p.progress)}%)`
+    const file = p.file
+    const pct = p.aggregateProgress ?? p.progress
+    if (file && typeof pct === 'number') {
+      return `Downloading model files (${Math.round(pct)}%) — ${file}`
     }
-    if (typeof p.progress === 'number' && p.progress > 0) {
-      return `Downloading speech model (${Math.round(p.progress)}%)`
+    if (typeof pct === 'number' && pct > 0) {
+      return `Downloading speech model (${Math.round(pct)}%)`
     }
-    return `First run — downloading speech model (${WHISPER_DOWNLOAD_HINT})`
+    return `First run — downloading speech model (${downloadHint})`
   }
   if (p.status === 'initiate') return 'Checking for cached speech model…'
   return null
 }
 
+function loadTaskProgress(p: LoadProgress | null, phase: 'download' | 'init'): number | null {
+  if (phase === 'init') return null
+  if (!p) return null
+  const pct = p.aggregateProgress ?? p.progress
+  if (typeof pct !== 'number' || pct <= 0) return null
+  // Per-file 100% is misleading when other files remain — prefer aggregate.
+  if (pct >= 100 && p.phase !== 'download') return null
+  return Math.min(99, pct)
+}
+
 export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: Props) {
   const tier = getDeviceTier()
+  const downloadHint = getWhisperDownloadHint(tier)
   const [stage, setStage] = useState<Stage>(() =>
     autoStart && tier !== 'manual' ? 'preparing' : 'idle',
   )
   const [progress, setProgress] = useState(0)
   const [loadDetail, setLoadDetail] = useState<string | null>(null)
+  const [loadPhase, setLoadPhase] = useState<'download' | 'init'>('download')
+  const [lastLoadProgress, setLastLoadProgress] = useState<LoadProgress | null>(null)
   const [error, setError] = useState('')
   const [lowConfidence, setLowConfidence] = useState(false)
+  const [confirmCancel, setConfirmCancel] = useState(false)
 
   const start = async () => {
+    setError('')
     try {
       let audioData: Float32Array | null = null
       let sampleRate = 44100
@@ -56,12 +76,9 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
 
       if (song.audioStoredPath) {
         const file = await getAudioFile(song.id)
-        const arrayBuffer = await file.arrayBuffer()
-        const ctx = new AudioContext()
-        const decoded = await ctx.decodeAudioData(arrayBuffer)
-        audioData = decoded.getChannelData(0)
+        const decoded = await decodeAudioFileToMono(file)
+        audioData = decoded.data
         sampleRate = decoded.sampleRate
-        await ctx.close()
       }
 
       if (!audioData) { setError('No audio file found. Upload audio first.'); setStage('error'); return }
@@ -90,20 +107,31 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       // for transcription stalling.
       setStage('loading')
       setProgress(0)
+      setLoadPhase('download')
+      setLastLoadProgress(null)
       setLoadDetail('Loading speech model from cache…')
 
       let sawDownload = false
       const transcriptResult = await transcribeAudio(audioData, sampleRate, {
+        language: song.lyrics.sourceLanguage,
         onLoadProgress: (p) => {
-          const detail = formatLoadStatus(p)
+          setLastLoadProgress(p)
+          if (p.phase === 'init' || p.status === 'initializing') {
+            setLoadPhase('init')
+          } else if (p.status === 'download' || p.status === 'progress' || p.status === 'done') {
+            setLoadPhase('download')
+          }
+          const detail = formatLoadStatus(p, downloadHint)
           if (detail) {
             sawDownload = true
             setLoadDetail(detail)
           }
-          if (typeof p.progress === 'number') setProgress(p.progress)
+          const pct = p.aggregateProgress ?? p.progress
+          if (typeof pct === 'number') setProgress(pct)
         },
         onModelLoaded: () => {
           if (!sawDownload) setLoadDetail(null)
+          setLoadPhase('download')
           setStage('transcribing')
           setProgress(0)
         },
@@ -111,11 +139,12 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       })
 
       setStage('aligning')
-      const words: TranscriptWord[] = transcriptResult.chunks?.map((c) => ({
-        word: c.text,
-        startTime: c.timestamp[0],
-        endTime: c.timestamp[1],
-      })) ?? []
+      const words: TranscriptWord[] = (transcriptResult.chunks ?? []).flatMap((c) => {
+        const [start, end] = c.timestamp ?? []
+        const word = c.text?.trim()
+        if (!word || !Number.isFinite(start) || !Number.isFinite(end)) return []
+        return [{ word, startTime: start, endTime: end }]
+      })
 
       // Weight against the sung (original) text — that's what the audio
       // transcript corresponds to, not the translation.
@@ -149,12 +178,18 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       ? stage
       : null
   const taskProgress =
-    activeStage === 'aligning' || activeStage === 'preparing' ? null : progress > 0 ? progress : null
+    activeStage === 'aligning' || activeStage === 'preparing'
+      ? null
+      : activeStage === 'loading'
+        ? loadTaskProgress(lastLoadProgress, loadPhase)
+        : progress > 0
+          ? progress
+          : null
 
   const stageDetail: Partial<Record<AlignStage, string>> = {
     preparing: 'Reading and decoding your audio file — longer songs take longer here',
     separating: 'Isolating vocals before transcription',
-    loading: loadDetail ?? `Loading speech model from cache (first run downloads ${WHISPER_DOWNLOAD_HINT})`,
+    loading: loadDetail ?? `Loading speech model from cache (first run downloads ${downloadHint})`,
     transcribing: tier === 'lite'
       ? 'On-device speech recognition — can take a few minutes on phones'
       : 'Running on-device speech recognition',
@@ -166,6 +201,18 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       ? stageDetail[activeStage] ?? null
       : null
 
+  const loadingSubsteps = activeStage === 'loading' && loadPhase === 'init'
+    ? [
+        { label: 'Model files downloaded', state: 'done' as const },
+        { label: 'Initializing on-device runtime', state: 'active' as const },
+      ]
+    : activeStage === 'loading' && (lastLoadProgress?.filesCompleted ?? 0) > 0
+      ? [
+          { label: 'Downloading model files', state: 'active' as const },
+          { label: 'Initializing on-device runtime', state: 'pending' as const },
+        ]
+      : undefined
+
   const stepsWithDetail = activeSteps.map((step, i) => {
     const keys: AlignStage[] = tier === 'full'
       ? ['preparing', 'separating', 'loading', 'transcribing', 'aligning']
@@ -175,6 +222,17 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
     return extra ? { ...step, detail: extra } : step
   })
 
+  const isProcessing = activeStage !== null
+
+  const requestClose = () => {
+    if (stage === 'done' || stage === 'error') {
+      onClose()
+      return
+    }
+    if (isProcessing) setConfirmCancel(true)
+    else onClose()
+  }
+
   const tierNote =
     tier === 'full' ? 'Vocal separation + transcription'
     : tier === 'lite' ? 'Transcription only (no vocal separation)'
@@ -182,7 +240,18 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
 
   return (
     <div className="fixed inset-0 bg-black/80 flex items-end md:items-center justify-center z-50 p-4">
-      <div className="bg-cinnabar-900 rounded-2xl p-6 max-w-sm w-full space-y-4 max-h-[90dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="relative bg-cinnabar-900 rounded-2xl p-6 max-w-sm w-full space-y-4 max-h-[90dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        {confirmCancel && (
+          <ConfirmDialog
+            title="Cancel auto-align?"
+            message="Speech recognition and alignment are still running. Stopping now discards all progress."
+            confirmLabel="Stop"
+            cancelLabel="Keep running"
+            onConfirm={() => { setConfirmCancel(false); onClose() }}
+            onCancel={() => setConfirmCancel(false)}
+          />
+        )}
+
         <h2 className="text-white font-semibold text-lg">Auto-Align Lyrics</h2>
         <p className="text-white/50 text-sm">{tierNote}</p>
 
@@ -198,18 +267,35 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
             currentStepIndex={alignStepIndex(tier, activeStage)}
             taskProgress={taskProgress}
             taskStatus={taskStatus}
+            taskSubsteps={loadingSubsteps}
             showElapsed={taskProgress == null}
           />
         )}
 
-        {stage === 'error' && <p className="text-red-400 text-sm">{error}</p>}
+        {stage === 'error' && (
+          <div className="space-y-3">
+            <p className="text-red-400 text-sm">{error}</p>
+            {tier !== 'manual' && (
+              <button
+                type="button"
+                onClick={() => {
+                  resetWhisperTranscriber()
+                  void start()
+                }}
+                className="w-full py-3 bg-cinnabar-accent text-white rounded-xl font-medium touch-manipulation"
+              >
+                Try again
+              </button>
+            )}
+          </div>
+        )}
         {stage === 'done' && (
           lowConfidence
             ? <p className="text-yellow-400 text-sm">Alignment is approximate — the audio didn't closely match these lyrics. Try tap-sync or double-check your lyrics.</p>
             : <p className="text-green-400 text-sm">Lyrics aligned successfully.</p>
         )}
 
-        <button onClick={onClose} className="text-white/40 text-sm w-full text-center">
+        <button onClick={requestClose} className="text-white/40 text-sm w-full text-center min-h-10 touch-manipulation">
           {stage === 'done' ? 'Close' : 'Cancel'}
         </button>
       </div>

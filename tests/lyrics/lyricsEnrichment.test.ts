@@ -66,6 +66,23 @@ describe('linesNeedAlignment', () => {
     }]
     expect(linesNeedAlignment(lines)).toBe(true)
   })
+  it('returns false after alignment was attempted but no pairs met the threshold', () => {
+    const lines: TimedLine[] = [{
+      startTime: 0, endTime: 1, original: '謎', translation: 'mystery',
+      tokens: [{ surface: '謎', pos: '名詞', startIndex: 0, endIndex: 1, alignmentIndices: [] }],
+    }]
+    expect(linesNeedAlignment(lines)).toBe(false)
+  })
+
+  it('returns true when enrichment version is stale so word pairing can refresh', () => {
+    const lines: TimedLine[] = [{
+      startTime: 0, endTime: 1, original: '君', translation: 'you',
+      tokens: [{ surface: '君', pos: '名詞', startIndex: 0, endIndex: 1, alignmentIndices: [0] }],
+    }]
+    expect(linesNeedAlignment(lines, 1)).toBe(true)
+    expect(linesNeedAlignment(lines, 2)).toBe(true)
+    expect(linesNeedAlignment(lines, LYRICS_ENRICHMENT_VERSION)).toBe(false)
+  })
 })
 
 describe('enrichmentMadeProgress', () => {
@@ -87,5 +104,17 @@ describe('enrichmentMadeProgress', () => {
       tokens: [{ surface: '君', pos: '名詞', startIndex: 0, endIndex: 1 }],
     }]
     expect(enrichmentMadeProgress(lines, lines)).toBe(false)
+  })
+
+  it('returns true when alignment was attempted but produced no pairs', () => {
+    const before: TimedLine[] = [{
+      startTime: 0, endTime: 1, original: '謎', translation: 'mystery',
+      tokens: [{ surface: '謎', pos: '名詞', startIndex: 0, endIndex: 1 }],
+    }]
+    const after: TimedLine[] = [{
+      ...before[0],
+      tokens: [{ surface: '謎', pos: '名詞', startIndex: 0, endIndex: 1, alignmentIndices: [] }],
+    }]
+    expect(enrichmentMadeProgress(before, after)).toBe(true)
   })
 })

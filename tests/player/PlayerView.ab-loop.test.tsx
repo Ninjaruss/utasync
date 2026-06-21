@@ -4,6 +4,11 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { db } from '../../src/core/db/schema'
 import { PlayerView } from '../../src/player/PlayerView'
 import { usePlayerStore } from '../../src/player/PlayerStore'
+import { linePlaybackStart } from '../../src/lyrics/lineTiming'
+import type { TimedLine } from '../../src/core/types'
+
+const helloLine: TimedLine = { startTime: 1, endTime: 3, original: 'hello', translation: 'hi' }
+const helloPlayback = linePlaybackStart(helloLine)
 
 const seek = vi.fn()
 
@@ -78,9 +83,9 @@ describe('PlayerView A/B loop', () => {
     await openPracticePanel()
     fireEvent.click(screen.getByRole('button', { name: /a loop point/i }))
     fireEvent.click(screen.getByText('hello'))
-    expect(usePlayerStore.getState().abLoop.a).toBe(1)
+    expect(usePlayerStore.getState().abLoop.a).toBe(helloPlayback)
     expect(usePlayerStore.getState().armingAB).toBeNull()
-    expect(seek).toHaveBeenCalledWith(1)
+    expect(seek).toHaveBeenCalledWith(helloPlayback)
   })
 
   it('loops a single lyric line when B is set on the same line as A', async () => {
@@ -92,7 +97,7 @@ describe('PlayerView A/B loop', () => {
     fireEvent.click(screen.getByRole('button', { name: /b loop point/i }))
     fireEvent.click(screen.getByText('hello'))
     const { abLoop } = usePlayerStore.getState()
-    expect(abLoop.a).toBe(1)
+    expect(abLoop.a).toBe(helloPlayback)
     expect(abLoop.b).toBe(3)
     expect(screen.queryByRole('alert')).toBeNull()
   })
@@ -106,7 +111,7 @@ describe('PlayerView A/B loop', () => {
     fireEvent.click(screen.getByRole('button', { name: /a loop point/i }))
     fireEvent.click(screen.getByText('hello'))
     const { abLoop } = usePlayerStore.getState()
-    expect(abLoop.a).toBe(1)
+    expect(abLoop.a).toBe(helloPlayback)
     expect(abLoop.b).toBe(3)
     expect(screen.queryByRole('alert')).toBeNull()
   })

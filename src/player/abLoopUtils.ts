@@ -1,4 +1,5 @@
 import type { ABLoop, TimedLine } from '../core/types'
+import { linePlaybackStart } from '../lyrics/lineTiming'
 
 export { lineOverlapsABLoop } from '../lyrics/lineTiming'
 
@@ -28,13 +29,15 @@ export function abEndpointFromLine(
   line: TimedLine,
   a: number | null,
 ): number {
-  if (which === 'a') return line.startTime
+  const start = line.startTime
+  const playbackStart = linePlaybackStart(line)
+  if (which === 'a') return playbackStart
 
-  const { startTime: start, endTime: end } = line
+  const { endTime: end } = line
   const hasValidEnd = end > start
 
   if (a !== null && hasValidEnd) {
-    if (a === start || (a >= start && a < end)) return end
+    if (a === playbackStart || a === start || (a >= playbackStart && a < end)) return end
   }
 
   return start
@@ -54,8 +57,8 @@ export function abLoopPatchFromLineTap(
   const hasValidEnd = end > start
 
   if (which === 'a') {
-    const a = start
-    if (loop.b !== null && hasValidEnd && loop.b === start && a >= loop.b) {
+    const a = linePlaybackStart(line)
+    if (loop.b !== null && hasValidEnd && loop.b === start) {
       return { a, b: end }
     }
     return { a }

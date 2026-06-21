@@ -131,7 +131,7 @@ describe('UploadAudioFlow', () => {
     await pickFileAndTitle(container)
 
     await waitFor(() => expect(screen.getByText(/found synced lyrics/i)).toBeInTheDocument())
-    expect(lrclib.findLyrics).toHaveBeenCalledWith('My Song', expect.any(String))
+    expect(lrclib.findLyrics).toHaveBeenCalledWith('My Song', '', expect.any(Function))
   })
 
   it('lets the user skip LRCLIB search and paste lyrics instead', async () => {

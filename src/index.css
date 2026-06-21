@@ -32,4 +32,12 @@
   opacity: 1;
   letter-spacing: 0.03em;
   text-shadow: 0 0 8px rgba(248, 113, 113, 0.35);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Sung Japanese — lang + readable rt so dictionary extensions (e.g. Yomitan) scan lyrics. */
+.yomitan-text {
+  user-select: text;
+  -webkit-user-select: text;
 }
