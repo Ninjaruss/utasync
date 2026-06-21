@@ -162,29 +162,19 @@ describe('extendManyToOne', () => {
 })
 
 describe('alignLineTokens — multi-token lines', () => {
-  it('maps several Japanese tokens onto fewer English words (many-to-one)', async () => {
+  it('maps several Japanese tokens onto fewer English words (many-to-one via gloss cluster)', async () => {
     const tokens: Token[] = [
-      tok('君', '名詞', 'キミ'),
+      tok('恋', '名詞', 'コイ'), // koi -> love
       tok('の', '助詞'),
-      tok('こと', '名詞', 'コト'),
-      tok('が', '助詞'),
-      tok('好き', '形容詞', 'スキ'),
+      tok('愛', '名詞', 'アイ'), // ai -> love (same gloss cluster)
     ]
-    const targetWords = ['I', 'like', 'you']
+    const targetWords = ['my', 'love']
     const embed = async (texts: string[]): Promise<number[][]> =>
-      texts.map((t) => {
-        if (t === '君' || t === 'kimi' || t === 'you') return [1, 0, 0]
-        if (t === '好き' || t === 'suki' || t === 'like') return [0, 1, 0]
-        if (t === 'i') return [0, 0, 1]
-        if (t === 'こと' || t === 'koto') return [0.88, 0.05, 0.07] // close to you, not like
-        return [0, 0, 0]
-      })
+      texts.map((t) => (t === '恋' || t === '愛' ? [1, 0] : [0, 1])) // orthogonal; rely on gloss
     const result = await alignLineTokens(tokens, targetWords, embed)
-    expect(result[0].alignmentIndices).toEqual([2]) // 君 -> you
-    expect(result[2].alignmentIndices).toEqual([2]) // こと -> you (many-to-one)
-    expect(result[4].alignmentIndices).toEqual([1]) // 好き -> like
+    expect(result[0].alignmentIndices).toEqual([1]) // 恋 -> love
+    expect(result[2].alignmentIndices).toEqual([1]) // 愛 -> love (many-to-one)
     expect(result[1].alignmentIndices).toBeUndefined() // particle
-    expect(result[3].alignmentIndices).toBeUndefined() // particle
   })
 
   it('colors a longer lyric line with multiple content words', async () => {
@@ -462,11 +452,12 @@ describe('buildAlignmentUnits', () => {
 
 describe('matchTokens', () => {
   it('combines optimal one-to-one with adjacent many-to-one extension', () => {
-    const sourceTexts = ['kimi', 'koto', 'suki']
-    const targetTexts = ['i', 'like', 'you']
+    // hoshi + kira both land on "star" (adjacent, each best-matches star); suki -> like.
+    const sourceTexts = ['hoshi', 'kira', 'suki']
+    const targetTexts = ['star', 'like', 'shine']
     const sourceVecs = [
-      [0, 0, 1],
-      [0, 0, 0.9],
+      [1, 0, 0],
+      [0.95, 0, 0],
       [0, 1, 0],
     ]
     const targetVecs = [
@@ -475,9 +466,9 @@ describe('matchTokens', () => {
       [0, 0, 1],
     ]
     const matches = matchTokens(sourceTexts, targetTexts, sourceVecs, targetVecs, 0.5)
-    expect(matches.find((m) => m.sourceIndex === 0)?.targetIndex).toBe(2)
-    expect(matches.find((m) => m.sourceIndex === 1)?.targetIndex).toBe(2)
-    expect(matches.find((m) => m.sourceIndex === 2)?.targetIndex).toBe(1)
+    expect(matches.find((m) => m.sourceIndex === 0)?.targetIndex).toBe(0) // hoshi -> star
+    expect(matches.find((m) => m.sourceIndex === 1)?.targetIndex).toBe(0) // kira -> star (many-to-one)
+    expect(matches.find((m) => m.sourceIndex === 2)?.targetIndex).toBe(1) // suki -> like
   })
 })
 

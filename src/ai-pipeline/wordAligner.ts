@@ -22,8 +22,6 @@ export interface MatchPair { sourceIndex: number; targetIndex: number; score: nu
 // English words (i/like/it) sit ~0.5–0.6. A 0.55 floor favors precision —
 // a missing (uncolored) word is far less confusing than a wrong pairing.
 export const MATCH_THRESHOLD = 0.55
-/** Second-pass floor for tokens still unmatched after greedy pairing. */
-export const RELAXED_MATCH_THRESHOLD = 0.45
 /** Small boost when source/target positions within a line are proportionally close. */
 export const POSITION_BONUS = 0.08
 /** DP assignment is used when target word count is at or below this (2^m states). */
@@ -139,6 +137,14 @@ export function exactTextMatchScore(sourceText: string, targetText: string): num
   return 0
 }
 
+/**
+ * Personal-pronoun targets that are only ever correct via an explicit gloss
+ * (boku/watashi/atashi→i, kimi/anata→you). Japanese routinely omits the subject,
+ * so the English "I"/"you" has no source word — fuzzy embedding similarity to it
+ * is almost always spurious (持っ→I, 見え→you). Require a gloss/exact hit.
+ */
+const GLOSS_ONLY_TARGETS = new Set(['i', 'you'])
+
 /** Combined embedding similarity and exact romaji/gloss match (no position bonus). */
 export function pairScore(
   sourceText: string,
@@ -151,8 +157,9 @@ export function pairScore(
   targetCount: number,
   options?: { usePositionBonus?: boolean },
 ): number {
-  const sim = cosineSimilarity(sourceVec, targetVec)
   const exact = exactTextMatchScore(sourceText, targetText)
+  if (exact < 1 && GLOSS_ONLY_TARGETS.has(targetText.trim().toLowerCase())) return 0
+  const sim = cosineSimilarity(sourceVec, targetVec)
   const base = Math.max(sim, exact)
   if (options?.usePositionBonus === false) return base
   const pos = positionHint(sourceIndex, targetIndex, sourceCount, targetCount)
@@ -304,16 +311,14 @@ export function monotonicSequenceMatch(scores: number[][], threshold = MATCH_THR
       if (i < n && j < m) {
         const s = scores[i][j]
         if (s >= threshold) {
+          // One-to-one only: many distinct tokens sharing a single target was the
+          // main "magnet" pile-up source (だけど/ちょっと/それ/ある all → "that").
+          // Legitimate many-to-one (e.g. 僕＋たち→us) is recovered, with gloss/
+          // adjacency evidence, by extendManyToOne.
           const oneToOne = base + s
           if (oneToOne > dp[i + 1][j + 1]) {
             dp[i + 1][j + 1] = oneToOne
             action[i + 1][j + 1] = 'match_one_to_one'
-            matchTarget[i + 1][j + 1] = j
-          }
-          const manyToOne = dp[i][j + 1] !== NEG ? dp[i][j + 1] + s : NEG
-          if (manyToOne > dp[i + 1][j + 1]) {
-            dp[i + 1][j + 1] = manyToOne
-            action[i + 1][j + 1] = 'match_many_to_one'
             matchTarget[i + 1][j + 1] = j
           }
         }
@@ -369,7 +374,6 @@ export function extendManyToOne(
   targetTexts: string[],
   primary: MatchPair[],
   threshold = MATCH_THRESHOLD,
-  relaxedThreshold = RELAXED_MATCH_THRESHOLD,
 ): MatchPair[] {
   const matchedSources = new Set(primary.map((m) => m.sourceIndex))
   const targetBySource = new Map(primary.map((m) => [m.sourceIndex, m.targetIndex]))
@@ -412,30 +416,30 @@ export function extendManyToOne(
     }
     if (matchedSources.has(i)) continue
 
-    // Adjacent neighbor extension (original behavior)
+    // Adjacent neighbor extension: a contiguous source phrase mapping to one
+    // word (e.g. 僕＋たち→us). Requires adjacency, a strong score, AND that the
+    // shared target is this token's single best match — otherwise grammatical
+    // fillers pile onto a neighbor's "magnet" target (先→that, 見え→here).
+    const bestTarget = argmaxTarget(scores[i])
     for (const neighbor of [i - 1, i + 1]) {
       if (neighbor < 0 || neighbor >= scores.length) continue
       const neighborTarget = targetBySource.get(neighbor)
-      if (neighborTarget === undefined) continue
+      if (neighborTarget === undefined || neighborTarget !== bestTarget) continue
       const score = scores[i][neighborTarget]
       if (score >= threshold && tryAssign(i, neighborTarget, score)) break
     }
-    if (matchedSources.has(i)) continue
-
-    // Cluster: share target when this source's best above-threshold target is already used
-    let bestJ = -1
-    let bestScore = relaxedThreshold
-    for (let j = 0; j < (scores[i]?.length ?? 0); j++) {
-      if (scores[i][j] > bestScore) {
-        bestScore = scores[i][j]
-        bestJ = j
-      }
-    }
-    if (bestJ >= 0 && targetOwners.has(bestJ)) {
-      tryAssign(i, bestJ, bestScore)
-    }
   }
   return extra
+}
+
+/** Index of the highest-scoring target for a source row, or -1 if empty. */
+function argmaxTarget(row: number[] | undefined): number {
+  if (!row || row.length === 0) return -1
+  let best = 0
+  for (let j = 1; j < row.length; j++) {
+    if (row[j] > row[best]) best = j
+  }
+  return best
 }
 
 /** Monotonic alignment with gloss/cluster many-to-one extension. */
