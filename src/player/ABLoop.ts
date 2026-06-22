@@ -43,4 +43,9 @@ export class ABLoopController {
   destroy() {
     if (this.timer) clearTimeout(this.timer)
   }
+
+  /** Call after programmatic seeks so the next tick does not false-trigger a loop wrap. */
+  syncPosition(pos: number) {
+    this.lastPos = pos
+  }
 }

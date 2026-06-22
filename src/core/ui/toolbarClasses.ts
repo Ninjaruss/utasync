@@ -59,3 +59,11 @@ export const lyricRowPlayheadActive =
 /** Subtle highlight for lines inside an active A-B loop region. */
 export const lyricRowLoopRegion =
   'border-l-2 border-cinnabar-accent/45 bg-cinnabar-accent/[0.04] pl-2 -ml-0.5 sm:-ml-1'
+
+/** Saved playlist segment (not the one currently playing). */
+export const lyricRowPlaylistRegion =
+  'border-l-2 border-cinnabar-accent/30 bg-cinnabar-accent/[0.03] pl-2 -ml-0.5 sm:-ml-1'
+
+/** Active segment while a loop playlist is playing. */
+export const lyricRowPlaylistCurrent =
+  'border-l-2 border-cinnabar-accent/70 bg-cinnabar-accent/[0.07] pl-2 -ml-0.5 sm:-ml-1'

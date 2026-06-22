@@ -1,7 +1,7 @@
-import type { ABLoop, TimedLine } from '../core/types'
-import { linePlaybackStart } from '../lyrics/lineTiming'
+import type { ABLoop, ABLoopPlaylistEntry, TimedLine } from '../core/types'
+import { linePlaybackStart, lineOverlapsABLoop } from '../lyrics/lineTiming'
 
-export { lineOverlapsABLoop } from '../lyrics/lineTiming'
+export { lineOverlapsABLoop }
 
 /** True when both endpoints are set and B is strictly after A. */
 export function isValidABPair(a: number | null, b: number | null): boolean {
@@ -65,4 +65,38 @@ export function abLoopPatchFromLineTap(
   }
 
   return { b: abEndpointFromLine('b', line, loop.a) }
+}
+
+export type LyricLoopHighlight = 'ab' | 'playlist' | 'playlist-current'
+
+/** Which loop highlight (if any) applies to a lyric row in play mode. */
+export function lyricLoopHighlight(
+  line: TimedLine,
+  lineIndex: number,
+  lines: TimedLine[],
+  abLoop: { a: number | null; b: number | null },
+  abLoopActive: boolean,
+  playlistActive: boolean,
+  playlistEntries: ABLoopPlaylistEntry[],
+  playlistIndex: number,
+): LyricLoopHighlight | null {
+  if (playlistActive && playlistEntries.length > 0) {
+    let inSaved = false
+    for (let i = 0; i < playlistEntries.length; i++) {
+      const { a, b } = playlistEntries[i]
+      if (!lineOverlapsABLoop(line, lineIndex, lines, a, b)) continue
+      if (i === playlistIndex) return 'playlist-current'
+      inSaved = true
+    }
+    return inSaved ? 'playlist' : null
+  }
+  if (
+    abLoopActive
+    && abLoop.a !== null
+    && abLoop.b !== null
+    && lineOverlapsABLoop(line, lineIndex, lines, abLoop.a, abLoop.b)
+  ) {
+    return 'ab'
+  }
+  return null
 }

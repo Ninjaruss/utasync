@@ -254,4 +254,29 @@ describe('A-B loop region highlight', () => {
     expect(inLoop?.textContent).toMatch(/in/)
     expect(container.textContent).toMatch(/out/)
   })
+
+  it('highlights every saved playlist segment while the playlist is active', () => {
+    const loopLines: TimedLine[] = [
+      { startTime: 0, endTime: 2, original: 'seg-a', translation: '' },
+      { startTime: 3, endTime: 4, original: 'between', translation: '' },
+      { startTime: 5, endTime: 8, original: 'seg-b', translation: '' },
+    ]
+    useLyricsStore.setState({ lines: loopLines, activeLine: -1 })
+    const { container } = render(
+      <LyricDisplay
+        onLineClick={vi.fn()}
+        abLoop={{ a: 0, b: 2.5, preRoll: 0, loopCount: 3, crossfadeDuration: 0.3 }}
+        playlistActive
+        playlistIndex={0}
+        playlistEntries={[
+          { id: '1', a: 0, b: 2.5 },
+          { id: '2', a: 5, b: 7.5 },
+        ]}
+      />,
+    )
+    const highlighted = container.querySelectorAll('[class*="border-l-2"]')
+    expect(highlighted.length).toBe(2)
+    expect(highlighted[0]?.textContent).toMatch(/seg-a/)
+    expect(highlighted[1]?.textContent).toMatch(/seg-b/)
+  })
 })

@@ -48,4 +48,19 @@ describe('ABLoopController', () => {
     expect(onLoopCycle).toHaveBeenCalledOnce()
     expect(seek).toHaveBeenCalledWith(10)
   })
+
+  it('syncPosition prevents false wrap after a programmatic seek past B', () => {
+    const seek = vi.fn()
+    const controller = new ABLoopController(
+      seek,
+      () => ({ a: 10, b: 20, preRoll: 0, loopCount: 0, crossfadeDuration: 0 }),
+      () => 25,
+    )
+    controller.tick()
+    expect(seek).toHaveBeenCalledWith(10)
+    seek.mockClear()
+    controller.syncPosition(25)
+    controller.tick()
+    expect(seek).not.toHaveBeenCalled()
+  })
 })

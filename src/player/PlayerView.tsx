@@ -25,10 +25,10 @@ import { runWhenIdle } from '../core/idle'
 import { alignLinesTokens, countEmbedBatches } from '../ai-pipeline/wordAligner'
 import { buildAlignJob } from '../lyrics/lineAligner'
 import { LoadingOverlay } from '../core/ui/LoadingOverlay'
-import { abPairError, abLoopPatchFromLineTap, isValidABPair } from './abLoopUtils'
 import { linePlaybackStart } from '../lyrics/lineTiming'
+import { abPairError, abLoopPatchFromLineTap, isValidABPair } from './abLoopUtils'
 import { exportAbLoopClip, exportAbLoopPlaylistClip, abLoopHasTimedLyrics, abLoopPlaylistHasTimedLyrics, getValidPlaylistExportSegments, lyricHintForAbLoop } from './abLoopExport'
-import { createPlaylistEntry, shouldAdvancePlaylistAfterCycle } from './abLoopPlaylist'
+import { createPlaylistEntry, shouldAdvancePlaylistAfterCycle, wrapPlaylistIndex } from './abLoopPlaylist'
 import { useAbLoopPlaylistStore } from './abLoopPlaylistStore'
 import { getAudioFile } from '../core/opfs/audio'
 import { PlayerControls } from './PlayerControls'
@@ -36,10 +36,12 @@ import { DisplayMenu } from './DisplayMenu'
 import { AttachLocalAudioBanner } from './AttachLocalAudioBanner'
 import { LyricsImportPanel } from '../lyrics/LyricsImportPanel'
 import { attachAudioToSong } from '../sources/audioIngest'
+import { resolveCoverArt } from '../sources/coverArt'
 import { inferSourceLanguage } from '../sources/lyricsResolver'
 import { WordColorProgressBanner } from './WordColorProgressBanner'
 import { PlayEditToggle } from './PlayEditToggle'
 import { ConfirmDialog } from '../core/ui/ConfirmDialog'
+import { useConfirmedClose } from '../core/ui/useConfirmedClose'
 import { displayToolbarRow } from '../core/ui/toolbarClasses'
 
 const AutoAlignFlow = lazy(() => import('../ai-pipeline/AutoAlignFlow'))
@@ -199,12 +201,13 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [attachingAudio, setAttachingAudio] = useState(false)
   const [attachAudioError, setAttachAudioError] = useState('')
   const [showLyricsReimport, setShowLyricsReimport] = useState(false)
-  const [lyricsReimportBusy, setLyricsReimportBusy] = useState(false)
-  const [confirmLyricsReimportClose, setConfirmLyricsReimportClose] = useState(false)
-  const requestLyricsReimportClose = () => {
-    if (lyricsReimportBusy) setConfirmLyricsReimportClose(true)
-    else setShowLyricsReimport(false)
-  }
+  const {
+    setBusy: setLyricsReimportBusy,
+    confirming: confirmLyricsReimportClose,
+    requestClose: requestLyricsReimportClose,
+    confirm: confirmLyricsReimportCloseNow,
+    cancel: cancelLyricsReimportClose,
+  } = useConfirmedClose(() => setShowLyricsReimport(false))
   const seekRef = useRef<(time: number) => void>(() => {})
   const enrichmentJobRef = useRef(0)
   const wordColorJobRef = useRef(0)
@@ -335,7 +338,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         }
       }
       const willAutoAlign = autoAlignOnOpen
-        && chooseAutoAlignment(!!s.audioStoredPath, s.lyrics.lines, getDeviceTier(), true) !== null
+        && chooseAutoAlignment(!!s.audioStoredPath, s.lyrics.lines, getDeviceTier(), true, s.lyrics.alignmentMode) !== null
       if (!willAutoAlign) {
         cancelIdle = deferBackgroundEnrichment(s, s.lyrics.lines, () => cancelled)
       }
@@ -412,18 +415,29 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
     setPosition(time)
     syncPosition(time)
+    abLoopControllerRef.current?.syncPosition(time)
   }
   seekRef.current = seek
+
+  /** Stops loop playlist + manual A/B loop so the user can navigate freely. */
+  const interruptPracticeLoops = () => {
+    if (useAbLoopPlaylistStore.getState().playlistActive) {
+      setPlaylistActive(false)
+      playlistCyclesRef.current = 0
+    }
+    const { abLoop: loop } = usePlayerStore.getState()
+    if (isValidABPair(loop.a, loop.b)) {
+      setABLoop({ a: null, b: null })
+    }
+  }
 
   /** Jump to a lyric by index; sets activeLine directly so untimed lines still highlight correctly. */
   const goToLyricLine = (index: number) => {
     const lyricLines = useLyricsStore.getState().lines
     if (index < 0 || index >= lyricLines.length) return
+    interruptPracticeLoops()
     useLyricsStore.setState({ activeLine: index })
-    const time = linePlaybackStart(lyricLines[index])
-    if (isYouTube) ytRef.current?.seekTo(time)
-    else engine.seek(time)
-    setPosition(time)
+    seek(linePlaybackStart(lyricLines[index]))
   }
 
   const stepLyricLine = (delta: number) => {
@@ -477,7 +491,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
 
   useEffect(() => {
     if (!song || !autoAlignOnOpen) return
-    const choice = chooseAutoAlignment(!!song.audioStoredPath, song.lyrics.lines, getDeviceTier(), canPlayback)
+    const choice = chooseAutoAlignment(!!song.audioStoredPath, song.lyrics.lines, getDeviceTier(), canPlayback, song.lyrics.alignmentMode)
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot route into alignment after add-song
     if (choice) beginAlignment(choice)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -576,6 +590,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
 
       if (e.code === 'ArrowLeft' || e.key === 'ArrowLeft') {
         e.preventDefault()
+        interruptPracticeLoops()
         const pos = usePlayerStore.getState().position
         seek(Math.max(0, pos - SEEK_STEP_SEC))
         return
@@ -583,6 +598,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
 
       if (e.code === 'ArrowRight' || e.key === 'ArrowRight') {
         e.preventDefault()
+        interruptPracticeLoops()
         const pos = usePlayerStore.getState().position
         const end = Math.max(duration, engine.duration ?? 0)
         seek(Math.min(end, pos + SEEK_STEP_SEC))
@@ -629,11 +645,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     if (!shouldAdvancePlaylistAfterCycle(playlistCyclesRef.current, repeatCount)) return
 
     playlistCyclesRef.current = 0
-    const nextIndex = state.playlistIndex + 1
-    if (nextIndex >= entries.length) {
-      state.setPlaylistActive(false)
-      return
-    }
+    const nextIndex = wrapPlaylistIndex(state.playlistIndex, entries.length)
     applyPlaylistEntry(entries[nextIndex], nextIndex)
   }
 
@@ -647,6 +659,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     if (playlistActive) {
       setPlaylistActive(false)
       playlistCyclesRef.current = 0
+      setABLoop({ a: null, b: null })
       return
     }
     if (playlistEntries.length === 0) return
@@ -675,7 +688,13 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     setAttachingAudio(true)
     try {
       const { audioStoredPath } = await attachAudioToSong(song.id, file)
-      const updated: Song = { ...song, audioStoredPath }
+      const albumArtUrl = await resolveCoverArt({
+        title: song.title,
+        artist: song.artist,
+        audioFile: file,
+        youtubeThumbnailUrl: song.albumArtUrl,
+      })
+      const updated: Song = { ...song, audioStoredPath, ...(albumArtUrl ? { albumArtUrl } : {}) }
       await db.songs.put(updated)
       const audioFile = await getAudioFile(song.id)
       const loadVolume = usePlayerStore.getState().volume
@@ -832,8 +851,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       )}
 
       {mode === 'play' && (isJapanese || hasTranslation) && (
-        <div className={displayToolbarRow}>
-          <p className="text-xs text-white/40 text-pretty shrink-0">Lyrics display</p>
+        <div className={`${displayToolbarRow} md:py-2.5 py-2`}>
+          <p className="text-xs text-white/40 text-pretty shrink-0 hidden sm:block">Lyrics display</p>
           <DisplayMenu
             isJapanese={isJapanese}
             hasTranslation={hasTranslation}
@@ -865,6 +884,9 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
             <LyricDisplay
               abLoop={abLoop}
               position={position}
+              playlistActive={playlistActive}
+              playlistEntries={playlistEntries}
+              playlistIndex={playlistIndex}
               onLineClick={(line) => {
               if (armingAB) {
                 const patch = abLoopPatchFromLineTap(armingAB, line, abLoop)
@@ -872,6 +894,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
                 const t = patch[armingAB]
                 if (t !== undefined) seek(t)
               } else {
+                interruptPracticeLoops()
                 const idx = useLyricsStore.getState().lines.indexOf(line)
                 if (idx >= 0) useLyricsStore.setState({ activeLine: idx })
                 seek(linePlaybackStart(line))
@@ -971,11 +994,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
                 message="Lyrics are still being fetched. Closing now will cancel the search."
                 confirmLabel="Close"
                 cancelLabel="Keep searching"
-                onConfirm={() => {
-                  setConfirmLyricsReimportClose(false)
-                  setShowLyricsReimport(false)
-                }}
-                onCancel={() => setConfirmLyricsReimportClose(false)}
+                onConfirm={confirmLyricsReimportCloseNow}
+                onCancel={cancelLyricsReimportClose}
               />
             )}
             <div className="flex items-center justify-between mb-3 shrink-0">

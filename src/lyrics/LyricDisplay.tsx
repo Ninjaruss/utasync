@@ -4,10 +4,9 @@ import type { TimedLine, FuriganaMode, Token } from '../core/types'
 import { isSameText, hasVisibleTranslation } from './bilingual'
 import { colorForToken, colorForTranslationWord, splitTranslationLines } from '../language/wordColors'
 import { katakanaToHiragana } from '../language/japanese/phonetics'
-import type { ABLoop } from '../core/types'
-import { isABLoopActive } from '../player/abLoopUtils'
-import { lineOverlapsABLoop } from './lineTiming'
-import { lyricRowLoopRegion, lyricRowPlayheadActive } from '../core/ui/toolbarClasses'
+import type { ABLoop, ABLoopPlaylistEntry } from '../core/types'
+import { isABLoopActive, lyricLoopHighlight, type LyricLoopHighlight } from '../player/abLoopUtils'
+import { lyricRowLoopRegion, lyricRowPlayheadActive, lyricRowPlaylistCurrent, lyricRowPlaylistRegion } from '../core/ui/toolbarClasses'
 
 const lyricTextTransition =
   'transition-[color,font-size,font-weight,text-shadow] duration-300 ease-out'
@@ -90,6 +89,9 @@ interface Props {
   onLineClick: (line: TimedLine) => void
   abLoop?: ABLoop
   position?: number
+  playlistActive?: boolean
+  playlistEntries?: ABLoopPlaylistEntry[]
+  playlistIndex?: number
 }
 
 /** Renders the Japanese (primary) text honoring the furigana/romaji mode. */
@@ -180,10 +182,20 @@ function ColoredTranslation({
   )
 }
 
-function Line({ line, isActive, inLoopRegion, onLineClick, lineRef }: {
+function loopHighlightClass(highlight: LyricLoopHighlight | null, isActive: boolean): string {
+  if (isActive) return ''
+  switch (highlight) {
+    case 'ab': return lyricRowLoopRegion
+    case 'playlist': return lyricRowPlaylistRegion
+    case 'playlist-current': return lyricRowPlaylistCurrent
+    default: return ''
+  }
+}
+
+function Line({ line, isActive, loopHighlight, onLineClick, lineRef }: {
   line: TimedLine
   isActive: boolean
-  inLoopRegion: boolean
+  loopHighlight: LyricLoopHighlight | null
   onLineClick: (line: TimedLine) => void
   lineRef?: React.Ref<HTMLDivElement>
 }) {
@@ -227,7 +239,7 @@ function Line({ line, isActive, inLoopRegion, onLineClick, lineRef }: {
         isActive ? 'py-4 sm:py-6' : 'py-2.5 sm:py-3',
         sideBySide ? 'text-left' : 'text-center',
         'hover:bg-white/[0.04] active:bg-white/[0.06]',
-        inLoopRegion && !isActive ? lyricRowLoopRegion : '',
+        loopHighlightClass(loopHighlight, isActive),
         isActive ? lyricRowPlayheadActive : '',
       ].join(' ')}
     >
@@ -260,7 +272,14 @@ function Line({ line, isActive, inLoopRegion, onLineClick, lineRef }: {
   )
 }
 
-export function LyricDisplay({ onLineClick, abLoop, position: _position }: Props) {
+export function LyricDisplay({
+  onLineClick,
+  abLoop,
+  position: _position,
+  playlistActive = false,
+  playlistEntries = [],
+  playlistIndex = 0,
+}: Props) {
   const { lines, activeLine } = useLyricsStore()
   const containerRef = useRef<HTMLDivElement>(null)
   const activeRef = useRef<HTMLDivElement>(null)
@@ -283,19 +302,29 @@ export function LyricDisplay({ onLineClick, abLoop, position: _position }: Props
   return (
     <div
       ref={containerRef}
-      className="flex-1 min-h-0 overflow-y-auto py-[14vh] sm:py-[18vh] md:py-[16vh] lg:py-[20vh] px-4"
+      className="flex-1 min-h-0 overflow-y-auto py-[8vh] sm:py-[14vh] md:py-[16vh] lg:py-[20vh] px-4"
       style={{ touchAction: 'pan-y', scrollbarWidth: 'thin' }}
     >
       {lines.map((line, i) => {
         const isActive = i === activeLine
-        const inLoopRegion = loopActive && abLoop!.a !== null && abLoop!.b !== null
-          && lineOverlapsABLoop(line, i, lines, abLoop!.a!, abLoop!.b!)
+        const loopHighlight = abLoop
+          ? lyricLoopHighlight(
+            line,
+            i,
+            lines,
+            abLoop,
+            loopActive,
+            playlistActive,
+            playlistEntries,
+            playlistIndex,
+          )
+          : null
         return (
           <Line
             key={i}
             line={line}
             isActive={isActive}
-            inLoopRegion={inLoopRegion}
+            loopHighlight={loopHighlight}
             onLineClick={onLineClick}
             lineRef={isActive ? activeRef : undefined}
           />

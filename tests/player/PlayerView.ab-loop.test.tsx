@@ -35,7 +35,7 @@ beforeEach(async () => {
 })
 
 async function openPracticePanel() {
-  const btn = screen.getByRole('button', { name: /practice tools/i })
+  const btn = screen.getByRole('button', { name: /saved loops and speed/i })
   if (btn.getAttribute('aria-expanded') !== 'true') fireEvent.click(btn)
 }
 

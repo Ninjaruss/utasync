@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { abEndpointFromLine, abLoopPatchFromLineTap, isValidABPair } from '../../src/player/abLoopUtils'
+import { abEndpointFromLine, abLoopPatchFromLineTap, isValidABPair, lyricLoopHighlight } from '../../src/player/abLoopUtils'
 import { VOCAL_ONSET_LEAD_S } from '../../src/lyrics/lineTiming'
 import type { TimedLine } from '../../src/core/types'
 
@@ -46,5 +46,29 @@ describe('abLoopPatchFromLineTap', () => {
     const afterA = abLoopPatchFromLineTap('a', l1, { a: null, b: afterB.b! })
     expect(afterA.a).toBeCloseTo(1 - VOCAL_ONSET_LEAD_S)
     expect(isValidABPair(afterA.a!, afterB.b!)).toBe(true)
+  })
+})
+
+describe('lyricLoopHighlight', () => {
+  const lines: TimedLine[] = [
+    line(0, 2, 'one'),
+    line(2, 5, 'two'),
+    line(5, 8, 'three'),
+  ]
+  const abLoop = { a: 0, b: 2.5, preRoll: 0, loopCount: 3, crossfadeDuration: 0.3 }
+
+  it('highlights manual A/B regions when playlist is off', () => {
+    expect(lyricLoopHighlight(lines[0], 0, lines, abLoop, true, false, [], 0)).toBe('ab')
+    expect(lyricLoopHighlight(lines[2], 2, lines, abLoop, true, false, [], 0)).toBeNull()
+  })
+
+  it('highlights all playlist segments and marks the active one', () => {
+    const entries = [
+      { id: '1', a: 0, b: 2.5 },
+      { id: '2', a: 5, b: 7.5 },
+    ]
+    expect(lyricLoopHighlight(lines[0], 0, lines, abLoop, true, true, entries, 0)).toBe('playlist-current')
+    expect(lyricLoopHighlight(lines[2], 2, lines, abLoop, true, true, entries, 0)).toBe('playlist')
+    expect(lyricLoopHighlight(lines[2], 2, lines, abLoop, true, true, entries, 1)).toBe('playlist-current')
   })
 })
