@@ -192,6 +192,47 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
   const previewReturnRef = useRef(0)
   const hasSecondLang = lines.some((l) => l.translation)
 
+  const undoStack = useRef<TimedLine[][]>([])
+  const redoStack = useRef<TimedLine[][]>([])
+  // Tracks the lines value this stack last emitted (via applyChange/undo/redo),
+  // independent of whether the `lines` prop has round-tripped through the parent
+  // and back into a re-render yet. Falls back to the live prop until the first
+  // mutation so an immediate undo before any edit is a no-op as expected.
+  const currentLines = useRef(lines)
+
+  const [canUndo, setCanUndo] = useState(false)
+  const [canRedo, setCanRedo] = useState(false)
+
+  const applyChange = (next: TimedLine[]) => {
+    undoStack.current.push(currentLines.current)
+    if (undoStack.current.length > 50) undoStack.current.shift()
+    redoStack.current = []
+    currentLines.current = next
+    setCanUndo(true)
+    setCanRedo(false)
+    onChangeLines(next)
+  }
+
+  const undo = () => {
+    const prev = undoStack.current.pop()
+    if (!prev) return
+    redoStack.current.push(currentLines.current)
+    currentLines.current = prev
+    setCanUndo(undoStack.current.length > 0)
+    setCanRedo(true)
+    onChangeLines(prev)
+  }
+
+  const redo = () => {
+    const next = redoStack.current.pop()
+    if (!next) return
+    undoStack.current.push(currentLines.current)
+    currentLines.current = next
+    setCanUndo(true)
+    setCanRedo(redoStack.current.length > 0)
+    onChangeLines(next)
+  }
+
   const openSecondLang = () => {
     onPausePlayback?.()
     setShowSecondLang(true)
@@ -242,7 +283,7 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
     if (deleteTimer.current) clearTimeout(deleteTimer.current)
     setDeleteArmed(null)
     setEditingIndex(null)
-    onChangeLines(deleteLine(lines, i))
+    applyChange(deleteLine(lines, i))
   }
 
   /** Clears a stale delete-arm (and its pending timeout) belonging to a different row than `keep`. */
@@ -269,6 +310,24 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
       <div className={editToolbarRow}>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <p className={[toolbarSectionLabel, 'flex-1 min-w-[6rem]'].join(' ')}>Edit lyrics</p>
+          <button
+            type="button"
+            onClick={undo}
+            disabled={!canUndo}
+            aria-label="Undo"
+            className={`${toolbarActionBtn} disabled:opacity-30`}
+          >
+            Undo
+          </button>
+          <button
+            type="button"
+            onClick={redo}
+            disabled={!canRedo}
+            aria-label="Redo"
+            className={`${toolbarActionBtn} disabled:opacity-30`}
+          >
+            Redo
+          </button>
           {onReplaceLyrics && (
             <button type="button" onClick={onReplaceLyrics} className={toolbarActionBtn}>
               Replace lyrics
@@ -320,8 +379,8 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             deleteArmed={deleteArmed === i}
             onStartEdit={() => startEdit(i)}
             onStopEdit={stopEdit}
-            onCommitText={(patch) => onChangeLines(setText(lines, i, patch))}
-            onAdd={() => onChangeLines(addLine(lines, i))}
+            onCommitText={(patch) => applyChange(setText(lines, i, patch))}
+            onAdd={() => applyChange(addLine(lines, i))}
             onArmDelete={() => armDelete(i)}
             onConfirmDelete={() => confirmDelete(i)}
             onOpenPopover={() => openTimestampPopover(i)}
@@ -331,7 +390,7 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             seek={seek}
             onScrubStart={onScrubStart}
           onScrubEnd={onScrubEnd}
-          onCommitTime={(t) => onChangeLines(stampStart(lines, i, t))}
+          onCommitTime={(t) => applyChange(stampStart(lines, i, t))}
           onClosePopover={closePopoverAfterCommit}
         />
           </div>
@@ -356,7 +415,7 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
           title={title}
           artist={artist}
           sourceLanguage={sourceLanguage}
-          onApply={(next) => onChangeLines(next)}
+          onApply={(next) => applyChange(next)}
           onClose={() => setShowSecondLang(false)}
         />
       )}

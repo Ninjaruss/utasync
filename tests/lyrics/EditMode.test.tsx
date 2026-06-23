@@ -214,4 +214,53 @@ describe('EditMode', () => {
     expect(rows.length).toBe(1)
     expect(rows[0].textContent).toMatch(/first/)
   })
+
+  it('undo restores the previous lines after a text edit', () => {
+    const { onChangeLines } = renderEditMode()
+    fireEvent.click(screen.getByText('b'))
+    const input = screen.getByLabelText('Original text')
+    fireEvent.change(input, { target: { value: 'bb' } })
+    fireEvent.blur(input)
+    expect(onChangeLines).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    const undone = onChangeLines.mock.calls[1][0] as TimedLine[]
+    expect(undone[1].original).toBe('b')
+  })
+
+  it('redo re-applies the change after an undo', () => {
+    const { onChangeLines } = renderEditMode()
+    fireEvent.click(screen.getByText('b'))
+    const input = screen.getByLabelText('Original text')
+    fireEvent.change(input, { target: { value: 'bb' } })
+    fireEvent.blur(input)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Redo' }))
+    const redone = onChangeLines.mock.calls[2][0] as TimedLine[]
+    expect(redone[1].original).toBe('bb')
+  })
+
+  it('undo/redo buttons are disabled when there is nothing to undo/redo', () => {
+    renderEditMode()
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled()
+  })
+
+  it('a new edit clears the redo stack', () => {
+    const { onChangeLines } = renderEditMode()
+    fireEvent.click(screen.getByText('b'))
+    const input = screen.getByLabelText('Original text')
+    fireEvent.change(input, { target: { value: 'bb' } })
+    fireEvent.blur(input)
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(screen.getByRole('button', { name: 'Redo' })).not.toBeDisabled()
+
+    fireEvent.click(screen.getByText('a'))
+    const input2 = screen.getByLabelText('Original text')
+    fireEvent.change(input2, { target: { value: 'aa' } })
+    fireEvent.blur(input2)
+
+    expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled()
+  })
 })
