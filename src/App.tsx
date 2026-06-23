@@ -35,8 +35,10 @@ export default function App() {
 
   return (
     <>
-      <OfflineBanner />
-      <UpdateBanner />
+      <div className="fixed top-0 inset-x-0 z-[65] flex flex-col">
+        <OfflineBanner />
+        <UpdateBanner />
+      </div>
       {view === 'song' && songId ? (
         <PlayerView
           songId={songId}

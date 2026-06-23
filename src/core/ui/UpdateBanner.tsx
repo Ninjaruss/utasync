@@ -11,7 +11,7 @@ export function UpdateBanner() {
   return (
     <div
       role="status"
-      className="fixed top-0 inset-x-0 z-[65] bg-cinnabar-accent text-white text-xs flex items-center justify-center gap-3 py-1.5 px-3"
+      className="w-full bg-cinnabar-accent text-white text-xs flex items-center justify-center gap-3 py-1.5 px-3"
     >
       <span>New version available.</span>
       <button
