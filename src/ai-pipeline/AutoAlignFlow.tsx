@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getDeviceTier } from './capability'
 import { getWhisperDownloadHint } from './models'
 import { decodeAudioFileToMono } from '../core/audio/decodeToMono'
@@ -23,7 +23,11 @@ type Stage = 'idle' | AlignStage | 'done' | 'error'
 
 function formatLoadStatus(p: LoadProgress, downloadHint: string): string | null {
   if (p.phase === 'init' || p.status === 'initializing') {
-    return 'Initializing speech model — can take 1–2 minutes after files finish downloading'
+    const step = p.file ? ` (${p.file})` : ''
+    return `Initializing on-device runtime${step} — can take several minutes on first load`
+  }
+  if (p.status === 'done' && p.phase === 'download') {
+    return 'Cached model files verified — initializing runtime…'
   }
   if (p.status === 'download' || p.status === 'progress') {
     const file = p.file
@@ -63,6 +67,8 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
   const [error, setError] = useState('')
   const [lowConfidence, setLowConfidence] = useState(false)
   const [confirmCancel, setConfirmCancel] = useState(false)
+  const cancelledRef = useRef(false)
+  const demucsWorkerRef = useRef<Worker | null>(null)
 
   const start = async () => {
     setError('')
@@ -87,6 +93,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
         setStage('separating')
         setProgress(0)
         const worker = new Worker(new URL('./demucs.worker.ts', import.meta.url), { type: 'module' })
+        demucsWorkerRef.current = worker
         worker.postMessage({ type: 'load' })
         await new Promise<void>((res, rej) => {
           worker.onmessage = (e) => {
@@ -95,11 +102,13 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
             } else if (e.data.type === 'result') {
               audioData = e.data.payload
               worker.terminate()
+              demucsWorkerRef.current = null
               res()
             } else if (e.data.type === 'error') { rej(e.data.payload) }
             else if (e.data.type === 'progress') setProgress(e.data.payload.progress ?? 0)
           }
         })
+        if (cancelledRef.current) return
       }
 
       // First run downloads the Whisper model (~240MB, file by file); show that
@@ -109,7 +118,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       setProgress(0)
       setLoadPhase('download')
       setLastLoadProgress(null)
-      setLoadDetail('Loading speech model from cache…')
+      setLoadDetail('Checking cached model files…')
 
       let sawDownload = false
       const transcriptResult = await transcribeAudio(audioData, sampleRate, {
@@ -138,6 +147,8 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
         onTranscribeProgress: (pct) => setProgress(pct),
       })
 
+      if (cancelledRef.current) return
+
       setStage('aligning')
       const words: TranscriptWord[] = (transcriptResult.chunks ?? []).flatMap((c) => {
         const [start, end] = c.timestamp ?? []
@@ -162,6 +173,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       setStage('done')
       onComplete(updated)
     } catch (e: unknown) {
+      if (cancelledRef.current) return
       setError(e instanceof Error ? e.message : 'Auto-align failed')
       setStage('error')
     }
@@ -189,7 +201,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
   const stageDetail: Partial<Record<AlignStage, string>> = {
     preparing: 'Reading and decoding your audio file — longer songs take longer here',
     separating: 'Isolating vocals before transcription',
-    loading: loadDetail ?? `Loading speech model from cache (first run downloads ${downloadHint})`,
+    loading: loadDetail ?? `Checking cached model files (first run downloads ${downloadHint})`,
     transcribing: tier === 'lite'
       ? 'On-device speech recognition — can take a few minutes on phones'
       : 'Running on-device speech recognition',
@@ -247,7 +259,13 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
             message="Speech recognition and alignment are still running. Stopping now discards all progress."
             confirmLabel="Stop"
             cancelLabel="Keep running"
-            onConfirm={() => { setConfirmCancel(false); onClose() }}
+            onConfirm={() => {
+              cancelledRef.current = true
+              demucsWorkerRef.current?.terminate()
+              demucsWorkerRef.current = null
+              setConfirmCancel(false)
+              onClose()
+            }}
             onCancel={() => setConfirmCancel(false)}
           />
         )}

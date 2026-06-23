@@ -417,7 +417,9 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     syncPosition(time)
     abLoopControllerRef.current?.syncPosition(time)
   }
-  seekRef.current = seek
+  useEffect(() => {
+    seekRef.current = seek
+  })
 
   /** Stops loop playlist + manual A/B loop so the user can navigate freely. */
   const interruptPracticeLoops = () => {
@@ -634,20 +636,22 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     seek(entry.a)
   }
 
-  onLoopCycleRef.current = () => {
-    const state = useAbLoopPlaylistStore.getState()
-    if (!state.playlistActive) return
-    const entries = state.playlists[songId] ?? []
-    if (entries.length === 0) return
+  useEffect(() => {
+    onLoopCycleRef.current = () => {
+      const state = useAbLoopPlaylistStore.getState()
+      if (!state.playlistActive) return
+      const entries = state.playlists[songId] ?? []
+      if (entries.length === 0) return
 
-    playlistCyclesRef.current += 1
-    const repeatCount = state.playlistRepeatCount
-    if (!shouldAdvancePlaylistAfterCycle(playlistCyclesRef.current, repeatCount)) return
+      playlistCyclesRef.current += 1
+      const repeatCount = state.playlistRepeatCount
+      if (!shouldAdvancePlaylistAfterCycle(playlistCyclesRef.current, repeatCount)) return
 
-    playlistCyclesRef.current = 0
-    const nextIndex = wrapPlaylistIndex(state.playlistIndex, entries.length)
-    applyPlaylistEntry(entries[nextIndex], nextIndex)
-  }
+      playlistCyclesRef.current = 0
+      const nextIndex = wrapPlaylistIndex(state.playlistIndex, entries.length)
+      applyPlaylistEntry(entries[nextIndex], nextIndex)
+    }
+  })
 
   const handleSaveToPlaylist = () => {
     if (!isValidABPair(abLoop.a, abLoop.b)) return

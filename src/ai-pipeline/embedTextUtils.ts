@@ -1,6 +1,7 @@
 /** Cache/dedup key: lowercase ASCII words collapse case; CJK surfaces stay as-is. */
 export function embedCacheKey(text: string): string {
   const trimmed = text.trim()
+  // eslint-disable-next-line no-control-regex -- \x00-\x7F is an ASCII range check, not a control char
   if (/^[\x00-\x7F]+$/.test(trimmed)) return trimmed.toLowerCase()
   return trimmed
 }

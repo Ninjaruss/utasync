@@ -122,7 +122,7 @@ describe('word-pair coloring', () => {
     const { default: userEvent } = await import('@testing-library/user-event')
     const user = userEvent.setup()
     useLyricsStore.setState({ lines: [coloredLine], activeLine: -1 })
-    const { container } = render(<LyricDisplay onLineClick={vi.fn()} />)
+    render(<LyricDisplay onLineClick={vi.fn()} />)
     const sourceSpan = screen.getByText('君').closest('span')!
     const targetSpan = screen.getByText('you')
     expect(sourceSpan.style.backgroundColor).toBe('')

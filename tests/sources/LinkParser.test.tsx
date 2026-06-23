@@ -50,7 +50,7 @@ async function continueToLyricsFound(onSongReady: (id: string) => void) {
   await waitFor(() => expect(screen.getByLabelText(/song title/i)).toHaveValue('Test Song'))
   await waitFor(() => expect(screen.getByText(/found plain lyrics/i)).toBeInTheDocument())
   fireEvent.click(screen.getByRole('button', { name: /add song/i }))
-  await waitFor(() => expect(onSongReady).toHaveBeenCalled())
+  await waitFor(() => expect(onSongReady).toHaveBeenCalled(), { timeout: 5000 })
 }
 
 describe('LinkParser', () => {

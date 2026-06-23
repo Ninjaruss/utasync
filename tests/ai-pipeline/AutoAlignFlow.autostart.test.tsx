@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import 'fake-indexeddb/auto'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { AutoAlignFlow } from '../../src/ai-pipeline/AutoAlignFlow'
 import type { Song } from '../../src/core/types'
 import { db } from '../../src/core/db/schema'
@@ -72,5 +72,28 @@ describe('AutoAlignFlow autoStart', () => {
   it('shows Start Auto-Align when autoStart is false', () => {
     render(<AutoAlignFlow song={song} onComplete={vi.fn()} onClose={vi.fn()} />)
     expect(screen.getByRole('button', { name: /start auto-align/i })).toBeTruthy()
+  })
+
+  it('discards results that resolve after the user cancels mid-run', async () => {
+    let resolveTranscribe!: (v: { chunks: { text: string; timestamp: [number, number] }[] }) => void
+    transcribeAudio.mockImplementationOnce((_audio, _rate, opts) => {
+      opts?.onModelLoaded?.()
+      return new Promise((resolve) => { resolveTranscribe = resolve })
+    })
+
+    const onComplete = vi.fn()
+    const onClose = vi.fn()
+    render(<AutoAlignFlow song={song} autoStart onComplete={onComplete} onClose={onClose} />)
+
+    await waitFor(() => expect(transcribeAudio).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^stop$/i }))
+    expect(onClose).toHaveBeenCalled()
+
+    resolveTranscribe({ chunks: [{ text: 'hello', timestamp: [0, 1] }] })
+    await new Promise((r) => setTimeout(r, 50))
+
+    expect(onComplete).not.toHaveBeenCalled()
+    expect(await db.songs.get(song.id)).toBeUndefined()
   })
 })

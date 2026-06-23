@@ -28,18 +28,6 @@ const tok = (
 const glossEmbed = async (texts: string[]): Promise<number[][]> =>
   texts.map(() => [0.15, 0.15, 0.15, 0.15])
 
-function pairedWords(line: { tokens?: Token[]; translation?: string }) {
-  if (!line.tokens?.length || !line.translation) return []
-  const words = splitTranslationWords(line.translation)
-  return line.tokens
-    .filter((t) => t.alignmentIndices?.length)
-    .map((t) => ({
-      ja: t.surface,
-      en: words[t.alignmentIndices![0]] ?? '?',
-      idx: t.alignmentIndices![0],
-    }))
-}
-
 describe('AKFG Korogaru Iwa — line pairing (user paste)', () => {
   const primary = buildAkfgPrimaryTimed()
 

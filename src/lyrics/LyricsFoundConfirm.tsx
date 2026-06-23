@@ -106,6 +106,7 @@ export function LyricsFoundConfirm({
 }
 
 /** Whether found lyrics can be applied (auto-ok or user confirmed). */
+// eslint-disable-next-line react-refresh/only-export-components -- shared helper used by 4 callers; not worth a new file
 export function lyricsFoundReadyToApply(
   queriedTitle: string,
   queriedArtist: string,

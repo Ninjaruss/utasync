@@ -151,10 +151,16 @@ function ColoredTranslation({
   const translationLineWords = splitTranslationLines(line.translation)
   if (!line.tokens) return <>{line.translation}</>
 
-  let wordOffset = 0
+  const lineOffsets: number[] = []
+  translationLineWords.reduce((offset, words) => {
+    lineOffsets.push(offset)
+    return offset + words.length
+  }, 0)
+
   return (
     <>
       {translationLineWords.map((words, lineIdx) => {
+        const wordOffset = lineOffsets[lineIdx]
         const lineEl = words.map((word, i) => {
           const globalIndex = wordOffset + i
           const color = colorForTranslationWord(line.tokens!, globalIndex)
@@ -170,7 +176,6 @@ function ColoredTranslation({
             </span>
           )
         })
-        wordOffset += words.length
         return (
           <span key={lineIdx}>
             {lineEl}

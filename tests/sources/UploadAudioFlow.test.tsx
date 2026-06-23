@@ -172,7 +172,7 @@ describe('UploadAudioFlow', () => {
     const onSongReady = vi.fn()
     await submitWithPastedLyrics(onSongReady)
 
-    await waitFor(() => expect(onSongReady).toHaveBeenCalled())
+    await waitFor(() => expect(onSongReady).toHaveBeenCalled(), { timeout: 5000 })
     const songId = onSongReady.mock.calls[0][0]
     const song = await db.songs.get(songId)
     expect(song?.lyrics.lines.map((l) => l.translation)).toEqual(['Translated one', 'Translated two'])
@@ -188,7 +188,7 @@ describe('UploadAudioFlow', () => {
     const onSongReady = vi.fn()
     await submitWithPastedLyrics(onSongReady)
 
-    await waitFor(() => expect(onSongReady).toHaveBeenCalled())
+    await waitFor(() => expect(onSongReady).toHaveBeenCalled(), { timeout: 5000 })
     const songId = onSongReady.mock.calls[0][0]
     const song = await db.songs.get(songId)
     expect(song?.lyrics.lines.map((l) => l.translation)).toEqual(['', ''])

@@ -186,7 +186,6 @@ describe('smartAttachSecondLanguage — AKFG excerpt', () => {
   })
 
   it('does not use naive index pairing when JA and EN line counts match but content is offset', () => {
-    const originals = primary.map((l) => l.original)
     const paddedEnglish = ['Rock and roll morning light falls on you', ...english]
     const { method } = pairTranslationsToPrimary(primary, paddedEnglish)
     expect(method).not.toBe('index')
