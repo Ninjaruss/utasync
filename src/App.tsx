@@ -5,6 +5,7 @@ import { PlayerView } from './player/PlayerView'
 import { SettingsSheet } from './settings/SettingsSheet'
 import { estimateQuota } from './core/storage/quota'
 import { useToast } from './core/ui/Toast'
+import { OfflineBanner } from './core/ui/OfflineBanner'
 
 type View = 'library' | 'song'
 
@@ -32,6 +33,7 @@ export default function App() {
 
   return (
     <>
+      <OfflineBanner />
       {view === 'song' && songId ? (
         <PlayerView
           songId={songId}
