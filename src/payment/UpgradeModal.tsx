@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { trialSlotsRemaining, TRIAL_LIMIT } from './trial'
 import { useSettingsStore } from './SettingsStore'
 import { verifyLicense } from './license'
+import { LegalLinks } from '../core/ui/LegalLinks'
 
 // Placeholder checkout URL — replace with real LemonSqueezy product URL after setup
 const CHECKOUT_URL = 'https://utasync.lemonsqueezy.com/buy/placeholder'
@@ -79,6 +80,10 @@ export function UpgradeModal({ feature, onClose }: Props) {
           >
             Unlock Pro — $9.99
           </button>
+          <p className="text-white/35 text-xs text-center leading-relaxed">
+            By purchasing you agree to our Terms of Service. See also our Privacy Policy.
+          </p>
+          <LegalLinks className="!text-white/40" />
           <button onClick={onClose} className="text-white/40 text-sm text-center py-1">
             Not now
           </button>

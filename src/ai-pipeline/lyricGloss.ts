@@ -118,6 +118,13 @@ export const ROMAJI_GLOSS: Record<string, string> = {
   yoko: 'beside',
   yume: 'dream',
   zutto: 'forever',
+  nakusu: 'eliminating',
+  chotto: 'bit',
+  doko: 'somewhere',
+  mebae: 'sprouted',
+  abakidasu: 'exposes',
+  bokutachi: 'us',
+  bokura: 'we',
 }
 
 /** Kanji surface → romaji when kuromoji omits reading (common lyric characters). */
@@ -179,6 +186,7 @@ export const KANJI_ROMAJI: Record<string, string> = {
   どう: 'dou',
   どうした: 'doushita',
   事: 'koto',
+  僕たち: 'bokutachi',
 }
 
 /**
@@ -272,6 +280,18 @@ export const EN_POETIC_ALIASES: Record<string, string> = {
   your: 'kimi',
   about: 'koto',
   god: 'dou',
+  eliminate: 'nakusu',
+  eliminating: 'nakusu',
+  somewhere: 'doko',
+  where: 'doko',
+  sprout: 'mebae',
+  sprouted: 'mebae',
+  sprouting: 'mebae',
+  expose: 'abakidasu',
+  exposes: 'abakidasu',
+  exposing: 'abakidasu',
+  us: 'bokutachi',
+  we: 'bokutachi',
 }
 
 /** Additional EN→romaji aliases (multiple romaji may map to the same English word). */

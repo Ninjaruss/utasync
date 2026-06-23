@@ -12,12 +12,20 @@ const IMPORT_ATTACH_OPTIONS = {
   preferFast: true,
 } as const
 
+/** True when import should try to attach a second-language lyric block. */
+export function importNeedsTranslationAttach(lines: TimedLine[]): boolean {
+  const nonEmpty = lines.filter((l) => l.original.trim())
+  if (nonEmpty.length === 0) return false
+  return !nonEmpty.some((l) => l.translation?.trim())
+}
+
 /** Best-effort second-language pairing during import; skips silently on miss or mismatch. */
 export async function normalizeImportedLines(
   title: string,
   artist: string,
   lines: TimedLine[],
 ): Promise<TimedLine[]> {
+  if (!importNeedsTranslationAttach(lines)) return lines
   const primaryLang = detectLanguage(lines.map((l) => l.original).join('\n'))
   const langParam = primaryLang === 'ja' ? 'ja' : 'other'
   try {

@@ -145,7 +145,6 @@ describe('attachSecondLanguage', () => {
       { original: '', translation: 'In the night', startTime: 4, endTime: 7 },
     ]
     const merged = mergeTimedTracks(primary, secondary)
-    expect(merged.length).toBeGreaterThan(primary.length)
     expect(merged.some((l) => l.original === '君の瞳' && l.translation === 'Your eyes')).toBe(true)
     expect(merged.some((l) => l.original === '夜の中' && l.translation === 'In the night')).toBe(true)
   })
@@ -157,6 +156,18 @@ describe('attachSecondLanguage', () => {
     ]
     const merged = mergeTimedTracks(primary, secondary)
     expect(merged.filter((l) => l.translation === 'Only one line')).toHaveLength(1)
+  })
+
+  it('collapses consecutive rows that repeat the same primary line', () => {
+    const primary: TimedLine[] = [line('君の孤独も全て暴き出す朝だ', 10, 40)]
+    const secondary: TimedLine[] = [
+      { original: '', translation: 'Line A', startTime: 10, endTime: 15 },
+      { original: '', translation: 'Line B', startTime: 15, endTime: 20 },
+      { original: '', translation: 'Line C', startTime: 20, endTime: 25 },
+    ]
+    const merged = mergeTimedTracks(primary, secondary)
+    expect(merged.filter((l) => l.original === '君の孤独も全て暴き出す朝だ')).toHaveLength(1)
+    expect(merged[0].translation).toBe('Line A')
   })
 
   it('keeps row layout when timed primary and translation counts match', () => {

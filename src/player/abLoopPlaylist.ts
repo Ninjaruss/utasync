@@ -25,6 +25,22 @@ export function shouldAdvancePlaylistAfterCycle(
   return cyclesCompleted >= repeats
 }
 
+/** Next index when advancing through a playlist; wraps to 0 after the last entry. */
+export function wrapPlaylistIndex(currentIndex: number, entryCount: number): number {
+  if (entryCount <= 0) return 0
+  return (currentIndex + 1) % entryCount
+}
+
+/** Previous index; wraps to the last entry from the first. */
+export function wrapPlaylistIndexPrev(currentIndex: number, entryCount: number): number {
+  if (entryCount <= 0) return 0
+  return (currentIndex - 1 + entryCount) % entryCount
+}
+
+export function playlistRepeatButtonLabel(repeatCount: number): string {
+  return isInfinitePlaylistRepeat(repeatCount) ? 'Repeats: ∞' : `Repeats: ${normalizePlaylistRepeatCount(repeatCount)}×`
+}
+
 export function playlistRepeatLabel(repeatCount: number): string {
   return isInfinitePlaylistRepeat(repeatCount) ? '∞' : String(repeatCount)
 }
@@ -32,10 +48,10 @@ export function playlistRepeatLabel(repeatCount: number): string {
 export function playlistRepeatHelpText(repeatCount: number): string {
   const repeats = normalizePlaylistRepeatCount(repeatCount)
   if (isInfinitePlaylistRepeat(repeats)) {
-    return 'Each loop repeats until you stop the playlist or pick another entry.'
+    return 'Repeats each loop until you stop or switch.'
   }
-  const times = repeats === 1 ? 'once' : `${repeats} times`
-  return `Each loop repeats ${times}, then advances to the next entry.`
+  const times = repeats === 1 ? 'once' : `${repeats}×`
+  return `${times} per loop, then next · wraps until Stop`
 }
 
 function formatTime(s: number): string {
@@ -74,4 +90,35 @@ export function movePlaylistEntryByIndex(
   const [item] = next.splice(from, 1)
   next.splice(to, 0, item)
   return next
+}
+
+/** Scroll a child element into view inside a scroll container without moving outer panels. */
+export function scrollElementInContainer(
+  container: HTMLElement,
+  element: HTMLElement,
+  options?: { behavior?: ScrollBehavior; align?: 'start' | 'center' | 'nearest' },
+): void {
+  const behavior = options?.behavior ?? 'smooth'
+  const align = options?.align ?? 'nearest'
+
+  const containerRect = container.getBoundingClientRect()
+  const elementRect = element.getBoundingClientRect()
+  const elementTop = elementRect.top - containerRect.top + container.scrollTop
+  const elementHeight = elementRect.height
+  const containerHeight = container.clientHeight
+
+  let target: number
+  if (align === 'center') {
+    target = elementTop - (containerHeight - elementHeight) / 2
+  } else if (align === 'start') {
+    target = elementTop
+  } else {
+    const viewTop = container.scrollTop
+    const viewBottom = viewTop + containerHeight
+    const elementBottom = elementTop + elementHeight
+    if (elementTop >= viewTop && elementBottom <= viewBottom) return
+    target = elementTop < viewTop ? elementTop : elementBottom - containerHeight
+  }
+
+  container.scrollTo({ top: Math.max(0, target), behavior })
 }

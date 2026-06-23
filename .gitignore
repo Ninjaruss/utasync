@@ -25,3 +25,7 @@ dist-ssr
 
 # superpowers brainstorm companion (local mockups)
 .superpowers/
+
+# local script caches (e.g. auto-align audit transcripts)
+.cache/
+tests/ai-pipeline/fixtures/*.wav

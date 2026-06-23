@@ -22,8 +22,13 @@ describe('chooseAutoAlignment', () => {
     expect(chooseAutoAlignment(false, untimed, 'full', true)).toBe('tap')
     expect(chooseAutoAlignment(false, untimed, 'manual', true)).toBe('tap')
   })
-  it('null when already timed', () => {
-    expect(chooseAutoAlignment(true, timed, 'full')).toBeNull()
+  it('auto for local audio until auto-align has run once', () => {
+    expect(chooseAutoAlignment(true, timed, 'full')).toBe('auto')
+    expect(chooseAutoAlignment(true, timed, 'full', true, 'auto')).toBeNull()
+    expect(chooseAutoAlignment(true, untimed, 'full', true, 'auto')).toBeNull()
+  })
+  it('null for imported sync on YouTube-only playback', () => {
+    expect(chooseAutoAlignment(false, timed, 'full')).toBeNull()
   })
   it('null when no lines', () => {
     expect(chooseAutoAlignment(true, [], 'full')).toBeNull()

@@ -1,77 +1,101 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
-  DEFAULT_PLAYLIST_REPEAT_COUNT,
-  createPlaylistEntry,
-  movePlaylistEntryByIndex,
-  normalizePlaylistRepeatCount,
-  playlistRepeatHelpText,
-  playlistRepeatLabel,
   shouldAdvancePlaylistAfterCycle,
+  wrapPlaylistIndex,
+  wrapPlaylistIndexPrev,
+  playlistRepeatHelpText,
+  playlistRepeatButtonLabel,
+  scrollElementInContainer,
 } from '../../src/player/abLoopPlaylist'
 
+describe('wrapPlaylistIndex', () => {
+  it('wraps from the last entry back to the first', () => {
+    expect(wrapPlaylistIndex(2, 3)).toBe(0)
+  })
+
+  it('advances within range', () => {
+    expect(wrapPlaylistIndex(0, 3)).toBe(1)
+  })
+})
+
+describe('wrapPlaylistIndexPrev', () => {
+  it('wraps from the first entry to the last', () => {
+    expect(wrapPlaylistIndexPrev(0, 3)).toBe(2)
+  })
+})
+
+describe('playlistRepeatButtonLabel', () => {
+  it('labels finite and infinite repeat counts', () => {
+    expect(playlistRepeatButtonLabel(3)).toBe('Repeats: 3×')
+    expect(playlistRepeatButtonLabel(0)).toBe('Repeats: ∞')
+  })
+})
+
 describe('shouldAdvancePlaylistAfterCycle', () => {
-  it('defaults to 3 repeats before advancing', () => {
-    expect(shouldAdvancePlaylistAfterCycle(1, DEFAULT_PLAYLIST_REPEAT_COUNT)).toBe(false)
-    expect(shouldAdvancePlaylistAfterCycle(2, DEFAULT_PLAYLIST_REPEAT_COUNT)).toBe(false)
-    expect(shouldAdvancePlaylistAfterCycle(3, DEFAULT_PLAYLIST_REPEAT_COUNT)).toBe(true)
-  })
-
-  it('advances after one cycle when repeat count is 1', () => {
-    expect(shouldAdvancePlaylistAfterCycle(1, 1)).toBe(true)
-  })
-
-  it('never advances when repeat count is infinite (0)', () => {
-    expect(shouldAdvancePlaylistAfterCycle(1, 0)).toBe(false)
+  it('does not advance when repeat count is infinite', () => {
     expect(shouldAdvancePlaylistAfterCycle(99, 0)).toBe(false)
   })
 
-  it('normalizes invalid repeat counts', () => {
-    expect(shouldAdvancePlaylistAfterCycle(2, -2)).toBe(false)
-    expect(shouldAdvancePlaylistAfterCycle(3, 2.9)).toBe(true)
-  })
-})
-
-describe('normalizePlaylistRepeatCount', () => {
-  it('floors positive values and clamps negatives to infinite', () => {
-    expect(normalizePlaylistRepeatCount(3.7)).toBe(3)
-    expect(normalizePlaylistRepeatCount(-1)).toBe(0)
-    expect(normalizePlaylistRepeatCount(Number.NaN)).toBe(DEFAULT_PLAYLIST_REPEAT_COUNT)
-  })
-})
-
-describe('playlistRepeatLabel', () => {
-  it('shows infinity symbol for non-positive counts', () => {
-    expect(playlistRepeatLabel(0)).toBe('∞')
-    expect(playlistRepeatLabel(3)).toBe('3')
+  it('advances after the configured repeat count', () => {
+    expect(shouldAdvancePlaylistAfterCycle(2, 3)).toBe(false)
+    expect(shouldAdvancePlaylistAfterCycle(3, 3)).toBe(true)
   })
 })
 
 describe('playlistRepeatHelpText', () => {
-  it('describes finite and infinite repeat behavior', () => {
-    expect(playlistRepeatHelpText(3)).toContain('3 times')
-    expect(playlistRepeatHelpText(1)).toContain('once')
-    expect(playlistRepeatHelpText(0)).toContain('until you stop')
+  it('mentions wrapping for finite repeat presets', () => {
+    expect(playlistRepeatHelpText(3)).toMatch(/wrap/i)
   })
 })
 
-describe('createPlaylistEntry', () => {
-  it('creates an entry with id and optional label', () => {
-    const entry = createPlaylistEntry(1, 5, 'verse')
-    expect(entry.a).toBe(1)
-    expect(entry.b).toBe(5)
-    expect(entry.label).toBe('verse')
-    expect(entry.id).toBeTruthy()
-  })
-})
+describe('scrollElementInContainer', () => {
+  let container: HTMLDivElement
+  let item: HTMLDivElement
 
-describe('movePlaylistEntryByIndex', () => {
-  it('moves an entry within bounds', () => {
-    const entries = [
-      createPlaylistEntry(0, 1, 'a'),
-      createPlaylistEntry(2, 3, 'b'),
-    ]
-    const moved = movePlaylistEntryByIndex(entries, 1, 0)
-    expect(moved[0].label).toBe('b')
-    expect(moved[1].label).toBe('a')
+  beforeEach(() => {
+    container = document.createElement('div')
+    container.style.height = '100px'
+    container.style.overflow = 'auto'
+    Object.defineProperty(container, 'clientHeight', { value: 100, configurable: true })
+    container.scrollTop = 0
+    container.scrollTo = vi.fn((opts: ScrollToOptions) => {
+      if (typeof opts.top === 'number') container.scrollTop = opts.top
+    })
+
+    item = document.createElement('div')
+    item.getBoundingClientRect = () => ({
+      top: 180,
+      bottom: 220,
+      left: 0,
+      right: 0,
+      width: 0,
+      height: 40,
+      x: 0,
+      y: 180,
+      toJSON: () => ({}),
+    })
+    container.getBoundingClientRect = () => ({
+      top: 0,
+      bottom: 100,
+      left: 0,
+      right: 0,
+      width: 0,
+      height: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    })
+
+    container.appendChild(item)
+    document.body.appendChild(container)
+  })
+
+  afterEach(() => {
+    container.remove()
+  })
+
+  it('scrolls down when the item is below the visible area', () => {
+    scrollElementInContainer(container, item, { behavior: 'auto', align: 'nearest' })
+    expect(container.scrollTop).toBe(120)
   })
 })

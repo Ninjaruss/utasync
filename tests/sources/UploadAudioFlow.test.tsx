@@ -131,7 +131,16 @@ describe('UploadAudioFlow', () => {
     await pickFileAndTitle(container)
 
     await waitFor(() => expect(screen.getByText(/found synced lyrics/i)).toBeInTheDocument())
-    expect(lrclib.findLyrics).toHaveBeenCalledWith('My Song', '', expect.any(Function))
+    expect(lrclib.findLyrics).toHaveBeenCalledWith('My Song', '', expect.any(Function), undefined)
+  })
+
+  it('forwards the decoded track duration to LRCLIB lookup', async () => {
+    vi.mocked(extractAudioMetadata).mockResolvedValue({ durationSec: 184.32 })
+    const lrclib = await import('../../src/sources/lrclib')
+    const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
+    await pickFileAndTitle(container)
+
+    await waitFor(() => expect(lrclib.findLyrics).toHaveBeenCalledWith('My Song', '', expect.any(Function), 184.32))
   })
 
   it('lets the user skip LRCLIB search and paste lyrics instead', async () => {

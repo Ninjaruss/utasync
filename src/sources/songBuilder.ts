@@ -13,6 +13,7 @@ export interface BuildSongInput {
   translationLanguage?: Language
   alignmentMode?: AlignmentMode
   isTrialSong?: boolean
+  albumArtUrl?: string
 }
 
 export function buildSong(input: BuildSongInput): Song {
@@ -22,6 +23,7 @@ export function buildSong(input: BuildSongInput): Song {
     artist: input.artist,
     sourceUrl: input.sourceUrl,
     audioStoredPath: input.audioStoredPath,
+    albumArtUrl: input.albumArtUrl,
     lyrics: {
       lines: input.lines,
       sourceLanguage: input.sourceLanguage ?? 'ja',

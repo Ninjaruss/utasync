@@ -104,7 +104,10 @@ describe('prefetchWhisperModelFiles', () => {
   it('skips network when a complete cached entry exists', async () => {
     match.mockImplementation(async (url: string) => {
       if (url.includes('config.json')) {
-        return new Response(new Uint8Array(10), { status: 200 })
+        return new Response(new Uint8Array(10), {
+          status: 200,
+          headers: { 'Content-Length': '10' },
+        })
       }
       return undefined
     })
@@ -115,5 +118,20 @@ describe('prefetchWhisperModelFiles', () => {
       .slice(callsBefore)
       .filter(([url]) => String(url).includes('config.json'))
     expect(configFetches).toHaveLength(0)
+  })
+
+  it('trusts Content-Length on cache hits without reading the body', async () => {
+    const blobSpy = vi.spyOn(Response.prototype, 'blob')
+    match.mockImplementation(async (url: string) => {
+      const path = url.split('/').pop() ?? ''
+      const size = path.endsWith('.onnx') ? 1000 : 10
+      return new Response(new Uint8Array(size), {
+        status: 200,
+        headers: { 'Content-Length': String(size) },
+      })
+    })
+    await prefetchWhisperModelFiles('Xenova/whisper-tiny')
+    expect(blobSpy).not.toHaveBeenCalled()
+    blobSpy.mockRestore()
   })
 })

@@ -31,6 +31,21 @@ const glossEmbed = async (texts: string[]): Promise<number[][]> =>
 describe('AKFG Korogaru Iwa — line pairing (user paste)', () => {
   const primary = buildAkfgPrimaryTimed()
 
+  it('does not duplicate primary rows when LRC includes title/artist headers', async () => {
+    const withHeaders: TimedLine[] = [
+      { original: 'Rock n Roll Morning Light Falls On You', startTime: 0, endTime: 4, translation: '' },
+      { original: 'ASIAN KUNG FU GENERATION', startTime: 4, endTime: 8, translation: '' },
+      ...primary,
+    ]
+    const result = await smartAttachSecondLanguage(withHeaders, AKFG_EN_BLOCK, akfgEmbed)
+    expect(result.lines).toHaveLength(withHeaders.length)
+    expect(result.lines.filter((l) => l.original.includes('戦争をなくす'))).toHaveLength(1)
+    expect(result.lines.filter((l) => l.original.includes('君の孤独'))).toHaveLength(1)
+    expect(result.lines[0].translation).toBe('')
+    expect(result.lines[1].translation).toBe('')
+    expect(rowForJa(result.lines, '世界を僕は塗り')?.translation.toLowerCase()).toMatch(/repaint the world/)
+  })
+
   it('semantically pairs opening, chorus, and rock-bridge lines (not blind index)', async () => {
     const result = await smartAttachSecondLanguage(primary, AKFG_EN_BLOCK, akfgEmbed)
     expect(result.mismatchedBlocks).toEqual([])

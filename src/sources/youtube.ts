@@ -49,11 +49,24 @@ export function extractVideoId(url: string): string | null {
 
 export async function fetchYouTubeMeta(url: string): Promise<YouTubeMeta> {
   const videoId = extractVideoId(url)
-  if (!videoId) throw new Error('Not a YouTube URL')
+  if (!videoId) throw new Error('That doesn\'t look like a YouTube link. Paste a full youtube.com or youtu.be URL.')
 
   const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
-  const res = await fetch(oembedUrl)
-  if (!res.ok) throw new Error(`oEmbed fetch failed: ${res.status}`)
+  let res: Response
+  try {
+    res = await fetch(oembedUrl)
+  } catch {
+    throw new Error('Could not reach YouTube. Check your connection and try again.')
+  }
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      throw new Error('This video is private or has embedding disabled. Try a different link, or add audio + lyrics manually.')
+    }
+    if (res.status === 404) {
+      throw new Error('Video not found — it may have been removed or the link is incorrect.')
+    }
+    throw new Error('Could not load video info from YouTube. Try again in a moment.')
+  }
   const data = await res.json()
 
   const { artist, title } = parseArtistTitle(data.title, data.author_name ?? '')

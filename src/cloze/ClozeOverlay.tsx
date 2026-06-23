@@ -17,7 +17,7 @@ export function ClozeOverlay({ line, difficulty, revealed }: Props) {
   if (!line.tokens) return <span className="text-white">{line.original}</span>
 
   return (
-    <div className="flex flex-wrap gap-0.5 justify-center font-jp text-2xl font-semibold">
+    <div lang="ja" className="flex flex-wrap gap-0.5 justify-center font-jp yomitan-text select-text text-xl sm:text-2xl font-semibold">
       {tokens.map((t, i) => (
         <span key={i} className="relative">
           {t.blanked && !revealed ? (

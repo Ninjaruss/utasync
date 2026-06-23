@@ -36,7 +36,7 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
       </div>
 
       <div className="text-center space-y-2">
-        <div className="text-2xl font-semibold text-white font-jp">
+        <div lang="ja" className="text-xl sm:text-2xl font-semibold text-white font-jp yomitan-text select-text">
           {plainLines[current] ?? '—'}
         </div>
         {translations[current] && (

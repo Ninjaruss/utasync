@@ -39,6 +39,7 @@ self.onmessage = async (e: MessageEvent) => {
 
       asr = await loadWhisperAsrPipeline(model, (raw) => {
         if (raw.status === 'download' || raw.status === 'progress') clearInitHint()
+        if (raw.status === 'initializing') clearInitHint()
         const update = tracker.ingest(raw)
         postLoadProgress(update)
         if (raw.status === 'done') scheduleInitHint()

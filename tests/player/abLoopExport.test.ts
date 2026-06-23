@@ -53,6 +53,14 @@ describe('lyricHintForAbLoop', () => {
   it('prefers the lyric line at point A', () => {
     expect(lyricHintForAbLoop(lines, 10.5, 20)).toBe('Inside loop')
   })
+
+  it('matches the tapped line when A uses playback-start lead time', () => {
+    const leadLines: TimedLine[] = [
+      { startTime: 0, endTime: 1, original: 'before', translation: '' },
+      { startTime: 1, endTime: 3, original: 'hello', translation: '' },
+    ]
+    expect(lyricHintForAbLoop(leadLines, 0.82, 3)).toBe('hello')
+  })
 })
 
 describe('sanitizeFilenamePart', () => {

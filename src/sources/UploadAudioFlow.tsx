@@ -8,7 +8,7 @@ import { detectLanguage } from '../lyrics/bilingual'
 import type { Language } from '../core/types'
 import { parseLRC } from '../lyrics/lrc-parser'
 import { parseSubtitle } from '../lyrics/subtitle-parser'
-import { normalizeImportedLines } from './importNormalize'
+import { normalizeImportedLines, importNeedsTranslationAttach } from './importNormalize'
 import { LyricsFoundConfirm, lyricsFoundReadyToApply } from '../lyrics/LyricsFoundConfirm'
 import {
   extractAudioMetadata,
@@ -28,6 +28,7 @@ import {
   uploadSaveStepIndex,
   type UploadSavePhase,
 } from './addSongProgress'
+import { resolveCoverArt } from './coverArt'
 
 type ManualLyricSource = 'paste' | 'subtitle'
 
@@ -63,6 +64,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
   const [file, setFile] = useState<File | null>(null)
   const [title, setTitle] = useState('')
   const [artist, setArtist] = useState('')
+  const [durationSec, setDurationSec] = useState<number | undefined>(undefined)
   const [titleSource, setTitleSource] = useState<MetadataFieldSource | null>(null)
   const [artistSource, setArtistSource] = useState<MetadataFieldSource | null>(null)
   const [filenameAmbiguous, setFilenameAmbiguous] = useState(false)
@@ -84,11 +86,16 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
     const f = e.target.files?.[0] ?? null
     setFile(f)
     if (!f) return
+    // Block the lyrics-search effect from firing off a stale `file`+`title`
+    // pair before file metadata (incl. duration) has finished decoding.
+    searchGenRef.current++
+    setLyricsPhase({ kind: 'searching' })
     const tags = await extractAudioMetadata(f)
     const resolved = resolveTrackMetadata(tags, f.name)
     const hadTitle = title.trim().length > 0
     setTitle((cur) => cur || resolved.title)
     setArtist((cur) => cur || resolved.artist)
+    setDurationSec(tags.durationSec)
     if (!hadTitle) {
       setTitleSource(resolved.titleSource)
       setArtistSource(resolved.artistSource)
@@ -125,7 +132,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
     findLyrics(title.trim(), artist.trim(), (stage) => {
       if (gen !== searchGenRef.current) return
       setLyricSearchStage(stage)
-    })
+    }, durationSec)
       .then((found) => {
         if (gen !== searchGenRef.current) return
         setLyricSearchStage(null)
@@ -142,7 +149,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
         setLyricSearchStage(null)
         setLyricsPhase({ kind: 'manual', source: 'paste' })
       })
-  }, [file, title, artist, lyricsPhase.kind])
+  }, [file, title, artist, lyricsPhase.kind, durationSec])
 
   async function resolveLines(): Promise<TimedLine[] | null> {
     if (lyricsPhase.kind === 'found') return lyricsPhase.lines
@@ -174,8 +181,11 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
         return
       }
 
-      setSaveProgress({ phase: 'normalizing' })
-      const finalLines = await normalizeImportedLines(title.trim(), artist.trim(), lines)
+      let finalLines = lines
+      if (importNeedsTranslationAttach(lines)) {
+        setSaveProgress({ phase: 'normalizing' })
+        finalLines = await normalizeImportedLines(title.trim(), artist.trim(), lines)
+      }
 
       const primaryLang = detectLanguage(finalLines.map((l) => l.original).join('\n'))
       const sourceLanguage: Language = primaryLang === 'ja' ? 'ja' : 'en'
@@ -183,9 +193,14 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
 
       setSaveProgress({ phase: 'saving-audio' })
       const { songId, audioStoredPath } = await ingestAudioFile(file)
+      const albumArtUrl = await resolveCoverArt({
+        title: title.trim(),
+        artist: artist.trim(),
+        audioFile: file,
+      })
       const song = buildSong({
         id: songId, title: title.trim(), artist: artist.trim(), audioStoredPath,
-        lines: finalLines, sourceLanguage, translationLanguage,
+        lines: finalLines, sourceLanguage, translationLanguage, albumArtUrl,
       })
       setSaveProgress({ phase: 'saving-song' })
       await db.songs.put(song)

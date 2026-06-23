@@ -29,10 +29,29 @@ describe('fetchYouTubeMeta', () => {
     expect(meta.title).toBe('Never Gonna Give You Up')
     expect(meta.artist).toBe('Rick Astley')
     expect(meta.rawTitle).toBe('Rick Astley - Never Gonna Give You Up (Official Music Video)')
+    expect(meta.thumbnailUrl).toBe('https://img.youtube.com/vi/dQw4w9WgXcQ/hqdefault.jpg')
   })
 
-  it('throws on non-YouTube URL', async () => {
-    await expect(fetchYouTubeMeta('https://spotify.com')).rejects.toThrow('Not a YouTube URL')
+  it('throws an actionable message on non-YouTube URL', async () => {
+    await expect(fetchYouTubeMeta('https://spotify.com')).rejects.toThrow(/youtube\.com or youtu\.be/)
+  })
+
+  it('throws an actionable message when the video is private/embedding-disabled', async () => {
+    mockFetch({ ok: false, status: 401 })
+    await expect(fetchYouTubeMeta('https://www.youtube.com/watch?v=dQw4w9WgXcQ'))
+      .rejects.toThrow(/private or has embedding disabled/)
+  })
+
+  it('throws an actionable message when the video is not found', async () => {
+    mockFetch({ ok: false, status: 404 })
+    await expect(fetchYouTubeMeta('https://www.youtube.com/watch?v=dQw4w9WgXcQ'))
+      .rejects.toThrow(/removed or the link is incorrect/)
+  })
+
+  it('throws an actionable message on network failure', async () => {
+    vi.mocked(fetch).mockRejectedValue(new TypeError('Failed to fetch'))
+    await expect(fetchYouTubeMeta('https://www.youtube.com/watch?v=dQw4w9WgXcQ'))
+      .rejects.toThrow(/check your connection/i)
   })
 })
 

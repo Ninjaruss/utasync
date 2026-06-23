@@ -260,6 +260,24 @@ export default defineConfig({
     target: 'esnext',
   },
   worker: { format: 'es' },
+  // Dev/preview only — lets you test the Whisper WASM multi-threading speedup
+  // (src/ai-pipeline/whisperPipeline.ts gates on `crossOriginIsolated`, which
+  // these headers enable) and verify YouTube playback still works before
+  // deciding whether to add the same headers on your production host. Not
+  // applied to the production build itself; static hosts need their own
+  // header config (see docs/DEPLOYMENT.md) to get the speedup in production.
+  server: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
+    },
+  },
+  preview: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
+    },
+  },
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],

@@ -19,6 +19,23 @@ function onnxWasmBaseUrl(): string {
   return new URL(`${base}onnx-wasm/`, origin || undefined).href
 }
 
+/**
+ * ONNX Runtime's WASM backend can split inference across a thread pool, but
+ * that requires `SharedArrayBuffer`, which only exists when the page is
+ * cross-origin isolated (COOP/COEP headers set by the host). Gating on
+ * `crossOriginIsolated` makes this a pure no-op (current single-threaded
+ * behavior, same output) everywhere isolation isn't configured, and a ~2-4x
+ * transcription speedup with identical model output everywhere it is.
+ */
+function preferredWasmThreadCount(): number {
+  if (typeof self === 'undefined' || !self.crossOriginIsolated) return 1
+  const cores = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : undefined
+  if (!cores) return 1
+  // Leave a core free for the worker's message loop/GC; diminishing returns
+  // past a handful of threads for a model this size make a higher cap pointless.
+  return Math.max(1, Math.min(cores - 1, 6))
+}
+
 export function configureWhisperEnv(): void {
   env.allowLocalModels = false
   env.useBrowserCache = true
@@ -32,6 +49,7 @@ export function configureWhisperEnv(): void {
     // load wasm from our origin (vite serveOnnxWasm) instead of a CDN stream.
     wasm.proxy = false
     wasm.wasmPaths = onnxWasmBaseUrl()
+    wasm.numThreads = preferredWasmThreadCount()
   }
 }
 
@@ -51,7 +69,10 @@ export async function loadWhisperAsrPipeline(
   progress_callback?: ProgressCallback,
 ): Promise<AutomaticSpeechRecognitionPipeline> {
   configureWhisperEnv()
-  await purgeCorruptModelCaches()
+
+  const postInit = (step: string) => {
+    progress_callback?.({ status: 'initializing', file: step, name: modelId })
+  }
 
   try {
     // `from_pretrained` below always reads from `env.remoteHost` — if the primary
@@ -85,6 +106,7 @@ export async function loadWhisperAsrPipeline(
     withNetworkRetry(load, 3, 1500, async (attempt) => {
       if (attempt >= 2) {
         console.warn(`Retrying Whisper ${label} after load failure (attempt ${attempt})`)
+        await purgeCorruptModelCaches()
         await clearWhisperModelCache(modelId)
         const { host } = await prefetchWhisperModelFiles(modelId)
         env.remoteHost = host
@@ -92,8 +114,11 @@ export async function loadWhisperAsrPipeline(
     })
 
   try {
+    postInit('tokenizer')
     const tokenizer = await retryLoad('tokenizer', () => AutoTokenizer.from_pretrained(modelId, options))
+    postInit('processor')
     const processor = await retryLoad('processor', () => AutoProcessor.from_pretrained(modelId, options))
+    postInit('speech model')
     const model = await retryLoad('model', () => WhisperForConditionalGeneration.from_pretrained(modelId, options))
 
     return new AutomaticSpeechRecognitionPipeline({

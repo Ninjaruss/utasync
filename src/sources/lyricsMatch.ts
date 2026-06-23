@@ -36,12 +36,40 @@ function levenshteinRatio(a: string, b: string): number {
   return 1 - distance / Math.max(a.length, b.length)
 }
 
+const ARTIST_SPLIT_RE = /\s*(?:,|&|\/|\bfeat\.?\b|\bft\.?\b|\bfeaturing\b|\bx\b|\bvs\.?\b)\s*/i
+
+/** Split a collab credit ("A & B", "A feat. B", "A x B") into individual artist names. */
+function splitArtistNames(s: string): string[] {
+  return s
+    .split(ARTIST_SPLIT_RE)
+    .map((n) => n.trim())
+    .filter(Boolean)
+}
+
 function fuzzyKeyMatch(a: string, b: string): number {
   const na = normalizeArtistKey(a)
   const nb = normalizeArtistKey(b)
   if (!na || !nb) return 0
   if (na === nb) return 1
   if (na.includes(nb) || nb.includes(na)) return 0.92
+
+  const partsA = splitArtistNames(a)
+  const partsB = splitArtistNames(b)
+  if (partsA.length > 1 || partsB.length > 1) {
+    let best = 0
+    for (const pa of partsA) {
+      for (const pb of partsB) {
+        const npa = normalizeArtistKey(pa)
+        const npb = normalizeArtistKey(pb)
+        if (!npa || !npb) continue
+        if (npa === npb) best = Math.max(best, 1)
+        else if (npa.includes(npb) || npb.includes(npa)) best = Math.max(best, 0.92)
+        else best = Math.max(best, levenshteinRatio(npa, npb))
+      }
+    }
+    if (best > 0) return best
+  }
+
   return levenshteinRatio(na, nb)
 }
 

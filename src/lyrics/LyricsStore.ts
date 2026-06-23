@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { TimedLine, FuriganaMode, LyricsLayout, ClozeDifficulty } from '../core/types'
-import { VOCAL_ONSET_LEAD_S } from './lineTiming'
+import { lineIndexAtPlayhead } from './lineTiming'
 
 interface LyricsState {
   lines: TimedLine[]
@@ -19,21 +19,8 @@ interface LyricsState {
   setClozeMode: (on: boolean) => void
 }
 
-function binarySearchLine(lines: TimedLine[], position: number): number {
-  const adjusted = position + VOCAL_ONSET_LEAD_S
-  let lo = 0
-  let hi = lines.length - 1
-  let result = -1
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1
-    if (lines[mid].startTime <= adjusted) {
-      result = mid
-      lo = mid + 1
-    } else {
-      hi = mid - 1
-    }
-  }
-  return result
+function activeLineAtPosition(lines: TimedLine[], position: number): number {
+  return lineIndexAtPlayhead(lines, position)
 }
 
 export const useLyricsStore = create<LyricsState>()(
@@ -49,7 +36,7 @@ export const useLyricsStore = create<LyricsState>()(
       setLines: (lines) => set({ lines, activeLine: -1 }),
       syncPosition: (position) => {
         const { lines, activeLine } = get()
-        const next = binarySearchLine(lines, position)
+        const next = activeLineAtPosition(lines, position)
         if (next !== activeLine) set({ activeLine: next })
       },
       setFuriganaMode: (furiganaMode) => set({ furiganaMode }),

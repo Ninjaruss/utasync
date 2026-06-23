@@ -57,11 +57,7 @@ async function main() {
   const { alignLinesTokens, buildAlignmentUnits } = await import(
     pathToFileURL(join(root, 'src/ai-pipeline/wordAligner.ts')).href
   )
-  const {
-    buildAlignJob,
-    offsetTokenAlignmentIndices,
-    targetWordBaseOffset,
-  } = await import(pathToFileURL(join(root, 'src/lyrics/lineAligner.ts')).href)
+  const { buildAlignJob } = await import(pathToFileURL(join(root, 'src/lyrics/lineAligner.ts')).href)
   const { splitTranslationWords } = await import(
     pathToFileURL(join(root, 'src/language/wordColors.ts')).href
   )
@@ -71,16 +67,12 @@ async function main() {
   const { tokenGlossText } = await import(
     pathToFileURL(join(root, 'src/ai-pipeline/wordAligner.ts')).href
   )
-  const { embedTexts, clearEmbeddingCache } = await import(
-    pathToFileURL(join(root, 'src/ai-pipeline/textEmbedder.ts')).href
-  )
+  const { embedTexts } = await import(pathToFileURL(join(root, 'scripts/lib/nodeEmbedder.mjs')).href)
 
   const dictPath = join(root, 'public/dict')
   const tokenizer = await new Promise((resolve, reject) => {
     kuromoji.builder({ dicPath: dictPath }).build((err, t) => (err ? reject(err) : resolve(t)))
   })
-
-  clearEmbeddingCache?.()
 
   const jobs = []
   for (const line of LINES) {
@@ -98,8 +90,10 @@ async function main() {
   const issues = []
 
   jobs.forEach(({ line, tokens }, li) => {
-    const offset = targetWordBaseOffset(line.original, line.translation)
-    const result = offsetTokenAlignmentIndices(aligned[li], offset)
+    // buildAlignJob already bakes targetWordBaseOffset into targetIndexMap, so
+    // alignmentIndices on `aligned[li]` are already in full-translation coordinates.
+    // Re-applying offsetTokenAlignmentIndices here would double-shift mixed-script lines.
+    const result = aligned[li]
     const words = splitTranslationWords(line.translation)
 
     console.log(`--- Line ${li + 1}: ${line.original}`)

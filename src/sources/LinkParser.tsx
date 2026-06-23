@@ -5,7 +5,8 @@ import { db } from '../core/db/schema'
 import { buildSong, linesFromPlainText, type BuildSongInput } from './songBuilder'
 import { detectLanguage } from '../lyrics/bilingual'
 import { ingestAudioFile } from './audioIngest'
-import { normalizeImportedLines } from './importNormalize'
+import { resolveCoverArt } from './coverArt'
+import { normalizeImportedLines, importNeedsTranslationAttach } from './importNormalize'
 import type { TimedLine, Language } from '../core/types'
 import { parseSubtitle } from '../lyrics/subtitle-parser'
 import { ProgressOverlay } from '../core/ui/ProgressOverlay'
@@ -45,6 +46,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
   const [title, setTitle] = useState('')
   const [artist, setArtist] = useState('')
   const [videoId, setVideoId] = useState<string | null>(null)
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null)
   const [metaLoaded, setMetaLoaded] = useState(false)
   const [lyricsPhase, setLyricsPhase] = useState<LyricsPhase>({ kind: 'idle' })
   const [pasted, setPasted] = useState('')
@@ -70,6 +72,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
       setTitle(meta.title)
       setArtist(meta.artist)
       setVideoId(meta.videoId)
+      setThumbnailUrl(meta.thumbnailUrl)
       setMetaLoaded(true)
       searchGenRef.current++
       setLyricsPhase({ kind: 'idle' })
@@ -161,10 +164,11 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
         return
       }
 
-      setSaveProgress({ phase: 'normalizing', includeAudio })
-      const finalLines = lines.length
-        ? await normalizeImportedLines(title.trim(), artist.trim(), lines)
-        : lines
+      let finalLines = lines
+      if (lines.length && importNeedsTranslationAttach(lines)) {
+        setSaveProgress({ phase: 'normalizing', includeAudio })
+        finalLines = await normalizeImportedLines(title.trim(), artist.trim(), lines)
+      }
 
       const primaryLang = finalLines.length ? detectLanguage(finalLines.map((l) => l.original).join('\n')) : 'other'
       const sourceLanguage: Language = primaryLang === 'ja' ? 'ja' : 'en'
@@ -179,12 +183,19 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
         songId = ingested.songId
       }
 
+      setSaveProgress({ phase: 'saving-song', includeAudio })
+      const albumArtUrl = await resolveCoverArt({
+        title: title.trim(),
+        artist: artist.trim(),
+        audioFile,
+        youtubeThumbnailUrl: thumbnailUrl,
+      })
+
       const input: BuildSongInput = {
         id: songId, title: title.trim(), artist: artist.trim(), sourceUrl: url, audioStoredPath,
-        lines: finalLines, sourceLanguage, translationLanguage,
+        lines: finalLines, sourceLanguage, translationLanguage, albumArtUrl,
       }
       const song = buildSong(input)
-      setSaveProgress({ phase: 'saving-song', includeAudio })
       await db.songs.put(song)
       setSaveProgress(null)
       onSongReady(song.id)
@@ -268,7 +279,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
         <div className={embedded ? 'shrink-0 space-y-2 md:space-y-2' : 'space-y-3'}>
         <input
           value={url}
-          onChange={(e) => { setUrl(e.target.value); setMetaLoaded(false) }}
+          onChange={(e) => { setUrl(e.target.value); setMetaLoaded(false); setThumbnailUrl(null) }}
           placeholder="Paste a YouTube link…"
           className={fieldClass}
         />

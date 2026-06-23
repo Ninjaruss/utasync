@@ -2,7 +2,7 @@ import type { ProcessStep } from '../core/ui/progressUtils'
 
 export const UPLOAD_SAVE_STEPS: ProcessStep[] = [
   { label: 'Preparing lyrics', detail: 'Reading pasted text or subtitle file' },
-  { label: 'Normalizing lyrics', detail: 'Finding translation and pairing lines' },
+  { label: 'Looking for translation', detail: 'Optional — searching LRCLIB for a second language' },
   { label: 'Saving audio', detail: 'Copying file to local storage' },
   { label: 'Saving song', detail: 'Writing to your library' },
 ]
@@ -13,7 +13,7 @@ export const LINK_METADATA_STEPS: ProcessStep[] = [
 
 export const LINK_SAVE_STEPS: ProcessStep[] = [
   { label: 'Preparing lyrics', detail: 'Reading pasted text or subtitle file' },
-  { label: 'Normalizing lyrics', detail: 'Finding translation and pairing lines' },
+  { label: 'Looking for translation', detail: 'Optional — searching LRCLIB for a second language' },
   { label: 'Saving audio', detail: 'Copying file to local storage' },
   { label: 'Saving song', detail: 'Writing to your library' },
 ]

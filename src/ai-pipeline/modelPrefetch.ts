@@ -1,5 +1,5 @@
 import { withNetworkRetry } from './networkErrors'
-import { TRANSFORMERS_CACHE_NAME, cacheResponseBodyValid } from '../core/storage/modelCache'
+import { TRANSFORMERS_CACHE_NAME } from '../core/storage/modelCache'
 
 export const HF_HOSTS = ['https://huggingface.co/', 'https://hf.co/'] as const
 
@@ -93,16 +93,31 @@ async function cachedEntryComplete(
 ): Promise<boolean> {
   const hit = await cache.match(url)
   if (!hit) return false
-  if (!(await cacheResponseBodyValid(hit.clone()))) {
+
+  const declared = parseInt(hit.headers.get('Content-Length') ?? '', 10)
+  if (!Number.isNaN(declared) && declared > 0) {
+    if (expectedSize > 0) {
+      if (declared === expectedSize) return true
+    } else {
+      // HF listing unavailable — trust a non-zero Content-Length without reading ~240MB blobs.
+      return true
+    }
+  }
+
+  const blob = await hit.blob()
+  if (blob.size === 0) {
     await cache.delete(url)
     return false
   }
-  const blob = await hit.blob()
+  if (!Number.isNaN(declared) && declared > 0 && blob.size !== declared) {
+    await cache.delete(url)
+    return false
+  }
   if (expectedSize > 0 && blob.size !== expectedSize) {
     await cache.delete(url)
     return false
   }
-  return blob.size > 0
+  return true
 }
 
 async function downloadToArrayBuffer(url: string): Promise<ArrayBuffer> {
@@ -119,9 +134,12 @@ async function downloadToArrayBuffer(url: string): Promise<ArrayBuffer> {
 
 async function storeInCache(cache: Cache, url: string, buffer: ArrayBuffer): Promise<void> {
   try {
-    // Let the Response derive Content-Length from the body — a mismatched header
-    // causes "Content-Length header exceeds response Body" on later reads.
-    await cache.put(url, new Response(buffer))
+    await cache.put(
+      url,
+      new Response(buffer, {
+        headers: { 'Content-Length': String(buffer.byteLength) },
+      }),
+    )
   } catch (err) {
     console.warn('Unable to persist model file to browser cache:', err)
   }

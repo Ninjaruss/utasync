@@ -1,6 +1,8 @@
 export interface AudioMetadata {
   title?: string
   artist?: string
+  /** Decoded track length in seconds, when the file's format header exposes it. */
+  durationSec?: number
 }
 
 export type MetadataFieldSource = 'tag' | 'filename'
@@ -50,8 +52,8 @@ function splitOnSeparator(text: string): { left: string; right: string } | null 
  * When tags store "Artist - Title" in a single field, split into both parts.
  */
 export function unpackCombinedTags(tags: AudioMetadata): AudioMetadata {
-  let title = tags.title?.trim()
-  let artist = tags.artist?.trim()
+  const title = tags.title?.trim()
+  const artist = tags.artist?.trim()
 
   if (title && !artist) {
     const split = splitOnSeparator(title)
@@ -167,7 +169,7 @@ export function resolveTrackMetadata(
 export async function extractAudioMetadata(file: File): Promise<AudioMetadata> {
   try {
     const { parseBlob } = await import('music-metadata')
-    const { common } = await parseBlob(file)
+    const { common, format } = await parseBlob(file)
     const result: AudioMetadata = {}
     const title = common.title?.trim()
     const artist =
@@ -176,6 +178,7 @@ export async function extractAudioMetadata(file: File): Promise<AudioMetadata> {
       || common.albumartist?.trim()
     if (title) result.title = title
     if (artist) result.artist = artist
+    if (format?.duration) result.durationSec = format.duration
     return result
   } catch {
     return {}

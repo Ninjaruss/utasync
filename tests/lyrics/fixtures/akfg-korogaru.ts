@@ -101,7 +101,7 @@ export function buildAkfgPrimaryTimed(): TimedLine[] {
 
 /** Keyword signatures for mock semantic embedding (JA↔EN line pairing). */
 const SIGNATURE_RULES: [RegExp, string][] = [
-  [/世界を僕は塗り|repaint the world/i, 'open-world'],
+  [/世界を僕は塗り|if possible.*repaint the world/i, 'open-world'],
   [/戦争|eliminating wars/i, 'wars'],
   [/だけど|bit of that too/i, 'but-bit'],
   [/俳優|actor or a movie star/i, 'actor'],

@@ -29,14 +29,14 @@ describe('PlayerView speed control', () => {
   it('shows the speed slider in the practice panel', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: /practice tools/i }))
+    fireEvent.click(screen.getByRole('button', { name: /saved loops and speed/i }))
     expect(screen.getByRole('slider', { name: /playback speed/i })).toBeTruthy()
   })
 
   it('applies learner speed presets', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: /practice tools/i }))
+    fireEvent.click(screen.getByRole('button', { name: /saved loops and speed/i }))
     fireEvent.click(screen.getByRole('button', { name: /slow, 75 percent speed/i }))
     expect(usePlayerStore.getState().speed).toBe(0.75)
     fireEvent.click(screen.getByRole('button', { name: /slower, 60 percent speed/i }))
@@ -47,7 +47,7 @@ describe('PlayerView speed control', () => {
     usePlayerStore.setState({ speed: 0.6 })
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: /practice tools/i }))
+    fireEvent.click(screen.getByRole('button', { name: /saved loops and speed/i }))
     const slider = screen.getByRole('slider', { name: /playback speed/i })
     fireEvent.pointerUp(slider, { clientX: 10, clientY: 10 })
     fireEvent.pointerUp(slider, { clientX: 10, clientY: 10 })

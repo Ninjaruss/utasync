@@ -20,6 +20,16 @@ describe('buildSong', () => {
     expect(song.id).toBe('fixed-id')
     expect(song.audioStoredPath).toBe('songs/fixed-id.mp3')
   })
+
+  it('passes through albumArtUrl', () => {
+    const song = buildSong({
+      title: 'T',
+      artist: 'A',
+      lines: [],
+      albumArtUrl: 'https://example.com/cover.jpg',
+    })
+    expect(song.albumArtUrl).toBe('https://example.com/cover.jpg')
+  })
 })
 
 describe('linesFromPlainText', () => {

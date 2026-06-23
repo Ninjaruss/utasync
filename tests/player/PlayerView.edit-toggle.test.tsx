@@ -37,7 +37,7 @@ describe('SongScreen Play/Edit toggle', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     await waitFor(() => expect(screen.getByRole('button', { name: /edit timestamp for line 1/i })).toBeTruthy())
     expect(screen.queryByRole('button', { name: /lyrics display options/i })).toBeNull()
-    expect(screen.queryByRole('button', { name: /practice tools/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /saved loops and speed/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /a loop point/i })).toBeNull()
     expect(screen.getByLabelText('Volume')).toBeTruthy()
   })

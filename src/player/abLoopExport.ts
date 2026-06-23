@@ -1,5 +1,6 @@
 import { downloadBlob } from '../lyrics/exporter'
 import type { ABLoopPlaylistEntry, TimedLine } from '../core/types'
+import { lineIndexAtPlayhead } from '../lyrics/lineTiming'
 import { isValidABPair } from './abLoopUtils'
 
 /** Remove characters that are invalid in cross-platform file names. */
@@ -60,10 +61,11 @@ export function sliceLinesForAbExport(lines: TimedLine[], a: number, b: number):
 
 /** Primary lyric line for naming — prefers the line at point A, else first line in range. */
 export function lyricHintForAbLoop(lines: TimedLine[], a: number, b: number): string | null {
-  const anchor = lines.find(
-    (l) => lineIsTimed(l) && l.startTime <= a && l.endTime > a && l.original.trim(),
-  )
-  if (anchor) return anchor.original.trim()
+  const idx = lineIndexAtPlayhead(lines, a)
+  if (idx >= 0) {
+    const text = lines[idx].original.trim()
+    if (text) return text
+  }
   const sliced = sliceLinesForAbExport(lines, a, b)
   const first = sliced.find((l) => l.original.trim())
   return first?.original.trim() ?? null

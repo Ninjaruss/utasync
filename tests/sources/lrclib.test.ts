@@ -165,4 +165,23 @@ describe('findLyrics', () => {
     expect(result?.lrc).toContain('Dekireba')
     expect(result?.synced).toBe(true)
   })
+
+  it('uses target duration to disambiguate same-titled results', async () => {
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('/api/get')) {
+        return { ok: false, status: 404 } as Response
+      }
+      return {
+        ok: true,
+        json: async () => ([
+          { id: 1, name: 'Home', artistName: 'Cover Band', duration: 312, syncedLyrics: '[00:01.00]Wrong cover' },
+          { id: 2, name: 'Home', artistName: 'Cover Band', duration: 184, syncedLyrics: '[00:01.00]Right take' },
+        ]),
+      } as Response
+    })
+
+    const result = await findLyrics('Home', 'Cover Band', undefined, 185)
+    expect(result?.lrc).toBe('[00:01.00]Right take')
+  })
 })

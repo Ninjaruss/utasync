@@ -6,6 +6,8 @@ import { deleteOrphanedAudio, findOrphanedAudioIds } from '../core/storage/clean
 import { clearAiModelCache } from '../core/storage/modelCache'
 import { exportLRC, downloadFile } from '../lyrics/exporter'
 import { useSettingsStore } from '../payment/SettingsStore'
+import { LegalLinks } from '../core/ui/LegalLinks'
+import { LEGAL_LAST_UPDATED } from '../core/legal'
 import type { Song } from '../core/types'
 
 interface Props {
@@ -159,6 +161,12 @@ export function SettingsView({ onClose, embedded = false }: Props) {
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="bg-cinnabar-900 rounded-xl p-4 space-y-2">
+        <p className="text-sm font-medium">Legal</p>
+        <LegalLinks external />
+        <p className="text-xs text-white/30 text-center">Last updated {LEGAL_LAST_UPDATED}</p>
       </div>
     </div>
   )

@@ -21,6 +21,9 @@ import {
   isRepetitionOnlyLine,
   trimTranslationForRepetitionLine,
   autoAlignLines,
+  isPrimaryHeaderLine,
+  isInterjectionPrimaryLine,
+  slotPairingIsTrustworthy,
 } from '../../src/lyrics/lineAligner'
 import type { TimedLine } from '../../src/core/types'
 
@@ -106,14 +109,14 @@ describe('indexPairingLooksValid', () => {
 })
 
 describe('smartAttachSecondLanguage — timed union merge', () => {
-  it('union-merges instead of flagging mismatch when translation line count differs', async () => {
+  it('keeps row layout when only one translation line is pasted for two timed rows', async () => {
     const primary: TimedLine[] = [
       line('君の瞳', '', 1, 3),
       line('夜の中', '', 3, 5),
     ]
     const result = await smartAttachSecondLanguage(primary, 'Only one line', async () => [])
     expect(result.mismatchedBlocks).toEqual([])
-    expect(result.method).toBe('timeline')
+    expect(result.lines).toHaveLength(2)
     expect(result.lines.filter((l) => l.translation === 'Only one line')).toHaveLength(1)
     expect(result.lines.some((l) => l.original === '君の瞳')).toBe(true)
   })
@@ -279,6 +282,22 @@ describe('smartAttachSecondLanguage — semantic guards', () => {
     })
     expect(slowEmbed).toHaveBeenCalled()
     expect(result.method).toBe('mismatch')
+  })
+})
+
+describe('slotPairingIsTrustworthy', () => {
+  it('trusts a single dual-phrase row with two English lines', () => {
+    const originals = ['滑り込むキミの横 隣り合わせのハート']
+    const translations = ['Beside you as you slide in', 'Adjacent hearts']
+    const slots = expandSlotsAdaptive(originals, translations.length)
+    expect(slotPairingIsTrustworthy(originals, translations, slots)).toBe(true)
+  })
+
+  it('rejects forced expansion when JA/EN line counts diverge', () => {
+    const originals = ['だけどちょっと それもあるよな', 'ローリング ローリング']
+    const translations = ['But', 'there', 'Rolling']
+    const slots = expandSlotsAdaptive(originals, translations.length)
+    expect(slotPairingIsTrustworthy(originals, translations, slots)).toBe(false)
   })
 })
 
@@ -488,6 +507,22 @@ describe('buildAlignJob', () => {
     const job = buildAlignJob(timed)
     expect(job.segments).toHaveLength(2)
     expect(job.segments![1].targetIndexMap).toEqual([4, 6, 8])
+  })
+})
+
+describe('isPrimaryHeaderLine', () => {
+  it('skips Latin title/artist rows in a Japanese primary', () => {
+    expect(isPrimaryHeaderLine('Rock n Roll Morning Light Falls On You', true)).toBe(true)
+    expect(isPrimaryHeaderLine('ASIAN KUNG FU GENERATION', true)).toBe(true)
+    expect(isPrimaryHeaderLine('出来れば世界を僕は塗り変えたい', true)).toBe(false)
+    expect(isPrimaryHeaderLine('Rock n Roll Morning Light Falls On You', false)).toBe(false)
+  })
+})
+
+describe('isInterjectionPrimaryLine', () => {
+  it('skips sigh rows that have no English counterpart', () => {
+    expect(isInterjectionPrimaryLine('嗚呼...')).toBe(true)
+    expect(isInterjectionPrimaryLine('俳優や映画スターには成れない')).toBe(false)
   })
 })
 

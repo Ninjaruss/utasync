@@ -111,6 +111,7 @@ export async function findLyrics(
   trackName: string,
   artistName: string,
   onStage?: (stage: FindLyricsStage) => void,
+  targetDurationSec?: number,
 ): Promise<LyricsLookup | null> {
   onStage?.('exact')
   const exact = await fetchLRCLIBExact(trackName, artistName)
@@ -145,7 +146,7 @@ export async function findLyrics(
   for (const q of queries) {
     const results = await searchLRCLIBRaw(q)
     for (const r of results) {
-      const score = lyricsMatchScore(r, trackName, artistName)
+      const score = lyricsMatchScore(r, trackName, artistName, targetDurationSec)
       if (score < 0.55) continue
       if (r.syncedLyrics && (!bestSynced || score > bestSynced.score)) {
         bestSynced = {

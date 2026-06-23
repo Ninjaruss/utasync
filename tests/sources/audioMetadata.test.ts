@@ -37,6 +37,12 @@ describe('extractAudioMetadata', () => {
     expect(await extractAudioMetadata(file)).toEqual({ title: 'Only Title' })
   })
 
+  it('includes the decoded track duration in seconds when available', async () => {
+    parseBlob.mockResolvedValue({ common: { title: 'Tagged Title' }, format: { duration: 184.32 } })
+    const file = new File(['x'], 'song.mp3', { type: 'audio/mpeg' })
+    expect(await extractAudioMetadata(file)).toEqual({ title: 'Tagged Title', durationSec: 184.32 })
+  })
+
   it('returns an empty object when parsing yields no usable data', async () => {
     parseBlob.mockResolvedValue({}) // malformed result: no `common`
     const file = new File(['x'], 'song.mp3', { type: 'audio/mpeg' })

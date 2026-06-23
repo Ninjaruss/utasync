@@ -76,14 +76,17 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
   }
 
   /**
-   * Route a secondary block:
-   * - Timed primary: semantic/slots pairing, then union-timeline merge (line counts may differ).
-   * - Untimed primary: row pairing; manual review via AlignmentEditor when counts still disagree.
-   */
+ * Route a secondary block:
+ * - Timed primary: semantic/slots pairing on primary rows (title lines skipped).
+ * - Untimed primary: row pairing; manual review via AlignmentEditor when counts still disagree.
+ */
   const route = async (secondary: string) => {
     setPhase({ kind: 'aligning' })
     try {
-      const result = await smartAttachSecondLanguage(lines, secondary)
+      const result = await smartAttachSecondLanguage(lines, secondary, undefined, {
+        songTitle: title,
+        artist,
+      })
       if (result.mismatchedBlocks.length === 0) {
         setPhase({ kind: 'confirm', paired: result.lines, secondary })
         return

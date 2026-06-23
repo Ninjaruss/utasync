@@ -434,6 +434,41 @@ export function slotsHaveStructure(slots: AlignmentSlot[]): boolean {
 }
 
 /**
+ * Slot pairing is trustworthy only when structure is intrinsic (mixed EN+JA or
+ * natural dual-phrase splits), index pairing is lexically plausible, or counts
+ * align without forced adaptive expansion. Splitting JA lines solely to match a
+ * mismatched translation count is as misleading as blind index pairing.
+ */
+function countSplittableDualPhrase(originals: string[]): number {
+  return originals.filter((o) => splitDualPhraseJapanese(o.trim())).length
+}
+
+export function slotPairingIsTrustworthy(
+  originals: string[],
+  translations: string[],
+  slots: AlignmentSlot[],
+): boolean {
+  if (slots.length !== translations.length || translations.length === 0) return false
+  if (indexPairingLooksValid(originals, translations)) return true
+  const natural = buildSlots(originals, new Set())
+  if (slotsHaveStructure(natural)) return true
+  const minSlots = natural.length
+  const nonEmptyLines = originals.filter((o) => o.trim()).length
+  const gap = translations.length - minSlots
+  const splittable = countSplittableDualPhrase(originals)
+  const singleDualPhraseGap =
+    gap === 1 && splittable === 1 && minSlots === nonEmptyLines
+  if (slots.length > minSlots) {
+    if (!singleDualPhraseGap && gap > 0) return false
+  }
+  if (slots.length > nonEmptyLines && translations.length > nonEmptyLines && !singleDualPhraseGap) {
+    return false
+  }
+  if (slots.length > originals.length && !singleDualPhraseGap) return false
+  return singleDualPhraseGap
+}
+
+/**
  * Structure-aware pairing: index, adaptive slots (mixed + dual-phrase JA), or mismatch.
  */
 export function pairTranslationsToPrimary(
@@ -454,10 +489,26 @@ export function pairTranslationsToPrimary(
   const slots = expandSlotsAdaptive(originals, trans.length)
   if (slots.length === trans.length && trans.length > 0) {
     const merged = mergeSlotTranslations(primary.length, slots, trans)
-    return { lines: applyTranslations(primary, merged), method: 'slots' }
+    const method: PairingMethod = slotPairingIsTrustworthy(originals, trans, slots) ? 'slots' : 'mismatch'
+    return { lines: applyTranslations(primary, merged), method }
   }
 
   return { lines: applyTranslations(primary, trans), method: 'mismatch' }
+}
+
+function scorePrimaryTranslation(
+  original: string,
+  i: number,
+  j: number,
+  translations: string[],
+  transVecs: number[][],
+  origVecs: number[][],
+): number {
+  if (isInterjectionPrimaryLine(original)) return -1
+  const latin = latinHintScore(original, translations[j])
+  let sim = 0
+  for (let k = 0; k < origVecs[i].length; k++) sim += origVecs[i][k] * transVecs[j][k]
+  return sim * 0.7 + latin * 0.3
 }
 
 export async function autoAlignLines(
@@ -488,6 +539,11 @@ export async function autoAlignLines(
     return vecSim(origVecs[i], transVec) * 0.7 + latin * 0.3
   }
 
+  const scoreAt = (i: number, j: number): number =>
+    scorePrimaryTranslation(originals[i], i, j, translations, transVecs, origVecs)
+
+  const skipPenalty = Math.abs(n - m) <= 1 ? 0.85 : 0
+
   const canMergeOnto = (i: number): boolean =>
     partGlyphLength(originals[i]) >= MIN_ORIGINAL_GLYPHS_FOR_EN_MERGE
 
@@ -496,9 +552,10 @@ export async function autoAlignLines(
 
   for (let i = 1; i <= n; i++) {
     for (let j = 1; j <= m; j++) {
-      let best = dp[i - 1][j]
+      const skipOrigPenalty = isInterjectionPrimaryLine(originals[i - 1]) ? 0 : skipPenalty
+      let best = dp[i - 1][j] - skipOrigPenalty
       let move = 'U'
-      const single = dp[i - 1][j - 1] + pairScore(i - 1, translations[j - 1], transVecs[j - 1])
+      const single = dp[i - 1][j - 1] + scoreAt(i - 1, j - 1)
       if (single >= best) {
         best = single
         move = 'D'
@@ -512,7 +569,7 @@ export async function autoAlignLines(
           move = 'M'
         }
       }
-      const skipTrans = dp[i][j - 1]
+      const skipTrans = dp[i][j - 1] - skipPenalty
       if (skipTrans > best) {
         best = skipTrans
         move = 'L'
@@ -569,6 +626,10 @@ export interface SmartAttachOptions {
   maxSemanticLines?: number
   /** Abort semantic alignment after this many ms (default 12s). */
   semanticTimeoutMs?: number
+  /** Song title — Latin title/artist rows in synced LRC are skipped when pairing. */
+  songTitle?: string
+  /** Artist name — Latin title/artist rows in synced LRC are skipped when pairing. */
+  artist?: string
 }
 
 // High enough to cover a full song on both sides (originals + translations);
@@ -602,24 +663,100 @@ function semanticLineBudget(originals: string[], translations: string[]): number
   return originals.length + translations.length
 }
 
-function nonemptyOriginalTexts(primary: TimedLine[]): { indices: number[]; texts: string[] } {
+function primaryHasJapaneseContent(primary: TimedLine[]): boolean {
+  return primary.some((l) => JAPANESE_RE.test(l.original))
+}
+
+/** Latin-only rows in a Japanese primary are usually LRC title/artist tags, not sung lyrics. */
+export function isPrimaryHeaderLine(text: string, primaryHasJapanese: boolean): boolean {
+  const t = text.trim()
+  if (!t || !primaryHasJapanese) return false
+  return LATIN_WORD.test(t) && !JAPANESE_RE.test(t)
+}
+
+function normalizeMetadataKey(text: string): string {
+  return text.trim().toLowerCase().replace(/[^a-z0-9\u3040-\u9fff]+/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function metadataRoughlyMatches(line: string, metadata: string): boolean {
+  const a = normalizeMetadataKey(line)
+  const b = normalizeMetadataKey(metadata)
+  if (!a || !b) return false
+  if (a === b) return true
+  if (a.length >= 10 && b.length >= 10 && (a.includes(b) || b.includes(a))) return true
+  return false
+}
+
+/** Title, artist, or Latin header rows that should not consume translation lines. */
+export function isMetadataPrimaryLine(
+  text: string,
+  primaryHasJapanese: boolean,
+  options?: Pick<SmartAttachOptions, 'songTitle' | 'artist'>,
+): boolean {
+  if (isPrimaryHeaderLine(text, primaryHasJapanese)) return true
+  if (options?.songTitle && metadataRoughlyMatches(text, options.songTitle)) return true
+  if (options?.artist && metadataRoughlyMatches(text, options.artist)) return true
+  return false
+}
+
+/** Interjections and sighs that rarely have a dedicated English line in fan translations. */
+export function isInterjectionPrimaryLine(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  if (/^(嗚呼|うーん|うー|あー|…|\.\.\.|\.{2,})/.test(t)) return true
+  const glyphs = t.replace(/[….\s]/g, '')
+  return glyphs.length > 0 && glyphs.length <= 2 && JAPANESE_RE.test(t)
+}
+
+/** Japanese album-title row (e.g. 転がる岩、君に朝が降る) — not in fan translation pastes. */
+export function looksLikeJapaneseTitleLine(text: string): boolean {
+  const t = text.trim()
+  if (!JAPANESE_RE.test(t) || t.length > 42) return false
+  // Song titles use a comma between phrases; sung lyric lines do not.
+  return /[、,]/.test(t) && t.split(/[、,]/).every((part) => part.trim().length > 0)
+}
+
+function isDuplicateConsecutivePrimary(primary: TimedLine[], index: number): boolean {
+  if (index <= 0) return false
+  const cur = primary[index].original.trim()
+  const prev = primary[index - 1].original.trim()
+  return cur.length > 0 && cur === prev
+}
+
+interface PairablePrimary {
+  indices: number[]
+  texts: string[]
+}
+
+function pairablePrimaryLines(
+  primary: TimedLine[],
+  _translations: string[],
+  options?: SmartAttachOptions,
+): PairablePrimary {
+  const skipHeaders = primaryHasJapaneseContent(primary)
   const indices: number[] = []
   const texts: string[] = []
   for (let i = 0; i < primary.length; i++) {
-    if (!primary[i].original.trim()) continue
+    const original = primary[i].original.trim()
+    if (!original) continue
+    if (skipHeaders && isMetadataPrimaryLine(original, true, options)) continue
+    if (skipHeaders && looksLikeJapaneseTitleLine(original)) continue
+    if (skipHeaders && isDuplicateConsecutivePrimary(primary, i)) continue
     indices.push(i)
     texts.push(primary[i].original)
   }
+
   return { indices, texts }
 }
 
-/** Semantic DP on sung lines only — blank primary rows never consume translations. */
+/** Semantic DP on sung lines only — metadata/blank primary rows never consume translations. */
 async function semanticAlignToPrimaryLines(
   primary: TimedLine[],
   translations: string[],
   embedFn: (texts: string[]) => Promise<number[][]>,
+  options?: SmartAttachOptions,
 ): Promise<{ aligned: string[]; extras: string[] }> {
-  const { indices, texts } = nonemptyOriginalTexts(primary)
+  const { indices, texts } = pairablePrimaryLines(primary, translations, options)
   if (texts.length === 0) {
     return { aligned: primary.map(() => ''), extras: translations }
   }
@@ -681,7 +818,7 @@ async function smartAttachSecondLanguageFromLines(
   // pairing — defer to semantic alignment, which handles title/verse offsets.
   if (structural.method === 'slots') {
     const slots = expandSlotsAdaptive(originals, trans.length)
-    if (slotsHaveStructure(slots) || indexPairingLooksValid(originals, trans)) {
+    if (slotPairingIsTrustworthy(originals, trans, slots)) {
       return { lines: structural.lines, mismatchedBlocks: [], method: 'slots' }
     }
   }
@@ -697,7 +834,7 @@ async function smartAttachSecondLanguageFromLines(
 
   const maxLines = options?.maxSemanticLines ?? DEFAULT_MAX_SEMANTIC_LINES
   const slots = expandSlotsAdaptive(originals, trans.length)
-  const { texts: sungOriginals } = nonemptyOriginalTexts(primary)
+  const { texts: sungOriginals } = pairablePrimaryLines(primary, trans, options)
   const semanticBudget = Math.max(
     semanticLineBudget(sungOriginals, trans),
     semanticLineBudget(slots.map((s) => s.hint), trans),
@@ -745,7 +882,7 @@ async function smartAttachSecondLanguageFromLines(
         }
       }
 
-      const { aligned, extras } = await semanticAlignToPrimaryLines(primary, trans, embedFn!)
+      const { aligned, extras } = await semanticAlignToPrimaryLines(primary, trans, embedFn!, options)
       return {
         lines: applyTranslations(primary, aligned),
         mismatchedBlocks: extras.length > 0 ? [0] : [],
@@ -781,7 +918,15 @@ export async function smartAttachSecondLanguage(
   const primaryBlocks = splitPrimaryIntoBlocks(primary)
   const secondaryBlocks = extractSecondLanguageBlocks(secondary)
 
-  if (primaryBlocks.length > 1 && primaryBlocks.length === secondaryBlocks.length) {
+  // Plain-text pastes split stanzas on blank lines; timed LRC splits on time gaps.
+  // Equal block counts are often coincidental and misalign translations — only block-
+  // split untimed primaries where both sides lack song timestamps.
+  const useBlockSplit =
+    !timed
+    && primaryBlocks.length > 1
+    && primaryBlocks.length === secondaryBlocks.length
+
+  if (useBlockSplit) {
     const merged: TimedLine[] = []
     const mismatchedBlocks: number[] = []
     let method: PairingMethod = 'index'

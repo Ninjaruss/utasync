@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { LinkParser } from './LinkParser'
 import { UploadAudioFlow } from './UploadAudioFlow'
 import { ConfirmDialog } from '../core/ui/ConfirmDialog'
+import { useConfirmedClose } from '../core/ui/useConfirmedClose'
 
 type Source = 'upload' | 'link'
 
@@ -113,13 +114,7 @@ function SourceTile({
 
 export function AddSongSheet({ onSongReady, onClose }: Props) {
   const [source, setSource] = useState<Source>('upload')
-  const [busy, setBusy] = useState(false)
-  const [confirmClose, setConfirmClose] = useState(false)
-
-  const requestClose = () => {
-    if (busy) setConfirmClose(true)
-    else onClose()
-  }
+  const { setBusy, confirming, requestClose, confirm, cancel } = useConfirmedClose(onClose)
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col justify-end md:justify-center md:items-center md:p-6">
@@ -135,14 +130,14 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
         aria-label="Add a song"
         aria-modal="true"
       >
-        {confirmClose && (
+        {confirming && (
           <ConfirmDialog
             title="Discard this song?"
             message="Lyric search or saving is still in progress. Closing now will lose your progress."
             confirmLabel="Discard"
             cancelLabel="Keep working"
-            onConfirm={() => { setConfirmClose(false); onClose() }}
-            onCancel={() => setConfirmClose(false)}
+            onConfirm={confirm}
+            onCancel={cancel}
           />
         )}
 

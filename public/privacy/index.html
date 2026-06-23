@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="index, follow" />
+    <title>Privacy Policy — Utasync</title>
+    <meta name="description" content="How Utasync handles your data. Local-first lyrics practice with no accounts and no analytics." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/legal/legal.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="/">← Back to Utasync</a>
+      <header>
+        <h1>Privacy Policy</h1>
+        <p class="subtitle">Utasync (歌sync) — learn languages through music</p>
+        <p class="updated">Last updated: June 21, 2026</p>
+      </header>
+
+      <main>
+        <p>
+          Utasync is an offline-first web app. We designed it so your library, audio files, and
+          practice data stay on your device. This policy explains what information the app uses,
+          where it is stored, and which third-party services may be contacted when you choose to
+          use certain features.
+        </p>
+
+        <h2>Summary</h2>
+        <ul>
+          <li>No user accounts or sign-in required to use the app.</li>
+          <li>No analytics, advertising, or crash-reporting SDKs are built into Utasync.</li>
+          <li>Songs, lyrics, audio, and settings are stored locally in your browser.</li>
+          <li>Some optional features contact third-party services (YouTube, LRCLIB, Hugging Face, Lemon Squeezy).</li>
+          <li>AI features run on your device after models are downloaded; your audio is not sent to us for processing.</li>
+        </ul>
+
+        <h2>Information stored on your device</h2>
+        <p>When you use Utasync, the app may store the following locally in your browser:</p>
+        <ul>
+          <li><strong>Song library</strong> — titles, artists, lyrics, sync timing, translations, and related metadata (IndexedDB).</li>
+          <li><strong>Uploaded audio</strong> — files you choose to import (Origin Private File System, when supported).</li>
+          <li><strong>App preferences</strong> — playback speed, volume, display options, and similar settings (local storage).</li>
+          <li><strong>License status</strong> — whether Pro is unlocked, trial usage, and your license key if you enter one (local storage).</li>
+          <li><strong>Device fingerprint</strong> — a short identifier derived from browser and screen characteristics (language, time zone, screen size, hardware concurrency). It is generated and stored locally to support license verification. It is not used for advertising.</li>
+          <li><strong>Cached AI models</strong> — Whisper, embedding, and related model files downloaded for on-device features (browser cache storage).</li>
+        </ul>
+        <p>
+          You can delete songs from Settings, clear the AI model cache, and remove the app’s site
+          data through your browser if you want to erase local information.
+        </p>
+
+        <h2>Information we do not collect on a server</h2>
+        <p>
+          Utasync does not operate a backend that receives your lyrics, audio, or library. We do
+          not maintain user profiles and do not collect your email through normal use of the app.
+        </p>
+
+        <h2>Third-party services</h2>
+        <p>Depending on how you use Utasync, your browser may contact:</p>
+        <ul>
+          <li>
+            <strong>YouTube</strong> — when you add or play a YouTube link, the app may request
+            public metadata (title, artist) and available caption tracks. YouTube’s own policies
+            apply to that service.
+          </li>
+          <li>
+            <strong>LRCLIB</strong> — when you search for synced lyrics, the app sends song title
+            and artist text to <a href="https://lrclib.net/" rel="noopener noreferrer" target="_blank">lrclib.net</a>
+            to find matching lyrics.
+          </li>
+          <li>
+            <strong>Hugging Face</strong> — when you first use on-device AI features, the app
+            downloads open machine-learning models from Hugging Face to your browser cache. No
+            account with Hugging Face is required.
+          </li>
+          <li>
+            <strong>Lemon Squeezy</strong> — if you purchase Utasync Pro, checkout and payment
+            processing are handled by Lemon Squeezy. They collect payment and contact information
+            according to their policies. We receive license data needed to unlock Pro on your device
+            (for example, through a license key or signed license token).
+          </li>
+        </ul>
+
+        <h2>On-device processing</h2>
+        <p>
+          Features such as auto-align, word-pair coloring, and transcription run in your browser
+          using downloaded models. Audio you analyze for these features is processed locally and is
+          not uploaded to Utasync-operated servers.
+        </p>
+
+        <h2>Children’s privacy</h2>
+        <p>
+          Utasync is not directed at children under 13. We do not knowingly collect personal
+          information from children. If you believe a child has provided information through a
+          purchase flow, contact us and we will help address it with our payment provider where
+          applicable.
+        </p>
+
+        <h2>International users</h2>
+        <p>
+          Utasync is available globally. Local data stays on your device. Third-party services
+          listed above may process data in other countries under their own terms.
+        </p>
+
+        <h2>Changes to this policy</h2>
+        <p>
+          We may update this Privacy Policy from time to time. The “Last updated” date at the top
+          will change when we do. Continued use of the app after an update means you accept the
+          revised policy.
+        </p>
+
+        <h2>Contact</h2>
+        <p>
+          Questions about privacy: <a href="mailto:support@utasync.app">support@utasync.app</a>
+        </p>
+      </main>
+
+      <footer>
+        <a href="/terms/">Terms of Service</a>
+        ·
+        <a href="/">Utasync</a>
+      </footer>
+    </div>
+  </body>
+</html>

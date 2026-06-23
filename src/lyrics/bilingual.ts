@@ -65,7 +65,7 @@ export function extractSecondLanguageLines(secondary: string): string[] {
  * to a single primary row.
  */
 export function normalizeTranslationLines(lines: string[], primaryLineCount: number): string[] {
-  let flat = lines.flatMap((l) => l.split('\n').map((e) => e.trim()).filter(Boolean))
+  const flat = lines.flatMap((l) => l.split('\n').map((e) => e.trim()).filter(Boolean))
   if (flat.length !== 1 || primaryLineCount <= 1) return flat
 
   const sentences = flat[0]
@@ -207,8 +207,9 @@ export function mergeTimedTracks(primary: TimedLine[], secondary: TimedLine[]): 
     if (!original && !translation) continue
 
     const prev = result[result.length - 1]
-    if (prev && prev.original === original && prev.translation === translation) {
+    if (prev && prev.original === original) {
       prev.endTime = nextT
+      if (translation && !prev.translation) prev.translation = translation
       continue
     }
 
@@ -323,8 +324,9 @@ export function buildSecondaryTimedFromPairing(
 }
 
 /**
- * Union-timeline merge is for count/structure mismatch. When content pairing
- * already maps one translation row per primary row, keep the row layout.
+ * Union-timeline merge is only for untrusted pairing (manual mismatch fix).
+ * Trusted row pairing keeps one display row per primary line even when the
+ * paste is missing lines, has extras, or includes title/artist rows in the LRC.
  */
 export function shouldUseTimelineMerge(
   primary: TimedLine[],
@@ -332,10 +334,10 @@ export function shouldUseTimelineMerge(
   contentMethod: 'index' | 'slots' | 'semantic' | 'timeline' | 'mismatch',
   extras: string[] = [],
 ): boolean {
-  if (contentMethod === 'mismatch') return true
-  if (extras.length > 0) return true
-  if (flatTranslations.length !== primary.length) return true
-  return false
+  void primary
+  void flatTranslations
+  void extras
+  return contentMethod === 'mismatch'
 }
 
 /**

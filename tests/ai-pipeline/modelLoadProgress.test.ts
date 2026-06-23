@@ -29,4 +29,11 @@ describe('ModelLoadProgressTracker', () => {
     const update = tracker.ingest({ status: 'progress', file: 'decoder.onnx', progress: 40 })
     expect(update.aggregateProgress).toBe(70)
   })
+
+  it('reports init phase while the runtime is starting', () => {
+    const tracker = new ModelLoadProgressTracker()
+    const update = tracker.ingest({ status: 'initializing', file: 'speech model' })
+    expect(update.phase).toBe('init')
+    expect(update.file).toBe('speech model')
+  })
 })

@@ -51,6 +51,14 @@ export class ModelLoadProgressTracker {
       }
     }
 
+    if (status === 'initializing') {
+      return {
+        status,
+        phase: 'init',
+        file: raw.file,
+      }
+    }
+
     if (status === 'initiate') {
       return { status, phase: 'download' }
     }
