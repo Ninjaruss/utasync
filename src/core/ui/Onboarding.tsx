@@ -8,12 +8,30 @@ const STEPS = [
   { title: 'Practice', body: 'Loop sections, slow down playback, and follow along word by word.' },
 ]
 
+/** Reads/writes are wrapped because localStorage can throw (e.g. Safari private browsing),
+ *  and this component is mounted unconditionally on the library screen. */
+function hasSeenOnboarding(): boolean {
+  try {
+    return localStorage.getItem(ONBOARDING_STORAGE_KEY) === '1'
+  } catch {
+    return true
+  }
+}
+
+function markOnboardingSeen(): void {
+  try {
+    localStorage.setItem(ONBOARDING_STORAGE_KEY, '1')
+  } catch {
+    // Storage unavailable — nothing to persist, the overlay just won't reappear this tab.
+  }
+}
+
 export function Onboarding() {
-  const [seen, setSeen] = useState(() => localStorage.getItem(ONBOARDING_STORAGE_KEY) === '1')
+  const [seen, setSeen] = useState(hasSeenOnboarding)
   const [step, setStep] = useState(0)
 
   const dismiss = () => {
-    localStorage.setItem(ONBOARDING_STORAGE_KEY, '1')
+    markOnboardingSeen()
     setSeen(true)
   }
 
@@ -23,18 +41,24 @@ export function Onboarding() {
   const current = STEPS[step]
 
   return (
-    <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="onboarding-title"
+      className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4"
+    >
       <div className="bg-cinnabar-900 rounded-2xl p-6 max-w-sm w-full space-y-4">
         <p className="text-[10px] uppercase tracking-wide text-white/35">
           {step + 1} of {STEPS.length}
         </p>
-        <h2 className="text-white font-semibold text-lg">{current.title}</h2>
+        <h2 id="onboarding-title" className="text-white font-semibold text-lg">{current.title}</h2>
         <p className="text-white/70 text-sm">{current.body}</p>
         <div className="flex items-center justify-between gap-3 pt-2">
-          <button onClick={dismiss} className="text-white/40 text-sm">
+          <button type="button" onClick={dismiss} className="text-white/40 text-sm">
             Skip
           </button>
           <button
+            type="button"
             onClick={() => (isLast ? dismiss() : setStep((s) => s + 1))}
             className="py-2 px-4 bg-cinnabar-accent text-white rounded-xl font-medium text-sm"
           >
