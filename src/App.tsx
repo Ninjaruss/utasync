@@ -7,6 +7,7 @@ import { estimateQuota } from './core/storage/quota'
 import { useToast } from './core/ui/Toast'
 import { OfflineBanner } from './core/ui/OfflineBanner'
 import { UpdateBanner } from './core/ui/UpdateBanner'
+import { Onboarding } from './core/ui/Onboarding'
 
 type View = 'library' | 'song'
 
@@ -44,11 +45,14 @@ export default function App() {
           onSettings={() => setSettingsOpen(true)}
         />
       ) : (
-        <LibraryScreen
-          onOpen={openSong}
-          onAdd={() => setAddOpen(true)}
-          onSettings={() => setSettingsOpen(true)}
-        />
+        <>
+          <LibraryScreen
+            onOpen={openSong}
+            onAdd={() => setAddOpen(true)}
+            onSettings={() => setSettingsOpen(true)}
+          />
+          <Onboarding />
+        </>
       )}
 
       {addOpen && (
