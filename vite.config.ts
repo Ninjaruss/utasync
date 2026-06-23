@@ -207,7 +207,7 @@ export default defineConfig({
     kuromojiRollupShim,
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       workbox: {
         globPatterns: ['**/*.{js,css,html,woff2,png,svg,ico,wasm}'],
         // ONNX Runtime wasm blobs are 9–26 MB and only needed when AI features
