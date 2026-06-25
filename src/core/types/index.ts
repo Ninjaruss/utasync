@@ -68,6 +68,25 @@ export interface TimedLine {
   grammarAnnotations?: GrammarAnnotation[]
 }
 
+/** How a phrase's timing was anchored. Mirrors LineAnchorSource plus 'manual'. */
+export type PhraseAnchorSource = 'lcs' | 'interpolated' | 'interjection' | 'manual'
+
+/** A canonical sung unit derived from timed rows + the audio transcript (Phase 1).
+ * Phrases re-group the pasted sheet rows to match how the song is actually sung:
+ * one sheet row can split into several phrases, and several rows can merge into one.
+ * Derived additively — `lyrics.lines` (the user's sheet) is never rewritten here. */
+export interface SungPhrase {
+  id: string
+  startTime: number
+  endTime: number
+  original: string
+  translation: string
+  anchorSource: PhraseAnchorSource
+  /** Indices into `lyrics.lines` this phrase was derived from (many-to-many). */
+  sourceLineIndices: number[]
+  tokens?: Token[]
+}
+
 export interface LyricsData {
   lines: TimedLine[]
   sourceLanguage: Language
@@ -80,6 +99,11 @@ export interface LyricsData {
   enrichmentVersion?: number
   /** Sanitized Whisper word timeline from the last auto-align (furigana verification). */
   transcriptWords?: TimedTranscriptWord[]
+  /** Canonical sung units derived after auto-align (Phase 1). Optional until derived;
+   * the UI keeps rendering `lines` by default (D1 hybrid). */
+  phrases?: SungPhrase[]
+  /** Which rows the UI renders. 'sheet' (default) = pasted lines; 'sung' = phrases. */
+  phraseLayout?: 'sheet' | 'sung'
 }
 
 export interface WordAlignment {
