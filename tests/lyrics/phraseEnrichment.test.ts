@@ -62,6 +62,34 @@ describe('enrichPhraseTokens', () => {
   })
 })
 
+describe('per-phrase word alignment (2.3)', () => {
+  it('runs alignPhraseTokens after tokenization', async () => {
+    const tokenizePhrase = vi.fn(async () => [tok('歩いた')])
+    const alignPhraseTokens = vi.fn(async (p: SungPhrase) =>
+      (p.tokens ?? []).map((t) => ({ ...t, alignmentIndices: [0, 1] })),
+    )
+    const out = await enrichPhraseTokens([phrase('歩いた', [0])], undefined, {
+      tokenizePhrase,
+      alignPhraseTokens,
+    })
+    expect(alignPhraseTokens).toHaveBeenCalledOnce()
+    expect(out[0].tokens?.[0].alignmentIndices).toEqual([0, 1])
+  })
+
+  it('keeps tokenized readings when alignment throws', async () => {
+    const tokenizePhrase = vi.fn(async () => [tok('歩いた', { reading: 'アルイタ' })])
+    const alignPhraseTokens = vi.fn(async () => {
+      throw new Error('embedder down')
+    })
+    const out = await enrichPhraseTokens([phrase('歩いた', [0])], undefined, {
+      tokenizePhrase,
+      alignPhraseTokens,
+    })
+    expect(out[0].tokens?.[0]).toMatchObject({ reading: 'アルイタ' })
+    expect(out[0].tokens?.[0].alignmentIndices).toBeUndefined()
+  })
+})
+
 describe('enrichAndProjectPhrases', () => {
   it('enriches phrases and projects their tokens onto the display lines', async () => {
     const lines: TimedLine[] = [

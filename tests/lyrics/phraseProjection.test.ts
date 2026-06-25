@@ -78,3 +78,61 @@ describe('projectPhraseTokensToLines', () => {
     expect(out[0].tokens).toBeUndefined()
   })
 })
+
+const phraseWithTranslation = (
+  original: string,
+  translation: string,
+  sourceLineIndices: number[],
+  tokens: Token[],
+  startTime = 0,
+  endTime = 1,
+): SungPhrase => ({
+  id: original,
+  startTime,
+  endTime,
+  original,
+  translation,
+  anchorSource: 'lcs',
+  sourceLineIndices,
+  tokens,
+})
+
+describe('projectPhraseTokensToLines — alignment remap (2.3)', () => {
+  it('remaps split-phrase alignment indices into the row translation word space', () => {
+    const lines = [line('君の声が　遠くで響く', 0, 10, 'Your voice / echoes far away')]
+    const phrases = [
+      phraseWithTranslation('君の声が', 'Your voice', [0], [tok('君の声が', 0, { alignmentIndices: [0, 1] })], 0, 4),
+      phraseWithTranslation('遠くで響く', 'echoes far away', [0], [tok('遠くで響く', 0, { alignmentIndices: [0, 1, 2] })], 4, 10),
+    ]
+    const out = projectPhraseTokensToLines(lines, phrases)
+    const t = out[0].tokens!
+    expect(t[0].alignmentIndices).toEqual([0, 1]) // 君の声が → Your(0) voice(1)
+    expect(t[1].alignmentIndices).toEqual([2, 3, 4]) // 遠くで響く → echoes(2) far(3) away(4)
+  })
+
+  it('keeps passthrough alignment indices unchanged', () => {
+    const lines = [line('歩いた', 1, 3, 'I walked')]
+    const phrases = [phraseWithTranslation('歩いた', 'I walked', [0], [tok('歩いた', 0, { alignmentIndices: [0, 1] })])]
+    const out = projectPhraseTokensToLines(lines, phrases)
+    expect(out[0].tokens![0].alignmentIndices).toEqual([0, 1])
+  })
+
+  it('drops cross-row references that point at another row’s translation words', () => {
+    const lines = [line('岩は転がって', 1, 4, ''), line('', 4, 5, 'and falls')]
+    const phrases = [
+      phraseWithTranslation('岩は転がって', 'and falls', [0, 1], [
+        tok('岩は', 0, { alignmentIndices: [0] }),
+        tok('転がって', 2, { alignmentIndices: [1] }),
+      ]),
+    ]
+    const out = projectPhraseTokensToLines(lines, phrases)
+    // EN lives on row 1; the JA tokens project to row 0 (empty translation) → no local link
+    for (const t of out[0].tokens!) expect(t.alignmentIndices).toEqual([])
+  })
+
+  it('leaves alignmentIndices undefined when the phrase was never word-aligned', () => {
+    const lines = [line('歩いた', 1, 3, 'I walked')]
+    const out = projectPhraseTokensToLines(lines, [phraseWithTranslation('歩いた', 'I walked', [0], [tok('歩いた', 0)])])
+    expect(out[0].tokens![0].alignmentIndices).toBeUndefined()
+  })
+})

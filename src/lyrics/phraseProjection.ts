@@ -1,10 +1,63 @@
 import type { SungPhrase, TimedLine, Token } from '../core/types'
+import { splitTranslationWords } from '../language/wordColors'
 
 /** Re-base a phrase token onto a line by shifting its character offsets by `delta`
  * (the line's start offset within the phrase original, signed). */
 function shiftToken(token: Token, delta: number): Token {
   if (delta === 0) return token
   return { ...token, startIndex: token.startIndex + delta, endIndex: token.endIndex + delta }
+}
+
+/** Which display row + local translation-word index a phrase target word maps to. */
+interface TargetRef {
+  lineIndex: number
+  wordIndex: number
+}
+
+/** Index of the first position where `needle` appears as a contiguous run in `haystack`. */
+function subsequenceOffset(haystack: string[], needle: string[]): number {
+  if (needle.length === 0) return 0
+  for (let i = 0; i + needle.length <= haystack.length; i++) {
+    if (needle.every((w, j) => haystack[i + j] === w)) return i
+  }
+  return -1
+}
+
+/** Map each phrase translation word to the source row + local word index it came
+ * from, so phrase-level `alignmentIndices` can be re-expressed in each display row's
+ * own coordinate space. Split phrases slice one row's translation; merged phrases
+ * concatenate their rows' translations in order. */
+function buildPhraseTargetMap(phrase: SungPhrase, lines: TimedLine[]): (TargetRef | null)[] {
+  const phraseWords = splitTranslationWords(phrase.translation)
+  const src = phrase.sourceLineIndices
+
+  if (src.length === 1) {
+    const li = src[0]
+    const rowWords = splitTranslationWords(lines[li]?.translation ?? '')
+    const offset = subsequenceOffset(rowWords, phraseWords)
+    const base = offset >= 0 ? offset : 0
+    return phraseWords.map((_, k) => ({ lineIndex: li, wordIndex: base + k }))
+  }
+
+  const refs: TargetRef[] = []
+  for (const li of src) {
+    const rowWords = splitTranslationWords(lines[li]?.translation ?? '')
+    rowWords.forEach((_, j) => refs.push({ lineIndex: li, wordIndex: j }))
+  }
+  return phraseWords.map((_, k) => refs[k] ?? null)
+}
+
+/** Re-express a token's phrase-level `alignmentIndices` in `lineIndex`'s local
+ * translation-word space, dropping references that point at another row (those EN
+ * words are not displayed on this row under the default sheet layout). */
+function remapAlignment(token: Token, targetMap: (TargetRef | null)[], lineIndex: number): Token {
+  if (token.alignmentIndices === undefined) return token
+  const local = new Set<number>()
+  for (const ai of token.alignmentIndices) {
+    const ref = targetMap[ai]
+    if (ref && ref.lineIndex === lineIndex) local.add(ref.wordIndex)
+  }
+  return { ...token, alignmentIndices: [...local].sort((a, b) => a - b) }
 }
 
 /** Project one phrase's tokens onto a single source line, returning the tokens that
@@ -46,10 +99,11 @@ export function projectPhraseTokensToLines(lines: TimedLine[], phrases: SungPhra
   const byLine = new Map<number, Token[]>()
   for (const phrase of phrases) {
     if (!phrase.tokens?.length) continue
+    const targetMap = buildPhraseTargetMap(phrase, lines)
     for (const li of phrase.sourceLineIndices) {
       const target = lines[li]
       if (!target || !target.original.trim()) continue
-      const projected = tokensForLine(phrase, target.original)
+      const projected = tokensForLine(phrase, target.original).map((t) => remapAlignment(t, targetMap, li))
       if (!projected.length) continue
       const existing = byLine.get(li)
       if (existing) existing.push(...projected)

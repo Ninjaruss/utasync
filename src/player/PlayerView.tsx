@@ -9,7 +9,9 @@ import { YouTubePlayer, type YouTubePlayerHandle } from './YouTubePlayer'
 import { extractVideoId } from '../sources/youtube'
 import { ABLoopController } from './ABLoop'
 import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase } from '../core/types'
-import { enrichAndProjectPhrases } from '../lyrics/phraseEnrichment'
+import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
+import { projectPhraseTokensToLines } from '../lyrics/phraseProjection'
+import { repairPhraseTranslationOrder } from '../lyrics/phraseNormalize'
 import { tokenizeJapanese } from '../language/japanese/tokenizer'
 import { toRomaji, toFurigana } from '../language/japanese/phonetics'
 import { detectGrammarPatterns } from '../language/japanese/grammar'
@@ -96,22 +98,43 @@ async function enrichLines(
 }
 
 /**
- * Phase 2: reconcile readings on the canonical sung phrases (which see the correct
- * transcript window even when the paste split a sung breath across rows), then
- * project the phrase tokens back onto the display rows. Grammar annotations are
- * recomputed from the projected tokens so their indices stay valid. Passthrough
- * rows resolve identically to the line path; only merged/split rows change.
+ * Phase 2/2.3: enrich on the canonical sung phrases (which see the correct
+ * transcript window and sung unit even when the paste split a sung breath across
+ * rows) — tokenize, reconcile readings, then word-pair align per phrase — and
+ * project the results back onto the display rows. Word-pair `alignmentIndices` are
+ * re-expressed in each row's own translation space; cross-row links (EN on an
+ * adjacent row) are dropped under the default sheet layout. Grammar is recomputed
+ * from the projected tokens so indices stay valid. Passthrough rows resolve
+ * identically to the line path; only merged/split rows change.
  */
 async function enrichLinesViaPhrases(
   lines: TimedLine[],
   phrases: SungPhrase[],
   transcriptWords: TimedTranscriptWord[],
+  onAlignProgress?: (done: number, total: number) => void,
 ): Promise<TimedLine[]> {
-  const { lines: projected } = await enrichAndProjectPhrases(lines, phrases, transcriptWords, {
+  const tokenized = await enrichPhraseTokens(phrases, transcriptWords, {
     tokenizePhrase: tokenizeJapanese,
     reconcilePhraseReadings: async (phrase, words) =>
       (await reconcileLineReadingsAsync(phrase, words)).tokens ?? [],
   })
+  // With tokens now present, the re-pair detector can correct adjacent phrases
+  // whose EN clauses were front-loaded onto the wrong sung unit.
+  let enrichedPhrases = repairPhraseTranslationOrder(tokenized)
+
+  // Word-pair the sung phrases with the same batched embedder as the line path,
+  // so each clause aligns within its own scope (the split-row win). Degrades to
+  // no coloring on embedder failure without losing the readings above.
+  if (canRunWordAlignment() && wantsWordPairColoring()) {
+    try {
+      const aligned = await enrichAlignment(enrichedPhrases as TimedLine[], onAlignProgress)
+      enrichedPhrases = enrichedPhrases.map((p, i) => ({ ...p, tokens: aligned[i].tokens }))
+    } catch {
+      /* word coloring unavailable; keep readings */
+    }
+  }
+
+  const projected = projectPhraseTokensToLines(lines, enrichedPhrases)
   return projected.map((line) =>
     line.tokens?.length
       ? { ...line, grammarAnnotations: detectGrammarPatterns(line.original, line.tokens) }
@@ -327,10 +350,15 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     // Phase 2: prefer phrase-level reconciliation when a canonical phrase layer
     // exists; falls back silently to the line-based readings above on any error.
     if (phrases?.length && transcriptWords?.length && sourceLanguage === 'ja') {
+      const jobId = ++wordColorJobRef.current
       try {
-        enriched = await enrichLinesViaPhrases(enriched, phrases, transcriptWords)
+        enriched = await enrichLinesViaPhrases(enriched, phrases, transcriptWords, (done, total) => {
+          if (wordColorJobRef.current === jobId) setWordColorProgress({ done, total })
+        })
       } catch {
         /* keep line-based enrichment */
+      } finally {
+        if (wordColorJobRef.current === jobId) setWordColorProgress(null)
       }
     }
     return runWordColoring(enriched)

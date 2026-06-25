@@ -11,6 +11,9 @@ export interface PhraseEnrichDeps {
     phrase: SungPhrase,
     transcriptWords: TimedTranscriptWord[],
   ) => Promise<Token[]>
+  /** Word-pair alignment over the phrase (original ↔ translation), stamping
+   * `alignmentIndices` into the phrase translation word space (2.3). */
+  alignPhraseTokens?: (phrase: SungPhrase) => Promise<Token[]>
 }
 
 /** Tokenize and (when a transcript is available) reading-reconcile each canonical
@@ -28,6 +31,15 @@ export async function enrichPhraseTokens(
         let tokens = await deps.tokenizePhrase(phrase.original)
         if (transcriptWords?.length && deps.reconcilePhraseReadings) {
           tokens = await deps.reconcilePhraseReadings({ ...phrase, tokens }, transcriptWords)
+        }
+        if (deps.alignPhraseTokens) {
+          // Word pairing can fail independently (e.g. embedder unavailable) without
+          // discarding the tokens + readings already computed for this phrase.
+          try {
+            tokens = await deps.alignPhraseTokens({ ...phrase, tokens })
+          } catch {
+            /* keep readings; word coloring degrades to none */
+          }
         }
         return { ...phrase, tokens }
       } catch {
