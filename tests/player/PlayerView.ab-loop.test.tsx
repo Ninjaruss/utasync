@@ -34,17 +34,11 @@ beforeEach(async () => {
   usePlayerStore.setState({ armingAB: null, abLoop: { a: null, b: null, preRoll: 2, loopCount: 3, crossfadeDuration: 0.3 } })
 })
 
-async function openPracticePanel() {
-  const btn = screen.getByRole('button', { name: /saved loops and speed/i })
-  if (btn.getAttribute('aria-expanded') !== 'true') fireEvent.click(btn)
-}
-
 describe('PlayerView A/B loop', () => {
   it('shows A-B loop controls in play mode', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
-    await openPracticePanel()
-    expect(screen.getByText('A-B Loop')).toBeTruthy()
+    expect(screen.getByLabelText('A-B Loop')).toBeTruthy()
     expect(screen.getByRole('button', { name: /a loop point/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /b loop point/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /start playback/i })).toBeTruthy()
@@ -54,14 +48,13 @@ describe('PlayerView A/B loop', () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
-    expect(screen.queryByText('A-B Loop')).toBeNull()
+    expect(screen.queryByLabelText('A-B Loop')).toBeNull()
     expect(screen.queryByRole('button', { name: /a loop point/i })).toBeNull()
   })
 
   it('tapping A arms it instead of setting the current position', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
-    await openPracticePanel()
     fireEvent.click(screen.getByRole('button', { name: /a loop point/i }))
     expect(usePlayerStore.getState().armingAB).toBe('a')
     expect(usePlayerStore.getState().abLoop.a).toBeNull()
@@ -70,7 +63,6 @@ describe('PlayerView A/B loop', () => {
   it('tapping the armed button again cancels arming', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
-    await openPracticePanel()
     fireEvent.click(screen.getByRole('button', { name: /a loop point/i }))
     expect(usePlayerStore.getState().armingAB).toBe('a')
     fireEvent.click(screen.getByRole('button', { name: /a loop point/i }))
@@ -80,7 +72,6 @@ describe('PlayerView A/B loop', () => {
   it('tapping a lyric line while armed sets that endpoint and seeks to it', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
-    await openPracticePanel()
     fireEvent.click(screen.getByRole('button', { name: /a loop point/i }))
     fireEvent.click(screen.getByText('hello'))
     expect(usePlayerStore.getState().abLoop.a).toBe(helloPlayback)
@@ -91,7 +82,6 @@ describe('PlayerView A/B loop', () => {
   it('loops a single lyric line when B is set on the same line as A', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
-    await openPracticePanel()
     fireEvent.click(screen.getByRole('button', { name: /a loop point/i }))
     fireEvent.click(screen.getByText('hello'))
     fireEvent.click(screen.getByRole('button', { name: /b loop point/i }))
@@ -105,7 +95,6 @@ describe('PlayerView A/B loop', () => {
   it('loops a single lyric line when B is set before A', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
-    await openPracticePanel()
     fireEvent.click(screen.getByRole('button', { name: /b loop point/i }))
     fireEvent.click(screen.getByText('hello'))
     fireEvent.click(screen.getByRole('button', { name: /a loop point/i }))
@@ -119,7 +108,6 @@ describe('PlayerView A/B loop', () => {
   it('clicking outside the lyric list cancels arming', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
-    await openPracticePanel()
     fireEvent.click(screen.getByRole('button', { name: /a loop point/i }))
     expect(usePlayerStore.getState().armingAB).toBe('a')
     fireEvent.click(screen.getByText('Settings'))
@@ -141,7 +129,6 @@ describe('PlayerView A/B loop', () => {
     })
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
-    await openPracticePanel()
     expect(screen.getAllByText('Looping').length).toBeGreaterThanOrEqual(1)
   })
 })

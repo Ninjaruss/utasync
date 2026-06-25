@@ -29,24 +29,24 @@ const baseProps = {
   canSaveToPlaylist: false,
 }
 
-describe('PracticePanelSection toggle', () => {
+describe('SavedLoopsPanelSection toggle', () => {
   it('shows Open when collapsed and Close when expanded', () => {
     usePlayerStore.setState({
       abLoop: { a: null, b: null, preRoll: 2, loopCount: 3, crossfadeDuration: 0.3 },
     })
     render(<PlayerControls {...baseProps} />)
 
-    const toggle = screen.getByRole('button', { name: /open saved loops and speed/i })
+    const toggle = screen.getByRole('button', { name: /open saved loops/i })
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     expect(screen.getByText('Open')).toBeTruthy()
 
     fireEvent.click(toggle)
-    const closeToggle = screen.getByRole('button', { name: /close saved loops and speed/i })
+    const closeToggle = screen.getByRole('button', { name: /close saved loops/i })
     expect(closeToggle).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('Close')).toBeTruthy()
-    expect(document.getElementById('practice-panel-content')).toBeTruthy()
+    expect(document.getElementById('saved-loops-panel-content')).toBeTruthy()
 
     fireEvent.click(closeToggle)
-    expect(screen.getByRole('button', { name: /open saved loops and speed/i })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: /open saved loops/i })).toHaveAttribute('aria-expanded', 'false')
   })
 })

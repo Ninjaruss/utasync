@@ -192,6 +192,11 @@ function ABLoopControls({
   compact?: boolean
 }) {
   const chip = compact ? practiceChipBtn : toolbarChipBtn
+  const hintClass = [
+    'text-pretty leading-snug',
+    compact ? 'text-[10px]' : 'text-[11px]',
+  ].join(' ')
+
   const btn = (which: 'a' | 'b', value: number | null) => {
     const armed = armingAB === which
     const set = value !== null
@@ -200,42 +205,78 @@ function ABLoopControls({
         type="button"
         onClick={() => onToggleArm(which)}
         aria-label={`${which.toUpperCase()} loop point${value !== null ? ` ${formatTime(value)}` : ''}`}
+        aria-pressed={armed}
         className={[
           chip,
+          'inline-flex items-center justify-center flex-1 min-w-0',
           armed ? toolbarChipBtnArmed : set ? toolbarChipBtnActive : toolbarChipBtnIdle,
         ].join(' ')}
       >
-        {which.toUpperCase()} {value !== null ? formatTime(value) : '—'}
+        {set ? (
+          <>
+            <span className="text-white/45 mr-1">{which.toUpperCase()}</span>
+            {formatTime(value)}
+          </>
+        ) : (
+          <>Set {which.toUpperCase()}</>
+        )}
       </button>
     )
   }
 
+  const hasAny = abLoop.a !== null || abLoop.b !== null
+  const onlyA = abLoop.a !== null && abLoop.b === null
+  const onlyB = abLoop.b !== null && abLoop.a === null
+
   return (
-    <div className={compact ? 'space-y-1' : 'space-y-2'}>
-      <div className={['flex flex-wrap items-center', compact ? 'gap-1' : 'gap-1.5'].join(' ')}>
+    <div className={compact ? 'space-y-1.5' : 'space-y-2'}>
+      <div className="flex items-center gap-1">
         {btn('a', abLoop.a)}
+        <span
+          className={[
+            'shrink-0 text-[10px] tabular-nums transition-colors duration-150',
+            abLoop.a !== null && abLoop.b !== null ? 'text-cinnabar-accent/70' : 'text-white/20',
+          ].join(' ')}
+          aria-hidden
+        >
+          →
+        </span>
         {btn('b', abLoop.b)}
-        {(abLoop.a !== null || abLoop.b !== null) && (
+      </div>
+      <div className={['flex flex-wrap items-center', compact ? 'gap-1' : 'gap-1.5'].join(' ')}>
+        {hasAny && (
           <button
             type="button"
             onClick={onClearAB}
             className={[chip, toolbarChipBtnIdle, 'text-white/40'].join(' ')}
           >
-            Clear
+            Clear loop
           </button>
         )}
       </div>
       {armingAB && (
-        <p className={[
-          'text-cinnabar-accent/85 animate-pulse text-pretty',
-          compact ? 'text-[10px]' : 'text-[11px]',
-        ].join(' ')}>
-          Tap a lyric line to set {armingAB.toUpperCase()}
-          {armingAB === 'b' && ' (same line loops to its end)'}
+        <p className={[hintClass, 'text-cinnabar-accent/90 animate-pulse'].join(' ')} role="status">
+          Now tap a lyric line to place point {armingAB.toUpperCase()}
+          {armingAB === 'b' && ' — same line loops to its end'}
+        </p>
+      )}
+      {!armingAB && !abLoopError && !hasAny && (
+        <p className={[hintClass, 'text-white/35'].join(' ')}>
+          Tap Set A or Set B, then tap a lyric line to mark the loop.
+        </p>
+      )}
+      {!armingAB && !abLoopError && onlyA && (
+        <p className={[hintClass, 'text-white/35'].join(' ')}>
+          Point A is set. Tap Set B, then tap the ending lyric line.
+        </p>
+      )}
+      {!armingAB && !abLoopError && onlyB && (
+        <p className={[hintClass, 'text-white/35'].join(' ')}>
+          Point B is set. Tap Set A, then tap the starting lyric line.
         </p>
       )}
       {abLoopError && (
-        <p className={compact ? 'text-[10px] text-red-400/90' : 'text-[11px] text-red-400/90'} role="alert">{abLoopError}</p>
+        <p className={[hintClass, 'text-red-400/90'].join(' ')} role="alert">{abLoopError}</p>
       )}
     </div>
   )
@@ -286,7 +327,12 @@ function CollapsibleABLoopSection({
     return (
       <section className={[shellClass, 'p-2.5'].join(' ')} aria-label="A-B Loop">
         <div className="flex items-center justify-between mb-1.5 gap-2">
-          <p className={toolbarSectionLabel}>A-B Loop</p>
+          <div className="min-w-0">
+            <p className={toolbarSectionLabel}>Loop section</p>
+            {!abActive && (
+              <p className="text-[10px] text-white/30 mt-0.5 text-pretty">Repeat a part by marking start and end on lyrics</p>
+            )}
+          </div>
           <div className="flex items-center gap-1.5 shrink-0">
             {canSave && onSave && (
               <button
@@ -314,8 +360,15 @@ function CollapsibleABLoopSection({
     )
   }
 
-  const aLabel = abLoop.a !== null ? formatTime(abLoop.a) : '—'
-  const bLabel = abLoop.b !== null ? formatTime(abLoop.b) : '—'
+  const aLabel = abLoop.a !== null ? formatTime(abLoop.a) : null
+  const bLabel = abLoop.b !== null ? formatTime(abLoop.b) : null
+  const collapsedSummary = aLabel && bLabel
+    ? `${aLabel} → ${bLabel}`
+    : aLabel
+      ? `From ${aLabel}`
+      : bLabel
+        ? `Until ${bLabel}`
+        : 'Not set — tap to configure'
 
   return (
     <section className={[shellClass, 'p-2'].join(' ')} aria-label="A-B Loop">
@@ -327,9 +380,14 @@ function CollapsibleABLoopSection({
           className="flex-1 flex items-center justify-between gap-2 min-h-9 touch-manipulation"
         >
           <span className="flex items-center gap-2 min-w-0">
-            <span className="text-[10px] uppercase tracking-wide text-white/35 shrink-0">A-B</span>
+            <span className="text-[10px] uppercase tracking-wide text-white/35 shrink-0">Loop</span>
             {!expanded && (
-              <span className="text-[11px] text-white/50 truncate tabular-nums">{aLabel} → {bLabel}</span>
+              <span className={[
+                'text-[11px] truncate tabular-nums',
+                abActive ? 'text-white/60' : 'text-white/35',
+              ].join(' ')}>
+                {collapsedSummary}
+              </span>
             )}
             {abLooping && (
               <span className="text-[10px] text-cinnabar-accent font-medium shrink-0">Looping</span>
@@ -760,12 +818,15 @@ function SpeedControl({
   speedPct,
   speed,
   onSpeedChange,
+  compact = false,
 }: {
   speedPct: number
   speed: number
   onSpeedChange: (speed: number) => void
+  compact?: boolean
 }) {
   const lastTapRef = useRef<{ time: number; x: number; y: number } | null>(null)
+  const chip = compact ? practiceChipBtn : toolbarChipBtn
 
   const handleSliderPointerUp = (e: ReactPointerEvent<HTMLInputElement>) => {
     const now = Date.now()
@@ -782,9 +843,13 @@ function SpeedControl({
     lastTapRef.current = { time: now, x: e.clientX, y: e.clientY }
   }
 
+  const presetLabel = (presetSpeed: number) =>
+    `${Math.round(presetSpeed * 100)}%`
+
   return (
-    <div className="space-y-1.5">
+    <div className={compact ? 'space-y-1.5' : 'space-y-2'}>
       <div className="flex items-center gap-2">
+        <span className="text-white/35 text-sm shrink-0 w-4 text-center" aria-hidden>⏩</span>
         <input
           type="range"
           min={50}
@@ -794,11 +859,24 @@ function SpeedControl({
           onChange={(e) => onSpeedChange(Number(e.target.value) / 100)}
           onDoubleClick={() => onSpeedChange(NORMAL_SPEED)}
           onPointerUp={handleSliderPointerUp}
-          className="flex-1 accent-cinnabar-accent touch-manipulation h-1"
+          className="flex-1 accent-cinnabar-accent touch-manipulation h-1.5"
           aria-label="Playback speed"
-          title="Double-tap to reset to 100%"
+          aria-valuetext={`${speedPct} percent`}
         />
-        <span className="text-white/45 text-[11px] w-9 text-right tabular-nums shrink-0">{speedPct}%</span>
+        <button
+          type="button"
+          onClick={() => onSpeedChange(NORMAL_SPEED)}
+          disabled={speed === NORMAL_SPEED}
+          className={[
+            chip,
+            speed === NORMAL_SPEED ? 'border-cinnabar-accent/40 text-cinnabar-accent bg-cinnabar-accent/10' : toolbarChipBtnIdle,
+            'shrink-0 min-w-[2.75rem] px-2 py-0.5 font-medium',
+          ].join(' ')}
+          aria-label="Normal speed, 100 percent"
+          aria-pressed={speed === NORMAL_SPEED}
+        >
+          1×
+        </button>
       </div>
       <div className="flex flex-wrap gap-1">
         {LEARNER_SPEED_PRESETS.map(({ label, speed: presetSpeed }) => (
@@ -807,25 +885,104 @@ function SpeedControl({
             type="button"
             onClick={() => onSpeedChange(presetSpeed)}
             className={[
-              practiceChipBtn,
+              chip,
               speed === presetSpeed ? toolbarChipBtnActive : toolbarChipBtnIdle,
+              'flex-1 min-w-[4.5rem]',
             ].join(' ')}
             aria-label={`${label}, ${Math.round(presetSpeed * 100)} percent speed`}
+            aria-pressed={speed === presetSpeed}
           >
-            {label}
+            <span className="block font-medium">{presetLabel(presetSpeed)}</span>
+            <span className="block text-[9px] text-white/35 leading-tight">{label}</span>
           </button>
         ))}
-        {speed !== NORMAL_SPEED && (
-          <button
-            type="button"
-            onClick={() => onSpeedChange(NORMAL_SPEED)}
-            className={[practiceChipBtn, toolbarChipBtnIdle, 'text-white/40'].join(' ')}
-          >
-            Reset
-          </button>
-        )}
       </div>
+      <p className="text-[10px] text-white/30 text-pretty">
+        Double-tap the slider to jump back to 1×.
+      </p>
     </div>
+  )
+}
+
+function CollapsibleSpeedSection({
+  speedPct,
+  speed,
+  onSpeedChange,
+  forceCollapsed,
+}: {
+  speedPct: number
+  speed: number
+  onSpeedChange: (speed: number) => void
+  forceCollapsed?: boolean
+}) {
+  const isDesktop = useMinWidthMd()
+  const isActive = speed !== NORMAL_SPEED
+  const [expanded, setExpanded] = useState(isActive)
+
+  useEffect(() => {
+    if (isActive) setExpanded(true)
+  }, [isActive])
+
+  useEffect(() => {
+    if (forceCollapsed && !isActive) setExpanded(false)
+  }, [forceCollapsed, isActive])
+
+  const shellClass = [
+    'rounded-xl border shrink-0',
+    isActive
+      ? 'border-cinnabar-accent/40 bg-cinnabar-accent/[0.06]'
+      : 'border-cinnabar-900/80 bg-cinnabar-900/30',
+  ].join(' ')
+
+  if (isDesktop) {
+    return (
+      <section className={[shellClass, 'p-2.5'].join(' ')} aria-label="Playback speed">
+        <div className="flex items-center justify-between mb-1.5 gap-2">
+          <div className="min-w-0">
+            <p className={toolbarSectionLabel}>Speed</p>
+            {!isActive && (
+              <p className="text-[10px] text-white/30 mt-0.5 text-pretty">Slow down tricky sections without changing pitch</p>
+            )}
+          </div>
+          <span className={[
+            'text-xs tabular-nums font-medium shrink-0',
+            isActive ? 'text-cinnabar-accent' : 'text-white/45',
+          ].join(' ')}>
+            {speedPct}%
+          </span>
+        </div>
+        <SpeedControl speedPct={speedPct} speed={speed} onSpeedChange={onSpeedChange} />
+      </section>
+    )
+  }
+
+  return (
+    <section className={[shellClass, 'p-2'].join(' ')} aria-label="Playback speed">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        className="w-full flex items-center justify-between gap-2 min-h-9 touch-manipulation"
+      >
+        <span className="flex items-center gap-2 min-w-0">
+          <span className="text-[10px] uppercase tracking-wide text-white/35 shrink-0">Speed</span>
+          {!expanded && (
+            <span className={[
+              'text-[11px] tabular-nums truncate',
+              isActive ? 'text-cinnabar-accent font-medium' : 'text-white/50',
+            ].join(' ')}>
+              {speedPct === 100 ? 'Normal (1×)' : `${speedPct}%`}
+            </span>
+          )}
+        </span>
+        <span className="text-[10px] text-white/35 shrink-0" aria-hidden>{expanded ? '▴' : '▾'}</span>
+      </button>
+      {expanded && (
+        <div className="pt-1.5 border-t border-cinnabar-900/60 mt-1.5">
+          <SpeedControl speedPct={speedPct} speed={speed} onSpeedChange={onSpeedChange} compact />
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -915,31 +1072,31 @@ function MoreMenu({
   )
 }
 
-const PRACTICE_PANEL_ID = 'practice-panel-content'
+const SAVED_LOOPS_PANEL_ID = 'saved-loops-panel-content'
 
-function practicePanelHint(
+function savedLoopsPanelHint(
   open: boolean,
   playlistActive: boolean,
   playlistIndex: number,
   playlistLength: number,
-  speedPct: number,
+  entryCount: number,
 ): string {
   if (open) return 'Close'
   if (playlistActive && playlistLength > 0) {
     return `${playlistIndex + 1}/${playlistLength}`
   }
-  if (speedPct !== 100) return `${speedPct}%`
+  if (entryCount > 0) return `${entryCount} saved`
   return 'Open'
 }
 
-/** Collapsible saved-loops + speed — expands inline so lyrics stay visible on mobile. */
-function PracticePanelSection({
+/** Collapsible saved-loops list — expands inline so lyrics stay visible on mobile. */
+function SavedLoopsPanelSection({
   open,
   onToggle,
   playlistActive,
   playlistIndex,
   playlistLength,
-  speedPct,
+  entryCount,
   children,
 }: {
   open: boolean
@@ -947,10 +1104,10 @@ function PracticePanelSection({
   playlistActive: boolean
   playlistIndex: number
   playlistLength: number
-  speedPct: number
+  entryCount: number
   children: ReactNode
 }) {
-  const hint = practicePanelHint(open, playlistActive, playlistIndex, playlistLength, speedPct)
+  const hint = savedLoopsPanelHint(open, playlistActive, playlistIndex, playlistLength, entryCount)
   const triggerActive = open || playlistActive
   const isDesktop = useMinWidthMd()
 
@@ -964,14 +1121,14 @@ function PracticePanelSection({
             ? 'border-red-400/30 bg-red-500/[0.03]'
             : 'border-cinnabar-900/80 bg-cinnabar-900/30',
       ].join(' ')}
-      aria-label="Saved loops and speed"
+      aria-label="Saved loops"
     >
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        aria-controls={PRACTICE_PANEL_ID}
-        aria-label={open ? 'Close saved loops and speed' : 'Open saved loops and speed'}
+        aria-controls={SAVED_LOOPS_PANEL_ID}
+        aria-label={open ? 'Close saved loops' : 'Open saved loops'}
         className={[
           displayMenuTrigger,
           'w-full justify-between gap-2 px-3 min-h-9 md:min-h-10 rounded-xl border-0',
@@ -994,7 +1151,7 @@ function PracticePanelSection({
             'text-xs font-medium truncate',
             playlistActive && !open ? 'text-red-200/85' : open ? 'text-cinnabar-accent' : 'text-white/55',
           ].join(' ')}>
-            {isDesktop ? 'Saved loops & speed' : 'Loops & speed'}
+            Saved loops
           </span>
         </span>
         <span className={[
@@ -1006,8 +1163,8 @@ function PracticePanelSection({
       </button>
 
       {open && (
-        <div id={PRACTICE_PANEL_ID} className="border-t border-cinnabar-accent/20">
-          <div className="px-2.5 pb-2 pt-1.5 md:px-3 md:pb-3 md:pt-2 space-y-2 md:space-y-3">
+        <div id={SAVED_LOOPS_PANEL_ID} className="border-t border-cinnabar-accent/20">
+          <div className="px-2.5 pb-2 pt-1.5 md:px-3 md:pb-3 md:pt-2">
             {children}
           </div>
         </div>
@@ -1063,14 +1220,14 @@ export function PlayerControls({
   const abActive = abLoop.a !== null || abLoop.b !== null || armingAB !== null
   const abLooping = isABLoopActive(abLoop)
   const isDesktop = useMinWidthMd()
-  const [practiceOpen, setPracticeOpen] = useState(false)
+  const [savedLoopsOpen, setSavedLoopsOpen] = useState(false)
 
   useEffect(() => {
-    if (abActive && isDesktop) setPracticeOpen(true)
+    if (abActive && isDesktop) setSavedLoopsOpen(true)
   }, [abActive, isDesktop])
 
   useEffect(() => {
-    if (playlistActive && isDesktop) setPracticeOpen(true)
+    if (playlistActive && isDesktop) setSavedLoopsOpen(true)
   }, [playlistActive, isDesktop])
 
   const hasPlaylistEntries = playlistEntries.length > 0
@@ -1113,7 +1270,7 @@ export function PlayerControls({
           playSize={mode === 'edit' || !isDesktop ? 'md' : 'lg'}
           compact={!isDesktop}
         />
-        {(!practiceOpen || isDesktop) && (
+        {(!savedLoopsOpen || isDesktop) && (
           <CompactVolume volumePct={volumePct} onVolumeChange={onVolumeChange} />
         )}
       </section>
@@ -1129,7 +1286,7 @@ export function PlayerControls({
             abActive={abActive}
             onToggleArm={onToggleArm}
             onClearAB={onClearAB}
-            forceCollapsed={practiceOpen && !isDesktop}
+            forceCollapsed={savedLoopsOpen && !isDesktop}
             canSave={canSaveToPlaylist}
             onSave={onSaveToPlaylist}
           />
@@ -1157,13 +1314,20 @@ export function PlayerControls({
             </div>
           )}
 
-          <PracticePanelSection
-            open={practiceOpen}
-            onToggle={() => setPracticeOpen((v) => !v)}
+          <CollapsibleSpeedSection
+            speedPct={speedPct}
+            speed={speed}
+            onSpeedChange={onSpeedChange}
+            forceCollapsed={savedLoopsOpen && !isDesktop}
+          />
+
+          <SavedLoopsPanelSection
+            open={savedLoopsOpen}
+            onToggle={() => setSavedLoopsOpen((v) => !v)}
             playlistActive={playlistActive}
             playlistIndex={playlistIndex}
             playlistLength={playlistEntries.length}
-            speedPct={speedPct}
+            entryCount={playlistEntries.length}
           >
             {onTogglePlaylist && onLoadPlaylistEntry && onMovePlaylistEntry && onRemovePlaylistEntry && onRenamePlaylistEntry && onClearPlaylist && (
               <ABLoopPlaylistControls
@@ -1182,13 +1346,7 @@ export function PlayerControls({
                 compactMobile={!isDesktop}
               />
             )}
-            <div className="border-t border-cinnabar-900/50 pt-2 md:pt-2.5">
-              {!isDesktop ? null : (
-                <p className={[toolbarSectionLabel, 'mb-1.5'].join(' ')}>Speed</p>
-              )}
-              <SpeedControl speedPct={speedPct} speed={speed} onSpeedChange={onSpeedChange} />
-            </div>
-          </PracticePanelSection>
+          </SavedLoopsPanelSection>
 
           <MoreMenu
             showAbExport={showAbExport}
