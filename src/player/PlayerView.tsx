@@ -12,6 +12,8 @@ import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase } from 
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
 import { projectPhraseTokensToLines } from '../lyrics/phraseProjection'
 import { repairPhraseTranslationOrder } from '../lyrics/phraseNormalize'
+import { summarizePhraseChanges, applySungLayout, revertToSheetLayout } from '../lyrics/phraseLayout'
+import { PhraseNormalizePanel } from '../lyrics/PhraseNormalizePanel'
 import { tokenizeJapanese } from '../language/japanese/tokenizer'
 import { toRomaji, toFurigana } from '../language/japanese/phonetics'
 import { detectGrammarPatterns } from '../language/japanese/grammar'
@@ -279,6 +281,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [attachingAudio, setAttachingAudio] = useState(false)
   const [attachAudioError, setAttachAudioError] = useState('')
   const [showLyricsReimport, setShowLyricsReimport] = useState(false)
+  const [phrasingDismissed, setPhrasingDismissed] = useState(false)
+  const [phrasingBusy, setPhrasingBusy] = useState(false)
   const {
     setBusy: setLyricsReimportBusy,
     confirming: confirmLyricsReimportClose,
@@ -640,6 +644,44 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }, yieldMs)
   }
 
+  // Switch the rendered rows to the canonical sung phrases (Phase 3, D1 opt-in).
+  // The phrase rows already carry reconciled tokens; re-run enrichment so each new
+  // row gets its own furigana/grammar, then persist with the sheet snapshot intact.
+  const applySungPhrasing = async () => {
+    if (!song?.lyrics.phrases?.length || phrasingBusy) return
+    setPhrasingBusy(true)
+    try {
+      const applied = applySungLayout(song.lyrics)
+      const base: Song = { ...song, lyrics: applied }
+      await db.songs.put(base)
+      setSong(base)
+      setLines(applied.lines)
+      const enriched = await runLyricsEnrichment(
+        applied.lines,
+        applied.sourceLanguage,
+        applied.enrichmentVersion,
+        applied.transcriptWords,
+      )
+      await persistEnrichedLines(base, enriched, true)
+    } finally {
+      setPhrasingBusy(false)
+    }
+  }
+
+  const restoreSheetPhrasing = async () => {
+    if (!song?.lyrics.sheetLinesSnapshot || phrasingBusy) return
+    setPhrasingBusy(true)
+    try {
+      const reverted = revertToSheetLayout(song.lyrics)
+      const base: Song = { ...song, lyrics: reverted }
+      await db.songs.put(base)
+      setSong(base)
+      setLines(reverted.lines)
+    } finally {
+      setPhrasingBusy(false)
+    }
+  }
+
   const handleTapComplete = async (lines: TimedLine[]) => {
     if (!song) return
     const updated: Song = {
@@ -685,6 +727,11 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const progress = duration > 0 ? Math.min(1, position / duration) : 0
   const isJapanese = song?.lyrics.sourceLanguage === 'ja'
   const hasTranslation = !!song?.lyrics.lines.some(hasVisibleTranslation)
+
+  const sungLayoutActive = song?.lyrics.phraseLayout === 'sung'
+  const phraseSheetRows = sungLayoutActive ? (song?.lyrics.sheetLinesSnapshot ?? []) : (song?.lyrics.lines ?? [])
+  const phraseChanges =
+    song?.lyrics.phrases?.length ? summarizePhraseChanges(phraseSheetRows, song.lyrics.phrases) : []
 
   // Sync playback rate whenever speed changes or audio source becomes available.
   useEffect(() => {
@@ -980,6 +1027,17 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
             {hasLocalAudio ? ', or use Auto-align.' : ', or add an audio file for AI align.'}
           </p>
         </div>
+      )}
+
+      {mode === 'play' && !phrasingDismissed && phraseChanges.length > 0 && (
+        <PhraseNormalizePanel
+          changes={phraseChanges}
+          active={sungLayoutActive}
+          busy={phrasingBusy}
+          onApply={applySungPhrasing}
+          onRevert={restoreSheetPhrasing}
+          onDismiss={() => setPhrasingDismissed(true)}
+        />
       )}
 
       {mode === 'play' && (isJapanese || hasTranslation) && (

@@ -104,6 +104,9 @@ export interface LyricsData {
   phrases?: SungPhrase[]
   /** Which rows the UI renders. 'sheet' (default) = pasted lines; 'sung' = phrases. */
   phraseLayout?: 'sheet' | 'sung'
+  /** The pasted-layout rows captured when switching to 'sung', so the user can
+   * one-tap restore their original sheet (Phase 3). */
+  sheetLinesSnapshot?: TimedLine[]
 }
 
 export interface WordAlignment {
