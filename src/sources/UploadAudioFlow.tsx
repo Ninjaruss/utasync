@@ -29,6 +29,8 @@ import {
   type UploadSavePhase,
 } from './addSongProgress'
 import { resolveCoverArt } from './coverArt'
+import { getDefaultSongLanguage } from '../payment/SettingsStore'
+import { inferPreferredLyricsLanguage } from './lyricsMatch'
 
 type ManualLyricSource = 'paste' | 'subtitle'
 
@@ -132,7 +134,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
     findLyrics(title.trim(), artist.trim(), (stage) => {
       if (gen !== searchGenRef.current) return
       setLyricSearchStage(stage)
-    }, durationSec)
+    }, durationSec, inferPreferredLyricsLanguage(title.trim(), artist.trim(), getDefaultSongLanguage()))
       .then((found) => {
         if (gen !== searchGenRef.current) return
         setLyricSearchStage(null)
@@ -188,7 +190,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
       }
 
       const primaryLang = detectLanguage(finalLines.map((l) => l.original).join('\n'))
-      const sourceLanguage: Language = primaryLang === 'ja' ? 'ja' : 'en'
+      const sourceLanguage: Language = primaryLang === 'ja' ? 'ja' : getDefaultSongLanguage()
       const translationLanguage: Language = sourceLanguage === 'ja' ? 'en' : 'ja'
 
       setSaveProgress({ phase: 'saving-audio' })
@@ -288,7 +290,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
         </label>
 
         <p className="text-white/40 text-xs text-pretty">
-          Check the song title and artist — LRCLIB search starts automatically once both are set.
+          Check the song title and artist — LRCLIB search starts once a file and title are set. Adding artist improves matches.
         </p>
 
         <div className="space-y-1.5 md:space-y-2">
@@ -414,6 +416,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
 
         <div className={embedded ? 'shrink-0 pt-2 space-y-2' : 'space-y-3'}>
         <button
+          type="button"
           onClick={handleSubmit}
           disabled={!file || !title.trim() || !lyricsReady || !!saveProgress}
           className="w-full py-3 md:py-2.5 bg-cinnabar-accent text-white rounded-xl font-medium disabled:opacity-40"

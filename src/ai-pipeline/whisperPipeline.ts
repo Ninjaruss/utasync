@@ -106,6 +106,7 @@ export async function loadWhisperAsrPipeline(
     withNetworkRetry(load, 3, 1500, async (attempt) => {
       if (attempt >= 2) {
         console.warn(`Retrying Whisper ${label} after load failure (attempt ${attempt})`)
+        progress_callback?.({ status: 'retrying', file: label, name: modelId })
         await purgeCorruptModelCaches()
         await clearWhisperModelCache(modelId)
         const { host } = await prefetchWhisperModelFiles(modelId)

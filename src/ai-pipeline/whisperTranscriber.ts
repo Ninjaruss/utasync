@@ -14,6 +14,13 @@ export interface WhisperTranscript {
   chunks?: TranscriptChunk[]
 }
 
+export type TranscribeProgressStatus = 'transcribing' | 'merging' | 'finalizing'
+
+export interface TranscribeProgress {
+  progress: number
+  status: TranscribeProgressStatus
+}
+
 export interface LoadProgress {
   status?: string
   progress?: number
@@ -28,6 +35,9 @@ let worker: Worker | null = null
 let loaded: Promise<void> | null = null
 let idleReleaseTimer: ReturnType<typeof setTimeout> | null = null
 const loadProgressListeners = new Set<(p: LoadProgress) => void>()
+// Tracks the reject callback of any in-flight transcribeAudio promise so that
+// resetWhisperTranscriber() can surface a cancellation error instead of hanging.
+let transcribeReject: ((e: Error) => void) | null = null
 
 const WORKER_IDLE_RELEASE_MS = 3 * 60 * 1000
 
@@ -56,8 +66,11 @@ function scheduleWorkerRelease(): void {
   }, WORKER_IDLE_RELEASE_MS)
 }
 
-/** Clears the singleton so the next call loads a fresh worker (for tests). */
+/** Terminates the worker and rejects any in-flight transcription promise. */
 export function resetWhisperTranscriber(): void {
+  const r = transcribeReject
+  transcribeReject = null
+  r?.(new Error('Transcription cancelled'))
   cancelWorkerRelease()
   worker?.terminate()
   worker = null
@@ -114,30 +127,82 @@ export async function transcribeAudio(
     language?: Language
     onLoadProgress?: (p: LoadProgress) => void
     onModelLoaded?: () => void
-    onTranscribeProgress?: (progress: number) => void
+    onTranscribeProgress?: (p: TranscribeProgress) => void
+    /** Word timestamps are slow to merge on long tracks — default picks by tier/duration. */
+    timestampMode?: 'word' | 'segment'
+    /** Abort if transcription exceeds this many ms (default: max(5 min, 20× audio length)). */
+    timeoutMs?: number
   },
 ): Promise<WhisperTranscript> {
   await ensureLoaded(options?.onLoadProgress)
   options?.onModelLoaded?.()
 
+  const durationSec = audioData.length / sampleRate
+  const timeoutMs = options?.timeoutMs ?? Math.max(300_000, durationSec * 20_000)
+
   const result = await new Promise<WhisperTranscript>((resolve, reject) => {
+    transcribeReject = reject
     const w = getWorker()
+
+    let timedOut = false
+    const timeoutId = setTimeout(() => {
+      timedOut = true
+      cleanup()
+      reject(new Error(
+        'Transcription timed out — try a shorter clip, disable vocal separation, or use tap-sync instead.',
+      ))
+    }, timeoutMs)
+
+    const cleanup = () => {
+      transcribeReject = null
+      clearTimeout(timeoutId)
+      w.removeEventListener('message', onMessage)
+      w.removeEventListener('error', onError)
+    }
+
     const onMessage = (e: MessageEvent) => {
       if (e.data.type === 'progress') {
-        const payload = e.data.payload as { progress?: number }
+        const payload = e.data.payload as { progress?: number; status?: TranscribeProgressStatus }
         if (typeof payload.progress === 'number') {
-          options?.onTranscribeProgress?.(payload.progress)
+          options?.onTranscribeProgress?.({
+            progress: payload.progress,
+            status: payload.status ?? 'transcribing',
+          })
+        } else if (payload.status === 'merging' || payload.status === 'finalizing') {
+          options?.onTranscribeProgress?.({ progress: 0, status: payload.status })
         }
       } else if (e.data.type === 'result') {
-        w.removeEventListener('message', onMessage)
+        if (timedOut) return
+        cleanup()
         resolve(e.data.payload as WhisperTranscript)
       } else if (e.data.type === 'error') {
-        w.removeEventListener('message', onMessage)
+        cleanup()
+        worker = null
+        loaded = null
         reject(new Error(String(e.data.payload)))
       }
     }
+
+    // Catches uncaught worker exceptions (WASM traps, OOM) that the worker's
+    // try/catch cannot intercept — without this the promise hangs forever.
+    const onError = (e: ErrorEvent) => {
+      cleanup()
+      worker = null
+      loaded = null
+      reject(new Error(e.message || 'Speech recognition failed unexpectedly. Please try again.'))
+    }
+
     w.addEventListener('message', onMessage)
-    w.postMessage({ type: 'transcribe', payload: { audioData, sampleRate, language: options?.language } })
+    w.addEventListener('error', onError)
+    w.postMessage({
+      type: 'transcribe',
+      payload: {
+        audioData,
+        sampleRate,
+        language: options?.language,
+        timestampMode: options?.timestampMode ?? 'word',
+      },
+    })
   })
 
   scheduleWorkerRelease()

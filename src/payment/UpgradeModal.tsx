@@ -4,8 +4,7 @@ import { useSettingsStore } from './SettingsStore'
 import { verifyLicense } from './license'
 import { LegalLinks } from '../core/ui/LegalLinks'
 
-// Placeholder checkout URL — replace with real LemonSqueezy product URL after setup
-const CHECKOUT_URL = 'https://utasync.lemonsqueezy.com/buy/placeholder'
+const CHECKOUT_URL = 'https://payhip.com/b/eun5b'
 
 interface Props {
   feature: string
@@ -20,13 +19,7 @@ export function UpgradeModal({ feature, onClose }: Props) {
   const [restoring, setRestoring] = useState(false)
 
   const handleCheckout = () => {
-    // Open LemonSqueezy overlay if script is loaded, otherwise open in new tab
-    if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).LemonSqueezy) {
-      const ls = (window as unknown as Record<string, { Url: { Open: (url: string) => void } }>).LemonSqueezy
-      ls.Url.Open(CHECKOUT_URL)
-    } else {
-      window.open(CHECKOUT_URL, '_blank')
-    }
+    window.open(CHECKOUT_URL, '_blank')
   }
 
   const handleRestoreKey = async () => {

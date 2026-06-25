@@ -46,8 +46,10 @@ describe('PlayerView local audio gating', () => {
     await seedSong({ sourceUrl: 'https://youtube.com/watch?v=abc123' })
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
-    expect(screen.getByRole('button', { name: /add audio file/i })).toBeTruthy()
-    expect(screen.getByText(/streaming via youtube/i)).toBeTruthy()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /add audio file/i })).toBeTruthy()
+      expect(screen.getByText(/streaming via youtube/i)).toBeTruthy()
+    })
   })
 
   it('does not offer play-mode re-align (Edit → Auto-align is the sole entry point)', async () => {

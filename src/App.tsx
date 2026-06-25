@@ -63,7 +63,18 @@ export default function App() {
           onClose={() => setAddOpen(false)}
         />
       )}
-      {settingsOpen && <SettingsSheet onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && (
+        <SettingsSheet
+          onClose={() => setSettingsOpen(false)}
+          onSongDeleted={(deletedId) => {
+            if (songId === deletedId) {
+              setView('library')
+              setSongId(null)
+              setAutoAlignOnOpen(false)
+            }
+          }}
+        />
+      )}
     </>
   )
 }

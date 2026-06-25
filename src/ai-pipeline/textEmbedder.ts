@@ -8,6 +8,7 @@ let worker: Worker | null = null
 let loaded: Promise<void> | null = null
 let nextRequestId = 0
 let idleReleaseTimer: ReturnType<typeof setTimeout> | null = null
+const pendingEmbedRejects = new Set<(err: Error) => void>()
 
 /** Cap session cache — unbounded growth was pinning hundreds of MB on long sessions. */
 export const MAX_EMBEDDING_CACHE_ENTRIES = 2048
@@ -39,6 +40,11 @@ function cancelWorkerRelease(): void {
 function scheduleWorkerRelease(): void {
   cancelWorkerRelease()
   idleReleaseTimer = setTimeout(() => {
+    if (pendingEmbedRejects.size > 0) {
+      const err = new Error('Embed worker released due to inactivity')
+      for (const reject of pendingEmbedRejects) reject(err)
+      pendingEmbedRejects.clear()
+    }
     worker?.terminate()
     worker = null
     loaded = null
@@ -80,6 +86,14 @@ function ensureLoaded(): Promise<void> {
       w.addEventListener('message', onMessage)
       w.postMessage({ type: 'load', payload: { model: getEmbedModel(getDeviceTier()) } })
     })
+    // A failed load must not wedge every future call behind the same
+    // rejected promise — drop the broken worker so the next embedTexts()
+    // call (e.g. opening another song) gets a fresh attempt.
+    loaded.catch(() => {
+      worker?.terminate()
+      worker = null
+      loaded = null
+    })
   }
   return loaded
 }
@@ -107,6 +121,7 @@ function embedChunkSize(): number {
 function embedViaWorker(texts: string[], options?: EmbedTextsOptions): Promise<number[][]> {
   const requestId = nextRequestId++
   return new Promise((resolve, reject) => {
+    pendingEmbedRejects.add(reject)
     const w = getWorker()
     const onMessage = (e: MessageEvent) => {
       if (!isMatchingResponse(e.data.payload, requestId)) return
@@ -117,9 +132,11 @@ function embedViaWorker(texts: string[], options?: EmbedTextsOptions): Promise<n
         }
       } else if (e.data.type === 'result') {
         w.removeEventListener('message', onMessage)
+        pendingEmbedRejects.delete(reject)
         resolve(e.data.payload.vecs)
       } else if (e.data.type === 'error') {
         w.removeEventListener('message', onMessage)
+        pendingEmbedRejects.delete(reject)
         reject(new Error(e.data.payload.message))
       }
     }

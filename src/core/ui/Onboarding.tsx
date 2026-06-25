@@ -54,7 +54,7 @@ export function Onboarding() {
         <h2 id="onboarding-title" className="text-white font-semibold text-lg">{current.title}</h2>
         <p className="text-white/70 text-sm">{current.body}</p>
         <div className="flex items-center justify-between gap-3 pt-2">
-          <button type="button" onClick={dismiss} className="text-white/40 text-sm">
+          <button type="button" onClick={dismiss} className="min-h-11 px-2 text-white/40 text-sm touch-manipulation">
             Skip
           </button>
           <button

@@ -32,6 +32,12 @@ const MATCH_CHAR = /[a-z぀-ヿー㐀-鿿豈-﫿]/
  */
 const LYRIC_ORTHOGRAPHY_ALIASES: ReadonlyArray<readonly [string, string]> = [
   ['キミ', '君'],
+  // Whisper segment output on AKFG / similar J-rock (measured on First Take audit).
+  ['超え', '越え'],
+  ['堅い', '固い'],
+  ['堅', '固'],
+  ['顔', '丘'],
+  ['わけ', '理由'],
 ]
 
 /** Sighs / filler rows that are rarely transcribed — do not anchor by coincidence. */
@@ -185,8 +191,8 @@ function strongestCluster(runs: ReliableRun[]): ReliableRun {
   return { startTime: best[0].startTime, endTime: best[best.length - 1].endTime, length: bestChars }
 }
 
-// Reliable (MIN_RELIABLE_RUN+ consecutive matched chars) start/end anchors per line.
-function anchorsByLine(A: LyricChar[], match: LcsMatch, lineCount: number): LineAnchors {
+/** Reliable (MIN_RELIABLE_RUN+) contiguous matched-char runs per lyric line. */
+function collectReliableRunsByLine(A: LyricChar[], match: LcsMatch, lineCount: number): ReliableRun[][] {
   const { matchTime, matchBIndex } = match
   const runsByLine: ReliableRun[][] = Array.from({ length: lineCount }, () => [])
   const m = A.length
@@ -216,7 +222,12 @@ function anchorsByLine(A: LyricChar[], match: LcsMatch, lineCount: number): Line
     }
     runStart = idx
   }
+  return runsByLine
+}
 
+// Reliable (MIN_RELIABLE_RUN+ consecutive matched chars) start/end anchors per line.
+function anchorsByLine(A: LyricChar[], match: LcsMatch, lineCount: number): LineAnchors {
+  const runsByLine = collectReliableRunsByLine(A, match, lineCount)
   const starts = new Float64Array(lineCount).fill(NaN)
   const ends = new Float64Array(lineCount).fill(NaN)
   for (let li = 0; li < lineCount; li++) {
@@ -266,10 +277,24 @@ function lineCharStats(A: LyricChar[], match: LcsMatch, lineCount: number): Line
     if (t < 0) continue
     const li = A[idx].line
     stats[li].matchedCount++
-    stats[li].firstMatchedTime = Math.min(stats[li].firstMatchedTime, t)
-    stats[li].lastMatchedTime = Math.max(stats[li].lastMatchedTime, t)
+  }
+  // Sung-time bounds come from reliable runs only — isolated LCS coincidences on
+  // common morae (の/を/て/…) across instrumental gaps must not stretch a line's
+  // estimated end across 30s+ of unrelated audio (see Veil line 3 audit).
+  const runsByLine = collectReliableRunsByLine(A, match, lineCount)
+  for (let li = 0; li < lineCount; li++) {
+    if (runsByLine[li].length === 0) continue
+    const { startTime, endTime } = strongestCluster(runsByLine[li])
+    stats[li].firstMatchedTime = startTime
+    stats[li].lastMatchedTime = endTime
   }
   return stats
+}
+
+/** Typical sung span from glyph count — floors zero-duration lines on weak anchors. */
+function minSungDuration(lineText: string): number {
+  const glyphs = normalizeForMatch(lineText).length
+  return Math.max(0.8, Math.min(4.5, glyphs * 0.14))
 }
 
 /** Trailing space-separated repeat (ローリング ローリング) or echo tail (…ように ように). */
@@ -296,11 +321,12 @@ function estimatedLineStart(
   ownEndAnchors: Float64Array,
   stats: LineCharStats[],
   lineTexts: string[],
+  hasAnchor?: readonly boolean[],
 ): number {
   const { unmatchedHead, matchedCount, firstMatchedTime } = stats[li]
   let start = starts[li]
   if (unmatchedHead > 0 && matchedCount > 0 && Number.isFinite(firstMatchedTime)) {
-    const end = estimatedLineEnd(li, starts, ownEndAnchors, stats, lineTexts)
+    const end = estimatedLineEnd(li, starts, ownEndAnchors, stats, lineTexts, hasAnchor)
     const anchor = Number.isFinite(end) ? end : firstMatchedTime
     const sungSpan = Math.max(0.08, anchor - firstMatchedTime)
     start = Math.min(start, firstMatchedTime - sungSpan * (unmatchedHead / matchedCount))
@@ -319,10 +345,16 @@ function estimatedLineEnd(
   ownEndAnchors: Float64Array,
   stats: LineCharStats[],
   lineTexts: string[],
+  hasAnchor?: readonly boolean[],
 ): number {
   const { matchedCount, unmatchedTail, lastMatchedTime } = stats[li]
   const ownEnd = ownEndAnchors[li]
-  let end = Number.isNaN(ownEnd) ? lastMatchedTime : Math.max(ownEnd, lastMatchedTime)
+  const trustTranscriptEnd = hasAnchor?.[li] !== false
+  let end = Number.isNaN(ownEnd)
+    ? trustTranscriptEnd ? lastMatchedTime : NaN
+    : trustTranscriptEnd
+      ? Math.max(ownEnd, lastMatchedTime)
+      : ownEnd
   if (!Number.isFinite(end)) return NaN
   const start = starts[li]
   if (unmatchedTail > 0 && matchedCount > 0) {
@@ -336,24 +368,105 @@ function estimatedLineEnd(
   return end
 }
 
+// Forward jumps beyond this after the previous line's vocal end are suspicious —
+// real instrumental bridges between consecutive lyric rows are rarely 22s+.
+const FORWARD_GAP_SOFT_CAP_S = 22
+const FORWARD_GAP_WEAK_COVERAGE = 0.55
+// A large unmatched lyric prefix means Whisper only caught a suffix elsewhere
+// (often a chorus reprise at song end).
+const FORWARD_GAP_HEAD_FRAC = 0.2
+
+function lineMatchCoverage(li: number, stats: LineCharStats[], lineTexts: string[]): number {
+  const glyphs = normalizeForMatch(lineTexts[li] ?? '').length
+  if (glyphs === 0) return 0
+  return stats[li].matchedCount / glyphs
+}
+
+function previousLineVocalEnd(
+  li: number,
+  anchors: Float64Array,
+  ownEndAnchors: Float64Array,
+): number {
+  const end = ownEndAnchors[li]
+  if (Number.isFinite(end)) return end
+  const start = anchors[li]
+  return Number.isFinite(start) ? start : NaN
+}
+
+/**
+ * Drop start anchors that sit implausibly far after the previous line's vocal
+ * end. LCS happily matches a later chorus reprise when Whisper skipped the
+ * first singing (or only hallucinated the tail at song end).
+ */
+function rejectDistantForwardAnchors(
+  anchors: Float64Array,
+  ownEndAnchors: Float64Array,
+  stats: LineCharStats[],
+  lineTexts: string[],
+): void {
+  let lastKeptIdx = -1
+  for (let li = 0; li < anchors.length; li++) {
+    if (Number.isNaN(anchors[li])) continue
+    if (lastKeptIdx >= 0) {
+      const prevEnd = previousLineVocalEnd(lastKeptIdx, anchors, ownEndAnchors)
+      if (Number.isFinite(prevEnd)) {
+        const gap = anchors[li] - prevEnd
+        const coverage = lineMatchCoverage(li, stats, lineTexts)
+        const glyphs = normalizeForMatch(lineTexts[li] ?? '').length
+        const headFrac = glyphs > 0 ? stats[li].unmatchedHead / glyphs : 0
+        if (
+          gap > FORWARD_GAP_SOFT_CAP_S
+          && (coverage < FORWARD_GAP_WEAK_COVERAGE || headFrac > FORWARD_GAP_HEAD_FRAC)
+        ) {
+          anchors[li] = NaN
+          ownEndAnchors[li] = NaN
+          continue
+        }
+      }
+    }
+    lastKeptIdx = li
+  }
+}
+
+/** Unanchored rows interpolated toward song end belong right after prior vocals. */
+function clampUnanchoredForwardStarts(
+  starts: number[],
+  hasAnchor: readonly boolean[],
+  ownEndAnchors: Float64Array,
+  stats: LineCharStats[],
+  lineTexts: string[],
+): void {
+  for (let li = 0; li < starts.length - 1; li++) {
+    if (hasAnchor[li + 1]) continue
+    const effEnd = estimatedLineEnd(li, starts, ownEndAnchors, stats, lineTexts, hasAnchor)
+    if (!Number.isFinite(effEnd)) continue
+    const fairStart = effEnd + Math.min(minSungDuration(lineTexts[li + 1] ?? ''), 4)
+    if (starts[li + 1] > fairStart + 6) starts[li + 1] = fairStart
+  }
+  for (let li = 1; li < starts.length; li++) {
+    if (starts[li] < starts[li - 1]) starts[li] = starts[li - 1]
+  }
+}
+
 /** Push each line's start to at least the previous line's estimated vocal end. */
 function strengthenLineBoundaries(
   starts: number[],
   ownEndAnchors: Float64Array,
   stats: LineCharStats[],
   lineTexts: string[],
+  hasAnchor?: readonly boolean[],
 ): void {
   for (let li = 0; li < starts.length; li++) {
-    starts[li] = estimatedLineStart(li, starts, ownEndAnchors, stats, lineTexts)
+    starts[li] = estimatedLineStart(li, starts, ownEndAnchors, stats, lineTexts, hasAnchor)
   }
   for (let li = 0; li < starts.length - 1; li++) {
-    const effEnd = estimatedLineEnd(li, starts, ownEndAnchors, stats, lineTexts)
+    const effEnd = estimatedLineEnd(li, starts, ownEndAnchors, stats, lineTexts, hasAnchor)
     if (!Number.isFinite(effEnd)) continue
     if (starts[li + 1] < effEnd) starts[li + 1] = effEnd
   }
   for (let li = 1; li < starts.length; li++) {
     if (!isInterjectionLyricLine(lineTexts[li])) continue
-    const prevEnd = estimatedLineEnd(li - 1, starts, ownEndAnchors, stats, lineTexts)
+    const prevEnd = estimatedLineEnd(li - 1, starts, ownEndAnchors, stats, lineTexts, hasAnchor)
     if (Number.isFinite(prevEnd) && starts[li] < prevEnd) starts[li] = prevEnd
   }
   for (let li = 1; li < starts.length; li++) {
@@ -397,19 +510,26 @@ function interpolateAnchors(
       let acc = 0
       for (let k = l; k < r; k++) { acc += w[k]; out[k] = left + (right - left) * (acc / total) }
     } else {
-      for (let k = l; k < n; k++) out[k] = left
+      const total = w.slice(l, n).reduce((a, b) => a + b, 0) || 1
+      let acc = 0
+      for (let k = l; k < n; k++) {
+        acc += w[k]
+        out[k] = left + (lastTime - left) * (acc / total)
+      }
     }
     l = r
   }
   return out
 }
 
+export type LineAnchorSource = 'lcs' | 'interpolated' | 'interjection'
+
 export function alignByContent(
   lineTexts: string[],
   words: TranscriptWord[],
   existingLines: TimedLine[] | undefined,
   sourceLanguage: Language,
-): { lines: TimedLine[]; confidence: number } {
+): { lines: TimedLine[]; confidence: number; anchorSources: LineAnchorSource[] } {
   const lineCount = lineTexts.length
   const buildLine = (li: number, startTime: number, endTime: number): TimedLine => ({
     startTime,
@@ -421,7 +541,11 @@ export function alignByContent(
   const A = buildLyricChars(lineTexts)
   const B = buildTransChars(words)
   if (A.length === 0 || B.length === 0 || lineCount === 0) {
-    return { lines: lineTexts.map((_, li) => buildLine(li, 0, 0)), confidence: 0 }
+    return {
+      lines: lineTexts.map((_, li) => buildLine(li, 0, 0)),
+      confidence: 0,
+      anchorSources: lineTexts.map(() => 'interpolated' as const),
+    }
   }
 
   const match = lcsMatchTimes(A, B)
@@ -451,21 +575,29 @@ export function alignByContent(
     if (anchors[li] < lastKept) anchors[li] = NaN
     else lastKept = anchors[li]
   }
+  rejectDistantForwardAnchors(anchors, ownEndAnchors, stats, lineTexts)
+  const hasAnchor = Array.from(anchors, (a) => !Number.isNaN(a))
   const lastTime = B[B.length - 1].time
   const starts = interpolateAnchors(anchors, lineTexts, sourceLanguage, lastTime)
 
-  strengthenLineBoundaries(starts, ownEndAnchors, stats, lineTexts)
+  strengthenLineBoundaries(starts, ownEndAnchors, stats, lineTexts, hasAnchor)
+  clampUnanchoredForwardStarts(starts, hasAnchor, ownEndAnchors, stats, lineTexts)
 
   const lines = starts.map((s, li) => {
     const nextStart = li + 1 < starts.length ? starts[li + 1] : lastTime
-    const effEnd = estimatedLineEnd(li, starts, ownEndAnchors, stats, lineTexts)
+    const effEnd = estimatedLineEnd(li, starts, ownEndAnchors, stats, lineTexts, hasAnchor)
     const endBase = Number.isFinite(effEnd)
       ? effEnd
       : Number.isNaN(ownEndAnchors[li])
         ? nextStart
         : Math.max(ownEndAnchors[li], s)
-    const cappedEnd = Math.min(Math.max(endBase, s), nextStart)
+    const minEnd = s + Math.min(minSungDuration(lineTexts[li] ?? ''), Math.max(0, nextStart - s))
+    const cappedEnd = Math.min(Math.max(endBase, minEnd), nextStart)
     return buildLine(li, s, Math.max(s, cappedEnd))
   })
-  return { lines, confidence }
+  const anchorSources: LineAnchorSource[] = lineTexts.map((text, li) => {
+    if (isInterjectionLyricLine(text)) return 'interjection'
+    return hasAnchor[li] ? 'lcs' : 'interpolated'
+  })
+  return { lines, confidence, anchorSources }
 }

@@ -1,6 +1,7 @@
 // src/sources/songBuilder.ts
 import { v4 as uuidv4 } from 'uuid'
 import type { Song, TimedLine, AlignmentMode, Language } from '../core/types'
+import { getDefaultSongLanguage } from '../payment/SettingsStore'
 
 export interface BuildSongInput {
   id?: string
@@ -17,6 +18,9 @@ export interface BuildSongInput {
 }
 
 export function buildSong(input: BuildSongInput): Song {
+  const defaultLang = getDefaultSongLanguage()
+  const sourceLanguage = input.sourceLanguage ?? defaultLang
+  const translationLanguage = input.translationLanguage ?? (sourceLanguage === 'ja' ? 'en' : 'ja')
   return {
     id: input.id ?? uuidv4(),
     title: input.title,
@@ -26,8 +30,8 @@ export function buildSong(input: BuildSongInput): Song {
     albumArtUrl: input.albumArtUrl,
     lyrics: {
       lines: input.lines,
-      sourceLanguage: input.sourceLanguage ?? 'ja',
-      translationLanguage: input.translationLanguage ?? 'en',
+      sourceLanguage,
+      translationLanguage,
       alignmentMode: input.alignmentMode ?? 'manual',
     },
     createdAt: new Date(),

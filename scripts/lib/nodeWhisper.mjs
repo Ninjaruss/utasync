@@ -38,8 +38,10 @@ export async function transcribeAudio(audioData, sampleRate, options = {}) {
     Math.ceil(resampled.length / ((CHUNK_LENGTH_S - 2 * STRIDE_LENGTH_S) * 16000)),
   )
   let doneChunks = 0
+  const timestampMode = options.timestampMode ?? 'word'
+  const useWordTimestamps = timestampMode !== 'segment'
   return asr(resampled, {
-    return_timestamps: 'word',
+    return_timestamps: useWordTimestamps ? 'word' : true,
     language: options.language ?? 'japanese',
     task: 'transcribe',
     chunk_length_s: CHUNK_LENGTH_S,

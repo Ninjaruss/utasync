@@ -3,8 +3,18 @@ import type { Token } from '../core/types'
 import { isAlignableToken, isParticleToken, isDependentVerbStem } from '../core/language'
 import type { AlignmentSegment } from '../lyrics/lineAligner'
 import { katakanaToHiragana } from '../language/japanese/phonetics'
-import { glossMatchesTarget, KANJI_ROMAJI, romajiShareGloss } from './lyricGloss'
+import {
+  glossMatchesSource,
+  kanjiLemmaRomaji,
+  KANJI_ROMAJI,
+  romajiShareGloss,
+  ensureGlossLexicon,
+} from './lyricGloss'
+import { functionWordRomaji } from './morphGloss'
+import { morphMergeGroups, normalizeTokenOffsets } from '../language/japanese/morphSpans'
 import { dedupeTexts, expandVectors } from './embedTextUtils'
+import { yieldToMainThread } from '../core/idle'
+import { getDeviceTier } from './capability'
 
 export { isParticleToken, isAlignableToken }
 
@@ -62,14 +72,22 @@ export function tokenEmbedText(token: Token): string {
 export function tokenGlossText(token: Token): string {
   const surface = token.surface.trim()
   if (!surface) return surface
-  const compoundRomaji = KANJI_ROMAJI[surface]
+  const fn = functionWordRomaji(surface)
+  if (fn) return fn
+  const compoundRomaji = kanjiLemmaRomaji(surface)
   if (compoundRomaji) return compoundRomaji
   const surfaceRomaji = SURFACE_ROMAJI[surface]
   if (surfaceRomaji) return surfaceRomaji
   const reading = token.reading?.trim()
   if (reading) {
     const romaji = readingToRomaji(reading)
-    if (romaji) return romaji
+    if (romaji) {
+      // Verb stems whose reading romanizes to a pronoun (居→イ→i) must not steal "I".
+      if (GLOSS_ONLY_TARGETS.has(romaji) && (token.pos?.startsWith('動詞') ?? false)) {
+        return compoundRomaji ?? `${romaji}ru`
+      }
+      return romaji
+    }
   }
   if (KANA_RE.test(surface)) {
     const romaji = readingToRomaji(surface)
@@ -129,21 +147,23 @@ export function positionHint(sourceIndex: number, targetIndex: number, sourceCou
 }
 
 /** Perfect score when romanized source text equals or gloss-matches the English target word. */
-export function exactTextMatchScore(sourceText: string, targetText: string): number {
+export function exactTextMatchScore(
+  sourceText: string,
+  targetText: string,
+  sourceSurface?: string,
+): number {
   const s = sourceText.trim().toLowerCase()
   const t = targetText.trim().toLowerCase()
   if (s.length === 0) return 0
+  if (GLOSS_ONLY_TARGETS.has(t)) {
+    return glossMatchesSource({ romaji: s, surface: sourceSurface }, t) ? 1 : 0
+  }
   if (s === t) return 1
-  if (glossMatchesTarget(s, t)) return 1
+  if (glossMatchesSource({ romaji: s, surface: sourceSurface }, t)) return 1
   return 0
 }
 
-/**
- * Personal-pronoun targets that are only ever correct via an explicit gloss
- * (boku/watashi/atashi→i, kimi/anata→you). Japanese routinely omits the subject,
- * so the English "I"/"you" has no source word — fuzzy embedding similarity to it
- * is almost always spurious (持っ→I, 見え→you). Require a gloss/exact hit.
- */
+/** Personal-pronoun targets — see exactTextMatchScore. */
 const GLOSS_ONLY_TARGETS = new Set(['i', 'you', 'she', 'he', 'it', 'they', 'we', 'me', 'him', 'her', 'us', 'them'])
 
 /** Combined embedding similarity and exact romaji/gloss match (no position bonus). */
@@ -156,9 +176,9 @@ export function pairScore(
   targetIndex: number,
   sourceCount: number,
   targetCount: number,
-  options?: { usePositionBonus?: boolean },
+  options?: { usePositionBonus?: boolean; sourceSurface?: string },
 ): number {
-  const exact = exactTextMatchScore(sourceText, targetText)
+  const exact = exactTextMatchScore(sourceText, targetText, options?.sourceSurface)
   if (exact < 1 && GLOSS_ONLY_TARGETS.has(targetText.trim().toLowerCase())) return 0
   const sim = cosineSimilarity(sourceVec, targetVec)
   const base = Math.max(sim, exact)
@@ -173,7 +193,7 @@ export function buildScoreMatrix(
   targetTexts: string[],
   sourceVecs: number[][],
   targetVecs: number[][],
-  options?: { usePositionBonus?: boolean },
+  options?: { usePositionBonus?: boolean; sourceSurfaces?: string[] },
 ): number[][] {
   const n = sourceVecs.length
   const m = targetVecs.length
@@ -190,7 +210,10 @@ export function buildScoreMatrix(
         j,
         n,
         m,
-        options,
+        {
+          usePositionBonus: options?.usePositionBonus,
+          sourceSurface: options?.sourceSurfaces?.[i],
+        },
       )
     }
   }
@@ -372,6 +395,7 @@ export function extendManyToOne(
   targetTexts: string[],
   primary: MatchPair[],
   threshold = MATCH_THRESHOLD,
+  sourceSurfaces?: string[],
 ): MatchPair[] {
   const matchedSources = new Set(primary.map((m) => m.sourceIndex))
   const targetBySource = new Map(primary.map((m) => [m.sourceIndex, m.targetIndex]))
@@ -407,7 +431,10 @@ export function extendManyToOne(
 
     // Direct gloss / poetic alias match to an already-used target word
     for (const [targetIndex] of targetOwners) {
-      if (glossMatchesTarget(sourceTexts[i], targetTexts[targetIndex])) {
+      if (glossMatchesSource(
+        { romaji: sourceTexts[i], surface: sourceSurfaces?.[i] },
+        targetTexts[targetIndex],
+      )) {
         const score = scores[i][targetIndex]
         if (tryAssign(i, targetIndex, Math.max(score, 1))) break
       }
@@ -447,18 +474,48 @@ export function matchTokens(
   sourceVecs: number[][],
   targetVecs: number[][],
   threshold = MATCH_THRESHOLD,
+  sourceSurfaces?: string[],
 ): MatchPair[] {
-  const scores = buildScoreMatrix(sourceTexts, targetTexts, sourceVecs, targetVecs, { usePositionBonus: false })
-  const monotonic = monotonicSequenceMatch(scores, threshold)
-  const optimal = optimalOneToOneMatch(scores, threshold)
-  const monoTotal = monotonic.reduce((sum, m) => sum + m.score, 0)
-  const optTotal = optimal.reduce((sum, m) => sum + m.score, 0)
-  // Monotonic alignment skips filler English words well, but global one-to-one
-  // handles inverted JA/EN word order (SOV vs SVO). Prefer monotonic when scores
-  // are close so spurious optimal pairs do not steal filler-adjacent targets.
-  const primary = monoTotal >= optTotal * 0.92 ? monotonic : optimal
-  const extended = extendManyToOne(scores, sourceTexts, targetTexts, primary, threshold)
-  return [...primary, ...extended]
+  const runMatch = (targets: string[], tVecs: number[][]) => {
+    const scores = buildScoreMatrix(
+      sourceTexts,
+      targets,
+      sourceVecs,
+      tVecs,
+      { usePositionBonus: false, sourceSurfaces },
+    )
+    const monotonic = monotonicSequenceMatch(scores, threshold)
+    const optimal = optimalOneToOneMatch(scores, threshold)
+    const monoTotal = monotonic.reduce((sum, m) => sum + m.score, 0)
+    const optTotal = optimal.reduce((sum, m) => sum + m.score, 0)
+    const primary = monoTotal >= optTotal * 0.92 ? monotonic : optimal
+    const extended = extendManyToOne(
+      scores,
+      sourceTexts,
+      targets,
+      primary,
+      threshold,
+      sourceSurfaces,
+    )
+    const matches = [...primary, ...extended]
+    const total = matches.reduce((sum, m) => sum + m.score, 0)
+    return { matches, total }
+  }
+
+  const forward = runMatch(targetTexts, targetVecs)
+  if (targetTexts.length < 2) return forward.matches
+
+  const reversedTexts = [...targetTexts].reverse()
+  const reversedVecs = [...targetVecs].reverse()
+  const backward = runMatch(reversedTexts, reversedVecs)
+  const m = targetTexts.length
+  const remapped = backward.matches.map((pair) => ({
+    ...pair,
+    targetIndex: m - 1 - pair.targetIndex,
+  }))
+
+  if (backward.total > forward.total * 1.08) return remapped
+  return forward.matches
 }
 
 export interface AlignmentUnit {
@@ -478,8 +535,11 @@ const NOUN_SET_SUFFIXES = new Set(['寸前'])
 
 function isBoundVerbStem(token: Token): boolean {
   if (!token.pos?.startsWith('名詞')) return false
+  const detail = token.posDetail1 ?? ''
+  if (detail.includes('副詞') || detail.includes('非自立')) return false
   const s = token.surface
-  return /[\u3040-\u309f\u30a0-\u30ff]$/.test(s) && s.length >= 2
+  // Kuromoji tags verb stems as 名詞 (覗き, 走り) — okurigana ending, not adverbs like いつか.
+  return /(?:き|ぎ|り|し|ち|び|み|い)$/.test(s) && s.length >= 2
 }
 
 function isVerbMorphologyPart(token: Token): boolean {
@@ -490,9 +550,8 @@ function isVerbMorphologyPart(token: Token): boolean {
 
 function shouldMergeCompound(left: Token, right: Token): boolean {
   if (!isAlignableToken(left) || !isAlignableToken(right)) return false
-  if (isNounToken(left) && NOUN_SET_SUFFIXES.has(right.surface)) {
-    return KANJI_ROMAJI[mergeSurface(left.surface, right.surface)] !== undefined
-  }
+  // Structural: 爆発+寸前, 恋+愛 when listed, etc.
+  if (isNounToken(left) && NOUN_SET_SUFFIXES.has(right.surface)) return true
   if (!isNounToken(left) || !isNounToken(right)) return false
   return KANJI_ROMAJI[mergeSurface(left.surface, right.surface)] !== undefined
 }
@@ -503,14 +562,87 @@ function isIndependentVerb(token: Token): boolean {
   return !isDependentVerbStem(token) && !(token.posDetail1 ?? '').includes('接尾辞')
 }
 
+function isDesireTaku(token: Token): boolean {
+  return token.surface === 'たく' && (token.pos?.startsWith('助動詞') ?? false)
+}
+
+function isNegativeAdjNai(token: Token): boolean {
+  return token.surface === 'ない' && (token.pos?.startsWith('形容詞') ?? false)
+}
+
 function shouldMergeVerbChain(left: Token, right: Token): boolean {
   if (!isVerbMorphologyPart(left) || !isVerbMorphologyPart(right)) return false
   if (isParticleToken(right)) return false
-  // Main verb + auxiliary (遅れ+てる, 溶け+…): align the stem only.
+  // Main verb + auxiliary (遅れ+てる, 溶け+く): align the stem only.
   if (isIndependentVerb(left) && (isDependentVerbStem(right) || right.pos?.startsWith('助動詞'))) {
+    if (right.surface === 'た' || right.surface === 'だ') return true
+    // Desire auxiliary (知り+たく → 知りたく).
+    if (isDesireTaku(right)) return true
     return false
   }
   return true
+}
+
+function isTeParticle(token: Token): boolean {
+  return token.surface === 'て' && (token.pos?.startsWith('助詞') ?? false)
+}
+
+function isTeAuxiliaryVerb(token: Token): boolean {
+  const surface = token.surface
+  return isDependentVerbStem(token) && (
+    surface === 'みせる'
+    || surface === 'いる'
+    || surface === 'おく'
+    || surface === 'しまう'
+    || surface === 'くれる'
+    || surface === 'もらう'
+    || surface === 'あげる'
+    || surface.endsWith('来る')
+    || surface.endsWith('行く')
+  )
+}
+
+/** 〜て + い/お/たい continuation (見ている, 見ていたい) — not directional 〜てく. */
+function isTeContinuationAux(token: Token): boolean {
+  const surface = token.surface
+  if (surface === 'たい' && (token.pos?.startsWith('助動詞') ?? false)) return true
+  if (surface === 'い' && isDependentVerbStem(token)) return true
+  if (surface === 'お' && isDependentVerbStem(token)) return true
+  return false
+}
+
+function isNegativeAux(token: Token): boolean {
+  return token.surface === 'なく' && (token.pos?.startsWith('助動詞') ?? false)
+}
+
+function isConditionalTatteTail(token: Token): boolean {
+  return token.surface === 'たっ' || token.surface === 'た'
+}
+
+function isDarouStem(token: Token): boolean {
+  return token.surface === 'だろ' && (token.pos?.startsWith('助動詞') ?? false)
+}
+
+function pushMergedUnit(
+  units: AlignmentUnit[],
+  tokens: Token[],
+  start: number,
+  end: number,
+): void {
+  let merged = tokens[start]
+  for (let k = start + 1; k <= end; k++) {
+    merged = {
+      ...merged,
+      surface: mergeSurface(merged.surface, tokens[k].surface),
+      reading: mergeReading(merged.reading, tokens[k].reading),
+      endIndex: tokens[k].endIndex,
+    }
+  }
+  units.push({
+    tokenIndices: Array.from({ length: end - start + 1 }, (_, k) => start + k),
+    embedText: tokenEmbedText(merged),
+    glossText: tokenGlossText(merged),
+  })
 }
 
 function mergeSurface(a: string, b: string): string {
@@ -526,92 +658,216 @@ function mergeReading(a?: string, b?: string): string | undefined {
 
 /** Merges adjacent nominal tokens (e.g. 恋+愛, 爆発+寸前) and verb inflection chains (覗き+込ま+れ). */
 export function buildAlignmentUnits(tokens: Token[], alignTokenIndices?: ReadonlySet<number>): AlignmentUnit[] {
+  const normalized = normalizeTokenOffsets(tokens)
   const units: AlignmentUnit[] = []
+  const consumed = new Set<number>()
+
+  for (const group of morphMergeGroups(normalized, alignTokenIndices)) {
+    pushMergedUnit(units, normalized, group[0], group[group.length - 1])
+    group.forEach((i) => consumed.add(i))
+  }
+
   let i = 0
-  while (i < tokens.length) {
+  while (i < normalized.length) {
+    if (consumed.has(i)) {
+      i++
+      continue
+    }
     if (alignTokenIndices && !alignTokenIndices.has(i)) {
       i++
       continue
     }
 
+    // Negative te-form (居+なく+て).
+    if (
+      normalized[i].pos?.startsWith('動詞')
+      && i + 2 < normalized.length
+      && !consumed.has(i + 1)
+      && !consumed.has(i + 2)
+      && isNegativeAux(normalized[i + 1])
+      && isTeParticle(normalized[i + 2])
+    ) {
+      pushMergedUnit(units, normalized, i, i + 2)
+      consumed.add(i); consumed.add(i + 1); consumed.add(i + 2)
+      i += 3
+      continue
+    }
+
+    // Negative desire (知り+たく+は+ない → 知りたくはない).
+    if (
+      normalized[i].pos?.startsWith('動詞')
+      && i + 3 < normalized.length
+      && !consumed.has(i + 1)
+      && !consumed.has(i + 2)
+      && !consumed.has(i + 3)
+      && isDesireTaku(normalized[i + 1])
+      && normalized[i + 2].surface === 'は'
+      && isParticleToken(normalized[i + 2])
+      && isNegativeAdjNai(normalized[i + 3])
+    ) {
+      pushMergedUnit(units, normalized, i, i + 3)
+      for (let k = i; k <= i + 3; k++) consumed.add(k)
+      i += 4
+      continue
+    }
+
+    // だろ + う → だろう (kuromoji sometimes splits the auxiliary).
+    if (
+      isDarouStem(normalized[i])
+      && i + 1 < normalized.length
+      && !consumed.has(i + 1)
+      && normalized[i + 1].surface === 'う'
+      && (normalized[i + 1].pos?.startsWith('助動詞') ?? false)
+    ) {
+      pushMergedUnit(units, normalized, i, i + 1)
+      consumed.add(i); consumed.add(i + 1)
+      i += 2
+      continue
+    }
+
+    // Conditional 〜たって when kuromoji splits たっ + て (冷たく+たっ+て).
+    if (
+      (normalized[i].pos?.startsWith('形容詞') || normalized[i].pos?.startsWith('動詞'))
+      && i + 2 < normalized.length
+      && !consumed.has(i + 1)
+      && !consumed.has(i + 2)
+      && isConditionalTatteTail(normalized[i + 1])
+      && isTeParticle(normalized[i + 2])
+    ) {
+      pushMergedUnit(units, normalized, i, i + 2)
+      consumed.add(i); consumed.add(i + 1); consumed.add(i + 2)
+      i += 3
+      continue
+    }
+
+    // Te-form + い/たい continuation (見+て+い+たい, 溶+け+て+い+た).
+    if (
+      normalized[i].pos?.startsWith('動詞')
+      && i + 2 < normalized.length
+      && !consumed.has(i + 1)
+      && !consumed.has(i + 2)
+      && isTeParticle(normalized[i + 1])
+      && isTeContinuationAux(normalized[i + 2])
+    ) {
+      let end = i + 2
+      if (
+        end + 1 < normalized.length
+        && !consumed.has(end + 1)
+        && normalized[end + 1].surface === 'たい'
+        && (normalized[end + 1].pos?.startsWith('助動詞') ?? false)
+      ) {
+        end++
+      } else if (
+        end + 1 < normalized.length
+        && !consumed.has(end + 1)
+        && normalized[end + 1].surface === 'た'
+        && (normalized[end + 1].pos?.startsWith('助動詞') ?? false)
+      ) {
+        end++
+      }
+      pushMergedUnit(units, normalized, i, end)
+      for (let k = i; k <= end; k++) consumed.add(k)
+      i = end + 1
+      continue
+    }
+
+    // Te-form + giving/showing auxiliary (愛し+て+みせる).
+    if (
+      normalized[i].pos?.startsWith('動詞')
+      && i + 2 < normalized.length
+      && !consumed.has(i + 1)
+      && !consumed.has(i + 2)
+      && isTeParticle(normalized[i + 1])
+      && isTeAuxiliaryVerb(normalized[i + 2])
+    ) {
+      pushMergedUnit(units, normalized, i, i + 2)
+      consumed.add(i); consumed.add(i + 1); consumed.add(i + 2)
+      i += 3
+      continue
+    }
+
     // Colloquial question stem (どう+し+た → どうした).
     if (
-      tokens[i].surface === 'どう'
-      && i + 1 < tokens.length
-      && tokens[i + 1].surface === 'し'
+      normalized[i].surface === 'どう'
+      && i + 1 < normalized.length
+      && normalized[i + 1].surface === 'し'
     ) {
       const start = i
-      let merged = tokens[i]
+      let merged = normalized[i]
       let j = i + 1
       merged = {
         ...merged,
-        surface: mergeSurface(merged.surface, tokens[j].surface),
-        reading: mergeReading(merged.reading, tokens[j].reading),
-        endIndex: tokens[j].endIndex,
+        surface: mergeSurface(merged.surface, normalized[j].surface),
+        reading: mergeReading(merged.reading, normalized[j].reading),
+        endIndex: normalized[j].endIndex,
       }
       j++
-      if (j < tokens.length && tokens[j].pos?.startsWith('助動詞')) {
+      if (j < normalized.length && normalized[j].pos?.startsWith('助動詞')) {
         merged = {
           ...merged,
-          surface: mergeSurface(merged.surface, tokens[j].surface),
-          reading: mergeReading(merged.reading, tokens[j].reading),
-          endIndex: tokens[j].endIndex,
+          surface: mergeSurface(merged.surface, normalized[j].surface),
+          reading: mergeReading(merged.reading, normalized[j].reading),
+          endIndex: normalized[j].endIndex,
         }
         j++
       }
-      if (KANJI_ROMAJI[merged.surface] !== undefined) {
-        units.push({
-          tokenIndices: Array.from({ length: j - start }, (_, k) => start + k),
-          embedText: tokenEmbedText(merged),
-          glossText: tokenGlossText(merged),
-        })
-        i = j
-        continue
-      }
+      units.push({
+        tokenIndices: Array.from({ length: j - start }, (_, k) => start + k),
+        embedText: tokenEmbedText(merged),
+        glossText: tokenGlossText(merged),
+      })
+      for (let k = start; k < j; k++) consumed.add(k)
+      i = j
+      continue
     }
 
-    // Bound noun + verb (覗き+込ま+れ) — kuromoji often parses the stem as 名詞.
+    // Bound noun + verb (覗き+込ま+れ, 走り+込む+…) — kuromoji often parses the stem as 名詞.
     if (
-      isBoundVerbStem(tokens[i])
-      && i + 1 < tokens.length
-      && tokens[i + 1].pos?.startsWith('動詞')
+      isBoundVerbStem(normalized[i])
+      && i + 1 < normalized.length
+      && normalized[i + 1].pos?.startsWith('動詞')
     ) {
       const start = i
-      let merged = tokens[i]
+      let merged = normalized[i]
       let j = start + 1
-      while (j < tokens.length && !isParticleToken(tokens[j]) && isVerbMorphologyPart(tokens[j])) {
+      while (j < normalized.length && !consumed.has(j) && !isParticleToken(normalized[j]) && isVerbMorphologyPart(normalized[j])) {
         const isFirstVerbPart = j === start + 1
-        if (!isFirstVerbPart && !shouldMergeVerbChain(tokens[j - 1], tokens[j])) break
+        if (!isFirstVerbPart && !shouldMergeVerbChain(normalized[j - 1], normalized[j])) break
         merged = {
           ...merged,
-          surface: mergeSurface(merged.surface, tokens[j].surface),
-          reading: mergeReading(merged.reading, tokens[j].reading),
-          endIndex: tokens[j].endIndex,
+          surface: mergeSurface(merged.surface, normalized[j].surface),
+          reading: mergeReading(merged.reading, normalized[j].reading),
+          endIndex: normalized[j].endIndex,
         }
         j++
       }
-      if (KANJI_ROMAJI[merged.surface] !== undefined) {
+      if (j > start + 1) {
         units.push({
           tokenIndices: Array.from({ length: j - start }, (_, k) => start + k),
           embedText: tokenEmbedText(merged),
           glossText: tokenGlossText(merged),
         })
+        for (let k = start; k < j; k++) consumed.add(k)
         i = j
         continue
       }
     }
 
     // Verb inflection runs — one unit even when inner morphemes are 非自立.
-    if (isVerbMorphologyPart(tokens[i])) {
+    if (isVerbMorphologyPart(normalized[i])) {
       const start = i
-      let merged = tokens[i]
-      while (i + 1 < tokens.length && shouldMergeVerbChain(tokens[i], tokens[i + 1])) {
+      let merged = normalized[i]
+      while (
+        i + 1 < normalized.length
+        && !consumed.has(i + 1)
+        && shouldMergeVerbChain(normalized[i], normalized[i + 1])
+      ) {
         i++
         merged = {
           ...merged,
-          surface: mergeSurface(merged.surface, tokens[i].surface),
-          reading: mergeReading(merged.reading, tokens[i].reading),
-          endIndex: tokens[i].endIndex,
+          surface: mergeSurface(merged.surface, normalized[i].surface),
+          reading: mergeReading(merged.reading, normalized[i].reading),
+          endIndex: normalized[i].endIndex,
         }
       }
       units.push({
@@ -619,23 +875,28 @@ export function buildAlignmentUnits(tokens: Token[], alignTokenIndices?: Readonl
         embedText: tokenEmbedText(merged),
         glossText: tokenGlossText(merged),
       })
+      for (let k = start; k <= i; k++) consumed.add(k)
       i++
       continue
     }
 
-    if (!isAlignableToken(tokens[i])) {
+    if (!isAlignableToken(normalized[i])) {
       i++
       continue
     }
     const start = i
-    let merged = tokens[i]
-    while (i + 1 < tokens.length && shouldMergeCompound(tokens[i], tokens[i + 1])) {
+    let merged = normalized[i]
+    while (
+      i + 1 < normalized.length
+      && !consumed.has(i + 1)
+      && shouldMergeCompound(normalized[i], normalized[i + 1])
+    ) {
       i++
       merged = {
         ...merged,
-        surface: mergeSurface(merged.surface, tokens[i].surface),
-        reading: mergeReading(merged.reading, tokens[i].reading),
-        endIndex: tokens[i].endIndex,
+        surface: mergeSurface(merged.surface, normalized[i].surface),
+        reading: mergeReading(merged.reading, normalized[i].reading),
+        endIndex: normalized[i].endIndex,
       }
     }
     const indices: number[] = []
@@ -645,6 +906,7 @@ export function buildAlignmentUnits(tokens: Token[], alignTokenIndices?: Readonl
       embedText: tokenEmbedText(merged),
       glossText: tokenGlossText(merged),
     })
+    for (let k = start; k <= i; k++) consumed.add(k)
     i++
   }
   return units
@@ -728,7 +990,8 @@ function applyUnitMatches(
   targetVecs: number[][],
   targetIndexMap?: number[],
 ): Token[] {
-  const matches = matchTokens(sourceTexts, targetTexts, sourceVecs, targetVecs)
+  const sourceSurfaces = units.map((u) => u.embedText)
+  const matches = matchTokens(sourceTexts, targetTexts, sourceVecs, targetVecs, MATCH_THRESHOLD, sourceSurfaces)
   const updated = tokens.map((t) => ({ ...t }))
   for (const m of matches) {
     const unit = units[m.sourceIndex]
@@ -764,6 +1027,8 @@ export async function alignLinesTokens(
   embed: (texts: string[]) => Promise<number[][]>,
   options?: { maxTextsPerBatch?: number; onBatchProgress?: (done: number, total: number) => void },
 ): Promise<Token[][]> {
+  await ensureGlossLexicon()
+
   const maxTextsPerBatch = options?.maxTextsPerBatch ?? Infinity
   const results = jobs.map((j) => j.tokens.map((t) => ({ ...t })))
 
@@ -802,6 +1067,7 @@ export async function alignLinesTokens(
     }
     batchDone++
     options?.onBatchProgress?.(batchDone, batches.length)
+    await yieldToMainThread(getDeviceTier() === 'lite' ? 32 : 16)
   }
 
   return results

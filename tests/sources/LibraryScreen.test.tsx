@@ -30,7 +30,7 @@ describe('LibraryScreen', () => {
     const onOpen = vi.fn()
     render(<LibraryScreen onOpen={onOpen} onAdd={vi.fn()} onSettings={vi.fn()} />)
     await waitFor(() => screen.getByText('Synced Song'))
-    fireEvent.click(screen.getByText('Synced Song'))
+    fireEvent.click(screen.getByRole('button', { name: /Open Synced Song/i }))
     expect(onOpen).toHaveBeenCalledWith('1')
   })
 })

@@ -118,6 +118,24 @@ describe('word-pair coloring', () => {
     expect(screen.getByText('きみ')).toBeTruthy()
   })
 
+  it('shows audio-adopted furigana and mismatch styling', () => {
+    const line: TimedLine = {
+      startTime: 0,
+      endTime: 2,
+      original: '明日色',
+      translation: '',
+      tokens: [
+        { surface: '明日', reading: 'アシタ', audioReading: 'アス', pos: '名詞', startIndex: 0, endIndex: 2 },
+        { surface: '色', reading: 'イロ', readingMismatch: true, pos: '名詞', startIndex: 2, endIndex: 3 },
+      ],
+    }
+    useLyricsStore.setState({ furiganaMode: 'furigana', lines: [line], activeLine: 0 })
+    render(<LyricDisplay onLineClick={vi.fn()} />)
+    expect(screen.getByText('あす')).toBeTruthy()
+    expect(document.querySelector('ruby.reading-audio')).toBeTruthy()
+    expect(document.querySelector('ruby.reading-mismatch')).toBeTruthy()
+  })
+
   it('highlights a matched word pair on hover in side-by-side mode', async () => {
     const { default: userEvent } = await import('@testing-library/user-event')
     const user = userEvent.setup()

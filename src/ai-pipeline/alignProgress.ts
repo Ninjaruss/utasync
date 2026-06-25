@@ -13,40 +13,24 @@ const PREPARING: ProcessStep = {
   detail: 'Reading and decoding your audio file',
 }
 
-export function alignSteps(tier: DeviceTier): ProcessStep[] {
-  if (tier === 'full') {
-    return [
-      PREPARING,
-      { label: 'Separating vocals', detail: 'Isolating vocals before transcription' },
-      { label: 'Loading AI model', detail: 'Preparing on-device speech recognition' },
-      { label: 'Transcribing audio', detail: 'Running on-device speech recognition' },
-      { label: 'Aligning to lyrics', detail: 'Matching the transcript to your lyric lines' },
-    ]
+export function alignSteps(tier: DeviceTier, vocalSeparation = false): ProcessStep[] {
+  const steps: ProcessStep[] = [PREPARING]
+  if (vocalSeparation && tier === 'full') {
+    steps.push({ label: 'Separating vocals', detail: 'Isolating vocals before transcription' })
   }
-  return [
-    PREPARING,
+  steps.push(
     { label: 'Loading AI model', detail: 'Preparing on-device speech recognition' },
     { label: 'Transcribing audio', detail: 'Running on-device speech recognition' },
     { label: 'Aligning to lyrics', detail: 'Matching the transcript to your lyric lines' },
-  ]
+  )
+  return steps
 }
 
-export function alignStepIndex(tier: DeviceTier, stage: AlignStage): number {
-  if (tier === 'full') {
-    switch (stage) {
-      case 'preparing': return 0
-      case 'separating': return 1
-      case 'loading': return 2
-      case 'transcribing': return 3
-      case 'aligning': return 4
-      default: return 0
-    }
-  }
-  switch (stage) {
-    case 'preparing': return 0
-    case 'loading': return 1
-    case 'transcribing': return 2
-    case 'aligning': return 3
-    default: return 0
-  }
+export function alignStepIndex(tier: DeviceTier, stage: AlignStage, vocalSeparation = false): number {
+  const keys: AlignStage[] = vocalSeparation && tier === 'full'
+    ? ['preparing', 'separating', 'loading', 'transcribing', 'aligning']
+    : ['preparing', 'loading', 'transcribing', 'aligning']
+
+  const idx = keys.indexOf(stage)
+  return idx >= 0 ? idx : 0
 }

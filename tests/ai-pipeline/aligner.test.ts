@@ -153,14 +153,20 @@ describe('alignTranscriptToLines', () => {
 })
 
 describe('sanitizeTranscript', () => {
-  it('drops zero/negative and implausibly long durations', () => {
+  it('drops zero/negative and subdivides segment-length slots', () => {
     const words: TranscriptWord[] = [
       { word: 'ok', startTime: 1, endTime: 2 },
       { word: 'zero', startTime: 3, endTime: 3 },
       { word: 'neg', startTime: 5, endTime: 4 },
-      { word: 'huge', startTime: 6, endTime: 30 },
+      { word: 'phrase', startTime: 6, endTime: 20 },
+      { word: 'loop', startTime: 30, endTime: 65 },
     ]
-    expect(sanitizeTranscript(words).map((w) => w.word)).toEqual(['ok'])
+    const result = sanitizeTranscript(words)
+    expect(result[0].word).toBe('ok')
+    expect(result.length).toBeGreaterThan(4)
+    expect(result.every((w) => w.endTime - w.startTime <= 10)).toBe(true)
+    expect(result.some((w) => w.word === 'p')).toBe(true)
+    expect(result.every((w) => w.word !== 'loop')).toBe(true)
   })
 
   it('drops out-of-order words', () => {
@@ -193,6 +199,15 @@ describe('sanitizeTranscript', () => {
     ]
     // Genuine refrain repeats (non-adjacent) are preserved.
     expect(sanitizeTranscript(words)).toHaveLength(4)
+  })
+
+  it('drops music-symbol and punctuation-only tokens', () => {
+    const words: TranscriptWord[] = [
+      { word: '♪', startTime: 20, endTime: 20.5 },
+      { word: '~', startTime: 20.5, endTime: 24 },
+      { word: '届', startTime: 25, endTime: 26 },
+    ]
+    expect(sanitizeTranscript(words).map((w) => w.word)).toEqual(['届'])
   })
 })
 

@@ -5,7 +5,15 @@ import { AutoAlignFlow } from '../../src/ai-pipeline/AutoAlignFlow'
 import type { Song } from '../../src/core/types'
 import { db } from '../../src/core/db/schema'
 
-vi.mock('../../src/ai-pipeline/capability', () => ({ getDeviceTier: () => 'lite' }))
+vi.mock('../../src/ai-pipeline/capability', () => ({
+  getDeviceTier: () => 'lite',
+  canUseVocalSeparation: () => false,
+}))
+
+vi.mock('../../src/payment/SettingsStore', () => ({
+  useSettingsStore: (selector: (s: { vocalSeparationEnabled: boolean; setVocalSeparationEnabled: () => void }) => unknown) =>
+    selector({ vocalSeparationEnabled: false, setVocalSeparationEnabled: vi.fn() }),
+}))
 
 vi.mock('../../src/core/opfs/audio', () => ({
   getAudioFile: vi.fn(async () => new Blob([new ArrayBuffer(8)], { type: 'audio/wav' })),
@@ -28,14 +36,16 @@ const transcribeAudio = vi.fn(async (_audio: Float32Array, _rate: number, opts?:
 
 vi.mock('../../src/ai-pipeline/whisperTranscriber', () => ({
   transcribeAudio: (...args: Parameters<typeof transcribeAudio>) => transcribeAudio(...args),
+  resetWhisperTranscriber: vi.fn(),
 }))
 
 vi.mock('../../src/ai-pipeline/aligner', () => ({
   alignLyrics: vi.fn(() => ({
     lines: [{ startTime: 0, endTime: 1, original: 'hello', translation: '' }],
-    mode: 'matched',
+    mode: 'content',
     confidence: 0.9,
   })),
+  sanitizeTranscript: vi.fn((words: { word: string }[]) => words),
 }))
 
 const song: Song = {
@@ -67,6 +77,9 @@ describe('AutoAlignFlow autoStart', () => {
     expect(screen.getByText(/preparing audio/i)).toBeTruthy()
     await waitFor(() => expect(onComplete).toHaveBeenCalled())
     expect(transcribeAudio).toHaveBeenCalled()
+    const saved = await db.songs.get(song.id)
+    expect(saved?.lyrics.alignmentMode).toBe('auto')
+    expect(saved?.syncState).toBe('synced')
   })
 
   it('shows Start Auto-Align when autoStart is false', () => {

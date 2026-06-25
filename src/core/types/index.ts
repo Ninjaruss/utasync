@@ -28,12 +28,24 @@ export interface Token {
   startIndex: number
   endIndex: number
   alignmentIndices?: number[]
+  /** Katakana reading adopted from aligned audio when it differs from the dictionary. */
+  audioReading?: string
+  /** True when the audio transcript disagrees with the dictionary reading. */
+  readingMismatch?: boolean
+  /** True when aligned audio matches the dictionary reading for this token. */
+  readingVerified?: boolean
 }
 
 export interface GrammarAnnotation {
   tokenIndices: number[]
   pattern: string
   explanation: string
+}
+
+export interface TimedTranscriptWord {
+  word: string
+  startTime: number
+  endTime: number
 }
 
 export interface TimedLine {
@@ -58,6 +70,8 @@ export interface LyricsData {
   alignmentConfidence?: number
   /** Set after token enrichment is persisted; avoids re-tokenizing on every open. */
   enrichmentVersion?: number
+  /** Sanitized Whisper word timeline from the last auto-align (furigana verification). */
+  transcriptWords?: TimedTranscriptWord[]
 }
 
 export interface WordAlignment {
@@ -100,6 +114,10 @@ export interface UserSettings {
   theme: 'light' | 'dark'
   defaultSpeed: number
   clozeDifficulty: ClozeDifficulty
+  /** Primary lyric language for new songs and online lyric search. */
+  defaultSongLanguage: Language
+  /** Isolate vocals with Demucs before Whisper (full-tier only, slower). */
+  vocalSeparationEnabled: boolean
 }
 
 export interface ABLoop {

@@ -259,6 +259,60 @@ describe('alignByContent (line boundary bleed)', () => {
     expect(out[0].startTime).toBeLessThan(118)
     expect(out[1].startTime).toBeGreaterThanOrEqual(122)
   })
+
+  it('does not jump to end-of-song 転がる when Whisper missed the verse', () => {
+    const lines = ['心絡まって ローリング ローリング', '凍てつく地面を転がるように走り出した']
+    const words: TranscriptWord[] = [
+      { word: 'ローリング', startTime: 118, endTime: 118.8 },
+      { word: 'ローリング', startTime: 118.8, endTime: 119.6 },
+      { word: '転が', startTime: 260, endTime: 260.5 },
+      { word: 'る', startTime: 260.5, endTime: 261 },
+      { word: 'ように', startTime: 261, endTime: 261.8 },
+      { word: '走り', startTime: 262, endTime: 262.4 },
+      { word: '出し', startTime: 262.4, endTime: 262.8 },
+      { word: 'た', startTime: 262.8, endTime: 263.2 },
+    ]
+    const { lines: out } = alignByContent(lines, words, undefined, 'ja')
+    expect(out[0].endTime).toBeLessThan(125)
+    expect(out[1].startTime).toBeLessThan(200)
+  })
+
+  it('does not let 固い地面 swallow bridge lines on late hallucinations only', () => {
+    const lines = [
+      '固い地面を分けて命が芽生えた',
+      'あの丘を越えたその先は',
+      '光輝いたように ように',
+      '君の孤独も全て暴き出す朝だ',
+    ]
+    const words: TranscriptWord[] = [
+      { word: '固い', startTime: 150, endTime: 150.4 },
+      { word: '地面', startTime: 150.4, endTime: 150.8 },
+      { word: 'を', startTime: 150.8, endTime: 151.0 },
+      { word: '分け', startTime: 151.0, endTime: 151.4 },
+      { word: 'て', startTime: 151.4, endTime: 151.6 },
+      { word: '命', startTime: 151.6, endTime: 152.0 },
+      { word: 'が', startTime: 152.0, endTime: 152.2 },
+      { word: '芽生', startTime: 152.2, endTime: 152.6 },
+      { word: 'えた', startTime: 152.6, endTime: 153.0 },
+      { word: '丘', startTime: 250, endTime: 250.3 },
+      { word: 'を', startTime: 250.3, endTime: 250.5 },
+      { word: '越え', startTime: 250.5, endTime: 250.9 },
+      { word: 'た', startTime: 250.9, endTime: 251.1 },
+      { word: '光輝', startTime: 252, endTime: 252.4 },
+      { word: 'ように', startTime: 252.4, endTime: 253.2 },
+      { word: '君', startTime: 254, endTime: 254.3 },
+      { word: '孤独', startTime: 254.3, endTime: 254.8 },
+      { word: '朝', startTime: 255, endTime: 255.3 },
+      { word: 'だ', startTime: 255.3, endTime: 255.6 },
+    ]
+    const { lines: out } = alignByContent(lines, words, undefined, 'ja')
+    expect(out[0].endTime).toBeLessThan(170)
+    expect(out[1].startTime).toBeLessThan(200)
+    expect(out[1].startTime).toBeGreaterThan(out[0].endTime - 2)
+    for (let i = 1; i < out.length; i++) {
+      expect(out[i].startTime).toBeGreaterThanOrEqual(out[i - 1].startTime)
+    }
+  })
 })
 
 describe('alignByContent (instrumental gap between lines)', () => {
@@ -284,5 +338,50 @@ describe('alignByContent (instrumental gap between lines)', () => {
     const { lines: out } = alignByContent(lines, words, undefined, 'ja')
     expect(out[0].endTime).toBeLessThan(10)
     expect(out[0].endTime).toBeGreaterThanOrEqual(out[0].startTime)
+  })
+
+  it('does not stretch endTime when LCS coincidentally matches common morae across a gap', () => {
+    // Like Veil line 3: the phrase is sung at ~10-13s, then a long bridge carries
+    // unrelated lyrics whose の/を/あ/な/た/… chars LCS-match spuriously. Pre-fix,
+    // lastMatchedTime tracked *all* LCS hits and the line end ballooned to ~44s.
+    const lines = ['宙に舞った言葉じゃ', 'あなたを救えないのだろう', '不甲斐ない声で叫んだって']
+    const words: TranscriptWord[] = [
+      { word: '宙', startTime: 7.5, endTime: 7.8 },
+      { word: 'に', startTime: 7.8, endTime: 8.0 },
+      { word: '舞', startTime: 8.0, endTime: 8.3 },
+      { word: 'った', startTime: 8.3, endTime: 8.7 },
+      { word: '言', startTime: 8.7, endTime: 9.0 },
+      { word: '葉', startTime: 9.0, endTime: 9.3 },
+      { word: 'じゃ', startTime: 9.3, endTime: 9.7 },
+      { word: 'あ', startTime: 10.2, endTime: 10.4 },
+      { word: 'なた', startTime: 10.4, endTime: 10.7 },
+      { word: 'を', startTime: 10.9, endTime: 11.1 },
+      { word: '救', startTime: 11.6, endTime: 11.9 },
+      { word: 'え', startTime: 11.9, endTime: 12.1 },
+      { word: 'ない', startTime: 12.1, endTime: 12.5 },
+      { word: 'の', startTime: 12.5, endTime: 12.7 },
+      { word: 'だ', startTime: 12.8, endTime: 13.0 },
+      { word: 'ろう', startTime: 13.0, endTime: 13.3 },
+      // Instrumental bridge — unrelated lyric chars that share common morae
+      { word: 'あ', startTime: 39.8, endTime: 40.0 },
+      { word: 'なた', startTime: 40.0, endTime: 40.3 },
+      { word: 'の', startTime: 40.3, endTime: 40.5 },
+      { word: 'を', startTime: 44.0, endTime: 44.2 },
+      { word: 'なら', startTime: 44.2, endTime: 44.5 },
+      { word: '不', startTime: 62.0, endTime: 62.2 },
+      { word: '甲斐', startTime: 62.2, endTime: 62.6 },
+      { word: 'ない', startTime: 62.6, endTime: 63.0 },
+      { word: '声', startTime: 63.0, endTime: 63.3 },
+      { word: 'で', startTime: 63.3, endTime: 63.5 },
+      { word: '叫', startTime: 63.5, endTime: 63.8 },
+      { word: 'んだ', startTime: 63.8, endTime: 64.1 },
+      { word: 'って', startTime: 64.1, endTime: 64.4 },
+    ]
+    const { lines: out } = alignByContent(lines, words, undefined, 'ja')
+    expect(out[1].startTime).toBeGreaterThanOrEqual(10)
+    expect(out[1].startTime).toBeLessThan(11)
+    expect(out[1].endTime).toBeLessThan(20)
+    expect(out[1].endTime).toBeGreaterThanOrEqual(out[1].startTime)
+    expect(out[2].startTime).toBeGreaterThanOrEqual(62)
   })
 })

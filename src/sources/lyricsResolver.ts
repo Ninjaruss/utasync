@@ -4,6 +4,7 @@ import { parseLRC } from '../lyrics/lrc-parser'
 import { linesFromPlainText } from './songBuilder'
 import { fetchYouTubeCaptionLines } from './youtubeCaptions'
 import { detectLanguage } from '../lyrics/bilingual'
+import { inferPreferredLyricsLanguage } from './lyricsMatch'
 
 export type { LyricsLookupMatch }
 
@@ -64,9 +65,14 @@ export async function resolveLyricsForSong(opts: {
     }
   }
 
+  const preferredLanguage = inferPreferredLyricsLanguage(
+    title.trim(),
+    artist.trim(),
+    sourceLanguage ?? 'ja',
+  )
   const found = await findLyrics(title.trim(), artist.trim(), (stage) => {
     onStage?.(stage === 'exact' ? 'lrclib-exact' : 'lrclib-search')
-  })
+  }, undefined, preferredLanguage)
   if (found) return fromLrcLookup(found)
 
   return { lines: [], synced: false, source: 'none' }

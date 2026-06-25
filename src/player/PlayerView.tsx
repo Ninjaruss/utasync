@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { useToast } from '../core/ui/Toast'
 import { usePlayerStore } from './PlayerStore'
 import { useLyricsStore } from '../lyrics/LyricsStore'
 import { AudioEngine } from './AudioEngine'
@@ -7,7 +8,7 @@ import { db } from '../core/db/schema'
 import { YouTubePlayer, type YouTubePlayerHandle } from './YouTubePlayer'
 import { extractVideoId } from '../sources/youtube'
 import { ABLoopController } from './ABLoop'
-import type { Song, TimedLine, Language } from '../core/types'
+import type { Song, TimedLine, Language, TimedTranscriptWord } from '../core/types'
 import { tokenizeJapanese } from '../language/japanese/tokenizer'
 import { toRomaji, toFurigana } from '../language/japanese/phonetics'
 import { detectGrammarPatterns } from '../language/japanese/grammar'
@@ -21,9 +22,13 @@ import { EditMode } from '../lyrics/EditMode'
 import { computeSyncState } from '../core/db/migrations'
 import { hasVisibleTranslation } from '../lyrics/bilingual'
 import { linesNeedEnrichment, linesNeedAlignment, lineNeedsAlignment, enrichmentMadeProgress, LYRICS_ENRICHMENT_VERSION } from '../lyrics/lyricsEnrichment'
-import { runWhenIdle } from '../core/idle'
+import { runWhenIdle, yieldToMainThread } from '../core/idle'
 import { alignLinesTokens, countEmbedBatches } from '../ai-pipeline/wordAligner'
-import { buildAlignJob } from '../lyrics/lineAligner'
+import { preloadGlossLexicon } from '../ai-pipeline/lyricGloss'
+import { preloadEmbedder } from '../ai-pipeline/textEmbedder'
+import { buildAlignJobs } from '../lyrics/lineAligner'
+import { reconcileLinesReadingsAsync, reconcileLineReadingsAsync } from '../ai-pipeline/readingReconciler'
+import { fixAdjacentTranslationOrder } from '../ai-pipeline/translationOrder'
 import { LoadingOverlay } from '../core/ui/LoadingOverlay'
 import { linePlaybackStart } from '../lyrics/lineTiming'
 import { abPairError, abLoopPatchFromLineTap, isValidABPair } from './abLoopUtils'
@@ -46,35 +51,55 @@ import { displayToolbarRow } from '../core/ui/toolbarClasses'
 
 const AutoAlignFlow = lazy(() => import('../ai-pipeline/AutoAlignFlow'))
 
-async function enrichLines(lines: TimedLine[], sourceLanguage: Language): Promise<TimedLine[]> {
-  return Promise.all(lines.map(async (line): Promise<TimedLine> => {
-    try {
-      if (sourceLanguage === 'ja') {
-        const [tokens, reading, furigana] = await Promise.all([
-          tokenizeJapanese(line.original),
-          toRomaji(line.original),
-          toFurigana(line.original),
-        ])
-        const grammarAnnotations = detectGrammarPatterns(line.original)
-        return { ...line, tokens, reading, furigana, grammarAnnotations }
-      } else {
-        const tokens = tokenizeEnglish(line.original)
-        const reading = await sentenceToIPA(line.original)
-        const grammarAnnotations = detectEnglishGrammar(line.original)
-        return { ...line, tokens, reading, grammarAnnotations }
+/** Lines tokenized per slice so kuromoji work does not monopolize the main thread. */
+const ENRICH_LINES_BATCH = 4
+/** Pause between word-alignment chunks (ms). */
+const ALIGN_CHUNK_YIELD_MS = 48
+
+async function enrichLines(
+  lines: TimedLine[],
+  sourceLanguage: Language,
+  transcriptWords?: TimedTranscriptWord[],
+): Promise<TimedLine[]> {
+  const enriched: TimedLine[] = []
+  for (let i = 0; i < lines.length; i += ENRICH_LINES_BATCH) {
+    const batch = lines.slice(i, i + ENRICH_LINES_BATCH)
+    const batchResult = await Promise.all(batch.map(async (line): Promise<TimedLine> => {
+      try {
+        if (sourceLanguage === 'ja') {
+          const [tokens, reading, furigana] = await Promise.all([
+            tokenizeJapanese(line.original),
+            toRomaji(line.original),
+            toFurigana(line.original),
+          ])
+          const grammarAnnotations = detectGrammarPatterns(line.original, tokens)
+          let withTokens: TimedLine = { ...line, tokens, reading, furigana, grammarAnnotations }
+          if (transcriptWords?.length) {
+            withTokens = await reconcileLineReadingsAsync(withTokens, transcriptWords)
+          }
+          return withTokens
+        } else {
+          const tokens = tokenizeEnglish(line.original)
+          const reading = await sentenceToIPA(line.original)
+          const grammarAnnotations = detectEnglishGrammar(line.original)
+          return { ...line, tokens, reading, grammarAnnotations }
+        }
+      } catch {
+        return line
       }
-    } catch {
-      return line
-    }
-  }))
+    }))
+    enriched.push(...batchResult)
+    if (i + ENRICH_LINES_BATCH < lines.length) await yieldToMainThread(16)
+  }
+  return enriched
 }
 
 /** Max texts per embed call — limits peak WebGPU / WASM memory per batch. */
 const LITE_EMBED_BATCH_TEXTS = 64
 const FULL_EMBED_BATCH_TEXTS = 96
 /** Lines processed per chunk so the UI can breathe between batches. */
-const LITE_ALIGN_LINES_PER_CHUNK = 6
-const FULL_ALIGN_LINES_PER_CHUNK = 12
+const LITE_ALIGN_LINES_PER_CHUNK = 4
+const FULL_ALIGN_LINES_PER_CHUNK = 8
 
 /**
  * Computes word-pair alignment for lines that have both tokens and a visible
@@ -103,8 +128,10 @@ async function enrichAlignment(
 
     let totalEmbedBatches = 0
     for (let chunkStart = 0; chunkStart < indices.length; chunkStart += linesPerChunk) {
-      const chunkIndices = indices.slice(chunkStart, chunkStart + linesPerChunk)
-      const jobs = chunkIndices.map((i) => buildAlignJob(lines[i]))
+      const overlapStart = chunkStart > 0 ? chunkStart - 1 : chunkStart
+      const chunkEnd = Math.min(chunkStart + linesPerChunk, indices.length)
+      const chunkIndices = indices.slice(overlapStart, chunkEnd)
+      const jobs = buildAlignJobs(lines, chunkIndices)
       totalEmbedBatches += countEmbedBatches(jobs, maxTextsPerBatch)
     }
 
@@ -114,8 +141,10 @@ async function enrichAlignment(
     onProgress?.(0, useEmbedBatchProgress ? totalEmbedBatches : totalLines)
 
     for (let start = 0; start < indices.length; start += linesPerChunk) {
-      const chunkIndices = indices.slice(start, start + linesPerChunk)
-      const jobs = chunkIndices.map((i) => buildAlignJob(lines[i]))
+      const overlapStart = start > 0 ? start - 1 : start
+      const chunkEnd = Math.min(start + linesPerChunk, indices.length)
+      const chunkIndices = indices.slice(overlapStart, chunkEnd)
+      const jobs = buildAlignJobs(lines, chunkIndices)
       const embedWithProgress = (texts: string[]) =>
         embedTexts(texts, !useEmbedBatchProgress ? {
           onProgress: (done, total) => onProgress?.(done, total),
@@ -133,19 +162,19 @@ async function enrichAlignment(
         updated[lineIndex] = { ...updated[lineIndex], tokens: aligned[j] }
       })
       if (!useEmbedBatchProgress) {
-        lineChunksDone += chunkIndices.length
+        lineChunksDone += chunkEnd - start
         onProgress?.(lineChunksDone, totalLines)
       }
       if (tier === 'lite' && start + linesPerChunk < indices.length) {
-        await new Promise((r) => setTimeout(r, 50))
-      } else if (tier === 'full' && start + linesPerChunk < indices.length) {
-        await new Promise((r) => setTimeout(r, 0))
+        await yieldToMainThread(ALIGN_CHUNK_YIELD_MS)
+      } else if (start + linesPerChunk < indices.length) {
+        await yieldToMainThread(24)
       }
     }
     return updated
   } catch (e) {
     console.warn('word alignment failed', e)
-    return lines
+    throw e
   }
 }
 
@@ -179,6 +208,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false }: Props) {
+  const toast = useToast()
   const engineRef = useRef<AudioEngine | null>(null)
   if (engineRef.current === null) engineRef.current = new AudioEngine()
   const engine = engineRef.current
@@ -233,29 +263,40 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const volumePct = Math.round(volume * 100)
 
   const runWordColoring = async (lines: TimedLine[]) => {
-    const total = lines.filter(lineNeedsAlignment).length
-    if (total === 0 || !canRunWordAlignment()) return lines
+    const ordered = fixAdjacentTranslationOrder(lines)
+    const total = ordered.filter(lineNeedsAlignment).length
+    if (total === 0 || !canRunWordAlignment()) return ordered
     const jobId = ++wordColorJobRef.current
     setWordColorProgress({ done: 0, total })
     try {
-      const result = await enrichAlignment(lines, (done, t) => {
+      const result = await enrichAlignment(ordered, (done, t) => {
         if (wordColorJobRef.current === jobId) setWordColorProgress({ done, total: t })
       })
-      return wordColorJobRef.current === jobId ? result : lines
+      return wordColorJobRef.current === jobId ? result : ordered
+    } catch {
+      toast('Word coloring unavailable — embedding model could not load', 'warning')
+      return ordered
     } finally {
       if (wordColorJobRef.current === jobId) setWordColorProgress(null)
     }
   }
 
-  const runLyricsEnrichment = async (lines: TimedLine[], sourceLanguage: Language, enrichmentVersion?: number) => {
+  const runLyricsEnrichment = async (
+    lines: TimedLine[],
+    sourceLanguage: Language,
+    enrichmentVersion?: number,
+    transcriptWords?: TimedTranscriptWord[],
+  ) => {
     let enriched = lines
     if (linesNeedEnrichment(lines, enrichmentVersion)) {
       setLyricsLoading({ message: 'Normalizing lyrics…', detail: 'Tokenizing and adding readings' })
       try {
-        enriched = await enrichLines(lines, sourceLanguage)
+        enriched = await enrichLines(lines, sourceLanguage, transcriptWords)
       } finally {
         setLyricsLoading(null)
       }
+    } else if (transcriptWords?.length && sourceLanguage === 'ja') {
+      enriched = await reconcileLinesReadingsAsync(lines, transcriptWords)
     }
     return runWordColoring(enriched)
   }
@@ -294,7 +335,12 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         }
       }
       if (needsEnrich) {
-        runLyricsEnrichment(linesToProcess, base.lyrics.sourceLanguage, base.lyrics.enrichmentVersion)
+        runLyricsEnrichment(
+          linesToProcess,
+          base.lyrics.sourceLanguage,
+          base.lyrics.enrichmentVersion,
+          base.lyrics.transcriptWords,
+        )
           .then(persistIfProgress)
       } else {
         runAlignmentOnly(linesToProcess).then(persistIfProgress)
@@ -350,6 +396,13 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [songId])
+
+  useEffect(() => {
+    if (canRunWordAlignment()) {
+      preloadGlossLexicon()
+      preloadEmbedder()
+    }
+  }, [])
 
   useEffect(() => {
     resetSession()
@@ -508,7 +561,12 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     const yieldMs = getDeviceTier() === 'lite' ? 150 : 0
     setTimeout(() => {
       const before = updated.lyrics.lines
-      runLyricsEnrichment(before, updated.lyrics.sourceLanguage, updated.lyrics.enrichmentVersion)
+      runLyricsEnrichment(
+        before,
+        updated.lyrics.sourceLanguage,
+        updated.lyrics.enrichmentVersion,
+        updated.lyrics.transcriptWords,
+      )
         .then((enriched) => {
           if (enrichmentMadeProgress(before, enriched, updated.lyrics.enrichmentVersion)) {
             void persistEnrichedLines(updated, enriched, true)
@@ -519,7 +577,11 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
 
   const handleTapComplete = async (lines: TimedLine[]) => {
     if (!song) return
-    const updated: Song = { ...song, lyrics: { ...song.lyrics, lines } }
+    const updated: Song = {
+      ...song,
+      lyrics: { ...song.lyrics, lines },
+      syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines } }),
+    }
     await db.songs.put(updated)
     applyAlignedSong(updated)
   }
@@ -535,7 +597,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     setSong(updated)
     await db.songs.put(updated)
     if (linesNeedEnrichment(lines, updated.lyrics.enrichmentVersion)) {
-      enrichLines(lines, song.lyrics.sourceLanguage)
+      enrichLines(lines, song.lyrics.sourceLanguage, song.lyrics.transcriptWords)
         .then(runWordColoring)
         .then((enriched) => {
           if (
@@ -732,6 +794,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         sourceLanguage,
         translationLanguage,
         enrichmentVersion: undefined,
+        transcriptWords: undefined,
       },
       syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines: imported } }),
     }

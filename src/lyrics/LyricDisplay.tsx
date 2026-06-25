@@ -40,28 +40,51 @@ function isTranslationHighlighted(wordIndex: number, tokens: Token[], hovered: H
 }
 
 function furiganaReading(token: Token): string | null {
-  if (!token.reading) return null
-  const reading = katakanaToHiragana(token.reading)
+  const raw = token.audioReading ?? token.reading
+  if (!raw) return null
+  const reading = katakanaToHiragana(raw)
   return reading !== token.surface ? reading : null
+}
+
+function furiganaTitle(token: Token): string | undefined {
+  if (token.readingMismatch && token.reading) {
+    const dict = katakanaToHiragana(token.reading)
+    const sung = token.audioReading ? katakanaToHiragana(token.audioReading) : 'unknown'
+    return `Dictionary reading: ${dict} · Sung: ${sung}`
+  }
+  if (token.audioReading && token.reading) {
+    const dict = katakanaToHiragana(token.reading)
+    const sung = katakanaToHiragana(token.audioReading)
+    if (dict !== sung) return `Sung reading (${sung}) — dictionary had ${dict}`
+  }
+  return undefined
 }
 
 function ColoredTokens({
   tokens,
   withFurigana,
+  withColoring,
   hovered,
   onHover,
 }: {
   tokens: Token[]
   withFurigana: boolean
+  withColoring: boolean
   hovered: HoveredPair | null
   onHover: (pair: HoveredPair | null) => void
 }) {
   return (
     <>
       {tokens.map((token, i) => {
-        const color = colorForToken(tokens, i)
-        const highlighted = isSourceHighlighted(i, tokens, hovered)
+        const color = withColoring ? colorForToken(tokens, i) : null
+        const highlighted = withColoring && isSourceHighlighted(i, tokens, hovered)
         const reading = withFurigana ? furiganaReading(token) : null
+        const rubyTitle = withFurigana ? furiganaTitle(token) : undefined
+        const rubyClass = token.readingMismatch
+          ? 'reading-mismatch'
+          : token.audioReading
+            ? 'reading-audio'
+            : undefined
         return (
           <span
             key={i}
@@ -71,7 +94,7 @@ function ColoredTokens({
             onMouseLeave={() => onHover(null)}
           >
             {reading ? (
-              <ruby>
+              <ruby className={rubyClass} title={rubyTitle}>
                 {token.surface}
                 <rt>{reading}</rt>
               </ruby>
@@ -105,10 +128,10 @@ function PrimaryText({ line, isActive, furiganaMode, colored, hovered, onHover }
 }) {
   const sizeClass = isActive ? 'text-xl sm:text-2xl font-semibold text-white' : 'text-base font-normal text-white/45 group-hover:text-white/75'
   const lineHoverClass = 'group-hover:underline decoration-white/30 underline-offset-4'
-  const useColoredTokens = colored && line.tokens && line.tokens.length > 0
   const showFurigana = furiganaMode === 'furigana'
+  const useTokenRender = line.tokens && line.tokens.length > 0 && (colored || showFurigana)
 
-  if (showFurigana && line.furigana && !useColoredTokens) {
+  if (showFurigana && line.furigana && !useTokenRender) {
     return (
       <div
         lang="ja"
@@ -125,8 +148,14 @@ function PrimaryText({ line, isActive, furiganaMode, colored, hovered, onHover }
       className={['font-jp yomitan-text select-text', lyricTextTransition, showFurigana ? 'furigana-text' : '', sizeClass, lineHoverClass].join(' ')}
       style={isActive ? { textShadow: '0 0 20px rgba(248,113,113,0.5)' } : undefined}
     >
-      {useColoredTokens ? (
-        <ColoredTokens tokens={line.tokens!} withFurigana={showFurigana} hovered={hovered} onHover={onHover} />
+      {useTokenRender ? (
+        <ColoredTokens
+          tokens={line.tokens!}
+          withFurigana={showFurigana}
+          withColoring={colored}
+          hovered={hovered}
+          onHover={onHover}
+        />
       ) : (
         line.original
       )}

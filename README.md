@@ -104,8 +104,7 @@ The instructions below are for developers who want to run the code locally or co
 ```bash
 git clone https://github.com/Ninjaruss/utasync.git
 cd utasync
-npm install
-cp -r node_modules/kuromoji/dict public/dict   # required for Japanese tokenization
+npm install   # also copies kuromoji dictionary to public/dict via prepare script
 npm run dev
 ```
 
@@ -119,7 +118,9 @@ Full prerequisites, optional Demucs model setup, build/deploy notes, browser sup
 | `npm run build` | Typecheck + production build → `dist/` |
 | `npm run preview` | Serve the production build locally |
 | `npm run lint` | ESLint |
-| `npx vitest run` | Run unit tests (jsdom) |
+| `npm test` | Run unit tests (jsdom) |
+
+> **Self-hosting with payments:** The checkout URL and license verification key in `src/payment/` are placeholders. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for LemonSqueezy setup instructions before deploying your own instance.
 
 ## Tech at a glance
 
@@ -134,7 +135,7 @@ Full prerequisites, optional Demucs model setup, build/deploy notes, browser sup
 | English NLP | compromise, CMUdict subset |
 | Lyrics sources | YouTube captions, LRCLIB, LRC/SRT/VTT parsers |
 | PWA | vite-plugin-pwa + Workbox |
-| Licensing | jose (JWT verification), LemonSqueezy (placeholder) |
+| Licensing | jose (JWT verification), LemonSqueezy |
 | Tests | Vitest, Testing Library |
 
 ## Project layout

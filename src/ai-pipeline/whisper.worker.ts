@@ -3,6 +3,7 @@ import { getWhisperModel } from './models'
 import { MODEL_INIT_HINT, ModelLoadProgressTracker, type ModelLoadProgress } from './modelLoadProgress'
 import { loadWhisperAsrPipeline } from './whisperPipeline'
 import { whisperLanguageFor } from './whisperLanguage'
+import { slimWhisperTranscript } from './whisperTranscript'
 import type { Language } from '../core/types'
 
 let asr: Awaited<ReturnType<typeof loadWhisperAsrPipeline>> | null = null
@@ -52,10 +53,11 @@ self.onmessage = async (e: MessageEvent) => {
 
     if (type === 'transcribe') {
       if (!asr) { self.postMessage({ type: 'error', payload: 'Model not loaded' }); return }
-      const { audioData, sampleRate, language } = payload as {
+      const { audioData, sampleRate, language, timestampMode } = payload as {
         audioData: Float32Array
         sampleRate: number
         language?: Language
+        timestampMode?: 'word' | 'segment'
       }
 
       const resampled = sampleRate === 16000 ? audioData : resampleTo16k(audioData, sampleRate)
@@ -66,22 +68,36 @@ self.onmessage = async (e: MessageEvent) => {
       const jumpSamples = (CHUNK_LENGTH_S - 2 * STRIDE_LENGTH_S) * 16000
       const totalChunks = Math.max(1, Math.ceil(resampled.length / jumpSamples))
       let doneChunks = 0
+      let mergeNotified = false
+
+      const notifyMerging = () => {
+        if (mergeNotified) return
+        mergeNotified = true
+        self.postMessage({ type: 'progress', payload: { status: 'merging' } })
+      }
+
+      const useWordTimestamps = timestampMode !== 'segment'
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = await (asr as any)(resampled, {
-        return_timestamps: 'word',
+        return_timestamps: useWordTimestamps ? 'word' : true,
         language: whisperLanguageFor(language),
         task: 'transcribe',
         chunk_length_s: CHUNK_LENGTH_S,
         stride_length_s: STRIDE_LENGTH_S,
         chunk_callback: () => {
           doneChunks++
-          const progress = Math.min(100, Math.round((doneChunks / totalChunks) * 100))
+          const progress = Math.min(90, Math.round((doneChunks / totalChunks) * 90))
           self.postMessage({ type: 'progress', payload: { status: 'transcribing', progress } })
+          if (doneChunks >= totalChunks) notifyMerging()
         },
       })
 
-      self.postMessage({ type: 'result', payload: result })
+      // Packaging a large word-level transcript can take minutes on phones — never
+      // report 100% until the slim payload is ready to send (100% implied done).
+      self.postMessage({ type: 'progress', payload: { status: 'finalizing' } })
+      const slim = slimWhisperTranscript(result)
+      self.postMessage({ type: 'result', payload: slim })
     }
   } catch (err) {
     self.postMessage({

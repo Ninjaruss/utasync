@@ -29,6 +29,7 @@ export function AttachLocalAudioBanner({ onAttach, attaching, error }: Props) {
         </div>
         <button
           type="button"
+          aria-label="Add audio file"
           disabled={attaching}
           onClick={() => inputRef.current?.click()}
           className="shrink-0 min-h-9 px-3 py-1.5 rounded-lg border border-cinnabar-accent/50 bg-cinnabar-accent/10 text-xs font-medium text-cinnabar-accent hover:bg-cinnabar-accent/15 disabled:opacity-40 touch-manipulation transition-[color,background-color,border-color] duration-150 ease-out"

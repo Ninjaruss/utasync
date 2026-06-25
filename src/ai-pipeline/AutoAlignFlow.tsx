@@ -1,15 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
-import { getDeviceTier } from './capability'
+import { canUseVocalSeparation, getDeviceTier } from './capability'
 import { getWhisperDownloadHint } from './models'
 import { decodeAudioFileToMono } from '../core/audio/decodeToMono'
 import { getAudioFile } from '../core/opfs/audio'
 import type { Song } from '../core/types'
-import { alignLyrics, type TranscriptWord } from './aligner'
+import { alignLyrics, sanitizeTranscript, type TranscriptWord } from './aligner'
 import { db } from '../core/db/schema'
+import { computeSyncState } from '../core/db/migrations'
 import { ProcessProgress } from '../core/ui/ProcessProgress'
 import { ConfirmDialog } from '../core/ui/ConfirmDialog'
 import { alignSteps, alignStepIndex, type AlignStage } from './alignProgress'
-import { resetWhisperTranscriber, transcribeAudio, type LoadProgress } from './whisperTranscriber'
+import { preferredWhisperTimestampMode } from './alignTimestampMode'
+import { resetWhisperTranscriber, transcribeAudio, type LoadProgress, type TranscribeProgressStatus } from './whisperTranscriber'
+import { isDemucsModelAvailable, refreshDemucsModelAvailability, separateVocals } from './demucsSeparator'
+import { useSettingsStore } from '../payment/SettingsStore'
+import { yieldToMainThread } from '../core/idle'
 
 interface Props {
   song: Song
@@ -21,7 +26,26 @@ interface Props {
 
 type Stage = 'idle' | AlignStage | 'done' | 'error'
 
+function classifyVocalSepError(e: unknown): string {
+  if (!(e instanceof Error)) return 'Vocal separation failed'
+  const msg = e.message.toLowerCase()
+  if (msg.includes('out of memory') || msg.includes('oom') || msg.includes('allocation failed')) {
+    return 'Not enough memory for vocal separation — try closing other tabs and retrying'
+  }
+  if (msg.includes('onnx') || msg.includes('runtime') || msg.includes('backend')) {
+    return 'Vocal separation model error — try reloading the page'
+  }
+  if (msg.includes('fetch') || msg.includes('network') || msg.includes('load')) {
+    return 'Failed to load vocal separation model — check your connection and retry'
+  }
+  return e.message || 'Vocal separation failed'
+}
+
 function formatLoadStatus(p: LoadProgress, downloadHint: string): string | null {
+  if (p.status === 'retrying') {
+    const step = p.file ? ` (${p.file})` : ''
+    return `Model load failed${step} — retrying…`
+  }
   if (p.phase === 'init' || p.status === 'initializing') {
     const step = p.file ? ` (${p.file})` : ''
     return `Initializing on-device runtime${step} — can take several minutes on first load`
@@ -57,10 +81,17 @@ function loadTaskProgress(p: LoadProgress | null, phase: 'download' | 'init'): n
 export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: Props) {
   const tier = getDeviceTier()
   const downloadHint = getWhisperDownloadHint(tier)
+  const vocalSeparationDefault = useSettingsStore((s) => s.vocalSeparationEnabled)
+  const setVocalSeparationEnabled = useSettingsStore((s) => s.setVocalSeparationEnabled)
+  const [vocalSeparation, setVocalSeparation] = useState(vocalSeparationDefault)
+  const [demucsReady, setDemucsReady] = useState<boolean | null>(null)
+  const [vocalSeparationRun, setVocalSeparationRun] = useState(false)
   const [stage, setStage] = useState<Stage>(() =>
     autoStart && tier !== 'manual' ? 'preparing' : 'idle',
   )
   const [progress, setProgress] = useState(0)
+  const [transcribeMerging, setTranscribeMerging] = useState(false)
+  const [transcribePhase, setTranscribePhase] = useState<TranscribeProgressStatus>('transcribing')
   const [loadDetail, setLoadDetail] = useState<string | null>(null)
   const [loadPhase, setLoadPhase] = useState<'download' | 'init'>('download')
   const [lastLoadProgress, setLastLoadProgress] = useState<LoadProgress | null>(null)
@@ -68,9 +99,21 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
   const [lowConfidence, setLowConfidence] = useState(false)
   const [confirmCancel, setConfirmCancel] = useState(false)
   const cancelledRef = useRef(false)
-  const demucsWorkerRef = useRef<Worker | null>(null)
+
+  const vocalSeparationSupported = canUseVocalSeparation(tier)
+
+  useEffect(() => {
+    if (!vocalSeparationSupported) return
+    void refreshDemucsModelAvailability().then(setDemucsReady)
+  }, [vocalSeparationSupported])
+
+  useEffect(() => {
+    if (!vocalSeparationSupported || stage !== 'idle') return
+    void refreshDemucsModelAvailability().then(setDemucsReady)
+  }, [vocalSeparationSupported, stage])
 
   const start = async () => {
+    cancelledRef.current = false
     setError('')
     try {
       let audioData: Float32Array | null = null
@@ -79,6 +122,12 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       setStage('preparing')
       setProgress(0)
       setLoadDetail(null)
+
+      const willSeparate =
+        vocalSeparation
+        && vocalSeparationSupported
+        && await isDemucsModelAvailable()
+      setVocalSeparationRun(willSeparate)
 
       if (song.audioStoredPath) {
         const file = await getAudioFile(song.id)
@@ -89,29 +138,26 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
 
       if (!audioData) { setError('No audio file found. Upload audio first.'); setStage('error'); return }
 
-      if (tier === 'full') {
+      if (willSeparate) {
         setStage('separating')
         setProgress(0)
-        const worker = new Worker(new URL('./demucs.worker.ts', import.meta.url), { type: 'module' })
-        demucsWorkerRef.current = worker
-        worker.postMessage({ type: 'load' })
-        await new Promise<void>((res, rej) => {
-          worker.onmessage = (e) => {
-            if (e.data.type === 'loaded') {
-              worker.postMessage({ type: 'separate', payload: { audioData } })
-            } else if (e.data.type === 'result') {
-              audioData = e.data.payload
-              worker.terminate()
-              demucsWorkerRef.current = null
-              res()
-            } else if (e.data.type === 'error') { rej(e.data.payload) }
-            else if (e.data.type === 'progress') setProgress(e.data.payload.progress ?? 0)
-          }
-        })
+        try {
+          audioData = await separateVocals(audioData, {
+            onProgress: (pct) => setProgress(pct),
+            isCancelled: () => cancelledRef.current,
+          })
+        } catch (e) {
+          if (cancelledRef.current) return
+          setError(classifyVocalSepError(e))
+          setStage('error')
+          return
+        } finally {
+          // no-op
+        }
         if (cancelledRef.current) return
       }
 
-      // First run downloads the Whisper model (~240MB, file by file); show that
+      // First run downloads the Whisper model
       // as its own phase so the progress bar resetting per file isn't mistaken
       // for transcription stalling.
       setStage('loading')
@@ -120,9 +166,13 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       setLastLoadProgress(null)
       setLoadDetail('Checking cached model files…')
 
+      const durationSec = audioData.length / sampleRate
+      const timestampMode = preferredWhisperTimestampMode(tier, durationSec)
+
       let sawDownload = false
       const transcriptResult = await transcribeAudio(audioData, sampleRate, {
         language: song.lyrics.sourceLanguage,
+        timestampMode,
         onLoadProgress: (p) => {
           setLastLoadProgress(p)
           if (p.phase === 'init' || p.status === 'initializing') {
@@ -142,20 +192,36 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
           if (!sawDownload) setLoadDetail(null)
           setLoadPhase('download')
           setStage('transcribing')
+          setTranscribeMerging(false)
+          setTranscribePhase('transcribing')
           setProgress(0)
         },
-        onTranscribeProgress: (pct) => setProgress(pct),
+        onTranscribeProgress: ({ progress: pct, status }) => {
+          if (status === 'merging' || status === 'finalizing') {
+            setTranscribeMerging(true)
+            setTranscribePhase(status)
+            return
+          }
+          setTranscribeMerging(false)
+          setTranscribePhase('transcribing')
+          setProgress(pct)
+        },
       })
 
       if (cancelledRef.current) return
 
+      setTranscribeMerging(false)
+      setTranscribePhase('transcribing')
       setStage('aligning')
+      setProgress(0)
+      await yieldToMainThread()
       const words: TranscriptWord[] = (transcriptResult.chunks ?? []).flatMap((c) => {
         const [start, end] = c.timestamp ?? []
         const word = c.text?.trim()
         if (!word || !Number.isFinite(start) || !Number.isFinite(end)) return []
         return [{ word, startTime: start, endTime: end }]
       })
+      const transcriptWords = sanitizeTranscript(words)
 
       // Weight against the sung (original) text — that's what the audio
       // transcript corresponds to, not the translation.
@@ -165,7 +231,14 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       )
       const updated: Song = {
         ...song,
-        lyrics: { ...song.lyrics, lines: aligned, alignmentMode: 'auto', alignmentConfidence: confidence },
+        lyrics: {
+          ...song.lyrics,
+          lines: aligned,
+          alignmentMode: 'auto',
+          alignmentConfidence: confidence,
+          transcriptWords,
+        },
+        syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines: aligned } }),
       }
       await db.songs.put(updated)
 
@@ -181,10 +254,11 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
 
   useEffect(() => {
     if (autoStart && tier !== 'manual') void start()
+    return () => { cancelledRef.current = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const activeSteps = alignSteps(tier)
+  const activeSteps = alignSteps(tier, vocalSeparationRun)
   const activeStage: AlignStage | null =
     stage === 'preparing' || stage === 'separating' || stage === 'loading' || stage === 'transcribing' || stage === 'aligning'
       ? stage
@@ -192,6 +266,8 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
   const taskProgress =
     activeStage === 'aligning' || activeStage === 'preparing'
       ? null
+      : activeStage === 'transcribing' && transcribeMerging
+        ? null
       : activeStage === 'loading'
         ? loadTaskProgress(lastLoadProgress, loadPhase)
         : progress > 0
@@ -202,9 +278,13 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
     preparing: 'Reading and decoding your audio file — longer songs take longer here',
     separating: 'Isolating vocals before transcription',
     loading: loadDetail ?? `Checking cached model files (first run downloads ${downloadHint})`,
-    transcribing: tier === 'lite'
-      ? 'On-device speech recognition — can take a few minutes on phones'
-      : 'Running on-device speech recognition',
+    transcribing: transcribeMerging
+      ? transcribePhase === 'finalizing'
+        ? 'Packaging transcript — almost ready (can take a few minutes on long songs)'
+        : 'Finalizing transcript — merging chunks (can take a few minutes on long songs)'
+      : tier === 'lite'
+        ? 'On-device speech recognition — can take a few minutes on phones'
+        : 'Running on-device speech recognition',
     aligning: 'Matching the transcript to your lyric lines',
   }
 
@@ -226,7 +306,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       : undefined
 
   const stepsWithDetail = activeSteps.map((step, i) => {
-    const keys: AlignStage[] = tier === 'full'
+    const keys: AlignStage[] = vocalSeparationRun
       ? ['preparing', 'separating', 'loading', 'transcribing', 'aligning']
       : ['preparing', 'loading', 'transcribing', 'aligning']
     const key = keys[i]
@@ -246,9 +326,15 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
   }
 
   const tierNote =
-    tier === 'full' ? 'Vocal separation + transcription'
-    : tier === 'lite' ? 'Transcription only (no vocal separation)'
+    vocalSeparationRun ? 'Vocal separation + transcription'
+    : tier === 'full' ? 'Transcription (optional vocal separation available)'
+    : tier === 'lite' ? 'Transcription only'
     : 'Your device does not support on-device AI. Please use tap-sync instead.'
+
+  const toggleVocalSeparation = (enabled: boolean) => {
+    setVocalSeparation(enabled)
+    setVocalSeparationEnabled(enabled)
+  }
 
   return (
     <div className="fixed inset-0 bg-black/80 flex items-end md:items-center justify-center z-50 p-4">
@@ -261,8 +347,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
             cancelLabel="Keep running"
             onConfirm={() => {
               cancelledRef.current = true
-              demucsWorkerRef.current?.terminate()
-              demucsWorkerRef.current = null
+              resetWhisperTranscriber()
               setConfirmCancel(false)
               onClose()
             }}
@@ -273,6 +358,27 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
         <h2 className="text-white font-semibold text-lg">Auto-Align Lyrics</h2>
         <p className="text-white/50 text-sm">{tierNote}</p>
 
+        {vocalSeparationSupported && stage === 'idle' && !autoStart && (
+          <label className="flex items-start gap-3 rounded-xl bg-cinnabar-900/80 p-3 cursor-pointer touch-manipulation">
+            <input
+              type="checkbox"
+              className="mt-1 accent-cinnabar-accent"
+              checked={vocalSeparation}
+              disabled={demucsReady === false}
+              onChange={(e) => toggleVocalSeparation(e.target.checked)}
+            />
+            <span className="text-sm text-white/80 text-pretty">
+              <span className="font-medium text-white">Isolate vocals first</span>
+              {' — '}
+              {demucsReady === false
+                ? 'Demucs model not installed (see docs/DEPLOYMENT.md). Transcription will run on the full mix.'
+                : demucsReady === null
+                  ? 'Checking for vocal separation model…'
+                  : 'Slower, but helps on busy mixes with loud instrumentals.'}
+            </span>
+          </label>
+        )}
+
         {stage === 'idle' && tier !== 'manual' && !autoStart && (
           <button onClick={start} className="w-full py-3 bg-cinnabar-accent text-white rounded-xl font-medium">
             Start Auto-Align
@@ -282,7 +388,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
         {(stage !== 'idle' || autoStart) && stage !== 'error' && stage !== 'done' && activeStage && (
           <ProcessProgress
             steps={stepsWithDetail}
-            currentStepIndex={alignStepIndex(tier, activeStage)}
+            currentStepIndex={alignStepIndex(tier, activeStage, vocalSeparationRun)}
             taskProgress={taskProgress}
             taskStatus={taskStatus}
             taskSubsteps={loadingSubsteps}

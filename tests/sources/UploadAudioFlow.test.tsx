@@ -131,7 +131,7 @@ describe('UploadAudioFlow', () => {
     await pickFileAndTitle(container)
 
     await waitFor(() => expect(screen.getByText(/found synced lyrics/i)).toBeInTheDocument())
-    expect(lrclib.findLyrics).toHaveBeenCalledWith('My Song', '', expect.any(Function), undefined)
+    expect(lrclib.findLyrics).toHaveBeenCalledWith('My Song', '', expect.any(Function), undefined, 'ja')
   })
 
   it('forwards the decoded track duration to LRCLIB lookup', async () => {
@@ -140,7 +140,7 @@ describe('UploadAudioFlow', () => {
     const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
     await pickFileAndTitle(container)
 
-    await waitFor(() => expect(lrclib.findLyrics).toHaveBeenCalledWith('My Song', '', expect.any(Function), 184.32))
+    await waitFor(() => expect(lrclib.findLyrics).toHaveBeenCalledWith('My Song', '', expect.any(Function), 184.32, 'ja'))
   })
 
   it('lets the user skip LRCLIB search and paste lyrics instead', async () => {
@@ -148,9 +148,9 @@ describe('UploadAudioFlow', () => {
     vi.mocked(lrclib.findLyrics).mockImplementation(() => new Promise(() => {}))
     const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
     await pickFileAndTitle(container)
-    await waitFor(() => expect(screen.getByText(/searching lrclib/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/checking lrclib for an exact match/i)).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /paste lyrics/i }))
-    expect(await screen.findByPlaceholderText(/paste lyrics/i)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByPlaceholderText(/paste lyrics/i)).toBeInTheDocument())
     expect(lrclib.findLyrics).toHaveBeenCalled()
   })
 
@@ -162,7 +162,7 @@ describe('UploadAudioFlow', () => {
   async function submitWithPastedLyrics(onSongReady: (songId: string) => void) {
     const { container } = render(<UploadAudioFlow onSongReady={onSongReady} />)
     await pickFileAndTitle(container)
-    await waitFor(() => expect(screen.queryByText(/searching lrclib/i)).not.toBeInTheDocument(), { timeout: 3000 })
+    await waitFor(() => expect(screen.queryByText(/checking lrclib/i)).not.toBeInTheDocument(), { timeout: 3000 })
     if (!screen.queryByPlaceholderText(/paste lyrics/i)) {
       fireEvent.click(screen.getByRole('button', { name: /paste lyrics/i }))
     }

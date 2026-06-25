@@ -42,9 +42,15 @@ async function main() {
   const cacheDir = join(root, '.cache', 'auto-align-audit')
   const cachePath = join(cacheDir, `${name.replace(/\W+/g, '_')}.json`)
   const useCache = !process.argv.includes('--refresh')
+  const timestampMode = process.argv.includes('--segment') ? 'segment' : 'word'
+  const cacheSuffix = timestampMode === 'segment' ? '_segment' : '_word'
 
   let result
-  if (useCache && existsSync(cachePath)) {
+  if (useCache && existsSync(cachePath.replace('.json', `${cacheSuffix}.json`))) {
+    const segCache = cachePath.replace('.json', `${cacheSuffix}.json`)
+    console.log(`Using cached transcript: ${segCache} (pass --refresh to re-transcribe)`)
+    result = JSON.parse(readFileSync(segCache, 'utf8'))
+  } else if (useCache && timestampMode === 'word' && existsSync(cachePath)) {
     console.log(`Using cached transcript: ${cachePath} (pass --refresh to re-transcribe)`)
     result = JSON.parse(readFileSync(cachePath, 'utf8'))
   } else {
@@ -53,15 +59,18 @@ async function main() {
     console.log(`Decoded: ${data.length} samples @ ${sampleRate}Hz (${(data.length / sampleRate).toFixed(1)}s)`)
 
     console.log('Transcribing with Whisper (this can take a few minutes on CPU)...')
+    console.log(`Timestamp mode: ${timestampMode} (browser uses segment for songs > 3 min)`)
     const t0 = Date.now()
     result = await transcribeAudio(data, sampleRate, {
       language: 'japanese',
+      timestampMode,
       onProgress: (p) => process.stdout.write(`\r  transcribe progress: ${p}%   `),
     })
     console.log(`\nTranscribed in ${((Date.now() - t0) / 1000).toFixed(1)}s`)
     mkdirSync(cacheDir, { recursive: true })
-    writeFileSync(cachePath, JSON.stringify(result))
-    console.log(`Cached transcript to ${cachePath}`)
+    const outCache = join(cacheDir, `${name.replace(/\W+/g, '_')}${cacheSuffix}.json`)
+    writeFileSync(outCache, JSON.stringify(result))
+    console.log(`Cached transcript to ${outCache}`)
   }
 
   const words = (result.chunks ?? []).flatMap((c) => {
@@ -75,15 +84,25 @@ async function main() {
   console.log(`After sanitizeTranscript: ${clean.length} (dropped ${words.length - clean.length} hallucination/garbage tokens)`)
   console.log(`\nFull Whisper text:\n${result.text}\n`)
 
-  const { lines, mode, confidence } = alignLyrics(lineTexts, words, undefined, 'ja')
-  console.log(`Alignment mode: ${mode}  confidence: ${confidence.toFixed(3)}\n`)
+  const { lines, mode, confidence, anchorSources } = alignLyrics(lineTexts, words, undefined, 'ja')
+  console.log(`Alignment mode: ${mode}  confidence: ${confidence.toFixed(3)}`)
+  if (mode === 'proportional') {
+    console.log('  (whole song fell back to proportional — no line has reliable LCS anchors)\n')
+  } else {
+    const lcs = anchorSources?.filter((s) => s === 'lcs').length ?? 0
+    const interp = anchorSources?.filter((s) => s === 'interpolated').length ?? 0
+    console.log(`  LCS-anchored lines: ${lcs}  interpolated starts: ${interp}\n`)
+  }
 
   console.log('Line timings:')
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i]
     const dur = l.endTime - l.startTime
+    const src = anchorSources?.[i] ?? (mode === 'proportional' ? 'proportional' : '?')
+    const srcTag = src === 'lcs' ? '' : src === 'interpolated' ? '  [interp]' : src === 'interjection' ? '  [sigh]' : '  [proportional]'
     const flag = dur <= 0 ? '  <-- zero/negative duration' : dur > 20 ? '  <-- suspiciously long' : ''
-    console.log(`${String(i + 1).padStart(2)} [${fmt(l.startTime)} - ${fmt(l.endTime)}] (${dur.toFixed(2)}s) ${lineTexts[i]}${flag}`)
+    console.log(`${String(i + 1).padStart(2)} [${fmt(l.startTime)} - ${fmt(l.endTime)}] (${dur.toFixed(2)}s)${srcTag}${flag}`)
+    console.log(`    ${lineTexts[i]}`)
   }
 
   if (process.argv.includes('--dump-words')) {

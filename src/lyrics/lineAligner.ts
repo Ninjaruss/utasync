@@ -286,6 +286,16 @@ export function buildAlignJob(line: TimedLine): LineAlignJob {
   }
 }
 
+/**
+ * Builds word-alignment jobs for one or more lyric lines. Call
+ * `fixAdjacentTranslationOrder` on the full song before chunking so EN clauses
+ * sit on the correct Japanese rows.
+ */
+export function buildAlignJobs(lines: TimedLine[], lineIndices?: number[]): LineAlignJob[] {
+  const indices = lineIndices ?? lines.map((_, i) => i)
+  return indices.map((i) => buildAlignJob(lines[i]))
+}
+
 /** Token indices that fall inside the Japanese portion of a mixed-script line. */
 export function japaneseTokenIndices(original: string, tokens: Token[]): number[] {
   if (!isMixedScriptLine(original)) return tokens.map((_, i) => i)

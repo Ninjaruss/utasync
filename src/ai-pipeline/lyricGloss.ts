@@ -1,9 +1,24 @@
 /**
- * Curated romaji → English glosses for high-confidence lyric word pairing.
- * Kept as static data — no external dictionary API required.
+ * Lyric word-pair gloss lexicon: JMdict (comprehensive, lazy-loaded) plus
+ * curated overrides for poetic/non-literal translations JMdict cannot cover.
  */
 
-/** Romaji (lowercase) → primary English translation word used in lyrics. */
+import { morphGlossMatches, type GlossSource } from './morphGloss'
+import { dictKeysMatchingStem, inflectionStemCandidates, stemLookupMatchesTarget } from './stemLookup'
+import { englishGlossVariants, normalizeLemmaGloss } from './glossNormalize'
+import { homographLemmaGloss, homographLemmaKeys } from './homographGloss'
+import { runWhenIdle } from '../core/idle'
+import {
+  getJmdictKanjiRomaji,
+  getJmdictRomajiGloss,
+  jmdictLemmaKeysForStem,
+  prepareJmdictStemIndex,
+} from './jmdictGloss'
+
+/**
+ * Curated romaji → English glosses. These override JMdict when both define a
+ * key — use for poetic aliases (長い→endless), song-specific readings, etc.
+ */
 export const ROMAJI_GLOSS: Record<string, string> = {
   ai: 'love',
   anata: 'you',
@@ -125,6 +140,27 @@ export const ROMAJI_GLOSS: Record<string, string> = {
   abakidasu: 'exposes',
   bokutachi: 'us',
   bokura: 'we',
+  chuu: 'sky',
+  donnani: 'matter',
+  miseru: 'show',
+  noni: 'although',
+  kotoba: 'words',
+  suku: 'save',
+  sukue: 'save',
+  sukunai: 'cannot',
+  mogaku: 'struggles',
+  wakachi: 'share',
+  hanare: 'released',
+  kizuku: 'notice',
+  fue: 'increase',
+  osamara: 'held',
+  mukou: 'beyond',
+  aeru: 'meet',
+  iro: 'color',
+  omo: 'think',
+  katado: 'reification',
+  fukou: 'misfortune',
+  tasukeru: 'save',
 }
 
 /** Kanji surface → romaji when kuromoji omits reading (common lyric characters). */
@@ -187,6 +223,10 @@ export const KANJI_ROMAJI: Record<string, string> = {
   どうした: 'doushita',
   事: 'koto',
   僕たち: 'bokutachi',
+  宙: 'chuu',
+  言葉: 'kotoba',
+  救: 'suku',
+  指: 'yubi',
 }
 
 /**
@@ -292,52 +332,192 @@ export const EN_POETIC_ALIASES: Record<string, string> = {
   exposing: 'abakidasu',
   us: 'bokutachi',
   we: 'bokutachi',
+  matter: 'donnani',
+  show: 'miseru',
+  although: 'noni',
+  though: 'noni',
+  even: 'temo',
+  from: 'kara',
+  because: 'kara',
+  since: 'kara',
+  until: 'made',
+  than: 'yori',
+  want: 'itai',
+  keep: 'itai',
+  without: 'naide',
+  wonder: 'kana',
+  probably: 'darou',
+  words: 'kotoba',
+  word: 'kotoba',
+  dreaming: 'yume',
+  'mid-air': 'chuu',
+  mid: 'chuu',
+  save: 'sukue',
+  struggles: 'mogaku',
+  struggle: 'mogaku',
+  share: 'wakachi',
+  released: 'hanare',
+  notice: 'kizuku',
+  increase: 'fue',
+  held: 'osamara',
+  beyond: 'mukou',
+  meet: 'aeru',
+  know: 'shiri',
+  color: 'iro',
+  surely: 'darou',
+  finger: 'yubi',
+  solemn: 'warae',
+  reification: 'katado',
+  misfortune: 'fukou',
+  untouchable: 'furenai',
+  every: 'futo',
 }
 
 /** Additional EN→romaji aliases (multiple romaji may map to the same English word). */
 const EN_POETIC_ALIASES_EXTRA: Array<[string, string]> = [
   ['about', 'sunzen'],
+  ['memories', 'omoi'],
+  ['untouchable', 'fure'],
+  ['unsalvageable', 'tasukeru'],
+  ['released', 'hanareru'],
+  ['held', 'osamaru'],
 ]
 
 /** Reverse lookup: English target word → set of romaji keys that gloss to it. */
 const EN_TO_ROMAJI = new Map<string, Set<string>>()
+let enToRomajiBuilt = false
 
-function buildEnToRomaji(): void {
-  if (EN_TO_ROMAJI.size > 0) return
-  for (const [romaji, english] of Object.entries(ROMAJI_GLOSS)) {
-    const key = english.toLowerCase()
-    if (!EN_TO_ROMAJI.has(key)) EN_TO_ROMAJI.set(key, new Set())
-    EN_TO_ROMAJI.get(key)!.add(romaji)
-  }
-  for (const [english, romaji] of Object.entries(EN_POETIC_ALIASES)) {
-    const key = english.toLowerCase()
-    if (!EN_TO_ROMAJI.has(key)) EN_TO_ROMAJI.set(key, new Set())
-    EN_TO_ROMAJI.get(key)!.add(romaji)
-  }
-  for (const [english, romaji] of EN_POETIC_ALIASES_EXTRA) {
-    const key = english.toLowerCase()
-    if (!EN_TO_ROMAJI.has(key)) EN_TO_ROMAJI.set(key, new Set())
-    EN_TO_ROMAJI.get(key)!.add(romaji)
-  }
+function addEnToRomaji(romaji: string, english: string): void {
+  const key = english.toLowerCase()
+  if (!EN_TO_ROMAJI.has(key)) EN_TO_ROMAJI.set(key, new Set())
+  EN_TO_ROMAJI.get(key)!.add(romaji)
 }
 
-/** True when romaji glosses to the English target (direct or poetic alias). */
-export function glossMatchesTarget(romaji: string, targetWord: string): boolean {
+function buildEnToRomaji(): void {
+  if (enToRomajiBuilt) return
+  for (const [romaji, english] of Object.entries(ROMAJI_GLOSS)) {
+    addEnToRomaji(romaji, english)
+  }
+  for (const [english, romaji] of Object.entries(EN_POETIC_ALIASES)) {
+    addEnToRomaji(romaji, english)
+  }
+  for (const [english, romaji] of EN_POETIC_ALIASES_EXTRA) {
+    addEnToRomaji(romaji, english)
+  }
+  enToRomajiBuilt = true
+}
+
+/** Loads JMdict gloss data and rebuilds reverse indexes. Call before word pairing. */
+export async function ensureGlossLexicon(): Promise<void> {
+  await prepareJmdictStemIndex()
+  enToRomajiBuilt = false
   buildEnToRomaji()
+}
+
+/** Low-priority warm-up — fetches jmdict-gloss.json when the browser is idle. */
+export function preloadGlossLexicon(): void {
+  runWhenIdle(() => {
+    void ensureGlossLexicon()
+  }, 8000)
+}
+
+/** Curated override first, then JMdict (with US spelling normalization). */
+function dictionaryGlossForKey(key: string): string | undefined {
+  const curated = ROMAJI_GLOSS[key.trim().toLowerCase()]
+  if (curated) return curated
+  const jm = getJmdictRomajiGloss(key)
+  if (jm) return normalizeLemmaGloss(jm)
+  return undefined
+}
+
+/** Curated override first, then JMdict, then homograph + inflection stem inference. */
+export function lemmaGloss(romaji: string, surface?: string): string | undefined {
   const r = romaji.trim().toLowerCase()
-  const t = targetWord.trim().toLowerCase()
-  if (ROMAJI_GLOSS[r] === t) return true
-  const aliasRomaji = EN_POETIC_ALIASES[t]
-  if (aliasRomaji && aliasRomaji === r) return true
-  const romajiSet = EN_TO_ROMAJI.get(t)
-  return romajiSet?.has(r) ?? false
+  if (!r) return undefined
+
+  const homograph = homographLemmaGloss(surface, r, { glossForKey: dictionaryGlossForKey })
+  if (homograph) return homograph
+
+  const direct = dictionaryGlossForKey(r)
+  if (direct) return direct
+
+  for (const key of homographLemmaKeys(surface, r)) {
+    const gloss = dictionaryGlossForKey(key)
+    if (gloss) return gloss
+  }
+
+  for (const stem of inflectionStemCandidates(r, 2)) {
+    const stemHomograph = homographLemmaGloss(surface, stem, { glossForKey: dictionaryGlossForKey })
+    if (stemHomograph) return stemHomograph
+
+    const stemGloss = dictionaryGlossForKey(stem)
+    if (stemGloss) return stemGloss
+
+    for (const key of homographLemmaKeys(surface, stem)) {
+      const gloss = dictionaryGlossForKey(key)
+      if (gloss) return gloss
+    }
+
+    for (const key of dictKeysMatchingStem(stem, jmdictLemmaKeysForStem(stem))) {
+      const gloss = dictionaryGlossForKey(key)
+      if (gloss) return gloss
+    }
+  }
+
+  return undefined
+}
+
+/** Curated kanji map first, then JMdict. */
+export function kanjiLemmaRomaji(surface: string): string | undefined {
+  const s = surface.trim()
+  return KANJI_ROMAJI[s] ?? getJmdictKanjiRomaji(s)
+}
+
+/** True when romaji glosses to the English target (direct, poetic, or morphological). */
+export function glossMatchesTarget(romaji: string, targetWord: string, surface?: string): boolean {
+  return glossMatchesSource({ romaji, surface }, targetWord)
+}
+
+function glossEqualsTarget(gloss: string | undefined, target: string): boolean {
+  if (!gloss) return false
+  const g = gloss.trim().toLowerCase()
+  if (g === target) return true
+  return normalizeLemmaGloss(g) === target
+}
+
+/** Like `glossMatchesTarget` but accepts merged surface for morphology rules. */
+export function glossMatchesSource(source: GlossSource, targetWord: string): boolean {
+  buildEnToRomaji()
+  const r = source.romaji.trim().toLowerCase()
+  const surface = source.surface
+
+  const stemCtx = {
+    glossForKey: (key: string) => dictionaryGlossForKey(key),
+    aliasKeysForTarget: (target: string) => EN_TO_ROMAJI.get(target.trim().toLowerCase()),
+    lemmaKeysForStem: (stem: string) => {
+      const keys = new Set<string>(Object.keys(ROMAJI_GLOSS))
+      for (const key of jmdictLemmaKeysForStem(stem)) keys.add(key)
+      return keys
+    },
+  }
+
+  for (const variant of englishGlossVariants(targetWord)) {
+    if (glossEqualsTarget(lemmaGloss(r, surface), variant)) return true
+    const aliasRomaji = EN_POETIC_ALIASES[variant]
+    if (aliasRomaji && aliasRomaji === r) return true
+    const romajiSet = EN_TO_ROMAJI.get(variant)
+    if (romajiSet?.has(r)) return true
+    if (morphGlossMatches(source, variant)) return true
+    if (stemLookupMatchesTarget(r, variant, stemCtx, surface)) return true
+  }
+  return false
 }
 
 /** Romaji keys that share the same English gloss as `romaji`. */
-export function glossClusterRomaji(romaji: string): string[] {
+export function glossClusterRomaji(romaji: string, surface?: string): string[] {
   buildEnToRomaji()
   const r = romaji.trim().toLowerCase()
-  const english = ROMAJI_GLOSS[r]
+  const english = lemmaGloss(r, surface)
   if (!english) return [r]
   const cluster = EN_TO_ROMAJI.get(english.toLowerCase())
   return cluster ? [...cluster] : [r]

@@ -75,7 +75,7 @@ describe('isAlignableToken', () => {
     expect(isAlignableToken(tok('える', '動詞,非自立可能,一段,*,*,*,*'))).toBe(false)
     expect(isAlignableToken(tok('てる', '動詞', 'テル', '非自立'))).toBe(false)
     expect(isAlignableToken(tok('く', '動詞', 'ク', '非自立'))).toBe(false)
-    expect(isAlignableToken(tok('かな', '助詞,終助詞,*,*,*,*,*'))).toBe(false)
+    expect(isAlignableToken(tok('かな', '助詞,終助詞,*,*,*,*,*'))).toBe(true)
   })
   it('includes content words and lexical particles', () => {
     expect(isAlignableToken(tok('君', '名詞'))).toBe(true)
@@ -106,6 +106,11 @@ describe('exactTextMatchScore', () => {
   })
   it('returns 0 for different text', () => {
     expect(exactTextMatchScore('kimi', 'like')).toBe(0)
+  })
+  it('does not treat verb stem romaji as personal pronouns', () => {
+    expect(exactTextMatchScore('i', 'i')).toBe(0)
+    expect(exactTextMatchScore('iru', 'i')).toBe(0)
+    expect(exactTextMatchScore('boku', 'i')).toBe(1)
   })
 })
 
@@ -219,7 +224,7 @@ describe('alignLineTokens — multi-token lines', () => {
     expect(result[1].alignmentIndices).toEqual([1]) // いつか -> someday
     expect(result[2].alignmentIndices).toEqual([4]) // 会 -> meet
     expect(result[3].alignmentIndices).toBeUndefined() // える suffix excluded
-    expect(result[4].alignmentIndices).toBeUndefined() // かな particle
+    expect(result[4].alignmentIndices?.length ?? 0).toBe(0) // かな — no "wonder" in this EN line
   })
 
   it('uses exact romaji match to pair common lyric words', async () => {
@@ -469,7 +474,28 @@ describe('buildAlignmentUnits', () => {
     expect(buildAlignmentUnits(tokens)).toHaveLength(2)
   })
 
-  it('merges bound-noun verb stems and keeps 爆発 / 寸前 separate', () => {
+  it('merges bound-noun verb chains without a dictionary entry', () => {
+    const tokens: Token[] = [
+      tok('走り', '名詞', 'ハシリ'),
+      tok('込ん', '動詞', 'コン', '自立'),
+      tok('だ', '助動詞', 'ダ'),
+    ]
+    const units = buildAlignmentUnits(tokens)
+    expect(units).toHaveLength(1)
+    expect(units[0].embedText).toBe('走り込んだ')
+  })
+
+  it('merges て+い+たい on any verb stem', () => {
+    const tokens: Token[] = [
+      tok('見', '動詞,自立', 'ミ'),
+      tok('て', '助詞,接続助詞', 'テ'),
+      tok('い', '動詞,非自立', 'イ'),
+      tok('たい', '助動詞', 'タイ'),
+    ]
+    expect(buildAlignmentUnits(tokens).map((u) => u.embedText)).toEqual(['見ていたい'])
+  })
+
+  it('merges bound-noun verb stems and merges 爆発+寸前 as a set phrase', () => {
     const tokens: Token[] = [
       tok('覗き', '名詞', 'ノゾキ'),
       tok('込ま', '動詞', 'コマ', '自立'),
@@ -479,11 +505,9 @@ describe('buildAlignmentUnits', () => {
       tok('寸前', '名詞', 'スンゼン'),
     ]
     const units = buildAlignmentUnits(tokens)
-    expect(units).toHaveLength(3)
+    expect(units).toHaveLength(2)
     expect(units[0].tokenIndices).toEqual([0, 1, 2])
-    expect(units[0].glossText).toBe('nozokikomare')
-    expect(units[1].embedText).toBe('爆発')
-    expect(units[2].embedText).toBe('寸前')
+    expect(units[1].embedText).toBe('爆発寸前')
   })
 })
 
@@ -716,7 +740,7 @@ describe('alignLineTokens — My Eyes Only lyric pattern', () => {
     expect(result[0].alignmentIndices).toEqual([0])
     expect(result[1].alignmentIndices).toEqual([0])
     expect(result[2].alignmentIndices).toEqual([0])
-    expect(result[4].alignmentIndices).toEqual([2])
+    expect(result[4].alignmentIndices).toEqual([1])
     expect(result[5].alignmentIndices).toEqual([1])
     expect(result[3].alignmentIndices).toBeUndefined()
   })

@@ -9,3 +9,8 @@ export function getDeviceTier(): DeviceTier {
   if (gpu && memory >= 4) return 'lite'
   return 'manual'
 }
+
+/** Vocal separation needs WebGPU + enough RAM for Demucs + Whisper. */
+export function canUseVocalSeparation(tier: DeviceTier = getDeviceTier()): boolean {
+  return tier === 'full'
+}

@@ -13,11 +13,15 @@ self.onmessage = async (e: MessageEvent) => {
   if (type === 'load') {
     const model = (payload as { model?: string } | undefined)?.model ?? 'Xenova/paraphrase-multilingual-MiniLM-L12-v2'
     self.postMessage({ type: 'progress', payload: { status: 'loading', progress: 0 } })
-    extractor = await pipeline('feature-extraction', model, {
-      progress_callback: (p: { status?: string; progress?: number }) =>
-        self.postMessage({ type: 'progress', payload: p }),
-    })
-    self.postMessage({ type: 'loaded' })
+    try {
+      extractor = await pipeline('feature-extraction', model, {
+        progress_callback: (p: { status?: string; progress?: number }) =>
+          self.postMessage({ type: 'progress', payload: p }),
+      })
+      self.postMessage({ type: 'loaded' })
+    } catch (err) {
+      self.postMessage({ type: 'error', payload: err instanceof Error ? err.message : 'Model load failed' })
+    }
     return
   }
 

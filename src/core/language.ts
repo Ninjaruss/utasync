@@ -1,7 +1,12 @@
 import type { Token } from './types'
 
 /** Particles that carry lexical meaning and should still pair with English glosses. */
-const ALIGNABLE_PARTICLE_SURFACES = new Set(['だけ', 'ばかり', 'しか', 'ほど', 'くらい', 'ぐらい'])
+const ALIGNABLE_PARTICLE_SURFACES = new Set([
+  'だけ', 'ばかり', 'しか', 'ほど', 'くらい', 'ぐらい',
+  'のに', 'ても', 'でも', 'けれど', 'けれども',
+  'から', 'まで', 'より',
+  'かな', 'だろう', 'でしょう',
+])
 
 /** kuromoji tags particles as "助詞" (optionally with sub-category after a comma). */
 export function isParticleToken(token: Token): boolean {
@@ -42,6 +47,7 @@ const ENGLISH_FUNCTION_WORDS = new Set([
   'is', 'am', 'are', 'was', 'were', 'be', 'been', 'being',
   'have', 'has', 'had', 'do', 'does', 'did',
   'will', 'would', 'can', 'could', 'shall', 'should', 'may', 'might', 'must',
+  'no', 'not',
 ])
 
 const ENGLISH_CONTRACTION_BASE: Record<string, string> = {
@@ -101,7 +107,11 @@ export function normalizeEnglishAlignmentWord(word: string): string {
 
 /** Whether an English translation word may be paired with a Japanese token. */
 /** Function words that still participate in alignment when a curated JA gloss exists. */
-const GLOSS_ALIGNED_FUNCTION_WORDS = new Set(['after', 'about', 'up'])
+const GLOSS_ALIGNED_FUNCTION_WORDS = new Set([
+  'after', 'about', 'up', 'not',
+  'if', 'when', 'even', 'still', 'from', 'until', 'because', 'since',
+  'want', 'keep', 'without',
+])
 
 export function isAlignableEnglishWord(word: string): boolean {
   const stripped = stripEnglishPunctuation(word.trim())

@@ -6,6 +6,7 @@ import { resolveLyricsForSong, lyricsSourceLabel, type LyricsResolveSource } fro
 import { normalizeImportedLines } from '../sources/importNormalize'
 import { LyricsFoundConfirm, lyricsFoundReadyToApply } from './LyricsFoundConfirm'
 import type { LyricsLookupMatch } from '../sources/lrclib'
+import { getDefaultSongLanguage } from '../payment/SettingsStore'
 
 type ManualLyricSource = 'paste' | 'subtitle'
 
@@ -56,7 +57,7 @@ export function LyricsImportPanel({
     setLyricsPhase({ kind: 'searching' })
     setError('')
 
-    resolveLyricsForSong({ title, artist, videoId, sourceLanguage })
+    resolveLyricsForSong({ title, artist, videoId, sourceLanguage: sourceLanguage ?? getDefaultSongLanguage() })
       .then((result) => {
         if (gen !== searchGenRef.current) return
         if (result.lines.length > 0) {

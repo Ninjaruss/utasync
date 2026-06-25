@@ -1,5 +1,9 @@
 import type { Language } from '../core/types'
-import { detectLanguage } from '../lyrics/bilingual'
+import { detectLanguage, JAPANESE_RE, LRC_TIMESTAMP_RE } from '../lyrics/bilingual'
+import { artistSuggestsJapaneseLyrics, lookupArtistAliases } from './artistAliases'
+
+/** Global variant of LRC_TIMESTAMP_RE for stripping every timestamp tag, not just the first. */
+const LRC_TIMESTAMP_RE_GLOBAL = new RegExp(LRC_TIMESTAMP_RE.source, 'g')
 
 function normalizeArtistKey(s: string): string {
   return s.normalize('NFKC').toLowerCase().replace(/[^a-z0-9\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fff]/g, '')
@@ -75,7 +79,14 @@ function fuzzyKeyMatch(a: string, b: string): number {
 
 /** Normalize artist names for fuzzy comparison (Latin + CJK). */
 export function sameArtist(a: string, b: string): boolean {
-  return fuzzyKeyMatch(a, b) >= 0.85
+  if (fuzzyKeyMatch(a, b) >= 0.85) return true
+  for (const alias of lookupArtistAliases(a)) {
+    if (fuzzyKeyMatch(alias, b) >= 0.85) return true
+  }
+  for (const alias of lookupArtistAliases(b)) {
+    if (fuzzyKeyMatch(alias, a) >= 0.85) return true
+  }
+  return false
 }
 
 /** Normalize song titles for fuzzy comparison (Latin + CJK). */
@@ -100,7 +111,86 @@ export function titleSimilarity(candidate: string, query: string): number {
 /** 0–1 score for how closely a candidate artist matches the query. */
 export function artistSimilarity(candidate: string, query: string): number {
   if (!query.trim()) return 0.5
-  return fuzzyKeyMatch(candidate, query)
+  let best = fuzzyKeyMatch(candidate, query)
+  for (const alias of lookupArtistAliases(query)) {
+    best = Math.max(best, fuzzyKeyMatch(candidate, alias))
+  }
+  for (const alias of lookupArtistAliases(candidate)) {
+    best = Math.max(best, fuzzyKeyMatch(alias, query))
+  }
+  return best
+}
+
+/** LRCLIB artist_name query variants (romanized order swap + known aliases). */
+export function expandArtistSearchVariants(artist: string): string[] {
+  const variants = new Set<string>()
+  const add = (s: string) => {
+    const t = s.trim()
+    if (t) variants.add(t)
+  }
+
+  add(artist)
+  for (const alias of lookupArtistAliases(artist)) add(alias)
+
+  const parts = artist.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 2 && /^[A-Za-z]/.test(artist)) {
+    add(`${parts[1]} ${parts[0]}`)
+  }
+
+  return [...variants]
+}
+
+export type LyricScript = 'native-ja' | 'romaji' | 'other'
+
+const ROMAJI_PARTICLE_RE =
+  /\b(wa|wo|ga|ni|de|ru|shi|tsu|chou|kimi|boku|kana|sou|te|ta|nai|da|yo|ne|sa|ma|mo|no|to|kara|yoru|hito|sekai|kokoro|mune|yume|kaze|hoshi|uta|koe)\b/i
+
+/** Classify lyric body script — native Japanese vs romaji transliteration vs other. */
+export function classifyLyricScript(text: string): LyricScript {
+  const body = text.replace(LRC_TIMESTAMP_RE_GLOBAL, ' ').trim()
+  if (detectLanguage(body) === 'ja') return 'native-ja'
+  const latin = body.replace(/[^a-zA-Z]/g, '')
+  if (latin.length < 15) return 'other'
+  const words = body.toLowerCase().split(/\s+/).filter(Boolean)
+  const romajiHits = words.filter((w) => ROMAJI_PARTICLE_RE.test(w)).length
+  if (romajiHits >= 2 || (romajiHits >= 1 && latin.length > 80)) return 'romaji'
+  return 'other'
+}
+
+/** Score adjustment when ranking LRCLIB lyric candidates. */
+export function lyricScriptScoreAdjust(lrc: string, preferredLanguage: Language): number {
+  const script = classifyLyricScript(lrc)
+  if (preferredLanguage === 'ja') {
+    if (script === 'native-ja') return 0.12
+    if (script === 'romaji') return -0.1
+    return 0
+  }
+  if (script === 'native-ja') return -0.12
+  if (script === 'romaji') return -0.08
+  return 0.08
+}
+
+/** Infer which lyric script/language LRCLIB should prefer for this song. */
+export function inferPreferredLyricsLanguage(
+  title: string,
+  artist: string,
+  fallback: Language = 'ja',
+): Language {
+  if (artistSuggestsJapaneseLyrics(artist)) return 'ja'
+  if (JAPANESE_RE.test(title)) return 'ja'
+  const t = title.trim()
+  const a = artist.trim()
+  // Latin titles alone are ambiguous (J-pop often uses English titles); require a Latin artist too.
+  if (
+    t
+    && a
+    && /^[A-Za-z0-9\s'".,\-–—&:!?]+$/.test(t)
+    && /^[A-Za-z]/.test(a)
+    && !artistSuggestsJapaneseLyrics(artist)
+  ) {
+    return 'en'
+  }
+  return fallback
 }
 
 /** Strip common suffixes/noise before LRCLIB search queries. */
@@ -138,6 +228,14 @@ export function expandTitleSearchVariants(title: string): string[] {
   const rocknRoll = title.replace(/\brock\s+n\s+roll\b/gi, "Rockn' Roll")
   add(rocknRoll)
   add(cleanTitleForSearch(rocknRoll))
+
+  if (/\blights\b/i.test(title)) {
+    add(title.replace(/\blights\b/gi, 'light'))
+    add(cleanTitleForSearch(title.replace(/\blights\b/gi, 'light')))
+  }
+  if (/\blight\b/i.test(title) && !/\blights\b/i.test(title)) {
+    add(title.replace(/\blight\b/gi, 'lights'))
+  }
 
   return [...variants]
 }
@@ -228,6 +326,22 @@ export function metadataLooksConsistent(
     && (queriedArtist.trim() === '' || sameArtist(foundArtist, queriedArtist))
 }
 
+/** Requires close artist agreement — used for the confirmation bypass gate. */
+function artistMatchStrict(a: string, b: string): boolean {
+  if (!a.trim() || !b.trim()) return true
+  return sameArtist(a, b)
+}
+
+function metadataLooksConsistentStrict(
+  queriedTitle: string,
+  queriedArtist: string,
+  foundTrack: string,
+  foundArtist: string,
+): boolean {
+  return sameTitle(foundTrack, queriedTitle)
+    && (queriedArtist.trim() === '' || artistMatchStrict(foundArtist, queriedArtist))
+}
+
 /**
  * Fuzzy LRCLIB matches (or weak metadata agreement) need an explicit user
  * confirm before applying lyrics — reduces wrong-song false positives.
@@ -238,10 +352,10 @@ export function needsLyricsMatchConfirmation(
   match: { track: string; artist: string; matchScore: number; matchKind: 'exact' | 'fuzzy' } | undefined,
 ): boolean {
   if (!match) return false
-  if (match.matchScore >= 0.92 && metadataLooksConsistent(queriedTitle, queriedArtist, match.track, match.artist)) {
+  if (match.matchScore >= 0.92 && metadataLooksConsistentStrict(queriedTitle, queriedArtist, match.track, match.artist)) {
     return false
   }
-  if (match.matchKind === 'exact' && metadataLooksConsistent(queriedTitle, queriedArtist, match.track, match.artist)) {
+  if (match.matchKind === 'exact' && metadataLooksConsistentStrict(queriedTitle, queriedArtist, match.track, match.artist)) {
     return false
   }
   return true

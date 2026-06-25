@@ -1,5 +1,5 @@
 import type { Language, TimedLine } from '../core/types'
-import { alignByContent } from './contentAligner'
+import { alignByContent, normalizeForMatch } from './contentAligner'
 
 export interface TranscriptWord {
   word: string
@@ -18,6 +18,10 @@ export const CONTENT_CONFIDENCE_THRESHOLD = 0.5
 // A sung word/melisma can run a few seconds, but anything longer is a Whisper
 // artifact (it stamps absurd spans on silence). Used to discard garbage words.
 const MAX_WORD_DURATION_S = 10
+// Segment-mode Whisper emits whole lyric phrases (often 10–25s). Subdivide those
+// into char slots for LCS instead of dropping them — dropping erased the red-car
+// block on AKFG First Take (12s+ segments never reached the aligner).
+const SUBDIVIDE_TRANSCRIPT_MAX_DURATION_S = 28
 // Whisper loops the same token during instrumental/silent stretches (often
 // dozens of times). Collapse each run of consecutive identical tokens down to
 // one slot — a few real consecutive repeats ("la la la") lose a little weight,
@@ -28,6 +32,24 @@ function normalizeToken(word: string): string {
   // Strip whitespace and punctuation so repetition detection isn't fooled by
   // trailing commas/spaces Whisper sprinkles between looped tokens.
   return word.toLowerCase().replace(/[\s\p{P}]+/gu, '')
+}
+
+/** Split an over-long segment phrase into char-level slots with real timestamps. */
+function subdivideTranscriptWord(w: TranscriptWord): TranscriptWord[] {
+  const glyphs = [...normalizeForMatch(w.word)]
+  if (glyphs.length <= 1) return [w]
+  const duration = w.endTime - w.startTime
+  return glyphs.map((ch, i) => {
+    const start = w.startTime + duration * (i / glyphs.length)
+    const end = i === glyphs.length - 1 ? w.endTime : w.startTime + duration * ((i + 1) / glyphs.length)
+    return { word: ch, startTime: start, endTime: end }
+  })
+}
+
+function pushSanitizedWord(kept: TranscriptWord[], w: TranscriptWord): void {
+  const prev = kept[kept.length - 1]
+  if (prev && w.startTime < prev.startTime) return
+  kept.push(w)
 }
 
 /**
@@ -47,7 +69,18 @@ export function sanitizeTranscript(words: TranscriptWord[]): TranscriptWord[] {
   for (const w of words) {
     if (!Number.isFinite(w.startTime) || !Number.isFinite(w.endTime)) continue
     const duration = w.endTime - w.startTime
-    if (duration <= 0 || duration > MAX_WORD_DURATION_S) continue
+    if (duration <= 0) continue
+
+    // Drop music symbols and other non-lyric noise Whisper emits during bridges.
+    if (!normalizeForMatch(w.word)) continue
+
+    if (duration > SUBDIVIDE_TRANSCRIPT_MAX_DURATION_S) continue
+    if (duration > MAX_WORD_DURATION_S) {
+      for (const part of subdivideTranscriptWord(w)) pushSanitizedWord(kept, part)
+      runToken = ''
+      runCount = 0
+      continue
+    }
 
     // Timestamps must not go backwards relative to the last word we kept.
     const prev = kept[kept.length - 1]
@@ -62,7 +95,7 @@ export function sanitizeTranscript(words: TranscriptWord[]): TranscriptWord[] {
       runCount = 1
     }
 
-    kept.push(w)
+    pushSanitizedWord(kept, w)
   }
 
   return kept
@@ -185,6 +218,8 @@ export type AlignResult = {
   lines: TimedLine[]
   mode: 'content' | 'proportional'
   confidence: number
+  /** Per-line start anchor: LCS transcript match vs weight interpolation (content mode only). */
+  anchorSources?: import('./contentAligner').LineAnchorSource[]
 }
 
 export function alignLyrics(
@@ -196,8 +231,18 @@ export function alignLyrics(
   const clean = sanitizeTranscript(words)
   const content = alignByContent(lineTexts, clean, existingLines, sourceLanguage)
   if (content.confidence >= CONTENT_CONFIDENCE_THRESHOLD) {
-    return { lines: content.lines, mode: 'content', confidence: content.confidence }
+    return {
+      lines: content.lines,
+      mode: 'content',
+      confidence: content.confidence,
+      anchorSources: content.anchorSources,
+    }
   }
   const lines = alignTranscriptToLines(lineTexts, clean, existingLines, sourceLanguage)
-  return { lines, mode: 'proportional', confidence: content.confidence }
+  return {
+    lines,
+    mode: 'proportional',
+    confidence: content.confidence,
+    anchorSources: lineTexts.map(() => 'interpolated' as const),
+  }
 }

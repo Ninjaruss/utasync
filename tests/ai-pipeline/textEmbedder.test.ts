@@ -118,6 +118,39 @@ describe('embedTexts concurrency (request id matching)', () => {
     await expect(callAPromise).resolves.toEqual([[2, 2]])
   })
 
+  it('rejects (instead of hanging forever) when the model fails to load, and allows a later retry', async () => {
+    const { embedTexts } = await import('../../src/ai-pipeline/textEmbedder')
+
+    const failedCall = embedTexts(['a'])
+    await Promise.resolve()
+    fakeWorker.emit({ type: 'error', payload: 'network error' })
+
+    await expect(failedCall).rejects.toThrow('network error')
+
+    // A failed load must not wedge every future call behind the same
+    // rejected promise -- the next attempt should hit the worker again.
+    const fakeWorker2 = new FakeWorker()
+    const worker2 = fakeWorker2
+    vi.stubGlobal(
+      'Worker',
+      class {
+        constructor() {
+          return worker2
+        }
+      }
+    )
+
+    const retryCall = embedTexts(['a'])
+    await Promise.resolve()
+    fakeWorker2.emit({ type: 'loaded' })
+    await Promise.resolve()
+    await Promise.resolve()
+    const requestId = (fakeWorker2.posted.find((m) => m.type === 'embed')!.payload as { requestId: number }).requestId
+    fakeWorker2.emit({ type: 'result', payload: { requestId, vecs: [[7]] } })
+
+    await expect(retryCall).resolves.toEqual([[7]])
+  })
+
   it('forwards embed progress messages to onProgress', async () => {
     const { embedTexts } = await import('../../src/ai-pipeline/textEmbedder')
 

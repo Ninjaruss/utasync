@@ -36,6 +36,18 @@
   user-select: none;
 }
 
+.furigana-text ruby.reading-audio rt {
+  color: rgba(134, 239, 172, 0.95);
+  text-shadow: 0 0 8px rgba(74, 222, 128, 0.25);
+}
+
+.furigana-text ruby.reading-mismatch rt {
+  color: rgba(251, 191, 36, 0.95);
+  text-shadow: 0 0 8px rgba(251, 191, 36, 0.2);
+  text-decoration: underline dotted rgba(251, 191, 36, 0.55);
+  text-underline-offset: 2px;
+}
+
 /* Sung Japanese — lang + readable rt so dictionary extensions (e.g. Yomitan) scan lyrics. */
 .yomitan-text {
   user-select: text;

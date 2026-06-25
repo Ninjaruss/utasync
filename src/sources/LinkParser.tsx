@@ -24,6 +24,7 @@ import {
   linkSaveStepIndex,
   type LinkSavePhase,
 } from './addSongProgress'
+import { getDefaultSongLanguage } from '../payment/SettingsStore'
 
 type ManualLyricSource = 'paste' | 'subtitle'
 
@@ -109,6 +110,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
       title: title.trim(),
       artist: artist.trim(),
       videoId,
+      sourceLanguage: getDefaultSongLanguage(),
       onStage: (stage) => {
         if (gen !== searchGenRef.current) return
         setLyricSearchStage(stage)
@@ -171,7 +173,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
       }
 
       const primaryLang = finalLines.length ? detectLanguage(finalLines.map((l) => l.original).join('\n')) : 'other'
-      const sourceLanguage: Language = primaryLang === 'ja' ? 'ja' : 'en'
+      const sourceLanguage: Language = primaryLang === 'ja' ? 'ja' : getDefaultSongLanguage()
       const translationLanguage: Language = sourceLanguage === 'ja' ? 'en' : 'ja'
 
       let audioStoredPath: string | undefined
@@ -277,10 +279,14 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
 
       <div className={embedded ? 'flex flex-col flex-1 min-h-0 gap-2 md:gap-2.5' : 'w-full max-w-md space-y-3'}>
         <div className={embedded ? 'shrink-0 space-y-2 md:space-y-2' : 'space-y-3'}>
+        <label htmlFor="link-youtube-url" className="sr-only">YouTube link</label>
         <input
+          id="link-youtube-url"
+          type="url"
           value={url}
           onChange={(e) => { setUrl(e.target.value); setMetaLoaded(false); setThumbnailUrl(null) }}
           placeholder="Paste a YouTube link…"
+          autoComplete="off"
           className={fieldClass}
         />
 
@@ -299,6 +305,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
 
         {!metaLoaded ? (
           <button
+            type="button"
             onClick={loadMetadata}
             disabled={!url.trim() || metadataLoading || !!saveProgress}
             className="w-full py-3 md:py-2.5 bg-cinnabar-accent text-white rounded-xl font-medium disabled:opacity-40"
@@ -402,6 +409,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
         {metaLoaded && (
           <div className={embedded ? 'shrink-0 pt-2' : undefined}>
             <button
+              type="button"
               onClick={handleCreate}
               disabled={!lyricsReady || !!saveProgress || metadataLoading}
               className="w-full py-3 md:py-2.5 bg-cinnabar-accent text-white rounded-xl font-medium disabled:opacity-40"
