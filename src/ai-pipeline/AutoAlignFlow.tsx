@@ -87,6 +87,9 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
   const [vocalSeparation, setVocalSeparation] = useState(vocalSeparationDefault)
   const [demucsReady, setDemucsReady] = useState<boolean | null>(null)
   const [vocalSeparationRun, setVocalSeparationRun] = useState(false)
+  // D2: opt into the slower word-level Whisper pass for more reliable readings on
+  // long songs (short songs already use word mode; lite tier always uses segment).
+  const [accurateReadings, setAccurateReadings] = useState(false)
   const [stage, setStage] = useState<Stage>(() =>
     autoStart && tier !== 'manual' ? 'preparing' : 'idle',
   )
@@ -168,7 +171,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       setLoadDetail('Checking cached model files…')
 
       const durationSec = audioData.length / sampleRate
-      const timestampMode = preferredWhisperTimestampMode(tier, durationSec)
+      const timestampMode = preferredWhisperTimestampMode(tier, durationSec, { accurateReadings })
 
       let sawDownload = false
       const transcriptResult = await transcribeAudio(audioData, sampleRate, {
@@ -380,6 +383,22 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
                 : demucsReady === null
                   ? 'Checking for vocal separation model…'
                   : 'Slower, but helps on busy mixes with loud instrumentals.'}
+            </span>
+          </label>
+        )}
+
+        {tier === 'full' && stage === 'idle' && !autoStart && (
+          <label className="flex items-start gap-3 rounded-xl bg-cinnabar-900/80 p-3 cursor-pointer touch-manipulation">
+            <input
+              type="checkbox"
+              className="mt-1 accent-cinnabar-accent"
+              checked={accurateReadings}
+              onChange={(e) => setAccurateReadings(e.target.checked)}
+            />
+            <span className="text-sm text-white/80 text-pretty">
+              <span className="font-medium text-white">Accurate readings (slower)</span>
+              {' — '}
+              Word-level speech timing for more reliable furigana on long songs.
             </span>
           </label>
         )}
