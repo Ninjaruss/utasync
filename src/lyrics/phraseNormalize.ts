@@ -1,4 +1,4 @@
-import type { SungPhrase, TimedLine, TimedTranscriptWord, PhraseAnchorSource } from '../core/types'
+import type { SungPhrase, TimedLine, TimedTranscriptWord, PhraseAnchorSource, LyricsData } from '../core/types'
 import type { LineAnchorSource } from '../ai-pipeline/contentAligner'
 import { adjacentTranslationsSwapped } from '../ai-pipeline/translationOrder'
 
@@ -157,6 +157,15 @@ export function repairPhraseTranslationOrder(phrases: SungPhrase[]): SungPhrase[
     out[i + 1] = { ...b, translation: swap }
   }
   return out
+}
+
+/** Whether a stored song should derive its phrase layer on open (Phase 5 migration):
+ * an auto-aligned song that has a transcript but no phrases yet. Manual-only songs
+ * (no transcript) and songs that already carry phrases are skipped. */
+export function shouldDerivePhrasesForStoredSong(lyrics: LyricsData): boolean {
+  if (lyrics.phrases?.length) return false
+  if (!lyrics.lines.length) return false
+  return !!lyrics.transcriptWords?.length
 }
 
 /** Derive canonical sung phrases from already-aligned rows + the audio transcript.

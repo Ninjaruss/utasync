@@ -99,6 +99,9 @@ export interface LyricsData {
   enrichmentVersion?: number
   /** Sanitized Whisper word timeline from the last auto-align (furigana verification). */
   transcriptWords?: TimedTranscriptWord[]
+  /** Per-line start anchor from the last content align, kept so the phrase layer can
+   * be re-derived faithfully on open (Phase 5). */
+  anchorSources?: ('lcs' | 'interpolated' | 'interjection')[]
   /** Canonical sung units derived after auto-align (Phase 1). Optional until derived;
    * the UI keeps rendering `lines` by default (D1 hybrid). */
   phrases?: SungPhrase[]

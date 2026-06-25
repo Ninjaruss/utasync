@@ -244,6 +244,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
           alignmentMode: 'auto',
           alignmentConfidence: confidence,
           transcriptWords,
+          anchorSources,
           phrases,
         },
         syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines: aligned } }),

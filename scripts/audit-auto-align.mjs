@@ -2,6 +2,8 @@
  * Audits Whisper-based auto-align timing for a song: decode mp3 -> transcribe
  * (real Whisper model) -> alignLyrics (real contentAligner/proportional logic).
  * Run: npx tsx scripts/audit-auto-align.mjs <name> <mp3-path> <lyrics-file>
+ * Flags: --segment (segment timestamps) · --refresh (re-transcribe) ·
+ *        --dump-words · --phrases (print the derived sung-phrase layer + regroupings)
  * <lyrics-file> is a plain text file, one lyric line per line (blank lines kept
  * as blank lyric lines are dropped — see lineTexts filter below if needed).
  */
@@ -121,6 +123,37 @@ async function main() {
     }
   }
   console.log(`\nMonotonicity issues: ${issues}`)
+
+  if (process.argv.includes('--phrases')) {
+    const { derivePhrases } = await import(
+      pathToFileURL(join(root, 'src/lyrics/phraseNormalize.ts')).href
+    )
+    const { summarizePhraseChanges } = await import(
+      pathToFileURL(join(root, 'src/lyrics/phraseLayout.ts')).href
+    )
+    const { phrases, report } = derivePhrases(lines, clean, anchorSources)
+    console.log(
+      `\nCanonical phrases: ${phrases.length}  (splits: ${report.splits}, merges: ${report.merges}, low-confidence: ${report.lowConfidence})`,
+    )
+    for (let i = 0; i < phrases.length; i++) {
+      const p = phrases[i]
+      const dur = (p.endTime - p.startTime).toFixed(2)
+      console.log(
+        `${String(i + 1).padStart(2)} [${fmt(p.startTime)} - ${fmt(p.endTime)}] (${dur}s) <${p.anchorSource}> rows[${p.sourceLineIndices.join(',')}]`,
+      )
+      console.log(`    ${p.original}`)
+      if (p.translation) console.log(`    = ${p.translation}`)
+    }
+    const changes = summarizePhraseChanges(lines, phrases)
+    if (changes.length) {
+      console.log(`\nProposed row regroupings (${changes.length}):`)
+      for (const c of changes) {
+        console.log(`  [${c.kind}] ${c.before.join(' | ')}  ->  ${c.after.join(' | ')}`)
+      }
+    } else {
+      console.log('\nNo row regroupings — pasted rows already match the sung phrases.')
+    }
+  }
 }
 
 main().catch((e) => {

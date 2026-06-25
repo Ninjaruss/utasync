@@ -11,7 +11,7 @@ import { ABLoopController } from './ABLoop'
 import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase } from '../core/types'
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
 import { projectPhraseTokensToLines } from '../lyrics/phraseProjection'
-import { repairPhraseTranslationOrder } from '../lyrics/phraseNormalize'
+import { repairPhraseTranslationOrder, derivePhrases, shouldDerivePhrasesForStoredSong } from '../lyrics/phraseNormalize'
 import { summarizePhraseChanges, applySungLayout, revertToSheetLayout } from '../lyrics/phraseLayout'
 import { PhraseNormalizePanel } from '../lyrics/PhraseNormalizePanel'
 import { tokenizeJapanese } from '../language/japanese/tokenizer'
@@ -425,6 +425,22 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       setSong(s)
       setLines(s.lyrics.lines)
       setMode('play') // a freshly opened song always lands in Play mode
+
+      // Phase 5 migration: derive the phrase layer once for auto-aligned songs that
+      // predate it (have a transcript but no phrases). Best-effort and non-blocking.
+      let loaded = s
+      if (shouldDerivePhrasesForStoredSong(s.lyrics)) {
+        try {
+          const { phrases } = derivePhrases(s.lyrics.lines, s.lyrics.transcriptWords ?? [], s.lyrics.anchorSources)
+          if (phrases.length && !cancelled) {
+            loaded = { ...s, lyrics: { ...s.lyrics, phrases } }
+            await db.songs.put(loaded)
+            setSong(loaded)
+          }
+        } catch {
+          /* leave phrases underived; nothing else depends on them */
+        }
+      }
       // Opening a different song starts from the top; reopening the same song
       // (e.g. after a trip to Settings) resumes the persisted position.
       const store = usePlayerStore.getState()
@@ -454,7 +470,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       const willAutoAlign = autoAlignOnOpen
         && chooseAutoAlignment(!!s.audioStoredPath, s.lyrics.lines, getDeviceTier(), true, s.lyrics.alignmentMode) !== null
       if (!willAutoAlign) {
-        cancelIdle = deferBackgroundEnrichment(s, s.lyrics.lines, () => cancelled)
+        cancelIdle = deferBackgroundEnrichment(loaded, loaded.lyrics.lines, () => cancelled)
       }
     })
     return () => {
