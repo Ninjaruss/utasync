@@ -4,6 +4,10 @@ export type FuriganaMode = 'none' | 'romaji' | 'furigana'
 export type LyricsLayout = 'stacked' | 'sideBySide'
 export type ClozeDifficulty = 'easy' | 'medium' | 'hard'
 export type DeviceTier = 'full' | 'lite' | 'manual'
+/** Furigana reading source preference. 'dictionary' keeps dictionary readings in
+ * ruby and only surfaces sung alternates in the tooltip; 'sung' promotes detected
+ * sung readings into the ruby whenever the audio supplies one. */
+export type ReadingMode = 'dictionary' | 'sung'
 export type PlaybackState = 'idle' | 'playing' | 'paused' | 'loading'
 
 export type ProviderType = 'youtube' | 'spotify' | 'upload'
@@ -34,6 +38,10 @@ export interface Token {
   readingMismatch?: boolean
   /** True when aligned audio matches the dictionary reading for this token. */
   readingVerified?: boolean
+  /** Confidence (0–1) that an adopted `audioReading` alternate is correct. Set by
+   * the reading reconciler; only alternates at/above the high threshold (or when
+   * the user prefers sung readings) are promoted into the ruby. */
+  readingConfidence?: number
 }
 
 export interface GrammarAnnotation {
@@ -118,6 +126,8 @@ export interface UserSettings {
   defaultSongLanguage: Language
   /** Isolate vocals with Demucs before Whisper (full-tier only, slower). */
   vocalSeparationEnabled: boolean
+  /** Whether detected sung readings are promoted into furigana ruby (D3). */
+  readingMode: ReadingMode
 }
 
 export interface ABLoop {

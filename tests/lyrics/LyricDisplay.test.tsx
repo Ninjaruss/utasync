@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { LyricDisplay } from '../../src/lyrics/LyricDisplay'
 import { useLyricsStore } from '../../src/lyrics/LyricsStore'
+import { useSettingsStore } from '../../src/payment/SettingsStore'
 import type { TimedLine } from '../../src/core/types'
 
 const setStore = (lines: TimedLine[], patch: Partial<ReturnType<typeof useLyricsStore.getState>> = {}) => {
@@ -70,6 +71,7 @@ describe('word-pair coloring', () => {
 
   beforeEach(() => {
     useLyricsStore.setState({ lyricsLayout: 'sideBySide' })
+    useSettingsStore.setState({ readingMode: 'dictionary' })
   })
 
   it('colors a matched token and its translation word the same in side-by-side mode', () => {
@@ -118,22 +120,60 @@ describe('word-pair coloring', () => {
     expect(screen.getByText('きみ')).toBeTruthy()
   })
 
-  it('shows audio-adopted furigana and mismatch styling', () => {
+  it('keeps the dictionary reading in the ruby for a low-confidence sung alternate (戦争 fix)', () => {
     const line: TimedLine = {
       startTime: 0,
       endTime: 2,
-      original: '明日色',
+      original: '戦争',
       translation: '',
       tokens: [
-        { surface: '明日', reading: 'アシタ', audioReading: 'アス', pos: '名詞', startIndex: 0, endIndex: 2 },
+        // Noisy segment-mode alternate: present but below the ruby threshold.
+        { surface: '戦争', reading: 'センソウ', audioReading: 'ソレ', readingConfidence: 0.35, pos: '名詞', startIndex: 0, endIndex: 2 },
+      ],
+    }
+    useLyricsStore.setState({ furiganaMode: 'furigana', lines: [line], activeLine: 0 })
+    render(<LyricDisplay onLineClick={vi.fn()} />)
+    // Dictionary reading wins the ruby; the sung form is not promoted.
+    expect(screen.getByText('せんそう')).toBeTruthy()
+    expect(screen.queryByText('それ')).toBeNull()
+    expect(document.querySelector('ruby.reading-audio')).toBeNull()
+    // The sung alternate is still surfaced in the tooltip.
+    expect(document.querySelector('ruby')?.getAttribute('title')).toContain('それ')
+  })
+
+  it('promotes a high-confidence sung alternate into the ruby with mismatch styling', () => {
+    const line: TimedLine = {
+      startTime: 0,
+      endTime: 2,
+      original: '理由色',
+      translation: '',
+      tokens: [
+        { surface: '理由', reading: 'リユウ', audioReading: 'ワケ', readingConfidence: 0.85, pos: '名詞', startIndex: 0, endIndex: 2 },
         { surface: '色', reading: 'イロ', readingMismatch: true, pos: '名詞', startIndex: 2, endIndex: 3 },
+      ],
+    }
+    useLyricsStore.setState({ furiganaMode: 'furigana', lines: [line], activeLine: 0 })
+    render(<LyricDisplay onLineClick={vi.fn()} />)
+    expect(screen.getByText('わけ')).toBeTruthy()
+    expect(document.querySelector('ruby.reading-audio')).toBeTruthy()
+    expect(document.querySelector('ruby.reading-mismatch')).toBeTruthy()
+  })
+
+  it('promotes a low-confidence sung alternate into the ruby when readingMode is sung', () => {
+    useSettingsStore.setState({ readingMode: 'sung' })
+    const line: TimedLine = {
+      startTime: 0,
+      endTime: 2,
+      original: '明日',
+      translation: '',
+      tokens: [
+        { surface: '明日', reading: 'アシタ', audioReading: 'アス', readingConfidence: 0.4, pos: '名詞', startIndex: 0, endIndex: 2 },
       ],
     }
     useLyricsStore.setState({ furiganaMode: 'furigana', lines: [line], activeLine: 0 })
     render(<LyricDisplay onLineClick={vi.fn()} />)
     expect(screen.getByText('あす')).toBeTruthy()
     expect(document.querySelector('ruby.reading-audio')).toBeTruthy()
-    expect(document.querySelector('ruby.reading-mismatch')).toBeTruthy()
   })
 
   it('highlights a matched word pair on hover in side-by-side mode', async () => {

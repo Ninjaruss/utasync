@@ -5,6 +5,78 @@ import { normalizeForMatch } from './contentAligner'
 
 const KANJI_RE = /[㐀-鿿]/
 
+/** Confidence at/above which an adopted sung reading is promoted into the ruby. */
+export const HIGH_READING_CONFIDENCE = 0.8
+
+/** A single transcript word longer than this is treated as a coarse segment chunk
+ * (segment-mode Whisper) whose proportional slicing is too unreliable to adopt a
+ * sung reading from — this is what produced 戦争→wrong-kana false positives. */
+const SEGMENT_WORD_MAX_SEC = 8
+
+/** Transcript words overlapping a token's [start, end] window. */
+function coveringWords(
+  words: TimedTranscriptWord[],
+  tokenStart: number,
+  tokenEnd: number,
+): TimedTranscriptWord[] {
+  return words.filter((w) => w.endTime > tokenStart && w.startTime < tokenEnd)
+}
+
+/**
+ * True when the transcript words covering a token window are fine-grained enough
+ * to trust a sliced sung reading. A window covered only by long (>8s) segment
+ * chunks with no shorter word-level sibling is unreliable — skip adoption there.
+ */
+export function isReliableTranscriptWindow(
+  words: TimedTranscriptWord[],
+  tokenStart: number,
+  tokenEnd: number,
+): boolean {
+  const covering = coveringWords(words, tokenStart, tokenEnd)
+  if (covering.length === 0) return false
+  return covering.some((w) => w.endTime - w.startTime <= SEGMENT_WORD_MAX_SEC)
+}
+
+/**
+ * Confidence (0–1) that a sliced sung reading is a trustworthy alternate. Combines
+ * how substantial the kana evidence is with how word-level the covering transcript
+ * is — short word-level chunks score high enough to reach the ruby threshold.
+ */
+export function readingAdoptionConfidence(
+  sung: string,
+  token: Token,
+  covering: TimedTranscriptWord[],
+): number {
+  const morae = normalizeKanaForCompare(sung).length
+  if (morae < 2) return 0
+  const lenScore = Math.min(1, morae / Math.max(2, tokenMoraWeight(token)))
+  const durs = covering.map((w) => w.endTime - w.startTime)
+  const granularity = durs.length === 0
+    ? 0
+    : durs.every((d) => d <= 3)
+      ? 1
+      : durs.some((d) => d <= SEGMENT_WORD_MAX_SEC)
+        ? 0.6
+        : 0.2
+  const score = 0.5 * lenScore + 0.5 * granularity
+  return Math.round(Math.max(0, Math.min(1, score)) * 100) / 100
+}
+
+/** Longest-common-subsequence length of two strings (glyph similarity gate). */
+function lcsLength(a: string, b: string): number {
+  if (!a || !b) return 0
+  const prev = new Array(b.length + 1).fill(0)
+  for (let i = 1; i <= a.length; i++) {
+    let diag = 0
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = prev[j]
+      prev[j] = a[i - 1] === b[j - 1] ? diag + 1 : Math.max(prev[j], prev[j - 1])
+      diag = tmp
+    }
+  }
+  return prev[b.length]
+}
+
 /** Hiragana/katakana morae used when comparing dictionary vs sung readings. */
 export function normalizeKanaForCompare(text: string): string {
   let out = ''
@@ -152,6 +224,27 @@ export function wordsInLineWindow(
   return words.filter((w) => w.endTime > start && w.startTime < end)
 }
 
+/** Minimum overlap of the covering transcript word(s) with a token window before a
+ * kanji-substitution reading may be adopted from them. */
+const KANJI_ADOPT_MIN_OVERLAP = 0.6
+/** Minimum normalized glyph-LCS similarity between the sung glyph slice and the
+ * lyric surface before a substitution reading is trusted. */
+const KANJI_ADOPT_MIN_GLYPH_LCS = 0.34
+
+/** Fraction of a token window [start, end] covered by transcript words. */
+function timingOverlapFraction(
+  covering: TimedTranscriptWord[],
+  tokenStart: number,
+  tokenEnd: number,
+): number {
+  const span = Math.max(0.001, tokenEnd - tokenStart)
+  let overlap = 0
+  for (const w of covering) {
+    overlap += Math.max(0, Math.min(w.endTime, tokenEnd) - Math.max(w.startTime, tokenStart))
+  }
+  return Math.min(1, overlap / span)
+}
+
 async function adoptReadingFromTranscriptKanji(
   token: Token,
   glyphSlice: string,
@@ -159,6 +252,10 @@ async function adoptReadingFromTranscriptKanji(
   if (!hasKanji(token.surface) || !token.reading || !glyphSlice) return null
   const kanji = [...glyphSlice].filter((ch) => KANJI_RE.test(ch)).join('')
   if (!kanji || kanji === token.surface) return null
+  // Glyph-similarity gate: the sung slice must resemble the lyric surface enough
+  // that we believe it covers this token (not a neighbour bleeding in).
+  const sim = lcsLength(kanji, token.surface) / Math.max(kanji.length, token.surface.length)
+  if (sim < KANJI_ADOPT_MIN_GLYPH_LCS) return null
   const analyzed = await tokenizeJapanese(kanji)
   const match = analyzed.find((t) => t.surface === kanji) ?? analyzed[0]
   if (!match?.reading) return null
@@ -195,14 +292,21 @@ export function reconcileTokenReadings(
     const expected = token.reading
     if (capped) {
       if (readingsEquivalent(expected, capped)) {
-        return { ...token, readingVerified: true, readingMismatch: false }
+        return { ...token, readingVerified: true, readingMismatch: false, readingConfidence: 1 }
       }
-      if (shouldAdoptSungReading(expected, capped)) {
+      // Adopt the alternate but stamp a confidence that reflects how trustworthy the
+      // slice is. Coarse segment-mode windows (>8s words, no word-level siblings)
+      // and thin mora evidence score low, so the display keeps the dictionary
+      // reading in the ruby (the 戦争 fix) while still surfacing the sung form in a
+      // tooltip; word-level evidence scores high enough to reach the ruby (わけ/理由).
+      const confidence = readingAdoptionConfidence(capped, token, coveringWords(windowWords, tokenStart, tokenEnd))
+      if (confidence > 0 && shouldAdoptSungReading(expected, capped)) {
         return {
           ...token,
           audioReading: hiraganaToKatakana(capped),
           readingVerified: false,
           readingMismatch: false,
+          readingConfidence: confidence,
         }
       }
     }
@@ -247,6 +351,12 @@ export async function reconcileTokenReadingsAsync(
       continue
     }
 
+    const covering = coveringWords(windowWords, tokenStart, tokenEnd)
+    const overlap = timingOverlapFraction(covering, tokenStart, tokenEnd)
+    if (overlap < KANJI_ADOPT_MIN_OVERLAP) {
+      out.push(token)
+      continue
+    }
     const glyphSlice = sungGlyphsInWindow(windowWords, tokenStart, tokenEnd, lineStart, lineEnd)
     const adopted = await adoptReadingFromTranscriptKanji(token, glyphSlice)
     if (adopted) {
@@ -255,6 +365,7 @@ export async function reconcileTokenReadingsAsync(
         audioReading: adopted,
         readingMismatch: false,
         readingVerified: false,
+        readingConfidence: Math.round((0.4 + 0.5 * overlap) * 100) / 100,
       })
     } else {
       out.push(token)

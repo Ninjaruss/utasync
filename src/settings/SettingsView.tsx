@@ -29,7 +29,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted }: Props
   const [cacheMessage, setCacheMessage] = useState<string | null>(null)
   const [clearingCache, setClearingCache] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  const { isPro, trialSongsClaimed, setLicense, clearLicense, defaultSongLanguage, setDefaultSongLanguage, vocalSeparationEnabled, setVocalSeparationEnabled } = useSettingsStore()
+  const { isPro, trialSongsClaimed, setLicense, clearLicense, defaultSongLanguage, setDefaultSongLanguage, vocalSeparationEnabled, setVocalSeparationEnabled, readingMode, setReadingMode } = useSettingsStore()
 
   const refreshStorage = async (library: Song[]) => {
     setStorage(await estimateStorageBreakdown())
@@ -152,6 +152,27 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted }: Props
           </button>
         </div>
       )}
+
+      <div className="bg-cinnabar-900 rounded-xl p-4 space-y-2">
+        <p className="text-sm font-medium">Furigana</p>
+        <p className="text-xs text-white/45 text-pretty">
+          Dictionary readings stay in the furigana by default; detected sung readings show in a tooltip. Turn this on to show sung readings in the furigana when detected.
+        </p>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={readingMode === 'sung'}
+          onClick={() => setReadingMode(readingMode === 'sung' ? 'dictionary' : 'sung')}
+          className={[
+            'w-full min-h-11 rounded-lg text-sm font-medium touch-manipulation transition-[color,background-color] duration-150 ease-out text-left px-4',
+            readingMode === 'sung'
+              ? 'bg-cinnabar-accent text-white'
+              : 'bg-cinnabar-800 text-white/50 hover:text-white/80',
+          ].join(' ')}
+        >
+          {readingMode === 'sung' ? 'Show sung readings in furigana' : 'Show dictionary readings in furigana'}
+        </button>
+      </div>
 
       {storage && (
         <div className="bg-cinnabar-900 rounded-xl p-4 space-y-2">
