@@ -40,9 +40,6 @@ function isTranslationHighlighted(wordIndex: number, tokens: Token[], hovered: H
   return false
 }
 
-/** Confidence at/above which a sung alternate is promoted into the ruby (mirrors
- * HIGH_READING_CONFIDENCE in readingReconciler). */
-const HIGH_READING_CONFIDENCE = 0.8
 /** Below this an adopted sung reading is flagged "uncertain" in the tooltip. */
 const UNCERTAIN_READING_CONFIDENCE = 0.5
 
@@ -64,7 +61,10 @@ function resolveReading(token: Token, readingMode: ReadingMode): ResolvedReading
   const dict = token.reading ? katakanaToHiragana(token.reading) : null
   const sung = token.audioReading ? katakanaToHiragana(token.audioReading) : null
   const conf = token.readingConfidence ?? 0
-  const showSung = !!sung && (readingMode === 'sung' || conf >= HIGH_READING_CONFIDENCE || token.readingVerified === true)
+  // Correct standard readings: the dictionary reading owns the ruby. Detected sung
+  // alternates surface only in the tooltip — they are too unreliable (mis-hearings,
+  // proportional slices) to override the ruby — unless the user opts into sung mode.
+  const showSung = !!sung && readingMode === 'sung'
 
   const chosen = showSung ? sung : dict
   const ruby = chosen && chosen !== token.surface ? chosen : null

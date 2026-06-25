@@ -141,7 +141,7 @@ describe('word-pair coloring', () => {
     expect(document.querySelector('ruby')?.getAttribute('title')).toContain('それ')
   })
 
-  it('promotes a high-confidence sung alternate into the ruby with mismatch styling', () => {
+  it('keeps the dictionary reading in the ruby by default, sung alternate in the tooltip', () => {
     const line: TimedLine = {
       startTime: 0,
       endTime: 2,
@@ -154,9 +154,10 @@ describe('word-pair coloring', () => {
     }
     useLyricsStore.setState({ furiganaMode: 'furigana', lines: [line], activeLine: 0 })
     render(<LyricDisplay onLineClick={vi.fn()} />)
-    expect(screen.getByText('わけ')).toBeTruthy()
-    expect(document.querySelector('ruby.reading-audio')).toBeTruthy()
-    expect(document.querySelector('ruby.reading-mismatch')).toBeTruthy()
+    // Even a high-confidence sung alternate stays out of the ruby in dictionary mode.
+    expect(screen.getByText('りゆう')).toBeTruthy()
+    expect(screen.queryByText('わけ')).toBeNull()
+    expect(document.querySelector('ruby')?.getAttribute('title')).toContain('わけ')
   })
 
   it('promotes a low-confidence sung alternate into the ruby when readingMode is sung', () => {

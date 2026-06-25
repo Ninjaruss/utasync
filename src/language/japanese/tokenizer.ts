@@ -1,5 +1,6 @@
 import kuromoji, { type Tokenizer } from 'kuromoji'
 import type { Token } from '../../core/types'
+import { applyReadingCorrections } from './readingCorrections'
 
 let builder: Tokenizer | null = null
 
@@ -18,7 +19,7 @@ export async function tokenizeJapanese(text: string): Promise<Token[]> {
   const raw = tokenizer.tokenize(text)
 
   let index = 0
-  return raw.map((t): Token => {
+  const tokens = raw.map((t): Token => {
     const startIndex = index
     index += t.surface_form.length
     return {
@@ -30,4 +31,5 @@ export async function tokenizeJapanese(text: string): Promise<Token[]> {
       endIndex: index,
     }
   })
+  return applyReadingCorrections(tokens)
 }
