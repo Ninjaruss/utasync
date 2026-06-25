@@ -96,7 +96,10 @@ describe('reconcileTokenReadings', () => {
     expect(out[0].audioReading).toBeUndefined()
   })
 
-  it('adopts わけ from a mixed kanji/kana Whisper segment for 理由', () => {
+  it('keeps the dictionary reading when only a phrase-level segment covers 理由', () => {
+    // The transcript groups the whole sung line into one chunk; slicing it per
+    // token is unreliable, so 理由 must keep its dictionary reading rather than
+    // adopt a proportional fragment (the source of 車→なは-style garbage).
     const sadLine: TimedLine = {
       startTime: 177,
       endTime: 183,
@@ -110,8 +113,27 @@ describe('reconcileTokenReadings', () => {
       endTime: 186.5,
     }]
     const out = reconcileTokenReadings(tokens, sadLine, words)
-    expect(out[0].audioReading).toBe('ワケ')
-    expect(out[0].readingMismatch).toBeFalsy()
+    expect(out[0].audioReading).toBeUndefined()
+  })
+})
+
+describe('reconcileTokenReadings — kanji-spelled transcript', () => {
+  it('does not adopt okurigana/particles as a reading when the transcript spells the token in kanji', () => {
+    // Whisper writes 車 as the kanji, so the kana in 車\'s sliced window are the
+    // surrounding particles (…さ・な・車・は…), not its reading — keep くるま.
+    const line: TimedLine = { startTime: 0, endTime: 4, original: '小さな車は君を', translation: '' }
+    const tokens = [
+      tok('小さな', 'チイサナ', 0),
+      tok('車', 'クルマ', 3),
+      tok('は', 'ハ', 4),
+      tok('君', 'キミ', 5),
+      tok('を', 'ヲ', 6),
+    ]
+    const words = [{ word: '小さな車は君を', startTime: 0, endTime: 4 }]
+    const out = reconcileTokenReadings(tokens, line, words)
+    const kuruma = out.find((t) => t.surface === '車')
+    expect(kuruma?.audioReading).toBeUndefined()
+    expect(kuruma?.readingMismatch).toBeFalsy()
   })
 })
 
@@ -147,6 +169,20 @@ describe('readingAdoptionConfidence', () => {
   it('returns 0 for sub-mora evidence', () => {
     const words = [{ word: 'ろ', startTime: 0, endTime: 0.3 }]
     expect(readingAdoptionConfidence('ろ', token, words)).toBe(0)
+  })
+
+  it('rejects a short-duration phrase chunk that spans many tokens', () => {
+    // Real segment/word transcripts group a whole sung phrase into one ~5s chunk;
+    // proportional slicing then yields garbage kana. Such a chunk is far longer
+    // than the token, so it must not be trusted regardless of its short duration.
+    const kuruma = tok('車', 'クルマ', 0)
+    const phrase = [{ word: '赤い赤い小さな車は君を乗せて', startTime: 0, endTime: 5 }]
+    expect(readingAdoptionConfidence('なは', kuruma, phrase)).toBe(0)
+  })
+
+  it('still trusts a token-sized word-level chunk', () => {
+    const words = [{ word: 'わけ', startTime: 0, endTime: 0.8 }]
+    expect(readingAdoptionConfidence('わけ', token, words)).toBeGreaterThanOrEqual(HIGH_READING_CONFIDENCE)
   })
 })
 

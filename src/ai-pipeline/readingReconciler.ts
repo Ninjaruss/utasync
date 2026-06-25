@@ -42,6 +42,10 @@ export function isReliableTranscriptWindow(
  * how substantial the kana evidence is with how word-level the covering transcript
  * is — short word-level chunks score high enough to reach the ruby threshold.
  */
+/** A covering chunk may be at most this many times the token's morae before it is
+ * treated as a multi-token phrase whose proportional kana slice can't be trusted. */
+const PHRASE_SLICE_MORA_RATIO = 2.5
+
 export function readingAdoptionConfidence(
   sung: string,
   token: Token,
@@ -49,6 +53,14 @@ export function readingAdoptionConfidence(
 ): number {
   const morae = normalizeKanaForCompare(sung).length
   if (morae < 2) return 0
+  // A trustworthy sung reading comes from a transcript word about this token's
+  // size. Real transcripts (segment and coarse word mode) group whole sung phrases
+  // into one short chunk; slicing that proportionally yields kana from neighbouring
+  // tokens. Reject when the covering chunk is far longer than the token, so the
+  // dictionary reading stays in the ruby (the 車→なは / 向こう→くに garbage fix).
+  const tokenMorae = Math.max(2, tokenMoraWeight(token))
+  const coveringMorae = covering.reduce((sum, w) => sum + normalizeKanaForCompare(w.word).length, 0)
+  if (coveringMorae > tokenMorae * PHRASE_SLICE_MORA_RATIO) return 0
   const lenScore = Math.min(1, morae / Math.max(2, tokenMoraWeight(token)))
   const durs = covering.map((w) => w.endTime - w.startTime)
   const granularity = durs.length === 0
@@ -263,6 +275,13 @@ async function adoptReadingFromTranscriptKanji(
   return match.reading
 }
 
+/** True when the transcript text contains the token's kanji run — i.e. Whisper
+ * wrote the standard word, so the dictionary reading (not a kana slice) applies. */
+function transcriptKanjiCovers(windowText: string, surface: string): boolean {
+  const kanji = [...surface].filter((ch) => KANJI_RE.test(ch)).join('')
+  return kanji.length > 0 && windowText.includes(kanji)
+}
+
 export function reconcileTokenReadings(
   tokens: Token[],
   line: TimedLine,
@@ -271,6 +290,7 @@ export function reconcileTokenReadings(
   if (tokens.length === 0) return tokens
   const windowWords = wordsInLineWindow(transcriptWords, line)
   if (windowWords.length === 0) return tokens
+  const windowText = windowWords.map((w) => w.word).join('')
 
   const lineStart = line.startTime
   const lineEnd = Math.max(line.endTime, lineStart + 0.01)
@@ -286,6 +306,12 @@ export function reconcileTokenReadings(
     cursor = tokenEnd
 
     if (!hasKanji(token.surface) || !token.reading) return token
+
+    // If Whisper spelled this token with its own kanji, the transcript recognized
+    // the standard word — its dictionary reading applies. The kana sliced from that
+    // window are surrounding okurigana/particles, not a reading, so never adopt
+    // them (the 車→なは / 見え→はえ / 角→この garbage fix).
+    if (transcriptKanjiCovers(windowText, token.surface)) return token
 
     const sung = sungKanaInWindow(windowWords, tokenStart, tokenEnd, lineStart, lineEnd)
     const capped = sungMoraCap(sung, token)
