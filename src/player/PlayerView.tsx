@@ -8,7 +8,8 @@ import { db } from '../core/db/schema'
 import { YouTubePlayer, type YouTubePlayerHandle } from './YouTubePlayer'
 import { extractVideoId } from '../sources/youtube'
 import { ABLoopController } from './ABLoop'
-import type { Song, TimedLine, Language, TimedTranscriptWord } from '../core/types'
+import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase } from '../core/types'
+import { enrichAndProjectPhrases } from '../lyrics/phraseEnrichment'
 import { tokenizeJapanese } from '../language/japanese/tokenizer'
 import { toRomaji, toFurigana } from '../language/japanese/phonetics'
 import { detectGrammarPatterns } from '../language/japanese/grammar'
@@ -92,6 +93,30 @@ async function enrichLines(
     if (i + ENRICH_LINES_BATCH < lines.length) await yieldToMainThread(16)
   }
   return enriched
+}
+
+/**
+ * Phase 2: reconcile readings on the canonical sung phrases (which see the correct
+ * transcript window even when the paste split a sung breath across rows), then
+ * project the phrase tokens back onto the display rows. Grammar annotations are
+ * recomputed from the projected tokens so their indices stay valid. Passthrough
+ * rows resolve identically to the line path; only merged/split rows change.
+ */
+async function enrichLinesViaPhrases(
+  lines: TimedLine[],
+  phrases: SungPhrase[],
+  transcriptWords: TimedTranscriptWord[],
+): Promise<TimedLine[]> {
+  const { lines: projected } = await enrichAndProjectPhrases(lines, phrases, transcriptWords, {
+    tokenizePhrase: tokenizeJapanese,
+    reconcilePhraseReadings: async (phrase, words) =>
+      (await reconcileLineReadingsAsync(phrase, words)).tokens ?? [],
+  })
+  return projected.map((line) =>
+    line.tokens?.length
+      ? { ...line, grammarAnnotations: detectGrammarPatterns(line.original, line.tokens) }
+      : line,
+  )
 }
 
 /** Max texts per embed call — limits peak WebGPU / WASM memory per batch. */
@@ -286,6 +311,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     sourceLanguage: Language,
     enrichmentVersion?: number,
     transcriptWords?: TimedTranscriptWord[],
+    phrases?: SungPhrase[],
   ) => {
     let enriched = lines
     if (linesNeedEnrichment(lines, enrichmentVersion)) {
@@ -297,6 +323,15 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       }
     } else if (transcriptWords?.length && sourceLanguage === 'ja') {
       enriched = await reconcileLinesReadingsAsync(lines, transcriptWords)
+    }
+    // Phase 2: prefer phrase-level reconciliation when a canonical phrase layer
+    // exists; falls back silently to the line-based readings above on any error.
+    if (phrases?.length && transcriptWords?.length && sourceLanguage === 'ja') {
+      try {
+        enriched = await enrichLinesViaPhrases(enriched, phrases, transcriptWords)
+      } catch {
+        /* keep line-based enrichment */
+      }
     }
     return runWordColoring(enriched)
   }
@@ -340,6 +375,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           base.lyrics.sourceLanguage,
           base.lyrics.enrichmentVersion,
           base.lyrics.transcriptWords,
+          base.lyrics.phrases,
         )
           .then(persistIfProgress)
       } else {
@@ -566,6 +602,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         updated.lyrics.sourceLanguage,
         updated.lyrics.enrichmentVersion,
         updated.lyrics.transcriptWords,
+        updated.lyrics.phrases,
       )
         .then((enriched) => {
           if (enrichmentMadeProgress(before, enriched, updated.lyrics.enrichmentVersion)) {
