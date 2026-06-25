@@ -111,6 +111,9 @@ const GLOSS_ALIGNED_FUNCTION_WORDS = new Set([
   'after', 'about', 'up', 'not',
   'if', 'when', 'even', 'still', 'from', 'until', 'because', 'since',
   'want', 'keep', 'without',
+  // Lexical "have" (持つ) — only pairs when a JA token actually glosses to it, so
+  // auxiliary uses ("have ached") stay unpaired absent a 持つ-style gloss.
+  'have', 'has', 'had',
 ])
 
 export function isAlignableEnglishWord(word: string): boolean {

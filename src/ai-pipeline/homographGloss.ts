@@ -25,7 +25,36 @@ export const HOMOGRAPH_RULES: HomographRule[] = [
   { surface: /分かち|分かつ|分か/, romaji: /^waka/, lemmaKeys: ['wakachiau', 'wakatsu', 'wakaru'] },
   { surface: /離/, romaji: /^hana/, lemmaKeys: ['hanareru', 'hanare'] },
   { surface: /もが/, romaji: /^moga/, lemmaKeys: ['mogaku', 'mogaku'] },
+  // Surface-gated so homophones keep their own sense (鳴る=ring, ずれ=gap, も=also).
+  { surface: /笑/, romaji: /^wara/, lemmaKeys: ['warau'] },
+  { surface: /連れ/, romaji: /^(?:tsu|zu)re/, lemmaKeys: ['tsureru'] },
+  { surface: /持/, romaji: /^mo/, lemmaKeys: ['motsu'] },
 ]
+
+/** Direct surface→gloss override for homophone-conflated lemmas where the romaji
+ * key alone resolves to the wrong sense (e.g. JMdict naru→"bear"). Surface-gated by
+ * the kanji so homophones keep their own sense (鳴る=ring, 生る=bear). */
+export interface SurfaceGlossRule {
+  surface: RegExp
+  romaji?: RegExp
+  gloss: string
+}
+
+export const SURFACE_GLOSS_RULES: SurfaceGlossRule[] = [
+  { surface: /成/, romaji: /^nar/, gloss: 'become' },
+]
+
+export function surfaceDirectGloss(surface: string | undefined, romaji: string): string | undefined {
+  const s = surface?.trim() ?? ''
+  const r = romaji.trim().toLowerCase()
+  if (!s || !r) return undefined
+  for (const rule of SURFACE_GLOSS_RULES) {
+    if (!rule.surface.test(s)) continue
+    if (rule.romaji && !rule.romaji.test(r)) continue
+    return rule.gloss
+  }
+  return undefined
+}
 
 export interface GlossResolver {
   glossForKey: (lemmaKey: string) => string | undefined

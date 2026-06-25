@@ -6,7 +6,7 @@
 import { morphGlossMatches, type GlossSource } from './morphGloss'
 import { dictKeysMatchingStem, inflectionStemCandidates, stemLookupMatchesTarget } from './stemLookup'
 import { englishGlossVariants, normalizeLemmaGloss } from './glossNormalize'
-import { homographLemmaGloss, homographLemmaKeys } from './homographGloss'
+import { homographLemmaGloss, homographLemmaKeys, surfaceDirectGloss } from './homographGloss'
 import { runWhenIdle } from '../core/idle'
 import {
   getJmdictKanjiRomaji,
@@ -75,6 +75,11 @@ export const ROMAJI_GLOSS: Record<string, string> = {
   asa: 'morning',
   iwa: 'rock',
   korogaru: 'roll',
+  // Lemmas where JMdict's single sense is wrong/secondary for lyrics (become/smile/
+  // take/have). Reached surface-gated via HOMOGRAPH_RULES so homophones are safe.
+  warau: 'smile',
+  tsureru: 'take',
+  motsu: 'have',
   nurikae: 'repaint',
   kimi: 'you',
   kitto: 'surely',
@@ -434,6 +439,9 @@ function dictionaryGlossForKey(key: string): string | undefined {
 export function lemmaGloss(romaji: string, surface?: string): string | undefined {
   const r = romaji.trim().toLowerCase()
   if (!r) return undefined
+
+  const surfaceGloss = surfaceDirectGloss(surface, r)
+  if (surfaceGloss) return surfaceGloss
 
   const homograph = homographLemmaGloss(surface, r, { glossForKey: dictionaryGlossForKey })
   if (homograph) return homograph

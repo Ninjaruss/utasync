@@ -123,6 +123,15 @@ async function main() {
   )
   const { embedTexts } = await import(pathToFileURL(join(root, 'scripts/lib/nodeEmbedder.mjs')).href)
 
+  // The app fetches /jmdict-gloss.json before word pairing; node can't fetch a
+  // root-relative URL, so inject the real artifact to match real-app gloss coverage.
+  const jm = await import(pathToFileURL(join(root, 'src/ai-pipeline/jmdictGloss.ts')).href)
+  const lg = await import(pathToFileURL(join(root, 'src/ai-pipeline/lyricGloss.ts')).href)
+  const { readFileSync } = await import('node:fs')
+  jm.setJmdictGlossForTests(JSON.parse(readFileSync(join(root, 'public/jmdict-gloss.json'), 'utf8')))
+  await lg.ensureGlossLexicon()
+  console.log(`JMdict gloss loaded: ${jm.jmdictGlossLoaded()}\n`)
+
   const dictPath = join(root, 'public/dict')
   const tokenizer = await new Promise((resolve, reject) => {
     kuromoji.builder({ dicPath: dictPath }).build((err, t) => (err ? reject(err) : resolve(t)))
