@@ -29,12 +29,18 @@ describe('PlayerView speed control', () => {
   it('shows the speed slider in the speed section', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
+    const section = screen.getByLabelText('Playback speed')
+    const toggle = section.querySelector('button[aria-expanded]')
+    if (toggle?.getAttribute('aria-expanded') === 'false') fireEvent.click(toggle)
     expect(screen.getByRole('slider', { name: /playback speed/i })).toBeTruthy()
   })
 
   it('applies learner speed presets', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
+    const section = screen.getByLabelText('Playback speed')
+    const toggle = section.querySelector('button[aria-expanded]')
+    if (toggle?.getAttribute('aria-expanded') === 'false') fireEvent.click(toggle)
     fireEvent.click(screen.getByRole('button', { name: /slow, 75 percent speed/i }))
     expect(usePlayerStore.getState().speed).toBe(0.75)
     fireEvent.click(screen.getByRole('button', { name: /slower, 60 percent speed/i }))

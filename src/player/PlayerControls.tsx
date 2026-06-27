@@ -183,6 +183,7 @@ function ABLoopControls({
   onToggleArm,
   onClearAB,
   compact = false,
+  showIdleHints = true,
 }: {
   abLoop: ABLoop
   armingAB: 'a' | 'b' | null
@@ -190,6 +191,7 @@ function ABLoopControls({
   onToggleArm: (which: 'a' | 'b') => void
   onClearAB: () => void
   compact?: boolean
+  showIdleHints?: boolean
 }) {
   const chip = compact ? practiceChipBtn : toolbarChipBtn
   const hintClass = [
@@ -260,17 +262,17 @@ function ABLoopControls({
           {armingAB === 'b' && ' — same line loops to its end'}
         </p>
       )}
-      {!armingAB && !abLoopError && !hasAny && (
+      {!armingAB && !abLoopError && !hasAny && showIdleHints && (
         <p className={[hintClass, 'text-white/35'].join(' ')}>
           Tap Set A or Set B, then tap a lyric line to mark the loop.
         </p>
       )}
-      {!armingAB && !abLoopError && onlyA && (
+      {!armingAB && !abLoopError && onlyA && showIdleHints && (
         <p className={[hintClass, 'text-white/35'].join(' ')}>
           Point A is set. Tap Set B, then tap the ending lyric line.
         </p>
       )}
-      {!armingAB && !abLoopError && onlyB && (
+      {!armingAB && !abLoopError && onlyB && showIdleHints && (
         <p className={[hintClass, 'text-white/35'].join(' ')}>
           Point B is set. Tap Set A, then tap the starting lyric line.
         </p>
@@ -324,38 +326,65 @@ function CollapsibleABLoopSection({
   ].join(' ')
 
   if (isDesktop) {
+    const aLabel = abLoop.a !== null ? formatTime(abLoop.a) : null
+    const bLabel = abLoop.b !== null ? formatTime(abLoop.b) : null
+    const collapsedSummary = aLabel && bLabel
+      ? `${aLabel} → ${bLabel}`
+      : aLabel
+        ? `From ${aLabel}`
+        : bLabel
+          ? `Until ${bLabel}`
+          : 'Tap to set'
+
     return (
-      <section className={[shellClass, 'p-2.5'].join(' ')} aria-label="A-B Loop">
-        <div className="flex items-center justify-between mb-1.5 gap-2">
-          <div className="min-w-0">
-            <p className={toolbarSectionLabel}>Loop section</p>
-            {!abActive && (
-              <p className="text-[10px] text-white/30 mt-0.5 text-pretty">Repeat a part by marking start and end on lyrics</p>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            {canSave && onSave && (
-              <button
-                type="button"
-                onClick={onSave}
-                className={[practiceChipBtn, toolbarChipBtnActive, 'py-0.5 text-[10px]'].join(' ')}
-                aria-label="Save current loop"
-              >
-                Save ↓
-              </button>
-            )}
-            {abLooping && !playlistActive && (
-              <span className="text-[10px] uppercase tracking-wide text-cinnabar-accent font-medium">Looping</span>
-            )}
-          </div>
+      <section className={[shellClass, 'p-2'].join(' ')} aria-label="A-B Loop">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            className="flex-1 flex items-center justify-between gap-2 min-h-9 touch-manipulation"
+          >
+            <span className="flex items-center gap-2 min-w-0">
+              <span className="text-[10px] uppercase tracking-wide text-white/35 shrink-0">Loop</span>
+              {!expanded && (
+                <span className={[
+                  'text-[11px] truncate tabular-nums',
+                  abActive ? 'text-white/60' : 'text-white/35',
+                ].join(' ')}>
+                  {collapsedSummary}
+                </span>
+              )}
+              {abLooping && !playlistActive && (
+                <span className="text-[10px] text-cinnabar-accent font-medium shrink-0">Looping</span>
+              )}
+            </span>
+            <span className="text-[10px] text-white/35 shrink-0" aria-hidden>{expanded ? '▴' : '▾'}</span>
+          </button>
+          {canSave && onSave && (
+            <button
+              type="button"
+              onClick={onSave}
+              className={[practiceChipBtn, toolbarChipBtnActive, 'shrink-0 mr-0.5 py-0.5 text-[10px]'].join(' ')}
+              aria-label="Save current loop"
+            >
+              Save
+            </button>
+          )}
         </div>
-        <ABLoopControls
-          abLoop={abLoop}
-          armingAB={armingAB}
-          abLoopError={abLoopError}
-          onToggleArm={onToggleArm}
-          onClearAB={onClearAB}
-        />
+        {expanded && (
+          <div className="pt-1.5 border-t border-cinnabar-900/60 mt-1.5">
+            <ABLoopControls
+              abLoop={abLoop}
+              armingAB={armingAB}
+              abLoopError={abLoopError}
+              onToggleArm={onToggleArm}
+              onClearAB={onClearAB}
+              compact
+              showIdleHints
+            />
+          </div>
+        )}
       </section>
     )
   }
@@ -368,7 +397,7 @@ function CollapsibleABLoopSection({
       ? `From ${aLabel}`
       : bLabel
         ? `Until ${bLabel}`
-        : 'Not set — tap to configure'
+        : 'Tap to set'
 
   return (
     <section className={[shellClass, 'p-2'].join(' ')} aria-label="A-B Loop">
@@ -897,7 +926,7 @@ function SpeedControl({
           </button>
         ))}
       </div>
-      <p className="text-[10px] text-white/30 text-pretty">
+      <p className="text-[10px] text-white/30 text-pretty sr-only">
         Double-tap the slider to jump back to 1×.
       </p>
     </div>
@@ -909,15 +938,26 @@ function CollapsibleSpeedSection({
   speed,
   onSpeedChange,
   forceCollapsed,
+  expanded: controlledExpanded,
+  onExpandedChange,
 }: {
   speedPct: number
   speed: number
   onSpeedChange: (speed: number) => void
   forceCollapsed?: boolean
+  expanded?: boolean
+  onExpandedChange?: (expanded: boolean) => void
 }) {
   const isDesktop = useMinWidthMd()
   const isActive = speed !== NORMAL_SPEED
-  const [expanded, setExpanded] = useState(isActive)
+  const [internalExpanded, setInternalExpanded] = useState(isActive)
+  const expanded = controlledExpanded ?? internalExpanded
+
+  const setExpanded = (next: boolean | ((prev: boolean) => boolean)) => {
+    const value = typeof next === 'function' ? next(expanded) : next
+    onExpandedChange?.(value)
+    if (controlledExpanded === undefined) setInternalExpanded(value)
+  }
 
   useEffect(() => {
     if (isActive) setExpanded(true)
@@ -934,27 +974,7 @@ function CollapsibleSpeedSection({
       : 'border-cinnabar-900/80 bg-cinnabar-900/30',
   ].join(' ')
 
-  if (isDesktop) {
-    return (
-      <section className={[shellClass, 'p-2.5'].join(' ')} aria-label="Playback speed">
-        <div className="flex items-center justify-between mb-1.5 gap-2">
-          <div className="min-w-0">
-            <p className={toolbarSectionLabel}>Speed</p>
-            {!isActive && (
-              <p className="text-[10px] text-white/30 mt-0.5 text-pretty">Slow down tricky sections without changing pitch</p>
-            )}
-          </div>
-          <span className={[
-            'text-xs tabular-nums font-medium shrink-0',
-            isActive ? 'text-cinnabar-accent' : 'text-white/45',
-          ].join(' ')}>
-            {speedPct}%
-          </span>
-        </div>
-        <SpeedControl speedPct={speedPct} speed={speed} onSpeedChange={onSpeedChange} />
-      </section>
-    )
-  }
+  const summary = speedPct === 100 ? 'Normal (1×)' : `${speedPct}%`
 
   return (
     <section className={[shellClass, 'p-2'].join(' ')} aria-label="Playback speed">
@@ -971,7 +991,7 @@ function CollapsibleSpeedSection({
               'text-[11px] tabular-nums truncate',
               isActive ? 'text-cinnabar-accent font-medium' : 'text-white/50',
             ].join(' ')}>
-              {speedPct === 100 ? 'Normal (1×)' : `${speedPct}%`}
+              {summary}
             </span>
           )}
         </span>
@@ -979,7 +999,12 @@ function CollapsibleSpeedSection({
       </button>
       {expanded && (
         <div className="pt-1.5 border-t border-cinnabar-900/60 mt-1.5">
-          <SpeedControl speedPct={speedPct} speed={speed} onSpeedChange={onSpeedChange} compact />
+          <SpeedControl
+            speedPct={speedPct}
+            speed={speed}
+            onSpeedChange={onSpeedChange}
+            compact={!isDesktop}
+          />
         </div>
       )}
     </section>
@@ -1004,23 +1029,45 @@ function MoreMenu({
   onIncludeSrtChange?: (value: boolean) => void
 }) {
   const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [menuPos, setMenuPos] = useState<{ left: number; bottom: number; width: number } | null>(null)
   const hasItems = showAbExport
 
   useEffect(() => {
     if (!open) return
     const onPointerDown = (e: Event) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
+      const target = e.target as Node
+      if (triggerRef.current?.contains(target)) return
+      if (menuRef.current?.contains(target)) return
+      setOpen(false)
     }
     document.addEventListener('pointerdown', onPointerDown)
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [open])
 
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return
+    const rect = triggerRef.current.getBoundingClientRect()
+    const margin = 8
+    const estHeight = 180
+    const spaceAbove = rect.top - margin
+    const openUp = spaceAbove >= estHeight || spaceAbove >= rect.bottom - margin
+    setMenuPos({
+      left: rect.left,
+      width: rect.width,
+      bottom: openUp
+        ? window.innerHeight - rect.top + 4
+        : window.innerHeight - rect.bottom - 4 - estHeight,
+    })
+  }, [open])
+
   if (!hasItems) return null
 
   return (
-    <div ref={rootRef} className="relative shrink-0">
+    <div className="relative shrink-0">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
@@ -1033,40 +1080,47 @@ function MoreMenu({
       >
         More options
       </button>
-      {open && (
+      {open && menuPos && createPortal(
         <div
+          ref={menuRef}
           role="dialog"
           aria-label="More playback options"
-          className="absolute left-0 right-0 bottom-full mb-1 z-50 rounded-xl border border-cinnabar-800 bg-cinnabar-900 shadow-xl shadow-black/40 p-2.5 space-y-2"
+          style={{
+            left: menuPos.left,
+            width: menuPos.width,
+            bottom: menuPos.bottom,
+          }}
+          className="fixed z-[60] rounded-xl border border-cinnabar-800 bg-cinnabar-900 shadow-xl shadow-black/40 p-2.5 space-y-2"
         >
-            {showAbExport && onExportAb && (
-              <section aria-label="Export loop">
-                <p className={[toolbarSectionLabel, 'mb-1.5'].join(' ')}>Export</p>
-                <div className="space-y-1.5">
-                  {canIncludeSrt && onIncludeSrtChange && (
-                    <label className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-cinnabar-800 text-[10px] text-white/60 cursor-pointer min-h-9">
-                      <input
-                        type="checkbox"
-                        checked={!!includeSrt}
-                        onChange={(e) => onIncludeSrtChange(e.target.checked)}
-                        className="accent-cinnabar-accent"
-                      />
-                      Include .srt subtitles
-                    </label>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => { onExportAb(); setOpen(false) }}
-                    disabled={exporting}
-                    className={[practiceChipBtn, toolbarChipBtnActive, 'w-full font-medium disabled:opacity-40'].join(' ')}
-                  >
-                    {exporting ? 'Exporting…' : 'Export A-B loop'}
-                  </button>
-                </div>
-              </section>
-            )}
-            {exportError && <p className="text-[10px] text-red-400/90 px-1" role="alert">{exportError}</p>}
-          </div>
+          {showAbExport && onExportAb && (
+            <section aria-label="Export loop">
+              <p className={[toolbarSectionLabel, 'mb-1.5'].join(' ')}>Export</p>
+              <div className="space-y-1.5">
+                {canIncludeSrt && onIncludeSrtChange && (
+                  <label className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-cinnabar-800 text-[10px] text-white/60 cursor-pointer min-h-9">
+                    <input
+                      type="checkbox"
+                      checked={!!includeSrt}
+                      onChange={(e) => onIncludeSrtChange(e.target.checked)}
+                      className="accent-cinnabar-accent"
+                    />
+                    Include .srt subtitles
+                  </label>
+                )}
+                <button
+                  type="button"
+                  onClick={() => { onExportAb(); setOpen(false) }}
+                  disabled={exporting}
+                  className={[practiceChipBtn, toolbarChipBtnActive, 'w-full font-medium disabled:opacity-40'].join(' ')}
+                >
+                  {exporting ? 'Exporting…' : 'Export A-B loop'}
+                </button>
+              </div>
+            </section>
+          )}
+          {exportError && <p className="text-[10px] text-red-400/90 px-1" role="alert">{exportError}</p>}
+        </div>,
+        document.body,
       )}
     </div>
   )
@@ -1221,6 +1275,7 @@ export function PlayerControls({
   const abLooping = isABLoopActive(abLoop)
   const isDesktop = useMinWidthMd()
   const [savedLoopsOpen, setSavedLoopsOpen] = useState(false)
+  const [speedOpen, setSpeedOpen] = useState(false)
 
   useEffect(() => {
     if (abActive && isDesktop) setSavedLoopsOpen(true)
@@ -1229,6 +1284,19 @@ export function PlayerControls({
   useEffect(() => {
     if (playlistActive && isDesktop) setSavedLoopsOpen(true)
   }, [playlistActive, isDesktop])
+
+  const toggleSavedLoops = () => {
+    setSavedLoopsOpen((open) => {
+      const next = !open
+      if (next && !isDesktop) setSpeedOpen(false)
+      return next
+    })
+  }
+
+  const handleSpeedExpandedChange = (next: boolean) => {
+    setSpeedOpen(next)
+    if (next && !isDesktop) setSavedLoopsOpen(false)
+  }
 
   const hasPlaylistEntries = playlistEntries.length > 0
   const playlistHandlersReady = Boolean(
@@ -1246,10 +1314,11 @@ export function PlayerControls({
   return (
     <aside
       className={[
-        'shrink-0 border-t md:border-t-0 md:border-l border-cinnabar-900',
+        'shrink-0 min-h-0 flex flex-col',
+        'border-t md:border-t-0 md:border-l border-cinnabar-900',
         'bg-cinnabar-950/98 md:bg-cinnabar-950 backdrop-blur-sm md:backdrop-blur-none',
         'px-3 pt-2 md:pt-4 md:px-5 md:w-72 lg:w-80',
-        'flex flex-col gap-1.5 md:gap-2.5',
+        'md:overflow-y-auto md:overscroll-contain',
       ].join(' ')}
       style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 8px), 8px)' }}
       onClick={(e) => e.stopPropagation()}
@@ -1276,7 +1345,13 @@ export function PlayerControls({
       </section>
 
       {mode === 'play' && (
-        <div className="flex flex-col gap-1.5 md:gap-2 shrink-0">
+        <div
+          className={[
+            'flex flex-col gap-1.5 md:gap-2 min-h-0',
+            'max-md:max-h-[min(46dvh,21rem)] max-md:overflow-y-auto max-md:overscroll-contain',
+            'mt-1.5 md:mt-2.5',
+          ].join(' ')}
+        >
           <CollapsibleABLoopSection
             abLoop={abLoop}
             armingAB={armingAB}
@@ -1319,11 +1394,13 @@ export function PlayerControls({
             speed={speed}
             onSpeedChange={onSpeedChange}
             forceCollapsed={savedLoopsOpen && !isDesktop}
+            expanded={speedOpen}
+            onExpandedChange={handleSpeedExpandedChange}
           />
 
           <SavedLoopsPanelSection
             open={savedLoopsOpen}
-            onToggle={() => setSavedLoopsOpen((v) => !v)}
+            onToggle={toggleSavedLoops}
             playlistActive={playlistActive}
             playlistIndex={playlistIndex}
             playlistLength={playlistEntries.length}
