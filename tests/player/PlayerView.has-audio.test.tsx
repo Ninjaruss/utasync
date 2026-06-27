@@ -52,6 +52,15 @@ describe('PlayerView local audio gating', () => {
     })
   })
 
+  it('streams via YouTube when only unified sources are stored', async () => {
+    await seedSong({ sources: [{ provider: 'youtube', ref: 'abc123', url: 'https://youtube.com/watch?v=abc123', hasAudio: false }] })
+    render(<PlayerView songId="song1" onBack={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
+    await waitFor(() => {
+      expect(screen.getByText(/streaming via youtube/i)).toBeTruthy()
+    })
+  })
+
   it('does not offer play-mode re-align (Edit → Auto-align is the sole entry point)', async () => {
     await seedSong({ audioStoredPath: '/audio/song1' })
     render(<PlayerView songId="song1" onBack={vi.fn()} />)

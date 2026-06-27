@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 global.fetch = vi.fn()
 const mockFetch = (value: unknown) => vi.mocked(fetch).mockResolvedValue(value as Response)
 
-import { fetchYouTubeMeta, extractVideoId, cleanTitle, parseArtistTitle } from '../../src/sources/youtube'
+import { fetchYouTubeMeta, extractVideoId, cleanTitle, parseArtistTitle, resolveYouTubeVideoId } from '../../src/sources/youtube'
+import type { Song } from '../../src/core/types'
 
 describe('extractVideoId', () => {
   it('extracts from standard URL', () => {
@@ -12,8 +13,30 @@ describe('extractVideoId', () => {
   it('extracts from short URL', () => {
     expect(extractVideoId('https://youtu.be/dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ')
   })
+  it('extracts from Shorts URL', () => {
+    expect(extractVideoId('https://www.youtube.com/shorts/dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ')
+  })
+  it('extracts from embed URL', () => {
+    expect(extractVideoId('https://www.youtube.com/embed/dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ')
+  })
   it('returns null for non-YouTube URL', () => {
     expect(extractVideoId('https://spotify.com/track/xyz')).toBeNull()
+  })
+})
+
+describe('resolveYouTubeVideoId', () => {
+  it('reads from sourceUrl', () => {
+    const song = {
+      sourceUrl: 'https://www.youtube.com/watch?v=abc123',
+    } as Song
+    expect(resolveYouTubeVideoId(song)).toBe('abc123')
+  })
+
+  it('falls back to unified sources when sourceUrl is absent', () => {
+    const song = {
+      sources: [{ provider: 'youtube', ref: 'xyz789', hasAudio: false }],
+    } as Song
+    expect(resolveYouTubeVideoId(song)).toBe('xyz789')
   })
 })
 

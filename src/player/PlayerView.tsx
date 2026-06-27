@@ -6,7 +6,8 @@ import { AudioEngine } from './AudioEngine'
 import { LyricDisplay } from '../lyrics/LyricDisplay'
 import { db } from '../core/db/schema'
 import { YouTubePlayer, type YouTubePlayerHandle } from './YouTubePlayer'
-import { extractVideoId } from '../sources/youtube'
+import { youtubeErrorMessage, youtubeNeedsVisibleEmbed } from './youtubeEmbedPolicy'
+import { resolveYouTubeVideoId } from '../sources/youtube'
 import { ABLoopController } from './ABLoop'
 import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase } from '../core/types'
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
@@ -29,6 +30,7 @@ import { sentenceToIPA } from '../language/english/phonetics'
 import { detectEnglishGrammar } from '../language/english/grammar'
 import { TapSyncEditor } from './TapSyncEditor'
 import { getDeviceTier } from '../ai-pipeline/capability'
+import { suggestsWordLevelAlignment } from '../ai-pipeline/alignTimestampMode'
 import { linesAreTimed, chooseAutoAlignment, type AlignMode } from './alignmentPolicy'
 import { EditMode } from '../lyrics/EditMode'
 import { computeSyncState } from '../core/db/migrations'
@@ -50,7 +52,7 @@ import { useAbLoopPlaylistStore } from './abLoopPlaylistStore'
 import { getAudioFile } from '../core/opfs/audio'
 import { PlayerControls } from './PlayerControls'
 import { DisplayMenu } from './DisplayMenu'
-import { AttachLocalAudioBanner } from './AttachLocalAudioBanner'
+import { YouTubePlaybackPanel } from './YouTubePlaybackPanel'
 import { LyricsImportPanel } from '../lyrics/LyricsImportPanel'
 import { attachAudioToSong } from '../sources/audioIngest'
 import { resolveCoverArt } from '../sources/coverArt'
@@ -278,6 +280,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const { lines, syncPosition, setLines, furiganaMode, showTranslation, lyricsLayout, setFuriganaMode, setShowTranslation, setLyricsLayout } = useLyricsStore()
   const [song, setSong] = useState<Song | null>(null)
   const [alignMode, setAlignMode] = useState<AlignMode | null>(null)
+  const [alignAccurateReadings, setAlignAccurateReadings] = useState(false)
+  const [accurateReadingsDismissed, setAccurateReadingsDismissed] = useState(false)
   const [mode, setMode] = useState<'play' | 'edit'>('play')
   const [lyricsLoading, setLyricsLoading] = useState<{ message: string; detail?: string } | null>(null)
   const [wordColorProgress, setWordColorProgress] = useState<{ done: number; total: number } | null>(null)
@@ -287,6 +291,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [abExportIncludeSrt, setAbExportIncludeSrt] = useState(false)
   const [attachingAudio, setAttachingAudio] = useState(false)
   const [attachAudioError, setAttachAudioError] = useState('')
+  const [localAudioLoadFailed, setLocalAudioLoadFailed] = useState(false)
   const [showLyricsReimport, setShowLyricsReimport] = useState(false)
   const [phrasingDismissed, setPhrasingDismissed] = useState(false)
   const [phrasingBusy, setPhrasingBusy] = useState(false)
@@ -449,6 +454,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       }
       setSong(loaded)
       setLines(loaded.lyrics.lines)
+      setLocalAudioLoadFailed(false)
       setMode('play') // a freshly opened song always lands in Play mode
       // Opening a different song starts from the top; reopening the same song
       // (e.g. after a trip to Settings) resumes the persisted position.
@@ -473,7 +479,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
             }
           }
         } catch {
-          // audio file missing or unreadable — leave controls inert
+          if (!cancelled) setLocalAudioLoadFailed(true)
         }
       }
       const willAutoAlign = autoAlignOnOpen
@@ -537,13 +543,17 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     abLoopControllerRef.current?.tick()
   }, [position])
 
-  const ytVideoId = song?.sourceUrl ? extractVideoId(song.sourceUrl) : null
-  const isYouTube = !!ytVideoId && !song?.audioStoredPath
-  const hasLocalAudio = !!song?.audioStoredPath
-  const canPlayback = isYouTube || hasLocalAudio
+  const ytVideoId = song ? resolveYouTubeVideoId(song) : null
+  const hasStoredAudio = !!song?.audioStoredPath
+  const localAudioPlayable = hasStoredAudio && !localAudioLoadFailed
+  const isYouTube = !!ytVideoId && !localAudioPlayable
+  const canPlayback = isYouTube || localAudioPlayable
+  const showYouTubeVideo = youtubeNeedsVisibleEmbed()
   const lyricsUntimed = lines.length > 0 && !linesAreTimed(lines)
+  const onYouTubeError = (code: number) => toast(youtubeErrorMessage(code), 'warning')
 
   const togglePlay = () => {
+    if (!canPlayback) return
     if (playbackState === 'playing') {
       if (isYouTube) ytRef.current?.pause(); else engine.pause()
       setPlaybackState('paused')
@@ -626,7 +636,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
   }
 
-  const beginAlignment = (mode: AlignMode) => {
+  const beginAlignment = (mode: AlignMode, accurateReadings = false) => {
+    setAlignAccurateReadings(accurateReadings)
     if (mode === 'tap') {
       if (isYouTube) ytRef.current?.play()
       else engine.play()
@@ -758,6 +769,13 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const phraseChanges =
     song?.lyrics.phrases?.length ? summarizePhraseChanges(phraseSheetRows, song.lyrics.phrases) : []
 
+  // The segment-mode transcript grouped multiple lines into shared chunks, so
+  // per-line timing is approximate — offer the word-level re-align for tighter sync.
+  const suggestWordLevelAlign =
+    !!song
+    && suggestsWordLevelAlignment(song.lyrics.lines, song.lyrics.transcriptWords, getDeviceTier())
+    && hasStoredAudio
+
   // Sync playback rate whenever speed changes or audio source becomes available.
   useEffect(() => {
     if (isYouTube) {
@@ -883,7 +901,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     )
   )
   const validPlaylistExportEntries = getValidPlaylistExportSegments(playlistEntries)
-  const showPlaylistExport = hasLocalAudio && validPlaylistExportEntries.length > 0
+  const showPlaylistExport = localAudioPlayable && validPlaylistExportEntries.length > 0
 
   const handleAttachLocalAudio = async (file: File) => {
     if (!song) return
@@ -911,6 +929,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         syncPosition(resumeAt)
       }
       setSong(updated)
+      setLocalAudioLoadFailed(false)
     } catch (e: unknown) {
       setAttachAudioError(e instanceof Error ? e.message : 'Could not add audio file')
     } finally {
@@ -1037,20 +1056,38 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         <WordColorProgressBanner done={wordColorProgress.done} total={wordColorProgress.total} />
       )}
 
-      {isYouTube && song && (
-        <AttachLocalAudioBanner
-          onAttach={handleAttachLocalAudio}
-          attaching={attachingAudio}
-          error={attachAudioError || undefined}
-        />
-      )}
-
       {mode === 'play' && lyricsUntimed && canPlayback && (
         <div className="shrink-0 px-3 sm:px-4 py-2 border-b border-cinnabar-900/80 bg-cinnabar-950/80">
           <p className="text-[11px] text-white/45 text-pretty">
             Lyrics are not timed yet. Open Edit → Tap-through to stamp each line while the song plays
-            {hasLocalAudio ? ', or use Auto-align.' : ', or add an audio file for AI align.'}
+            {hasStoredAudio ? ', or use Auto-align.' : ', or add an audio file for AI align.'}
           </p>
+        </div>
+      )}
+
+      {mode === 'play' && suggestWordLevelAlign && !accurateReadingsDismissed && (
+        <div className="shrink-0 px-3 sm:px-4 py-2.5 border-b border-cinnabar-900/80 bg-cinnabar-950/80 flex items-start gap-3">
+          <p className="text-[11px] text-white/55 text-pretty leading-snug flex-1">
+            Some lines share one block in the audio analysis, so their timing is approximate.
+            Re-align with <span className="text-white/80">Accurate readings</span> for tighter per-line sync (slower).
+          </p>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => beginAlignment('auto', true)}
+              className="px-2.5 py-1.5 rounded-lg bg-cinnabar-accent text-white text-[11px] font-medium min-h-8 touch-manipulation"
+            >
+              Re-align
+            </button>
+            <button
+              type="button"
+              onClick={() => setAccurateReadingsDismissed(true)}
+              aria-label="Dismiss"
+              className="text-white/35 hover:text-white/70 text-xs min-h-8 px-1 touch-manipulation"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
 
@@ -1082,13 +1119,13 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         </div>
       )}
 
-      {/* YouTube — audio only (kept mounted off-screen so it keeps playing) */}
-      {isYouTube && (
+      {isYouTube && !showYouTubeVideo && (
         <YouTubePlayer
           ref={ytRef}
           videoId={ytVideoId}
           startSeconds={currentSongId === songId ? position : 0}
           audioOnly
+          onError={onYouTubeError}
         />
       )}
 
@@ -1123,7 +1160,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               seek={seek}
               onScrubStart={onScrubStart}
               onScrubEnd={onScrubEnd}
-              hasLocalAudio={hasLocalAudio}
+              hasLocalAudio={hasStoredAudio}
               title={song?.title ?? ''}
               artist={song?.artist ?? ''}
               sourceLanguage={song?.lyrics.sourceLanguage ?? 'ja'}
@@ -1164,7 +1201,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           onSeek={seek}
           onToggleArm={toggleArm}
           onClearAB={() => setABLoop({ a: null, b: null })}
-          showAbExport={hasLocalAudio && mode === 'play' && isValidABPair(abLoop.a, abLoop.b)}
+          showAbExport={localAudioPlayable && mode === 'play' && isValidABPair(abLoop.a, abLoop.b)}
           onExportAb={handleExportAbLoop}
           abExporting={abExporting}
           abExportError={abExportError}
@@ -1188,6 +1225,24 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           onExportPlaylist={handleExportAbLoopPlaylist}
           playlistExporting={abExporting}
           playlistExportError={abExportError}
+          headerSlot={
+            isYouTube && ytVideoId ? (
+              <YouTubePlaybackPanel
+                ref={showYouTubeVideo ? ytRef : undefined}
+                embedVisible={showYouTubeVideo}
+                videoId={ytVideoId}
+                startSeconds={currentSongId === songId ? position : 0}
+                position={position}
+                duration={duration}
+                playbackState={playbackState}
+                mode={mode}
+                onError={onYouTubeError}
+                onAttach={handleAttachLocalAudio}
+                attaching={attachingAudio}
+                attachError={attachAudioError || undefined}
+              />
+            ) : null
+          }
         />
       </div>
 
@@ -1247,6 +1302,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           <AutoAlignFlow
             song={song}
             autoStart={autoAlignOnOpen}
+            accurateReadings={alignAccurateReadings}
             onComplete={applyAlignedSong}
             onClose={() => setAlignMode(null)}
           />

@@ -1,3 +1,6 @@
+import type { Song } from '../core/types'
+import { deriveSources } from '../core/db/migrations'
+
 export interface YouTubeMeta {
   /** Raw video title from oEmbed. */
   rawTitle: string
@@ -39,12 +42,35 @@ export function parseArtistTitle(rawTitle: string, channelAuthor: string): { art
 export function extractVideoId(url: string): string | null {
   try {
     const u = new URL(url)
-    if (u.hostname.includes('youtube.com')) return u.searchParams.get('v')
-    if (u.hostname === 'youtu.be') return u.pathname.slice(1)
+    const host = u.hostname.replace(/^www\./, '')
+
+    if (host === 'youtu.be') {
+      const id = u.pathname.slice(1).split('/')[0]
+      return id || null
+    }
+
+    if (host.includes('youtube.com')) {
+      const fromQuery = u.searchParams.get('v')
+      if (fromQuery) return fromQuery
+
+      const [, prefix, id] = u.pathname.match(/^\/(shorts|embed|live|v)\/([^/?#]+)/) ?? []
+      if (prefix && id) return id
+    }
+
     return null
   } catch {
     return null
   }
+}
+
+/** Resolve a YouTube video id from legacy `sourceUrl` or unified `sources`. */
+export function resolveYouTubeVideoId(song: Song): string | null {
+  if (song.sourceUrl) {
+    const id = extractVideoId(song.sourceUrl)
+    if (id) return id
+  }
+  const yt = deriveSources(song).find((s) => s.provider === 'youtube')
+  return yt?.ref ?? null
 }
 
 export async function fetchYouTubeMeta(url: string): Promise<YouTubeMeta> {

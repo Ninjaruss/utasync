@@ -9,6 +9,7 @@ interface Props {
   startSeconds?: number
   /** Hide the video and keep only the audio playing. */
   audioOnly?: boolean
+  onError?: (code: number) => void
 }
 
 export interface YouTubePlayerHandle {
@@ -23,14 +24,33 @@ declare global {
   interface Window { YT: typeof YT; onYouTubeIframeAPIReady: () => void }
 }
 
+let ytScriptPromise: Promise<void> | null = null
+
 function loadYTScript(): Promise<void> {
   if (window.YT?.Player) return Promise.resolve()
-  return new Promise((resolve) => {
-    const tag = document.createElement('script')
-    tag.src = 'https://www.youtube.com/iframe_api'
-    window.onYouTubeIframeAPIReady = resolve
-    document.head.appendChild(tag)
-  })
+  if (!ytScriptPromise) {
+    ytScriptPromise = new Promise((resolve) => {
+      let settled = false
+      const finish = () => {
+        if (settled || !window.YT?.Player) return
+        settled = true
+        window.clearInterval(poll)
+        resolve()
+      }
+      const prev = window.onYouTubeIframeAPIReady
+      window.onYouTubeIframeAPIReady = () => {
+        prev?.()
+        finish()
+      }
+      const poll = window.setInterval(finish, 100)
+      if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+        const tag = document.createElement('script')
+        tag.src = 'https://www.youtube.com/iframe_api'
+        document.head.appendChild(tag)
+      }
+    })
+  }
+  return ytScriptPromise
 }
 
 /** YouTube often reports 0 or a partial buffer length until metadata settles. */
@@ -41,7 +61,7 @@ function readStableDuration(player: YT.Player, lastSeen: number): number {
 }
 
 export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function YouTubePlayer(
-  { videoId, startSeconds = 0, audioOnly = false },
+  { videoId, startSeconds = 0, audioOnly = false, onError },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -50,6 +70,8 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
   const durationPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const durationSeenRef = useRef(0)
   const startRef = useRef(startSeconds)
+  const readyRef = useRef(false)
+  const pendingActionRef = useRef<'play' | 'pause' | null>(null)
   const { setPosition, setPlaybackState, setDuration } = usePlayerStore()
   const { syncPosition } = useLyricsStore()
 
@@ -83,9 +105,24 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
     }, 400)
   }
 
+  const runPendingAction = (player: YT.Player) => {
+    const action = pendingActionRef.current
+    pendingActionRef.current = null
+    if (action === 'play') player.playVideo()
+    else if (action === 'pause') player.pauseVideo()
+  }
+
   useImperativeHandle(ref, () => ({
-    play: () => playerRef.current?.playVideo(),
-    pause: () => playerRef.current?.pauseVideo(),
+    play: () => {
+      const player = playerRef.current
+      if (readyRef.current && player) player.playVideo()
+      else pendingActionRef.current = 'play'
+    },
+    pause: () => {
+      const player = playerRef.current
+      if (readyRef.current && player) player.pauseVideo()
+      else pendingActionRef.current = 'pause'
+    },
     seekTo: (seconds: number) => {
       playerRef.current?.seekTo(seconds, true)
       setPosition(seconds)
@@ -103,17 +140,27 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
     let mounted = true
     const resumeAt = Math.floor(startRef.current)
     durationSeenRef.current = 0
+    readyRef.current = false
+    pendingActionRef.current = null
 
     loadYTScript().then(() => {
       if (!mounted || !containerRef.current) return
+      const origin = window.location.origin
       playerRef.current = new window.YT.Player(containerRef.current, {
         videoId,
         width: '100%',
         height: '100%',
-        playerVars: { autoplay: 0, rel: 0, playsinline: 1 },
+        host: 'https://www.youtube.com',
+        playerVars: {
+          autoplay: 0,
+          rel: 0,
+          playsinline: 1,
+          origin,
+        },
         events: {
           onReady: (e) => {
             const player = e.target
+            readyRef.current = true
             const vol = usePlayerStore.getState().volume
             player.setVolume(Math.round(vol * 100))
             if (resumeAt > 0) {
@@ -123,6 +170,11 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
             }
             publishDuration(player)
             startDurationPoll(player)
+            runPendingAction(player)
+          },
+          onError: (e: YT.OnErrorEvent) => {
+            onError?.(e.data)
+            setPlaybackState('idle')
           },
           onStateChange: (e: YT.OnStateChangeEvent) => {
             const player = e.target
@@ -149,6 +201,8 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
     })
     return () => {
       mounted = false
+      readyRef.current = false
+      pendingActionRef.current = null
       if (tickerRef.current) clearInterval(tickerRef.current)
       stopDurationPoll()
       playerRef.current?.destroy()
@@ -156,12 +210,17 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
   }, [videoId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (audioOnly) {
+    // Keep off-screen but fully opaque — Firefox never initializes hidden iframes.
     return (
-      <div aria-hidden className="absolute -left-[9999px] top-0 w-px h-px overflow-hidden pointer-events-none">
-        <div ref={containerRef} />
+      <div
+        aria-hidden
+        className="fixed top-0 w-[640px] h-[360px] pointer-events-none"
+        style={{ left: '-9999px' }}
+      >
+        <div ref={containerRef} className="w-full h-full" />
       </div>
     )
   }
 
-  return <div ref={containerRef} className="w-full aspect-video" />
+  return <div ref={containerRef} className="w-full aspect-video bg-black" />
 })

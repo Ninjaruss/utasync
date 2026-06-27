@@ -209,6 +209,10 @@ export default defineConfig({
     VitePWA({
       registerType: 'prompt',
       workbox: {
+        // Bumped when COEP headers were removed — clears precache that still
+        // carried Cross-Origin-Embedder-Policy from older builds (breaks YouTube on Firefox/Zen).
+        cacheId: 'utasync-v2-no-coep',
+        cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,woff2,png,svg,ico,wasm}'],
         // ONNX Runtime wasm blobs are 9–26 MB and only needed when AI features
         // run, so keep them out of the precache (Workbox caps precache entries at
@@ -260,22 +264,18 @@ export default defineConfig({
     target: 'esnext',
   },
   worker: { format: 'es' },
-  // Dev/preview only — lets you test the Whisper WASM multi-threading speedup
-  // (src/ai-pipeline/whisperPipeline.ts gates on `crossOriginIsolated`, which
-  // these headers enable) and verify YouTube playback still works before
-  // deciding whether to add the same headers on your production host. Not
-  // applied to the production build itself; static hosts need their own
-  // header config (see docs/DEPLOYMENT.md) to get the speedup in production.
+  // Explicitly disable cross-origin isolation so YouTube embeds work in Firefox/Zen.
+  // (credentialless COEP breaks them with NS_ERROR_DOM_COEP_FAILED.)
   server: {
     headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'credentialless',
+      'Cross-Origin-Embedder-Policy': 'unsafe-none',
+      'Cross-Origin-Opener-Policy': 'unsafe-none',
     },
   },
   preview: {
     headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'credentialless',
+      'Cross-Origin-Embedder-Policy': 'unsafe-none',
+      'Cross-Origin-Opener-Policy': 'unsafe-none',
     },
   },
   test: {

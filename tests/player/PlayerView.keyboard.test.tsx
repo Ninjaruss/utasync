@@ -10,6 +10,11 @@ const play = vi.fn()
 const pause = vi.fn()
 const seek = vi.fn()
 
+// A stored upload song's audio must actually load for playback to be enabled.
+vi.mock('../../src/core/opfs/audio', () => ({
+  getAudioFile: vi.fn(async () => new File([], 'song1.mp3')),
+}))
+
 vi.mock('../../src/player/AudioEngine', () => ({
   AudioEngine: class {
     duration = 10; position = 3

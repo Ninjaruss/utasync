@@ -12,6 +12,12 @@ const helloPlayback = linePlaybackStart(helloLine)
 
 const seek = vi.fn()
 
+// Local audio must actually load for the engine playback path (seek) to be used;
+// a YouTube-only song routes seek to the YouTube player instead.
+vi.mock('../../src/core/opfs/audio', () => ({
+  getAudioFile: vi.fn(async () => new File([], 'song1.mp3')),
+}))
+
 vi.mock('../../src/player/AudioEngine', () => ({
   AudioEngine: class {
     duration = 10; position = 3
@@ -27,7 +33,8 @@ beforeEach(async () => {
   await db.songs.clear()
   await db.songs.put({
     id: 'song1', title: 'T', artist: 'A',
-    sources: [{ provider: 'youtube', ref: 'abc', hasAudio: true }],
+    audioStoredPath: 'songs/song1.mp3',
+    sources: [{ provider: 'upload', ref: 'song1', hasAudio: true }],
     lyrics: { lines: [{ startTime: 1, endTime: 3, original: 'hello', translation: 'hi' }], sourceLanguage: 'en', translationLanguage: 'en', alignmentMode: 'manual' },
     syncState: 'synced', createdAt: new Date(), isTrialSong: false,
   } as never)

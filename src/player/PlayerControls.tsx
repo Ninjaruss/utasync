@@ -73,6 +73,8 @@ interface Props {
   onExportPlaylist?: () => void
   playlistExporting?: boolean
   playlistExportError?: string | null
+  /** Rendered above transport (e.g. YouTube embed on Firefox). */
+  headerSlot?: ReactNode
 }
 
 function formatTime(s: number): string {
@@ -1270,6 +1272,7 @@ export function PlayerControls({
   onExportPlaylist,
   playlistExporting,
   playlistExportError,
+  headerSlot,
 }: Props) {
   const abActive = abLoop.a !== null || abLoop.b !== null || armingAB !== null
   const abLooping = isABLoopActive(abLoop)
@@ -1324,6 +1327,7 @@ export function PlayerControls({
       onClick={(e) => e.stopPropagation()}
       aria-label="Playback controls"
     >
+      {headerSlot}
       <section className="space-y-1 shrink-0" aria-label="Playback">
         <SeekBar progress={progress} duration={duration} onSeek={onSeek} />
         <div className="flex justify-between text-[10px] md:text-[11px] text-white/30 tabular-nums">
