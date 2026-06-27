@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { alignTranscriptToLines, sanitizeTranscript, lineWeight, alignLyrics, type TranscriptWord } from '../../src/ai-pipeline/aligner'
+import { alignTranscriptToLines, sanitizeTranscript, lineWeight, alignLyrics, ensureVisibleLineWindows, type TranscriptWord } from '../../src/ai-pipeline/aligner'
 import type { TimedLine } from '../../src/core/types'
+
+const line = (startTime: number, endTime: number, original = 'x'): TimedLine => ({
+  original,
+  translation: '',
+  startTime,
+  endTime,
+})
 
 const plainLines = ['star in the sky', 'waiting in dreams']
 
@@ -20,6 +27,30 @@ function isMonotonic(lines: TimedLine[]): boolean {
   }
   return true
 }
+
+describe('ensureVisibleLineWindows', () => {
+  it('gives a zero-duration interpolated line a visible highlight window', () => {
+    // ローリング dropped by Whisper: start coincides with the next line's start.
+    const lines = [line(292.8, 299.24, 'A'), line(299.24, 299.24, 'ローリング'), line(299.24, 305.38, 'C')]
+    const out = ensureVisibleLineWindows(lines, 0.3)
+    expect(out[2].startTime - out[1].startTime).toBeGreaterThanOrEqual(0.3)
+    expect(out[1].startTime).toBeLessThan(out[2].startTime)
+    expect(out[1].startTime).toBeGreaterThan(out[0].startTime)
+  })
+
+  it('keeps starts strictly increasing and never crosses the previous line', () => {
+    const lines = [line(0, 5, 'A'), line(5, 5, 'B'), line(5, 5, 'C'), line(5, 10, 'D')]
+    const out = ensureVisibleLineWindows(lines, 0.3)
+    for (let i = 1; i < out.length; i++) {
+      expect(out[i].startTime).toBeGreaterThan(out[i - 1].startTime)
+    }
+  })
+
+  it('leaves well-spaced lines untouched', () => {
+    const lines = [line(0, 2), line(3, 5), line(6, 8)]
+    expect(ensureVisibleLineWindows(lines, 0.3)).toEqual(lines)
+  })
+})
 
 describe('alignTranscriptToLines', () => {
   it('anchors the first line to the first transcript word and stays monotonic', () => {

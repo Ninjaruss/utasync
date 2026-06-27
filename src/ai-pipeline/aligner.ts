@@ -85,7 +85,7 @@ export function sanitizeTranscript(words: TranscriptWord[]): TranscriptWord[] {
 
   for (const raw of words) {
     if (!Number.isFinite(raw.startTime) || !Number.isFinite(raw.endTime)) continue
-    let w = clipImplausibleSegmentEnd(raw)
+    const w = clipImplausibleSegmentEnd(raw)
     const duration = w.endTime - w.startTime
     if (duration <= 0) continue
 
@@ -240,6 +240,29 @@ export type AlignResult = {
   anchorSources?: import('./contentAligner').LineAnchorSource[]
 }
 
+/** Below this a line's start is treated as coinciding with the next line's — a
+ * degenerate (effectively zero-duration) row that needs a carved window. */
+const DEGENERATE_GAP_S = 0.1
+/** Window carved for such a row so it can briefly become the active line. */
+const CARVED_WINDOW_S = 0.3
+
+/** Guarantee every line a visible highlight window. A line whose start coincides
+ * with the next line's start — e.g. a row Whisper dropped from the transcript, left
+ * interpolated with no room between two anchored neighbours — would have zero
+ * duration and never become the active line. Carve a small window by nudging its
+ * start earlier into the slack before it. Only degenerate (near-zero) gaps are
+ * touched, so normally-spaced lines are untouched; iterating backward lets a run of
+ * collisions cascade so starts stay strictly increasing. */
+export function ensureVisibleLineWindows(lines: TimedLine[], window = CARVED_WINDOW_S): TimedLine[] {
+  const out = lines.map((l) => ({ ...l }))
+  for (let i = out.length - 2; i >= 0; i--) {
+    if (out[i + 1].startTime - out[i].startTime >= DEGENERATE_GAP_S) continue
+    out[i].startTime = Math.max(0, out[i + 1].startTime - window)
+    if (out[i].endTime < out[i].startTime) out[i].endTime = out[i].startTime
+  }
+  return out
+}
+
 export function alignLyrics(
   lineTexts: string[],
   words: TranscriptWord[],
@@ -250,7 +273,7 @@ export function alignLyrics(
   const content = alignByContent(lineTexts, clean, existingLines, sourceLanguage)
   if (content.confidence >= CONTENT_CONFIDENCE_THRESHOLD) {
     return {
-      lines: content.lines,
+      lines: ensureVisibleLineWindows(content.lines),
       mode: 'content',
       confidence: content.confidence,
       anchorSources: content.anchorSources,
@@ -258,7 +281,7 @@ export function alignLyrics(
   }
   const lines = alignTranscriptToLines(lineTexts, clean, existingLines, sourceLanguage)
   return {
-    lines,
+    lines: ensureVisibleLineWindows(lines),
     mode: 'proportional',
     confidence: content.confidence,
     anchorSources: lineTexts.map(() => 'interpolated' as const),
