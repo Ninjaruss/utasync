@@ -209,6 +209,15 @@ describe('sanitizeTranscript', () => {
     ]
     expect(sanitizeTranscript(words).map((w) => w.word)).toEqual(['届'])
   })
+
+  it('clips an overstamped Japanese segment instead of dropping it', () => {
+    const words: TranscriptWord[] = [{ word: '明日を♪', startTime: 228, endTime: 262.52 }]
+    const result = sanitizeTranscript(words)
+    expect(result).toHaveLength(1)
+    expect(result[0].startTime).toBe(228)
+    expect(result[0].endTime).toBeLessThan(232)
+    expect(result[0].endTime - result[0].startTime).toBeLessThanOrEqual(10)
+  })
 })
 
 describe('lineWeight', () => {

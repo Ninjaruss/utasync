@@ -27,6 +27,12 @@ const SUBDIVIDE_TRANSCRIPT_MAX_DURATION_S = 28
 // one slot — a few real consecutive repeats ("la la la") lose a little weight,
 // but a phantom loop no longer fills the gap and shoves later lines off.
 const MAX_REPEATS_KEPT = 1
+// Segment-mode Whisper tags a short sung tail across the following instrumental
+// (e.g. AKFG First Take "明日を♪" stamped 228–262s). Clip to a glyph budget so
+// the onset is kept without dropping the whole chunk (>28s) or smearing chars.
+const MAX_SEC_PER_GLYPH = 0.65
+const MIN_CLIPPED_SEGMENT_S = 1.2
+const JA_SCRIPT_RE = /[぀-ヿ㐀-鿿]/
 
 function normalizeToken(word: string): string {
   // Strip whitespace and punctuation so repetition detection isn't fooled by
@@ -52,6 +58,17 @@ function pushSanitizedWord(kept: TranscriptWord[], w: TranscriptWord): void {
   kept.push(w)
 }
 
+/** Clip Japanese segment overstamps; leave Latin-only loops for the drop rule. */
+function clipImplausibleSegmentEnd(w: TranscriptWord): TranscriptWord {
+  const duration = w.endTime - w.startTime
+  if (duration <= MAX_WORD_DURATION_S) return w
+  const glyphs = [...normalizeForMatch(w.word)]
+  if (glyphs.length === 0 || !glyphs.some((ch) => JA_SCRIPT_RE.test(ch))) return w
+  const maxDur = Math.max(MIN_CLIPPED_SEGMENT_S, glyphs.length * MAX_SEC_PER_GLYPH)
+  if (duration <= maxDur) return w
+  return { ...w, endTime: w.startTime + maxDur }
+}
+
 /**
  * Clean a raw Whisper transcript before alignment. Whisper hallucinates during
  * the instrumental/silent parts of a song — phantom looping words carrying real
@@ -66,8 +83,9 @@ export function sanitizeTranscript(words: TranscriptWord[]): TranscriptWord[] {
   let runToken = ''
   let runCount = 0
 
-  for (const w of words) {
-    if (!Number.isFinite(w.startTime) || !Number.isFinite(w.endTime)) continue
+  for (const raw of words) {
+    if (!Number.isFinite(raw.startTime) || !Number.isFinite(raw.endTime)) continue
+    let w = clipImplausibleSegmentEnd(raw)
     const duration = w.endTime - w.startTime
     if (duration <= 0) continue
 

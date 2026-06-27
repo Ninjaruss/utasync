@@ -11,7 +11,14 @@ import { ABLoopController } from './ABLoop'
 import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase } from '../core/types'
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
 import { projectPhraseTokensToLines } from '../lyrics/phraseProjection'
-import { repairPhraseTranslationOrder, derivePhrases, shouldDerivePhrasesForStoredSong } from '../lyrics/phraseNormalize'
+import { repairPhraseTranslationOrder } from '../lyrics/phraseNormalize'
+import {
+  refineAlignmentWithPhrases,
+  sheetRowsForAlignment,
+  applyRefinedAlignment,
+  shouldRefineStoredAlignment,
+  transcriptWordsToAlignInput,
+} from '../lyrics/phraseAlignment'
 import { summarizePhraseChanges, applySungLayout, revertToSheetLayout } from '../lyrics/phraseLayout'
 import { PhraseNormalizePanel } from '../lyrics/PhraseNormalizePanel'
 import { tokenizeJapanese } from '../language/japanese/tokenizer'
@@ -422,25 +429,27 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     enrichmentJobRef.current++
     db.songs.get(songId).then(async (s) => {
       if (!s || cancelled) return
-      setSong(s)
-      setLines(s.lyrics.lines)
-      setMode('play') // a freshly opened song always lands in Play mode
-
-      // Phase 5 migration: derive the phrase layer once for auto-aligned songs that
-      // predate it (have a transcript but no phrases). Best-effort and non-blocking.
       let loaded = s
-      if (shouldDerivePhrasesForStoredSong(s.lyrics)) {
+      if (shouldRefineStoredAlignment(s.lyrics)) {
         try {
-          const { phrases } = derivePhrases(s.lyrics.lines, s.lyrics.transcriptWords ?? [], s.lyrics.anchorSources)
-          if (phrases.length && !cancelled) {
-            loaded = { ...s, lyrics: { ...s.lyrics, phrases } }
+          const sheetRows = sheetRowsForAlignment(s.lyrics)
+          const refined = refineAlignmentWithPhrases(
+            sheetRows,
+            transcriptWordsToAlignInput(s.lyrics.transcriptWords),
+            s.lyrics.sourceLanguage,
+            s.lyrics,
+          )
+          if (refined.phrases.length && !cancelled) {
+            loaded = { ...s, lyrics: applyRefinedAlignment(s.lyrics, refined) }
             await db.songs.put(loaded)
-            setSong(loaded)
           }
         } catch {
-          /* leave phrases underived; nothing else depends on them */
+          /* leave alignment as-is; playback still works */
         }
       }
+      setSong(loaded)
+      setLines(loaded.lyrics.lines)
+      setMode('play') // a freshly opened song always lands in Play mode
       // Opening a different song starts from the top; reopening the same song
       // (e.g. after a trip to Settings) resumes the persisted position.
       const store = usePlayerStore.getState()

@@ -120,13 +120,31 @@ function isContinuationRow(
   return anchor !== 'lcs' && duration < MAX_MERGE_DURATION
 }
 
+/** True when a lyric line repeats the same phrase (e.g. ローリング ローリング). */
+function isRepetitionOnlyLine(text: string): boolean {
+  const parts = text.trim().split(/\s+/).filter(Boolean)
+  if (parts.length < 2) return false
+  const norm = parts.map((p) => p.toLowerCase())
+  return norm.every((p) => p === norm[0])
+}
+
+/** Chorus repetition row sung as a tail of the line before it (within a few seconds). */
+function shouldMergeRepetitionTail(lines: TimedLine[], i: number): boolean {
+  if (i === 0 || !isRepetitionOnlyLine(lines[i].original)) return false
+  const gap = lines[i].startTime - lines[i - 1].endTime
+  return gap < 3 && gap > -1.5
+}
+
 /** True when row `i` should be folded into the phrase before it. */
 function shouldMergeIntoPrev(
   lines: TimedLine[],
   anchorSources: LineAnchorSource[] | undefined,
   i: number,
 ): boolean {
-  return i > 0 && isContinuationRow(lines, anchorSources, i)
+  return (
+    i > 0 &&
+    (isContinuationRow(lines, anchorSources, i) || shouldMergeRepetitionTail(lines, i))
+  )
 }
 
 /** True when a leading row should attach forward onto the next sung phrase.
@@ -159,13 +177,12 @@ export function repairPhraseTranslationOrder(phrases: SungPhrase[]): SungPhrase[
   return out
 }
 
-/** Whether a stored song should derive its phrase layer on open (Phase 5 migration):
- * an auto-aligned song that has a transcript but no phrases yet. Manual-only songs
- * (no transcript) and songs that already carry phrases are skipped. */
+/** @deprecated Use {@link shouldRefineStoredAlignment} from `phraseAlignment.ts`. */
 export function shouldDerivePhrasesForStoredSong(lyrics: LyricsData): boolean {
-  if (lyrics.phrases?.length) return false
   if (!lyrics.lines.length) return false
-  return !!lyrics.transcriptWords?.length
+  if (lyrics.alignmentMode !== 'auto') return false
+  if (!lyrics.transcriptWords?.length) return false
+  return !lyrics.phrases?.length
 }
 
 /** Derive canonical sung phrases from already-aligned rows + the audio transcript.

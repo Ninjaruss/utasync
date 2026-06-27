@@ -40,4 +40,18 @@ describe.skipIf(!existsSync(SEGMENT_CACHE))('AKFG First Take segment transcript'
     expect(hill?.startTime).toBeLessThan(218)
     expect(hill?.endTime! - hill!.startTime).toBeLessThan(6)
   })
+
+  it('covers the full bridge line through 朝だ despite Whisper mishearing', () => {
+    const { lines, anchorSources } = alignLyrics(lineTexts, words, undefined, 'ja')
+    const bridgeIdx = lineTexts.findIndex((t) => t.includes('君の孤独も全て暴き出す朝だ'))
+    const redIdx = lineTexts.findIndex((t) => t.includes('赤い 赤い'))
+    const bridge = lines[bridgeIdx]
+    const red = lines[redIdx]
+    expect(anchorSources?.[bridgeIdx]).toBe('lcs')
+    expect(bridge.endTime).toBeGreaterThan(228)
+    expect(bridge.endTime).toBeLessThan(235)
+    expect(red.startTime).toBeGreaterThan(255)
+    expect(red.startTime).toBeLessThan(270)
+    expect(red.startTime).toBeGreaterThan(bridge.endTime + 20)
+  })
 })

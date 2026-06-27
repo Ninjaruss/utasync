@@ -30,7 +30,7 @@ async function main() {
 
   const { decodeMp3ToMono } = await import(pathToFileURL(join(root, 'scripts/lib/nodeAudio.mjs')).href)
   const { transcribeAudio } = await import(pathToFileURL(join(root, 'scripts/lib/nodeWhisper.mjs')).href)
-  const { alignLyrics, sanitizeTranscript } = await import(
+  const { sanitizeTranscript } = await import(
     pathToFileURL(join(root, 'src/ai-pipeline/aligner.ts')).href
   )
 
@@ -86,8 +86,22 @@ async function main() {
   console.log(`After sanitizeTranscript: ${clean.length} (dropped ${words.length - clean.length} hallucination/garbage tokens)`)
   console.log(`\nFull Whisper text:\n${result.text}\n`)
 
-  const { lines, mode, confidence, anchorSources } = alignLyrics(lineTexts, words, undefined, 'ja')
-  console.log(`Alignment mode: ${mode}  confidence: ${confidence.toFixed(3)}`)
+  const { refineAlignmentWithPhrases } = await import(
+    pathToFileURL(join(root, 'src/lyrics/phraseAlignment.ts')).href
+  )
+
+  const sheetRows = lineTexts.map((original) => ({
+    original,
+    translation: '',
+    startTime: 0,
+    endTime: 0,
+  }))
+  const refined = refineAlignmentWithPhrases(sheetRows, words, 'ja')
+  const { lines, mode, confidence, anchorSources, phrases, report, phraseLayout } = refined
+  console.log(`Alignment mode: ${mode}  confidence: ${confidence.toFixed(3)}  layout: ${phraseLayout}`)
+  if (report.merges || report.splits) {
+    console.log(`  Phrase regroup: ${report.merges} merge(s), ${report.splits} split(s)`)
+  }
   if (mode === 'proportional') {
     console.log('  (whole song fell back to proportional — no line has reliable LCS anchors)\n')
   } else {
@@ -104,7 +118,7 @@ async function main() {
     const srcTag = src === 'lcs' ? '' : src === 'interpolated' ? '  [interp]' : src === 'interjection' ? '  [sigh]' : '  [proportional]'
     const flag = dur <= 0 ? '  <-- zero/negative duration' : dur > 20 ? '  <-- suspiciously long' : ''
     console.log(`${String(i + 1).padStart(2)} [${fmt(l.startTime)} - ${fmt(l.endTime)}] (${dur.toFixed(2)}s)${srcTag}${flag}`)
-    console.log(`    ${lineTexts[i]}`)
+    console.log(`    ${l.original}`)
   }
 
   if (process.argv.includes('--dump-words')) {
@@ -125,13 +139,9 @@ async function main() {
   console.log(`\nMonotonicity issues: ${issues}`)
 
   if (process.argv.includes('--phrases')) {
-    const { derivePhrases } = await import(
-      pathToFileURL(join(root, 'src/lyrics/phraseNormalize.ts')).href
-    )
     const { summarizePhraseChanges } = await import(
       pathToFileURL(join(root, 'src/lyrics/phraseLayout.ts')).href
     )
-    const { phrases, report } = derivePhrases(lines, clean, anchorSources)
     console.log(
       `\nCanonical phrases: ${phrases.length}  (splits: ${report.splits}, merges: ${report.merges}, low-confidence: ${report.lowConfidence})`,
     )
@@ -144,7 +154,7 @@ async function main() {
       console.log(`    ${p.original}`)
       if (p.translation) console.log(`    = ${p.translation}`)
     }
-    const changes = summarizePhraseChanges(lines, phrases)
+    const changes = summarizePhraseChanges(sheetRows, phrases)
     if (changes.length) {
       console.log(`\nProposed row regroupings (${changes.length}):`)
       for (const c of changes) {

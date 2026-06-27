@@ -38,6 +38,22 @@ const LYRIC_ORTHOGRAPHY_ALIASES: ReadonlyArray<readonly [string, string]> = [
   ['堅', '固'],
   ['顔', '丘'],
   ['わけ', '理由'],
+  // AKFG First Take bridge — Whisper consistently mishears this phrase.
+  ['鼓動', '孤独'],
+  ['浅く出す', '暴き出す'],
+  ['明日を', '朝だ'],
+  // AKFG First Take chorus — Whisper segment mishearings (UserRockRoll audit).
+  ['ロリーロリー', 'ローリングローリング'],
+  ['どころから待って', '心絡まって'],
+  ['ここから待ってるように', '心絡まって'],
+  ['初めからもない', '初めから持ってない'],
+  ['傷つく地面', '凍てつく地面'],
+  ['体のように', '転がるように'],
+  ['痛つく世界', '凍てつく世界'],
+  ['楽しみも', 'この先も'],
+  ['軽くて色に', '転がるように'],
+  ['なくされちゃえも', 'なくした'],
+  ['わからないんだろうに', 'わからないんだ'],
 ]
 
 /** Sighs / filler rows that are rarely transcribed — do not anchor by coincidence. */

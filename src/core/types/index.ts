@@ -95,6 +95,9 @@ export interface LyricsData {
   // Confidence of the last auto-alignment (0–1, content-match coverage). When
   // low, auto-align fell back to the proportional method; the UI warns the user.
   alignmentConfidence?: number
+  /** Bump when auto-align timing logic changes; songs below this re-refine from the
+   * stored Whisper transcript on open (no re-transcription). */
+  alignmentPipelineVersion?: number
   /** Set after token enrichment is persisted; avoids re-tokenizing on every open. */
   enrichmentVersion?: number
   /** Sanitized Whisper word timeline from the last auto-align (furigana verification). */

@@ -4,8 +4,8 @@ import { getWhisperDownloadHint } from './models'
 import { decodeAudioFileToMono } from '../core/audio/decodeToMono'
 import { getAudioFile } from '../core/opfs/audio'
 import type { Song } from '../core/types'
-import { alignLyrics, sanitizeTranscript, type TranscriptWord } from './aligner'
-import { derivePhrases } from '../lyrics/phraseNormalize'
+import { sanitizeTranscript, type TranscriptWord } from './aligner'
+import { refineAlignmentWithPhrases, sheetRowsForAlignment, applyRefinedAlignment } from '../lyrics/phraseAlignment'
 import { db } from '../core/db/schema'
 import { computeSyncState } from '../core/db/migrations'
 import { ProcessProgress } from '../core/ui/ProcessProgress'
@@ -227,31 +227,24 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       })
       const transcriptWords = sanitizeTranscript(words)
 
-      // Weight against the sung (original) text — that's what the audio
-      // transcript corresponds to, not the translation.
-      const lineTexts = song.lyrics.lines.map((l) => l.original || l.translation)
-      const { lines: aligned, mode, confidence, anchorSources } = alignLyrics(
-        lineTexts, words, song.lyrics.lines, song.lyrics.sourceLanguage,
+      const sheetRows = sheetRowsForAlignment(song.lyrics)
+      const refined = refineAlignmentWithPhrases(
+        sheetRows,
+        words,
+        song.lyrics.sourceLanguage,
+        song.lyrics,
       )
-      // Derive the canonical sung-phrase layer (Phase 1). Additive: the pasted
-      // sheet (`lines`) is unchanged; the UI keeps rendering it by default (D1).
-      const { phrases } = derivePhrases(aligned, transcriptWords, anchorSources)
       const updated: Song = {
         ...song,
-        lyrics: {
-          ...song.lyrics,
-          lines: aligned,
-          alignmentMode: 'auto',
-          alignmentConfidence: confidence,
-          transcriptWords,
-          anchorSources,
-          phrases,
-        },
-        syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines: aligned } }),
+        lyrics: applyRefinedAlignment(
+          { ...song.lyrics, alignmentMode: 'auto', transcriptWords },
+          refined,
+        ),
+        syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines: refined.lines } }),
       }
       await db.songs.put(updated)
 
-      setLowConfidence(mode === 'proportional')
+      setLowConfidence(refined.mode === 'proportional')
       setStage('done')
       onComplete(updated)
     } catch (e: unknown) {
