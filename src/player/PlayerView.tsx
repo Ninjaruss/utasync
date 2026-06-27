@@ -1056,6 +1056,30 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         <WordColorProgressBanner done={wordColorProgress.done} total={wordColorProgress.total} />
       )}
 
+      {/* Stored audio failed to load and there is no YouTube fallback: playback is
+          disabled, so offer a way to re-attach a file rather than a dead player. */}
+      {localAudioLoadFailed && !isYouTube && hasStoredAudio && (
+        <div className="shrink-0 px-3 sm:px-4 py-2.5 border-b border-cinnabar-900/80 bg-cinnabar-950/80 flex items-center gap-3">
+          <p className="text-[11px] text-amber-400/90 text-pretty leading-snug flex-1">
+            Couldn&apos;t load this song&apos;s audio file. {attachAudioError || 'It may be missing or in an unsupported format.'}
+          </p>
+          <label className="shrink-0 px-2.5 py-1.5 rounded-lg bg-cinnabar-accent text-white text-[11px] font-medium min-h-8 inline-flex items-center touch-manipulation cursor-pointer">
+            {attachingAudio ? 'Adding…' : 'Re-attach audio'}
+            <input
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              disabled={attachingAudio}
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (file) void handleAttachLocalAudio(file)
+                e.target.value = ''
+              }}
+            />
+          </label>
+        </div>
+      )}
+
       {mode === 'play' && lyricsUntimed && canPlayback && (
         <div className="shrink-0 px-3 sm:px-4 py-2 border-b border-cinnabar-900/80 bg-cinnabar-950/80">
           <p className="text-[11px] text-white/45 text-pretty">
