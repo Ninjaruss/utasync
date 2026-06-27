@@ -313,6 +313,10 @@ function minSungDuration(lineText: string): number {
   return Math.max(0.8, Math.min(4.5, glyphs * 0.14))
 }
 
+/** Max orphan gap (seconds) a line will claim from trailing dropped syllables. A
+ * larger gap is an instrumental break, not the line's sung tail. */
+const ORPHAN_GAP_FILL_MAX_S = 4
+
 /** Trailing space-separated repeat (ローリング ローリング) or echo tail (…ように ように). */
 function lyricRepetitionTailFraction(text: string): number {
   const parts = text.trim().split(/\s+/).filter(Boolean)
@@ -609,7 +613,20 @@ export function alignByContent(
         : Math.max(ownEndAnchors[li], s)
     const minEnd = s + Math.min(minSungDuration(lineTexts[li] ?? ''), Math.max(0, nextStart - s))
     const cappedEnd = Math.min(Math.max(endBase, minEnd), nextStart)
-    return buildLine(li, s, Math.max(s, cappedEnd))
+    // Orphan-gap fill: when Whisper mis-transcribed this line's tail (so its end
+    // anchored early) and the next line is anchored and close, the untranscribed
+    // trailing syllables are sung in the gap between them — claim it rather than
+    // leaving a rest, so the line spans its real sung duration (tightens AB-loop /
+    // export and the boundary on merged-segment splits like 角を曲がって｜此処…).
+    const orphan = nextStart - cappedEnd
+    const fillOrphan =
+      li + 1 < starts.length &&
+      stats[li].unmatchedTail > 0 &&
+      hasAnchor[li] &&
+      hasAnchor[li + 1] &&
+      orphan > 0 &&
+      orphan < ORPHAN_GAP_FILL_MAX_S
+    return buildLine(li, s, Math.max(s, fillOrphan ? nextStart : cappedEnd))
   })
   const anchorSources: LineAnchorSource[] = lineTexts.map((text, li) => {
     if (isInterjectionLyricLine(text)) return 'interjection'

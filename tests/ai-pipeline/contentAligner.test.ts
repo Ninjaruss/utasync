@@ -44,6 +44,46 @@ describe('alignByContent (exact match)', () => {
   })
 })
 
+describe('alignByContent (orphan-gap fill)', () => {
+  it('claims the gap for a line whose tail Whisper dropped, when the next line is close', () => {
+    // Line 1 is sung "…またね" but Whisper drops the tail; its anchors end at ら (2.6),
+    // leaving an orphan before line 2 at 4.5. Those syllables are sung in the gap.
+    const lines = ['あおぞらまたね', 'ゆきがふる']
+    const words: TranscriptWord[] = [
+      { word: 'あ', startTime: 1, endTime: 1.4 },
+      { word: 'お', startTime: 1.4, endTime: 1.8 },
+      { word: 'ぞ', startTime: 1.8, endTime: 2.2 },
+      { word: 'ら', startTime: 2.2, endTime: 2.6 },
+      { word: 'ゆ', startTime: 4.5, endTime: 4.9 },
+      { word: 'き', startTime: 4.9, endTime: 5.3 },
+      { word: 'が', startTime: 5.3, endTime: 5.7 },
+      { word: 'ふ', startTime: 5.7, endTime: 6.1 },
+      { word: 'る', startTime: 6.1, endTime: 6.5 },
+    ]
+    const { lines: out } = alignByContent(lines, words, undefined, 'ja')
+    // Line 1 ends right up against line 2's start — no orphan rest mid vocal run.
+    expect(out[0].endTime).toBeCloseTo(out[1].startTime, 1)
+    expect(out[0].endTime).toBeGreaterThan(3.5)
+  })
+
+  it('does not fill across a large gap (instrumental break, not a dropped tail)', () => {
+    const lines = ['あおぞらまたね', 'ゆきがふる']
+    const words: TranscriptWord[] = [
+      { word: 'あ', startTime: 1, endTime: 1.4 },
+      { word: 'お', startTime: 1.4, endTime: 1.8 },
+      { word: 'ぞ', startTime: 1.8, endTime: 2.2 },
+      { word: 'ら', startTime: 2.2, endTime: 2.6 },
+      { word: 'ゆ', startTime: 30, endTime: 30.4 },
+      { word: 'き', startTime: 30.4, endTime: 30.8 },
+      { word: 'が', startTime: 30.8, endTime: 31.2 },
+      { word: 'ふ', startTime: 31.2, endTime: 31.6 },
+      { word: 'る', startTime: 31.6, endTime: 32 },
+    ]
+    const { lines: out } = alignByContent(lines, words, undefined, 'ja')
+    expect(out[0].endTime).toBeLessThan(out[1].startTime - 10)
+  })
+})
+
 describe('alignByContent (katakana pronoun stylization)', () => {
   it('anchors a line using キミ to the real timestamp of Whisper\'s 君 transcription', () => {
     // Lyric sheets commonly stylize 君 ("you") as the katakana キミ, but Whisper's
