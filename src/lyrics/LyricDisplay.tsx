@@ -4,7 +4,7 @@ import { useSettingsStore } from '../payment/SettingsStore'
 import type { TimedLine, FuriganaMode, ReadingMode, Token } from '../core/types'
 import { isSameText, hasVisibleTranslation } from './bilingual'
 import { colorForToken, colorForTranslationWord, splitTranslationLines } from '../language/wordColors'
-import { katakanaToHiragana } from '../language/japanese/phonetics'
+import { resolveTokenReading } from './readingDisplay'
 import type { ABLoop, ABLoopPlaylistEntry } from '../core/types'
 import { isABLoopActive, lyricLoopHighlight, type LyricLoopHighlight } from '../player/abLoopUtils'
 import { lyricRowLoopRegion, lyricRowPlayheadActive, lyricRowPlaylistCurrent, lyricRowPlaylistRegion } from '../core/ui/toolbarClasses'
@@ -40,50 +40,6 @@ function isTranslationHighlighted(wordIndex: number, tokens: Token[], hovered: H
   return false
 }
 
-/** Below this an adopted sung reading is flagged "uncertain" in the tooltip. */
-const UNCERTAIN_READING_CONFIDENCE = 0.5
-
-type ResolvedReading = {
-  /** Hiragana to render in the ruby, or null when the surface needs none. */
-  ruby: string | null
-  /** Tooltip text, or undefined when there is nothing extra to surface. */
-  title: string | undefined
-  /** Which reading the ruby is actually showing. */
-  source: 'dictionary' | 'sung'
-}
-
-/**
- * Reading precedence (D3): the dictionary reading stays in the ruby by default;
- * a detected sung alternate is only promoted when it is high-confidence or the
- * user prefers sung readings. Otherwise the alternate surfaces in the tooltip.
- */
-function resolveReading(token: Token, readingMode: ReadingMode): ResolvedReading {
-  const dict = token.reading ? katakanaToHiragana(token.reading) : null
-  const sung = token.audioReading ? katakanaToHiragana(token.audioReading) : null
-  const conf = token.readingConfidence ?? 0
-  // Correct standard readings: the dictionary reading owns the ruby. Detected sung
-  // alternates surface only in the tooltip — they are too unreliable (mis-hearings,
-  // proportional slices) to override the ruby — unless the user opts into sung mode.
-  const showSung = !!sung && readingMode === 'sung'
-
-  const chosen = showSung ? sung : dict
-  const ruby = chosen && chosen !== token.surface ? chosen : null
-
-  let title: string | undefined
-  if (showSung && sung) {
-    title = dict ? `Sung: ${sung} · Dictionary: ${dict}` : `Sung: ${sung}`
-  } else if (sung) {
-    const label = conf > 0 && conf < UNCERTAIN_READING_CONFIDENCE ? 'Sung (uncertain)' : 'Sung'
-    title = dict ? `${label}: ${sung} · Dictionary: ${dict}` : `${label}: ${sung}`
-  } else if (token.readingVerified && dict) {
-    title = 'Verified from audio'
-  } else if (token.readingMismatch && dict) {
-    title = `Dictionary: ${dict} (audio differed)`
-  }
-
-  return { ruby, title, source: showSung ? 'sung' : 'dictionary' }
-}
-
 function ColoredTokens({
   tokens,
   withFurigana,
@@ -104,7 +60,7 @@ function ColoredTokens({
       {tokens.map((token, i) => {
         const color = withColoring ? colorForToken(tokens, i) : null
         const highlighted = withColoring && isSourceHighlighted(i, tokens, hovered)
-        const resolved = withFurigana ? resolveReading(token, readingMode) : null
+        const resolved = withFurigana ? resolveTokenReading(token, readingMode) : null
         const reading = resolved?.ruby ?? null
         const rubyTitle = resolved?.title
         const rubyClass = resolved?.source === 'sung'
