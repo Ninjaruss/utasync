@@ -1,4 +1,4 @@
-import type { DeviceTier } from '../core/types'
+import type { DeviceTier, TimedLine, TimedTranscriptWord } from '../core/types'
 
 export interface TimestampModeOptions {
   /** User opted into the slower word-level pass for verified readings (D2). */
@@ -30,4 +30,38 @@ export function accurateReadingsAvailable(tier: DeviceTier, durationSec: number)
 export function accurateReadingsEstimate(tier: DeviceTier, durationSec: number): string | null {
   if (!accurateReadingsAvailable(tier, durationSec)) return null
   return '~3–8 min'
+}
+
+/** Number of merged segments to see before suggesting the word-level pass. */
+const MERGED_SEGMENT_SUGGEST_THRESHOLD = 2
+
+/** Count transcript chunks that span two or more lyric lines. Segment-mode Whisper
+ * groups several sung lines into one chunk (e.g. 角を曲がって｜此処…); word mode does
+ * not. A chunk is "merged" when ≥2 lines start within its [start, end) window. */
+export function countMergedTranscriptSegments(
+  lines: TimedLine[],
+  transcriptWords: TimedTranscriptWord[],
+): number {
+  let merged = 0
+  for (const w of transcriptWords) {
+    let linesInChunk = 0
+    for (const l of lines) {
+      if (l.startTime >= w.startTime && l.startTime < w.endTime) linesInChunk++
+      if (linesInChunk >= 2) break
+    }
+    if (linesInChunk >= 2) merged++
+  }
+  return merged
+}
+
+/** Whether to suggest re-running with the slower word-level pass: the segment
+ * transcript grouped multiple lines into shared chunks (so per-line timing is
+ * approximate) and the device can actually run word mode (full tier only). */
+export function suggestsWordLevelAlignment(
+  lines: TimedLine[],
+  transcriptWords: TimedTranscriptWord[] | undefined,
+  tier: DeviceTier,
+): boolean {
+  if (tier !== 'full' || !transcriptWords?.length) return false
+  return countMergedTranscriptSegments(lines, transcriptWords) >= MERGED_SEGMENT_SUGGEST_THRESHOLD
 }

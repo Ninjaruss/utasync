@@ -23,6 +23,9 @@ interface Props {
   onClose: () => void
   /** When true, begin alignment as soon as the flow opens (e.g. fresh audio upload). */
   autoStart?: boolean
+  /** Pre-select the word-level "Accurate readings (slower)" pass (e.g. re-running to
+   * fix merged-segment timing). */
+  accurateReadings?: boolean
 }
 
 type Stage = 'idle' | AlignStage | 'done' | 'error'
@@ -79,7 +82,7 @@ function loadTaskProgress(p: LoadProgress | null, phase: 'download' | 'init'): n
   return Math.min(99, pct)
 }
 
-export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: Props) {
+export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, accurateReadings: accurateReadingsInitial = false }: Props) {
   const tier = getDeviceTier()
   const downloadHint = getWhisperDownloadHint(tier)
   const vocalSeparationDefault = useSettingsStore((s) => s.vocalSeparationEnabled)
@@ -89,7 +92,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
   const [vocalSeparationRun, setVocalSeparationRun] = useState(false)
   // D2: opt into the slower word-level Whisper pass for more reliable readings on
   // long songs (short songs already use word mode; lite tier always uses segment).
-  const [accurateReadings, setAccurateReadings] = useState(false)
+  const [accurateReadings, setAccurateReadings] = useState(accurateReadingsInitial)
   const [stage, setStage] = useState<Stage>(() =>
     autoStart && tier !== 'manual' ? 'preparing' : 'idle',
   )
