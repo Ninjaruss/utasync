@@ -2,6 +2,7 @@ import type { TimedLine, TimedTranscriptWord, Token } from '../core/types'
 import { katakanaToHiragana } from '../language/japanese/phonetics'
 import { tokenizeJapanese } from '../language/japanese/tokenizer'
 import { normalizeForMatch } from './contentAligner'
+import { resolveLineReadings } from './readingAlignment'
 
 const KANJI_RE = /[㐀-鿿]/
 
@@ -170,38 +171,6 @@ function transcriptSliceForWindow(
   return sliceByFraction(lineText, lineFrac0 + (lineFrac1 - lineFrac0) * tokenFrac0, lineFrac0 + (lineFrac1 - lineFrac0) * tokenFrac1)
 }
 
-/** A transcript word must spend at least this fraction of its own duration inside a
- * token's window before its kana are trusted as that token's reading. Below it, the
- * word mostly belongs to neighbouring tokens, so any kana sliced out are a fragment
- * (the 向こう→クニコ false positive). */
-const WORD_OWNED_MIN_FRACTION = 0.7
-
-/** Transcript words a token genuinely owns: mostly inside its window, not a phrase
- * chunk spanning several tokens that proportional slicing would mince into garbage. */
-function ownedWordsInWindow(
-  words: TimedTranscriptWord[],
-  tokenStart: number,
-  tokenEnd: number,
-): TimedTranscriptWord[] {
-  return words.filter((w) => {
-    if (w.endTime <= tokenStart || w.startTime >= tokenEnd) return false
-    const dur = Math.max(0.001, w.endTime - w.startTime)
-    const overlap = Math.max(0, Math.min(w.endTime, tokenEnd) - Math.max(w.startTime, tokenStart))
-    return overlap / dur >= WORD_OWNED_MIN_FRACTION
-  })
-}
-
-/** Full kana of the words a token owns — never a proportional sub-slice, so a
- * fragment cut from a multi-token chunk can't masquerade as the token's reading. */
-function ownedSungKanaInWindow(
-  words: TimedTranscriptWord[],
-  tokenStart: number,
-  tokenEnd: number,
-): string {
-  return ownedWordsInWindow(words, tokenStart, tokenEnd)
-    .map((w) => extractTranscriptKana(w.word))
-    .join('')
-}
 
 function sungGlyphsInWindow(
   words: TimedTranscriptWord[],
@@ -218,10 +187,6 @@ function sungGlyphsInWindow(
   return out
 }
 
-function sungMoraCap(sung: string, token: Token): string {
-  // Kanji tokens: cap adoption to surface glyph count (わけ sung for 理由 → 2 morae).
-  return sung.slice(0, Math.max(2, token.surface.length))
-}
 
 export function readingsEquivalent(expected: string, sung: string): boolean {
   const a = normalizeKanaForCompare(expected)
@@ -293,12 +258,6 @@ async function adoptReadingFromTranscriptKanji(
   return match.reading
 }
 
-/** True when the transcript text contains the token's kanji run — i.e. Whisper
- * wrote the standard word, so the dictionary reading (not a kana slice) applies. */
-function transcriptKanjiCovers(windowText: string, surface: string): boolean {
-  const kanji = [...surface].filter((ch) => KANJI_RE.test(ch)).join('')
-  return kanji.length > 0 && windowText.includes(kanji)
-}
 
 export function reconcileTokenReadings(
   tokens: Token[],
@@ -310,58 +269,27 @@ export function reconcileTokenReadings(
   if (windowWords.length === 0) return tokens
   const windowText = windowWords.map((w) => w.word).join('')
 
-  const lineStart = line.startTime
-  const lineEnd = Math.max(line.endTime, lineStart + 0.01)
-  const lineDur = lineEnd - lineStart
-  const weights = tokens.map(tokenMoraWeight)
-  const totalWeight = weights.reduce((a, b) => a + b, 0) || tokens.length
-
-  let cursor = lineStart
+  const decisions = resolveLineReadings(tokens, windowText)
   return tokens.map((token, i) => {
-    const span = (weights[i] / totalWeight) * lineDur
-    const tokenStart = cursor
-    const tokenEnd = i === tokens.length - 1 ? lineEnd : cursor + span
-    cursor = tokenEnd
-
-    if (!hasKanji(token.surface) || !token.reading) return token
-
-    // If Whisper spelled this token with its own kanji, the transcript recognized
-    // the standard word — its dictionary reading applies. The kana sliced from that
-    // window are surrounding okurigana/particles, not a reading, so never adopt
-    // them (the 車→なは / 見え→はえ / 角→この garbage fix).
-    if (transcriptKanjiCovers(windowText, token.surface)) return token
-
-    // Only trust kana from words this token actually owns. A fragment sliced out of
-    // a word spanning several tokens is garbage, so it must drive neither an adopted
-    // sung reading (green) nor a mismatch flag (amber) — the token stays neutral on
-    // the dictionary reading. This is the high-precision policy: corroborated
-    // evidence or nothing.
-    const owned = ownedWordsInWindow(windowWords, tokenStart, tokenEnd)
-    const sung = ownedSungKanaInWindow(windowWords, tokenStart, tokenEnd)
-    const capped = sungMoraCap(sung, token)
-    const expected = token.reading
-    if (capped && shouldAdoptSungReading(expected, capped)) {
-      const confidence = readingAdoptionConfidence(capped, token, owned)
-      if (confidence >= HIGH_READING_CONFIDENCE) {
-        // Word-level evidence we trust enough to surface as a sung alternate (わけ/理由).
+    const d = decisions[i]
+    switch (d.kind) {
+      case 'verified':
+        return { ...token, readingVerified: true, readingMismatch: false, readingConfidence: d.confidence ?? 1 }
+      case 'adopt':
         return {
           ...token,
-          audioReading: hiraganaToKatakana(capped),
+          audioReading: hiraganaToKatakana(d.audioReading!),
           readingVerified: false,
           readingMismatch: false,
-          readingConfidence: confidence,
+          readingConfidence: d.confidence,
         }
-      }
-      if (confidence > 0) {
-        // Owned but uncertain: warn that the audio differs without overriding the ruby.
-        return { ...token, readingMismatch: true, readingVerified: false, readingConfidence: confidence }
-      }
-    } else if (capped && readingsEquivalent(expected, capped)) {
-      return { ...token, readingVerified: true, readingMismatch: false, readingConfidence: 1 }
+      case 'mismatch':
+        return { ...token, readingMismatch: true, readingVerified: false, readingConfidence: d.confidence }
+      case 'neutral':
+        return { ...token, readingMismatch: false, readingVerified: false }
+      default: // 'skip' — kana-only or unreadable: leave untouched
+        return token
     }
-
-    // No trustworthy evidence: leave the dictionary reading unflagged.
-    return { ...token, readingMismatch: false, readingVerified: false }
   })
 }
 
