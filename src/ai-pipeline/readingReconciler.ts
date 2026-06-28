@@ -170,19 +170,37 @@ function transcriptSliceForWindow(
   return sliceByFraction(lineText, lineFrac0 + (lineFrac1 - lineFrac0) * tokenFrac0, lineFrac0 + (lineFrac1 - lineFrac0) * tokenFrac1)
 }
 
-function sungKanaInWindow(
+/** A transcript word must spend at least this fraction of its own duration inside a
+ * token's window before its kana are trusted as that token's reading. Below it, the
+ * word mostly belongs to neighbouring tokens, so any kana sliced out are a fragment
+ * (the 向こう→クニコ false positive). */
+const WORD_OWNED_MIN_FRACTION = 0.7
+
+/** Transcript words a token genuinely owns: mostly inside its window, not a phrase
+ * chunk spanning several tokens that proportional slicing would mince into garbage. */
+function ownedWordsInWindow(
   words: TimedTranscriptWord[],
   tokenStart: number,
   tokenEnd: number,
-  lineStart: number,
-  lineEnd: number,
+): TimedTranscriptWord[] {
+  return words.filter((w) => {
+    if (w.endTime <= tokenStart || w.startTime >= tokenEnd) return false
+    const dur = Math.max(0.001, w.endTime - w.startTime)
+    const overlap = Math.max(0, Math.min(w.endTime, tokenEnd) - Math.max(w.startTime, tokenStart))
+    return overlap / dur >= WORD_OWNED_MIN_FRACTION
+  })
+}
+
+/** Full kana of the words a token owns — never a proportional sub-slice, so a
+ * fragment cut from a multi-token chunk can't masquerade as the token's reading. */
+function ownedSungKanaInWindow(
+  words: TimedTranscriptWord[],
+  tokenStart: number,
+  tokenEnd: number,
 ): string {
-  let out = ''
-  for (const w of words) {
-    if (w.endTime <= tokenStart || w.startTime >= tokenEnd) continue
-    out += transcriptSliceForWindow(w, tokenStart, tokenEnd, lineStart, lineEnd, 'kana')
-  }
-  return out
+  return ownedWordsInWindow(words, tokenStart, tokenEnd)
+    .map((w) => extractTranscriptKana(w.word))
+    .join('')
 }
 
 function sungGlyphsInWindow(
@@ -313,20 +331,19 @@ export function reconcileTokenReadings(
     // them (the 車→なは / 見え→はえ / 角→この garbage fix).
     if (transcriptKanjiCovers(windowText, token.surface)) return token
 
-    const sung = sungKanaInWindow(windowWords, tokenStart, tokenEnd, lineStart, lineEnd)
+    // Only trust kana from words this token actually owns. A fragment sliced out of
+    // a word spanning several tokens is garbage, so it must drive neither an adopted
+    // sung reading (green) nor a mismatch flag (amber) — the token stays neutral on
+    // the dictionary reading. This is the high-precision policy: corroborated
+    // evidence or nothing.
+    const owned = ownedWordsInWindow(windowWords, tokenStart, tokenEnd)
+    const sung = ownedSungKanaInWindow(windowWords, tokenStart, tokenEnd)
     const capped = sungMoraCap(sung, token)
     const expected = token.reading
-    if (capped) {
-      if (readingsEquivalent(expected, capped)) {
-        return { ...token, readingVerified: true, readingMismatch: false, readingConfidence: 1 }
-      }
-      // Adopt the alternate but stamp a confidence that reflects how trustworthy the
-      // slice is. Coarse segment-mode windows (>8s words, no word-level siblings)
-      // and thin mora evidence score low, so the display keeps the dictionary
-      // reading in the ruby (the 戦争 fix) while still surfacing the sung form in a
-      // tooltip; word-level evidence scores high enough to reach the ruby (わけ/理由).
-      const confidence = readingAdoptionConfidence(capped, token, coveringWords(windowWords, tokenStart, tokenEnd))
-      if (confidence > 0 && shouldAdoptSungReading(expected, capped)) {
+    if (capped && shouldAdoptSungReading(expected, capped)) {
+      const confidence = readingAdoptionConfidence(capped, token, owned)
+      if (confidence >= HIGH_READING_CONFIDENCE) {
+        // Word-level evidence we trust enough to surface as a sung alternate (わけ/理由).
         return {
           ...token,
           audioReading: hiraganaToKatakana(capped),
@@ -335,9 +352,16 @@ export function reconcileTokenReadings(
           readingConfidence: confidence,
         }
       }
+      if (confidence > 0) {
+        // Owned but uncertain: warn that the audio differs without overriding the ruby.
+        return { ...token, readingMismatch: true, readingVerified: false, readingConfidence: confidence }
+      }
+    } else if (capped && readingsEquivalent(expected, capped)) {
+      return { ...token, readingVerified: true, readingMismatch: false, readingConfidence: 1 }
     }
 
-    return { ...token, readingMismatch: capped.length > 0, readingVerified: false }
+    // No trustworthy evidence: leave the dictionary reading unflagged.
+    return { ...token, readingMismatch: false, readingVerified: false }
   })
 }
 

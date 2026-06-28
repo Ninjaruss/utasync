@@ -80,10 +80,40 @@ describe('reconcileTokenReadings', () => {
     expect(out[0].readingMismatch).toBeFalsy()
   })
 
-  it('flags mismatch when audio evidence is too short to adopt', () => {
+  it('stays neutral when audio evidence is a single stray mora', () => {
+    // High-precision policy: one sub-mora fragment ('ろ' for 色) is not enough
+    // evidence to call the dictionary reading wrong — leave the token neutral
+    // rather than painting it amber.
     const tokens = [tok('色', 'イロ', 0)]
     const words = [{ word: 'ろ', startTime: 10.2, endTime: 10.5 }]
     const out = reconcileTokenReadings(tokens, line, words)
+    expect(out[0].readingMismatch).toBeFalsy()
+    expect(out[0].audioReading).toBeUndefined()
+  })
+
+  it('does not adopt a fragment sliced from a word spanning several tokens', () => {
+    // Reproduces the 向こう→クニコ false-positive: a single transcript word
+    // covers several tokens, so proportionally slicing it yields garbage kana
+    // for any one token. That fragment must never be adopted or flagged — the
+    // word is not owned by this token's window.
+    const fragLine: TimedLine = { startTime: 0, endTime: 2, original: '向こう側', translation: '' }
+    const tokens = [tok('向こう', 'ムコウ', 0), tok('側', 'ガワ', 1)]
+    const words = [{ word: 'となりのいえ', startTime: 0, endTime: 2 }]
+    const out = reconcileTokenReadings(tokens, fragLine, words)
+    expect(out[0].audioReading).toBeUndefined()
+    expect(out[0].readingMismatch).toBeFalsy()
+    expect(out[1].audioReading).toBeUndefined()
+    expect(out[1].readingMismatch).toBeFalsy()
+  })
+
+  it('flags a mismatch when owned audio differs but is too uncertain to adopt', () => {
+    // The token owns a coarse (>8s) word whose kana clearly differ from the
+    // dictionary reading: trustworthy enough to warn (amber), not enough to
+    // override the ruby.
+    const longLine: TimedLine = { startTime: 10, endTime: 18.2, original: '色', translation: '' }
+    const tokens = [tok('色', 'イロ', 0)]
+    const words = [{ word: 'あお', startTime: 10, endTime: 18.1 }]
+    const out = reconcileTokenReadings(tokens, longLine, words)
     expect(out[0].readingMismatch).toBe(true)
     expect(out[0].audioReading).toBeUndefined()
   })
