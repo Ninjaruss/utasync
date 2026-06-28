@@ -68,3 +68,33 @@ describe('resolveLineReadings — verified & neutral', () => {
     expect(resolveLineReadings(tokens, '')[0].kind).toBe('neutral')
   })
 })
+
+describe('resolveLineReadings — adoption', () => {
+  const sube = [tok('そんな', 'ソンナ'), tok('僕', 'ボク'), tok('に', 'ニ'),
+    tok('術', 'ジュツ'), tok('は', 'ハ'), tok('ない', 'ナイ'), tok('よな', 'ヨナ')]
+
+  it('adopts a real non-standard reading bracketed by anchors (術→すべ)', () => {
+    const d = resolveLineReadings(sube, 'そんな僕にすべはないよな')
+    const jutsu = d[3]
+    expect(jutsu.kind).toBe('adopt')
+    expect(jutsu.audioReading).toBe('すべ')
+    expect(jutsu.confidence!).toBeGreaterThanOrEqual(0.8)
+  })
+
+  it('adopts 理由→わけ when the rest of the line matches', () => {
+    const tokens = [tok('理由', 'リユウ'), tok('も', 'モ'), tok('ない', 'ナイ'), tok('のに', 'ノニ')]
+    const d = resolveLineReadings(tokens, 'わけもないのに')
+    expect(d[0].kind).toBe('adopt')
+    expect(d[0].audioReading).toBe('わけ')
+  })
+
+  it('stays neutral when the differing span is NOT bracketed by anchors', () => {
+    const d = resolveLineReadings(sube, 'まったくちがうおと')
+    expect(d[3].kind).toBe('neutral')
+  })
+
+  it('stays neutral when the line is poorly aligned even if the span is clean', () => {
+    const d = resolveLineReadings(sube, 'かきくけこすべさしすせそたちつてと')
+    expect(d[3].kind).not.toBe('adopt')
+  })
+})

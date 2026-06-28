@@ -68,6 +68,13 @@ export function buildExpectedKana(tokens: Token[]): { a: string; owner: number[]
 
 /** Fraction of a token's reading kana that must match to call the dictionary confirmed. */
 const VERIFY_MATCH_RATIO = 0.6
+/** Adoption confidence floor — keep equal to readingReconciler.HIGH_READING_CONFIDENCE. */
+const ADOPT_MIN_CONFIDENCE = 0.8
+/** The REST of the line (excluding the candidate token) must align this well before a
+ * sung reading is adopted — we only trust an alternate when its context is solidly transcribed. */
+const ADOPT_CONTEXT_FLOOR = 0.75
+/** Context floor for a soft mismatch warning (weaker than adoption). */
+const MISMATCH_CONTEXT_FLOOR = 0.5
 
 export type ReadingDecisionKind = 'verified' | 'adopt' | 'mismatch' | 'neutral' | 'skip'
 
@@ -76,6 +83,16 @@ export interface ReadingDecision {
   /** Hiragana sung reading, only for kind === 'adopt'. */
   audioReading?: string
   confidence?: number
+}
+
+/** A token's aligned span is anchored on a side when the adjacent column is a real
+ * matched kana column (or the line edge). Anything else — a mismatch or a stray
+ * insertion at the boundary — means the span's edge is untrustworthy. */
+function isAnchored(cols: AlignColumn[], edgeCol: number, A: string, B: string, side: 'left' | 'right'): boolean {
+  const k = side === 'left' ? edgeCol - 1 : edgeCol + 1
+  if (k < 0 || k >= cols.length) return true // line edge
+  const c = cols[k]
+  return c.a >= 0 && c.b >= 0 && A[c.a] === B[c.b]
 }
 
 function kanjiRunOf(surface: string): string {
@@ -122,8 +139,23 @@ export function resolveLineReadings(tokens: Token[], windowText: string): Readin
     const matchRatio = R.length ? tokMatches / R.length : 0
     if (matchRatio >= VERIFY_MATCH_RATIO) {
       decisions[idx] = { kind: 'verified', confidence: Math.min(1, matchRatio) }
+      continue
     }
-    // adoption/mismatch handled in Task 4
+
+    // Context score: how well the line aligned EXCLUDING this token's own kana. This
+    // is the trust signal — a real alternate sits in an otherwise well-transcribed line.
+    const contextLen = A.length - aIdxs.length
+    const contextScore = contextLen > 0 ? (lineMatches - tokMatches) / contextLen : 0
+    const bracketed = isAnchored(cols, firstCol, A, B, 'left') && isAnchored(cols, lastCol, A, B, 'right')
+    const clean = span.length >= 2 && span !== R
+    if (bracketed && clean && contextScore >= MISMATCH_CONTEXT_FLOOR) {
+      const confidence = Math.round((0.5 * contextScore + 0.5) * 100) / 100
+      if (contextScore >= ADOPT_CONTEXT_FLOOR && confidence >= ADOPT_MIN_CONFIDENCE) {
+        decisions[idx] = { kind: 'adopt', audioReading: span, confidence }
+      } else {
+        decisions[idx] = { kind: 'mismatch', confidence }
+      }
+    }
   }
 
   return decisions
