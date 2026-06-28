@@ -6,8 +6,6 @@ import {
   shouldAdoptSungReading,
   reconcileTokenReadings,
   wordsInLineWindow,
-  isReliableTranscriptWindow,
-  readingAdoptionConfidence,
   HIGH_READING_CONFIDENCE,
 } from '../../src/ai-pipeline/readingReconciler'
 
@@ -155,55 +153,6 @@ describe('reconcileTokenReadings — kanji-spelled transcript', () => {
     const kuruma = out.find((t) => t.surface === '車')
     expect(kuruma?.audioReading).toBeUndefined()
     expect(kuruma?.readingMismatch).toBeFalsy()
-  })
-})
-
-describe('isReliableTranscriptWindow', () => {
-  it('trusts word-level (short) coverage', () => {
-    const words = [{ word: 'わけ', startTime: 0, endTime: 0.8 }]
-    expect(isReliableTranscriptWindow(words, 0, 1)).toBe(true)
-  })
-
-  it('distrusts a lone long segment chunk with no word-level sibling', () => {
-    const words = [{ word: 'ながいせつめんのかたまり', startTime: 0, endTime: 10 }]
-    expect(isReliableTranscriptWindow(words, 0, 10)).toBe(false)
-  })
-
-  it('is false when nothing covers the window', () => {
-    expect(isReliableTranscriptWindow([], 0, 1)).toBe(false)
-  })
-})
-
-describe('readingAdoptionConfidence', () => {
-  const token = tok('理由', 'リユウ', 0)
-
-  it('scores word-level evidence above the high threshold', () => {
-    const words = [{ word: 'わけ', startTime: 0, endTime: 0.8 }]
-    expect(readingAdoptionConfidence('わけ', token, words)).toBeGreaterThanOrEqual(HIGH_READING_CONFIDENCE)
-  })
-
-  it('scores a coarse segment chunk below the high threshold', () => {
-    const words = [{ word: 'わけもないのに', startTime: 0, endTime: 10 }]
-    expect(readingAdoptionConfidence('わけ', token, words)).toBeLessThan(HIGH_READING_CONFIDENCE)
-  })
-
-  it('returns 0 for sub-mora evidence', () => {
-    const words = [{ word: 'ろ', startTime: 0, endTime: 0.3 }]
-    expect(readingAdoptionConfidence('ろ', token, words)).toBe(0)
-  })
-
-  it('rejects a short-duration phrase chunk that spans many tokens', () => {
-    // Real segment/word transcripts group a whole sung phrase into one ~5s chunk;
-    // proportional slicing then yields garbage kana. Such a chunk is far longer
-    // than the token, so it must not be trusted regardless of its short duration.
-    const kuruma = tok('車', 'クルマ', 0)
-    const phrase = [{ word: '赤い赤い小さな車は君を乗せて', startTime: 0, endTime: 5 }]
-    expect(readingAdoptionConfidence('なは', kuruma, phrase)).toBe(0)
-  })
-
-  it('still trusts a token-sized word-level chunk', () => {
-    const words = [{ word: 'わけ', startTime: 0, endTime: 0.8 }]
-    expect(readingAdoptionConfidence('わけ', token, words)).toBeGreaterThanOrEqual(HIGH_READING_CONFIDENCE)
   })
 })
 

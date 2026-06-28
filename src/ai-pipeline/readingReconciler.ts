@@ -2,17 +2,12 @@ import type { TimedLine, TimedTranscriptWord, Token } from '../core/types'
 import { katakanaToHiragana } from '../language/japanese/phonetics'
 import { tokenizeJapanese } from '../language/japanese/tokenizer'
 import { normalizeForMatch } from './contentAligner'
-import { resolveLineReadings } from './readingAlignment'
+import { resolveLineReadings, comparableKana } from './readingAlignment'
 
 const KANJI_RE = /[㐀-鿿]/
 
 /** Confidence at/above which an adopted sung reading is promoted into the ruby. */
 export const HIGH_READING_CONFIDENCE = 0.8
-
-/** A single transcript word longer than this is treated as a coarse segment chunk
- * (segment-mode Whisper) whose proportional slicing is too unreliable to adopt a
- * sung reading from — this is what produced 戦争→wrong-kana false positives. */
-const SEGMENT_WORD_MAX_SEC = 8
 
 /** Transcript words overlapping a token's [start, end] window. */
 function coveringWords(
@@ -21,58 +16,6 @@ function coveringWords(
   tokenEnd: number,
 ): TimedTranscriptWord[] {
   return words.filter((w) => w.endTime > tokenStart && w.startTime < tokenEnd)
-}
-
-/**
- * True when the transcript words covering a token window are fine-grained enough
- * to trust a sliced sung reading. A window covered only by long (>8s) segment
- * chunks with no shorter word-level sibling is unreliable — skip adoption there.
- */
-export function isReliableTranscriptWindow(
-  words: TimedTranscriptWord[],
-  tokenStart: number,
-  tokenEnd: number,
-): boolean {
-  const covering = coveringWords(words, tokenStart, tokenEnd)
-  if (covering.length === 0) return false
-  return covering.some((w) => w.endTime - w.startTime <= SEGMENT_WORD_MAX_SEC)
-}
-
-/**
- * Confidence (0–1) that a sliced sung reading is a trustworthy alternate. Combines
- * how substantial the kana evidence is with how word-level the covering transcript
- * is — short word-level chunks score high enough to reach the ruby threshold.
- */
-/** A covering chunk may be at most this many times the token's morae before it is
- * treated as a multi-token phrase whose proportional kana slice can't be trusted. */
-const PHRASE_SLICE_MORA_RATIO = 2.5
-
-export function readingAdoptionConfidence(
-  sung: string,
-  token: Token,
-  covering: TimedTranscriptWord[],
-): number {
-  const morae = normalizeKanaForCompare(sung).length
-  if (morae < 2) return 0
-  // A trustworthy sung reading comes from a transcript word about this token's
-  // size. Real transcripts (segment and coarse word mode) group whole sung phrases
-  // into one short chunk; slicing that proportionally yields kana from neighbouring
-  // tokens. Reject when the covering chunk is far longer than the token, so the
-  // dictionary reading stays in the ruby (the 車→なは / 向こう→くに garbage fix).
-  const tokenMorae = Math.max(2, tokenMoraWeight(token))
-  const coveringMorae = covering.reduce((sum, w) => sum + normalizeKanaForCompare(w.word).length, 0)
-  if (coveringMorae > tokenMorae * PHRASE_SLICE_MORA_RATIO) return 0
-  const lenScore = Math.min(1, morae / Math.max(2, tokenMoraWeight(token)))
-  const durs = covering.map((w) => w.endTime - w.startTime)
-  const granularity = durs.length === 0
-    ? 0
-    : durs.every((d) => d <= 3)
-      ? 1
-      : durs.some((d) => d <= SEGMENT_WORD_MAX_SEC)
-        ? 0.6
-        : 0.2
-  const score = 0.5 * lenScore + 0.5 * granularity
-  return Math.round(Math.max(0, Math.min(1, score)) * 100) / 100
 }
 
 /** Longest-common-subsequence length of two strings (glyph similarity gate). */
@@ -91,14 +34,7 @@ function lcsLength(a: string, b: string): number {
 }
 
 /** Hiragana/katakana morae used when comparing dictionary vs sung readings. */
-export function normalizeKanaForCompare(text: string): string {
-  let out = ''
-  for (const ch of katakanaToHiragana(text).normalize('NFKC')) {
-    if (ch === 'ー') continue
-    if (/[ぁ-ん]/.test(ch)) out += ch
-  }
-  return out
-}
+export const normalizeKanaForCompare = comparableKana
 
 export function hasKanji(surface: string): boolean {
   return KANJI_RE.test(surface)
@@ -130,11 +66,6 @@ function sliceByFraction(text: string, frac0: number, frac1: number): string {
   return text.slice(i0, i1)
 }
 
-/** Pull hiragana morae out of mixed kanji/kana Whisper segment text. */
-function extractTranscriptKana(text: string): string {
-  return normalizeKanaForCompare(text)
-}
-
 /** Matchable glyph run from a transcript chunk (kana + kanji). */
 function extractTranscriptGlyphs(text: string): string {
   return normalizeForMatch(text)
@@ -142,7 +73,7 @@ function extractTranscriptGlyphs(text: string): string {
 
 /**
  * Portion of a transcript word that overlaps [clipStart, clipEnd], first clipped
- * to the lyric line span so a multi-line segment only contributes kana for the
+ * to the lyric line span so a multi-line segment only contributes glyphs for the
  * line it actually covers.
  */
 function transcriptSliceForWindow(
@@ -151,7 +82,6 @@ function transcriptSliceForWindow(
   clipEnd: number,
   lineStart: number,
   lineEnd: number,
-  mode: 'kana' | 'glyph',
 ): string {
   const lineClipStart = Math.max(word.startTime, lineStart)
   const lineClipEnd = Math.min(word.endTime, lineEnd)
@@ -162,9 +92,7 @@ function transcriptSliceForWindow(
   if (overlapEnd <= overlapStart) return ''
 
   const [lineFrac0, lineFrac1] = clipFraction(word.startTime, word.endTime, lineClipStart, lineClipEnd)
-  const lineText = mode === 'kana'
-    ? extractTranscriptKana(word.word)
-    : extractTranscriptGlyphs(word.word)
+  const lineText = extractTranscriptGlyphs(word.word)
   if (!lineText) return ''
 
   const [tokenFrac0, tokenFrac1] = clipFraction(lineClipStart, lineClipEnd, overlapStart, overlapEnd)
@@ -182,7 +110,7 @@ function sungGlyphsInWindow(
   let out = ''
   for (const w of words) {
     if (w.endTime <= tokenStart || w.startTime >= tokenEnd) continue
-    out += transcriptSliceForWindow(w, tokenStart, tokenEnd, lineStart, lineEnd, 'glyph')
+    out += transcriptSliceForWindow(w, tokenStart, tokenEnd, lineStart, lineEnd)
   }
   return out
 }
