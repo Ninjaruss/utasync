@@ -732,9 +732,19 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const handleEditLines = async (lines: TimedLine[]) => {
     if (!song) return
     setLines(lines)
+    const timingChanged = lines.some(
+      (l, i) =>
+        l.startTime !== song.lyrics.lines[i]?.startTime
+        || l.endTime !== song.lyrics.lines[i]?.endTime,
+    )
     const updated: Song = {
       ...song,
-      lyrics: { ...song.lyrics, lines, enrichmentVersion: undefined },
+      lyrics: {
+        ...song.lyrics,
+        lines,
+        enrichmentVersion: undefined,
+        ...(timingChanged ? { lineAlignmentQuality: undefined } : {}),
+      },
       syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines } }),
     }
     setSong(updated)
@@ -1194,6 +1204,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               onTapSync={() => beginAlignment('tap')}
               onReplaceLyrics={() => setShowLyricsReimport(true)}
               onPausePlayback={pausePlayback}
+              lineAlignmentQuality={song?.lyrics.lineAlignmentQuality}
+              showAlignmentQuality={song?.lyrics.alignmentMode === 'auto'}
             />
           )}
         </div>

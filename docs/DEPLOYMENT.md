@@ -128,11 +128,10 @@ server. If you still see the error after updating:
 
 1. **Hard refresh** (Ctrl+Shift+R / Cmd+Shift+R).
 2. **Clear site data** for the origin (Settings → Privacy → Cookies and site data → search your URL → Remove), or in Zen: Site Information → Clear cookies and site data.
-3. If you installed the PWA, **accept the app update prompt** when it appears (or unregister the service worker in devtools → Application → Service Workers).
+3. If you installed the PWA, reload once after updating — the app now auto-applies service-worker updates. If playback is still broken, unregister the service worker (devtools → Application → Service Workers) and clear site data once.
 4. **Restart** `npm run dev` after pulling — an old dev-server process may still be serving cached COEP from memory.
 
-Older builds precached `index.html` with COEP headers; the service-worker `cacheId`
-was bumped to drop that stale cache.
+Older builds precached `index.html` with COEP headers baked into the cached response; even after the server sent `unsafe-none`, Firefox/Zen could still load the stale document from the service worker. The precache no longer includes HTML (`cacheId: utasync-v3-no-coep`), and a one-time client purge drops older Workbox caches.
 
 **Japanese readings or tokenization fail** — confirm `public/dict` exists and `/dict/` URLs return raw gzip bytes (see deploy notes above).
 

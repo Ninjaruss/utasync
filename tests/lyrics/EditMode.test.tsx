@@ -133,6 +133,23 @@ describe('EditMode', () => {
     expect(screen.getByText(/untimed/i)).toBeTruthy()
   })
 
+  it('shows alignment quality warnings for auto-aligned rows', () => {
+    renderEditMode({
+      lineAlignmentQuality: ['good', 'needs_review'],
+      showAlignmentQuality: true,
+    })
+    expect(screen.getByText(/timing approximate/i)).toBeTruthy()
+    expect(screen.getByText(/1 line may be misaligned/i)).toBeTruthy()
+  })
+
+  it('hides alignment quality badges when showAlignmentQuality is false', () => {
+    renderEditMode({
+      lineAlignmentQuality: ['needs_review', 'needs_review'],
+      showAlignmentQuality: false,
+    })
+    expect(screen.queryByText(/timing approximate/i)).toBeNull()
+  })
+
   it('opens the second-language panel from the toolbar', async () => {
     renderEditMode()
     fireEvent.click(screen.getByRole('button', { name: /translation/i }))

@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { alignLyrics, sanitizeTranscript } from '../../src/ai-pipeline/aligner'
+import { refineAlignmentWithPhrases } from '../../src/lyrics/phraseAlignment'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const SEGMENT_CACHE = join(here, '../../.cache/auto-align-audit/AKFG_FirstTake_segment.json')
@@ -53,5 +54,58 @@ describe.skipIf(!existsSync(SEGMENT_CACHE))('AKFG First Take segment transcript'
     expect(red.startTime).toBeGreaterThan(255)
     expect(red.startTime).toBeLessThan(270)
     expect(red.startTime).toBeGreaterThan(bridge.endTime + 20)
+  })
+
+  it('refine keeps pasted sheet layout with all 30 rows', () => {
+    const sheetRows = lineTexts.map((original) => ({
+      original,
+      translation: '',
+      startTime: 0,
+      endTime: 0,
+    }))
+    const refined = refineAlignmentWithPhrases(sheetRows, words, 'ja')
+    expect(refined.phraseLayout).toBe('sheet')
+    expect(refined.lines).toHaveLength(30)
+    expect(refined.lineAlignmentQuality).toHaveLength(30)
+  })
+
+  it('refine keeps red-car block monotonic with full corner tail', () => {
+    const sheetRows = lineTexts.map((original) => ({
+      original,
+      translation: '',
+      startTime: 0,
+      endTime: 0,
+    }))
+    const { lines } = refineAlignmentWithPhrases(sheetRows, words, 'ja')
+    const redIdx = lineTexts.findIndex((t) => t.includes('赤い 赤い'))
+    const cornerIdx = lineTexts.findIndex((t) => t.includes('角を曲が'))
+    const goneIdx = lineTexts.findIndex((t) => t.includes('此処から'))
+    const red = lines[redIdx]
+    const corner = lines[cornerIdx]
+    const gone = lines[goneIdx]
+    expect(red.startTime).toBeGreaterThan(255)
+    expect(red.startTime).toBeLessThan(270)
+    expect(corner.startTime).toBeGreaterThan(red.startTime)
+    expect(corner.endTime).toBeGreaterThan(279.5)
+    expect(gone.startTime).toBeGreaterThanOrEqual(corner.endTime - 0.25)
+    expect(gone.startTime).toBeGreaterThan(280)
+  })
+
+  it('refine splits final chorus run from rolling line and spans 走り出した', () => {
+    const sheetRows = lineTexts.map((original) => ({
+      original,
+      translation: '',
+      startTime: 0,
+      endTime: 0,
+    }))
+    const { lines } = refineAlignmentWithPhrases(sheetRows, words, 'ja')
+    const finalIdx = lineTexts.findIndex((t) => t.includes('凍てつく世界'))
+    const entwinedIdx = finalIdx - 1
+    const entwined = lines[entwinedIdx]
+    const finalRun = lines[finalIdx]
+    expect(finalRun.startTime).toBeLessThanOrEqual(entwined.endTime + 0.15)
+    expect(finalRun.startTime).toBeLessThanOrEqual(312.5)
+    expect(finalRun.endTime).toBeGreaterThan(322)
+    expect(finalRun.endTime - finalRun.startTime).toBeGreaterThan(2.5)
   })
 })

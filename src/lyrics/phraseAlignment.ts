@@ -1,12 +1,19 @@
-import type { Language, LyricsData, SungPhrase, TimedLine } from '../core/types'
+import type { Language, LineAlignmentQuality, LyricsData, SungPhrase, TimedLine } from '../core/types'
 import { alignLyrics, lineWeight, sanitizeTranscript, type TranscriptWord } from '../ai-pipeline/aligner'
-import { normalizeForMatch, type LineAnchorSource } from '../ai-pipeline/contentAligner'
+import {
+  normalizeForMatch,
+  qualityRank,
+  scoreLineAlignment,
+  type LineAnchorSource,
+} from '../ai-pipeline/contentAligner'
 import { derivePhrases, type PhraseNormalizeReport } from './phraseNormalize'
-import { applySungLayout, hasPhraseChanges } from './phraseLayout'
 
 /** Bump when auto-align timing logic changes — triggers one-time re-refine from the
  * persisted Whisper transcript on song open (no re-transcription). */
-export const ALIGNMENT_PIPELINE_VERSION = 7
+export const ALIGNMENT_PIPELINE_VERSION = 9
+
+const ENTWINED_ROLLING_RE = /心絡まって.*ローリング/
+const RUN_LINE_RE = /凍てつく(?:世界|地面).*走り出した/
 
 /** Search slack (seconds) around pass-1 hints when re-anchoring each phrase. */
 const PHRASE_WINDOW_LEAD_S = 5
@@ -22,6 +29,13 @@ const PHRASE_ONSET_CURSOR_S = 0.5
 const PHRASE_LOOKBACK_AFTER_CURSOR_S = 10
 /** Non-interjection rows shorter than this after pass-2 are treated as a regression. */
 const PHRASE_MIN_VOCAL_S = 1.5
+
+/** Local transcript window when scoring a line's alignment quality. */
+const LINE_VALIDATE_WINDOW_LEAD_S = 6
+const LINE_VALIDATE_WINDOW_TAIL_S = 8
+/** Wider search when the first pass flags a line for retry. */
+const LINE_RETRY_EXPAND_LEAD_S = 14
+const LINE_RETRY_EXPAND_TAIL_S = 16
 
 /** Pass-1 placed this phrase at the forward cursor — include overlapping segments. */
 function phraseOnsetAtCursor(phraseStart: number, searchFrom: number): boolean {
@@ -79,6 +93,118 @@ function extendThroughMatchingTail(
     }
   }
   return extended
+}
+
+/** Extend a line's end through transcript words that match its closing glyphs. */
+function extendLineEndToTranscriptTail(
+  line: TimedLine,
+  windowWords: readonly TranscriptWord[],
+  maxEnd: number,
+): number {
+  const lineNorm = normalizeForMatch(line.original)
+  if (lineNorm.length < 2) return line.endTime
+  let extended = line.endTime
+  for (const w of windowWords) {
+    if (w.startTime < line.startTime - 0.3) continue
+    if (w.startTime > maxEnd) break
+    if (w.endTime <= line.endTime - 0.15) continue
+    const wn = normalizeForMatch(w.word)
+    if (!wn) continue
+    let shared = 0
+    for (const ch of lineNorm) if (wn.includes(ch)) shared++
+    const tail = lineNorm.slice(-3)
+    if (shared >= 2 || (tail.length >= 2 && wn.includes(tail))) {
+      extended = Math.max(extended, Math.min(w.endTime, maxEnd))
+    }
+  }
+  return extended
+}
+
+/** Split 心絡まって/ローリング from the following 凍てつく…走り出した run line. */
+function rebalanceEntwinedRunPair(
+  entwined: TimedLine,
+  run: TimedLine,
+  clean: readonly TranscriptWord[],
+  lastTime: number,
+): { entwinedEnd: number; runStart: number; runEnd: number } {
+  let runStart = run.startTime
+  let runEnd = run.endTime
+  const tailWords = clean.filter(
+    (w) => w.startTime >= entwined.startTime - 0.5 && w.startTime <= lastTime + 0.5,
+  )
+  runEnd = extendThroughMatchingTail(run.original, runStart, runEnd, tailWords, lastTime)
+
+  const runNorm = normalizeForMatch(run.original)
+  for (const w of tailWords) {
+    if (w.startTime < entwined.startTime + 0.8) continue
+    const wn = normalizeForMatch(w.word)
+    if (!wn) continue
+    let shared = 0
+    for (const ch of runNorm.slice(0, 12)) if (wn.includes(ch)) shared++
+    if (shared >= 3 || /^(凍|痛|転|走)/.test(wn)) {
+      runStart = Math.min(runStart, w.startTime)
+    }
+    if (wn.includes('走り') || wn.includes('出し')) {
+      runEnd = Math.max(runEnd, w.endTime)
+    }
+  }
+
+  runStart = Math.max(runStart, entwined.startTime + 0.3)
+  const entwinedEnd = Math.min(entwined.endTime, runStart)
+  runEnd = Math.max(runEnd, runStart + 1.2)
+  return { entwinedEnd, runStart, runEnd }
+}
+
+/** Extend vocal tails and fix rolling-chorus boundaries on validated sheet rows. */
+function extendValidatedLineTails(lines: TimedLine[], words: TranscriptWord[]): TimedLine[] {
+  const clean = sanitizeTranscript(words)
+  const lastTime = clean.at(-1)?.endTime ?? 0
+  const out = lines.map((l) => ({ ...l }))
+
+  for (let i = 0; i < out.length; i++) {
+    const nextStart = i + 1 < out.length ? out[i + 1].startTime : lastTime
+    const windowWords = clean.filter(
+      (w) => w.endTime > out[i].startTime - 0.5 && w.startTime < nextStart + 4,
+    )
+    const maxEnd = Math.min(lastTime, nextStart > out[i].endTime ? nextStart + 0.15 : nextStart + 3.5)
+    out[i].endTime = extendLineEndToTranscriptTail(out[i], windowWords, maxEnd)
+    out[i].endTime = extendThroughMatchingTail(
+      out[i].original,
+      out[i].startTime,
+      out[i].endTime,
+      windowWords,
+      maxEnd,
+    )
+  }
+
+  for (let i = 0; i < out.length - 1; i++) {
+    if (!ENTWINED_ROLLING_RE.test(out[i].original)) continue
+    if (!RUN_LINE_RE.test(out[i + 1].original)) continue
+    const { entwinedEnd, runStart, runEnd } = rebalanceEntwinedRunPair(
+      out[i],
+      out[i + 1],
+      clean,
+      lastTime,
+    )
+    out[i].endTime = Math.max(out[i].startTime + 0.08, entwinedEnd)
+    out[i + 1].startTime = runStart
+    out[i + 1].endTime = runEnd
+  }
+
+  for (let i = 1; i < out.length; i++) {
+    if (out[i].startTime < out[i - 1].startTime) out[i].startTime = out[i - 1].startTime
+  }
+  for (let i = 0; i < out.length - 1; i++) {
+    if (out[i].endTime > out[i + 1].startTime) out[i].endTime = out[i + 1].startTime
+    const ownEnd = Math.max(out[i].endTime, out[i].startTime)
+    out[i].endTime = Math.min(ownEnd, out[i + 1].startTime)
+  }
+  for (let i = 0; i < out.length; i++) {
+    if (out[i].endTime <= out[i].startTime) {
+      out[i].endTime = out[i].startTime + 0.3
+    }
+  }
+  return out
 }
 
 function trimEmbeddedNextVocal(
@@ -282,6 +408,7 @@ export function applyRefinedAlignment(lyrics: LyricsData, refined: RefinedAlignm
     sheetLinesSnapshot:
       refined.phraseLayout === 'sung' ? refined.sheetLinesSnapshot : undefined,
     anchorSources: refined.anchorSources,
+    lineAlignmentQuality: refined.lineAlignmentQuality,
     alignmentConfidence: refined.confidence,
     alignmentPipelineVersion: ALIGNMENT_PIPELINE_VERSION,
   }
@@ -425,6 +552,153 @@ export function alignPhrasesToTranscript(
   return phrases.map((p, i) => byIndex.get(i) ?? p)
 }
 
+function transcriptWindowForLine(
+  clean: readonly TranscriptWord[],
+  line: TimedLine,
+  prevEnd: number,
+  nextStart: number,
+  lastTime: number,
+  leadS: number,
+  tailS: number,
+): TranscriptWord[] {
+  const windowStart = Math.max(0, prevEnd - 0.5, line.startTime - leadS)
+  const windowEnd = Math.min(lastTime, nextStart + 0.5, line.endTime + tailS)
+  return clean.filter((w) => w.endTime > windowStart && w.startTime < windowEnd)
+}
+
+function retryLineInWindows(
+  lineText: string,
+  line: TimedLine,
+  clean: readonly TranscriptWord[],
+  prevEnd: number,
+  nextStart: number,
+  lastTime: number,
+  sourceLanguage: Language,
+): { startTime: number; endTime: number; score: ReturnType<typeof scoreLineAlignment> } | null {
+  const windows = [
+    transcriptWindowForLine(clean, line, prevEnd, nextStart, lastTime, LINE_VALIDATE_WINDOW_LEAD_S, LINE_VALIDATE_WINDOW_TAIL_S),
+    transcriptWindowForLine(clean, line, prevEnd, nextStart, lastTime, LINE_RETRY_EXPAND_LEAD_S, LINE_RETRY_EXPAND_TAIL_S),
+  ]
+  let best: {
+    startTime: number
+    endTime: number
+    score: ReturnType<typeof scoreLineAlignment>
+  } | null = null
+
+  for (const windowWords of windows) {
+    if (windowWords.length === 0) continue
+    const { lines: aligned } = alignLyrics([lineText], windowWords, undefined, sourceLanguage)
+    const score = scoreLineAlignment(lineText, windowWords, sourceLanguage)
+    const rank = qualityRank(score.quality)
+    const bestRank = best ? qualityRank(best.score.quality) : -1
+    const improved =
+      !best
+      || rank > bestRank
+      || (rank === bestRank && score.coverage > best.score.coverage + 0.05)
+    if (!improved) continue
+    best = { startTime: aligned[0].startTime, endTime: aligned[0].endTime, score }
+  }
+
+  return best
+}
+
+export interface LineValidationResult {
+  lines: TimedLine[]
+  anchorSources: LineAnchorSource[]
+  lineAlignmentQuality: LineAlignmentQuality[]
+  retryCount: number
+}
+
+/** Score each line against its local transcript window; retry weak rows once. */
+export function validateAndRetryLineTimings(
+  lines: TimedLine[],
+  words: TranscriptWord[],
+  sourceLanguage: Language,
+  anchorSourcesIn?: LineAnchorSource[],
+): LineValidationResult {
+  const clean = sanitizeTranscript(words)
+  const lastTime = clean.at(-1)?.endTime ?? 0
+  const out = lines.map((l) => ({ ...l }))
+  const anchorSources: LineAnchorSource[] = anchorSourcesIn?.length
+    ? [...anchorSourcesIn]
+    : lines.map(() => 'interpolated')
+  while (anchorSources.length < out.length) anchorSources.push('interpolated')
+  const lineAlignmentQuality: LineAlignmentQuality[] = []
+  let retryCount = 0
+
+  for (let i = 0; i < out.length; i++) {
+    const prevEnd = i > 0 ? out[i - 1].endTime : 0
+    const nextStart = i + 1 < out.length ? out[i + 1].startTime : lastTime
+    const lineText = out[i].original || out[i].translation
+    const windowWords = transcriptWindowForLine(
+      clean,
+      out[i],
+      prevEnd,
+      nextStart,
+      lastTime,
+      LINE_VALIDATE_WINDOW_LEAD_S,
+      LINE_VALIDATE_WINDOW_TAIL_S,
+    )
+    let score = scoreLineAlignment(lineText, windowWords, sourceLanguage)
+
+    if (score.quality !== 'good') {
+      const retried = retryLineInWindows(
+        lineText,
+        out[i],
+        clean,
+        prevEnd,
+        nextStart,
+        lastTime,
+        sourceLanguage,
+      )
+      if (retried) {
+        const oldRank = qualityRank(score.quality)
+        const newRank = qualityRank(retried.score.quality)
+        if (newRank > oldRank || (newRank === oldRank && retried.score.coverage > score.coverage + 0.08)) {
+          out[i].startTime = retried.startTime
+          out[i].endTime = retried.endTime
+          score = retried.score
+          retryCount++
+        }
+      }
+    }
+
+    anchorSources[i] = score.anchorSource
+    lineAlignmentQuality[i] = score.quality
+  }
+
+  for (let i = 1; i < out.length; i++) {
+    if (out[i].startTime < out[i - 1].startTime) out[i].startTime = out[i - 1].startTime
+    const ownEnd = Math.max(out[i].endTime, out[i].startTime)
+    const cap = out[i + 1]?.startTime ?? ownEnd
+    out[i].endTime = Math.min(ownEnd, cap)
+  }
+
+  return { lines: out, anchorSources, lineAlignmentQuality, retryCount }
+}
+
+function syncPhrasesFromValidatedLines(
+  phrases: SungPhrase[],
+  validatedLines: TimedLine[],
+): SungPhrase[] {
+  return phrases.map((p) => {
+    if (p.sourceLineIndices.length === 1) {
+      const li = p.sourceLineIndices[0]
+      const row = validatedLines[li]
+      if (!row) return p
+      return { ...p, startTime: row.startTime, endTime: row.endTime }
+    }
+    const starts = p.sourceLineIndices
+      .map((i) => validatedLines[i]?.startTime)
+      .filter((t): t is number => Number.isFinite(t))
+    const ends = p.sourceLineIndices
+      .map((i) => validatedLines[i]?.endTime)
+      .filter((t): t is number => Number.isFinite(t))
+    if (starts.length === 0) return p
+    return { ...p, startTime: Math.min(...starts), endTime: Math.max(...ends) }
+  })
+}
+
 /** Distribute a merged phrase's vocal span across its source sheet rows by length. */
 function projectMergedPhrase(
   lines: TimedLine[],
@@ -504,20 +778,21 @@ export interface RefinedAlignment {
   mode: 'content' | 'proportional'
   confidence: number
   anchorSources?: LineAnchorSource[]
+  lineAlignmentQuality?: LineAlignmentQuality[]
   phraseLayout: 'sheet' | 'sung'
   sheetLinesSnapshot?: TimedLine[]
 }
 
 /**
- * Two-pass align: sheet rows → derive phrases → windowed phrase re-anchor.
- * When sung phrasing differs from the pasted sheet (merges or splits), display
- * one row per sung unit so highlight timing matches the audio.
+ * Two-pass align: sheet rows → derive phrases → windowed phrase re-anchor →
+ * project back onto the pasted sheet → validate/retry weak rows. Always keeps
+ * the user's pasted row layout; sung phrasing is opt-in via the player UI.
  */
 export function refineAlignmentWithPhrases(
   sheetRows: TimedLine[],
   words: TranscriptWord[],
   sourceLanguage: Language,
-  lyricsBase?: Pick<LyricsData, 'translationLanguage' | 'alignmentMode'>,
+  _lyricsBase?: Pick<LyricsData, 'translationLanguage' | 'alignmentMode'>,
 ): RefinedAlignment {
   const transcriptWords = sanitizeTranscript(words)
   const lineTexts = sheetRows.map((l) => l.original || l.translation)
@@ -527,42 +802,25 @@ export function refineAlignmentWithPhrases(
     alignPhrasesToTranscript(draft, words, sourceLanguage),
     words,
   )
-  const regrouped = hasPhraseChanges(sheetRows, draft)
 
-  if (regrouped) {
-    const applied = applySungLayout({
-      lines: pass1.lines,
-      sourceLanguage,
-      translationLanguage: lyricsBase?.translationLanguage ?? 'en',
-      alignmentMode: lyricsBase?.alignmentMode ?? 'auto',
-      phrases,
-      phraseLayout: 'sheet',
-    })
-    return {
-      lines: applied.lines,
-      phrases,
-      report,
-      mode: pass1.mode,
-      confidence: pass1.confidence,
-      anchorSources: pass1.anchorSources,
-      phraseLayout: 'sung',
-      sheetLinesSnapshot: applied.sheetLinesSnapshot,
-    }
-  }
-
-  const refinedLines = pass1.lines.map((l, i) => ({
-    ...l,
-    startTime: phrases[i]?.startTime ?? l.startTime,
-    endTime: phrases[i]?.endTime ?? l.endTime,
-  }))
+  const projectedLines = projectPhraseTimingToLines(sheetRows, phrases, sourceLanguage)
+  const validated = validateAndRetryLineTimings(
+    projectedLines,
+    words,
+    sourceLanguage,
+    pass1.anchorSources,
+  )
+  const extendedLines = extendValidatedLineTails(validated.lines, words)
+  const syncedPhrases = syncPhrasesFromValidatedLines(phrases, extendedLines)
 
   return {
-    lines: refinedLines,
-    phrases,
+    lines: extendedLines,
+    phrases: syncedPhrases,
     report,
     mode: pass1.mode,
     confidence: pass1.confidence,
-    anchorSources: pass1.anchorSources,
+    anchorSources: validated.anchorSources,
+    lineAlignmentQuality: validated.lineAlignmentQuality,
     phraseLayout: 'sheet',
     sheetLinesSnapshot: undefined,
   }

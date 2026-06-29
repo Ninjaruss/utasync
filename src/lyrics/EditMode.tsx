@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { TimedLine, Language } from '../core/types'
+import type { TimedLine, Language, LineAlignmentQuality } from '../core/types'
 import { stampStart, setText, addLine, deleteLine } from './lineOps'
 import { SecondLanguagePanel } from './SecondLanguagePanel'
 import { TimestampPopover } from './TimestampPopover'
@@ -37,6 +37,10 @@ interface Props {
   onReplaceLyrics?: () => void
   /** Pause playback when opening a modal workflow (second language, etc.). */
   onPausePlayback?: () => void
+  /** Per-line auto-align quality — show warnings for weak rows. */
+  lineAlignmentQuality?: LineAlignmentQuality[]
+  /** When false, suppress alignment quality badges (e.g. manual tap-sync). */
+  showAlignmentQuality?: boolean
 }
 
 const DELETE_CONFIRM_MS = 3000
@@ -78,12 +82,15 @@ interface RowProps {
   onScrubEnd?: () => void
   onCommitTime: (t: number) => void
   onClosePopover: () => void
+  alignmentQuality?: LineAlignmentQuality
+  showAlignmentQuality?: boolean
 }
 
 /** One lyric row. Holds local draft text so typing doesn't push a change on every keystroke — committed only on blur, same discipline the old expand-into-panel editor used. */
 function Row({
   line, index, timed, editing, deleteArmed, playheadActive, onStartEdit, onStopEdit, onCommitText, onAdd,
   onArmDelete, onConfirmDelete, onOpenPopover, popoverOpen, playhead, seek, onScrubStart, onScrubEnd, onCommitTime, onClosePopover,
+  alignmentQuality, showAlignmentQuality,
 }: RowProps) {
   const [original, setOriginal] = useState(line.original)
   const [translation, setTranslation] = useState(line.translation)
@@ -134,6 +141,12 @@ function Row({
               <span className="flex-1 text-sm text-white font-jp">
                 {line.original || <span className="text-white/30">empty</span>}
                 {!timed && <span className="ml-2 text-[10px] text-cinnabar-accent">untimed</span>}
+                {showAlignmentQuality && alignmentQuality === 'needs_review' && (
+                  <span className="ml-2 text-[10px] text-amber-400/90">timing approximate</span>
+                )}
+                {showAlignmentQuality && alignmentQuality === 'approximate' && (
+                  <span className="ml-2 text-[10px] text-white/35">approx</span>
+                )}
               </span>
             </button>
           )}
@@ -182,7 +195,7 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
@@ -305,6 +318,11 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
     ? lineIndexAtPlayhead(lines, playheadPosition)
     : -1
 
+  const needsReviewCount =
+    showAlignmentQuality && lineAlignmentQuality?.length
+      ? lineAlignmentQuality.filter((q) => q === 'needs_review').length
+      : 0
+
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className={editToolbarRow}>
@@ -361,6 +379,11 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
           </p>
         )}
         <p className="text-[10px] text-white/30 text-pretty">Tap a line to edit text · ⏱ to set timestamps</p>
+        {needsReviewCount > 0 && (
+          <p className="text-[10px] text-amber-400/80 text-pretty">
+            {needsReviewCount} line{needsReviewCount === 1 ? '' : 's'} may be misaligned — use ⏱ or tap-sync to fix.
+          </p>
+        )}
       </div>
 
       <div
@@ -392,6 +415,8 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
           onScrubEnd={onScrubEnd}
           onCommitTime={(t) => applyChange(stampStart(lines, i, t))}
           onClosePopover={closePopoverAfterCommit}
+          alignmentQuality={lineAlignmentQuality?.[i]}
+          showAlignmentQuality={showAlignmentQuality}
         />
           </div>
         ))}

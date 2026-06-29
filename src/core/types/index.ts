@@ -71,6 +71,9 @@ export interface TimedLine {
 /** How a phrase's timing was anchored. Mirrors LineAnchorSource plus 'manual'. */
 export type PhraseAnchorSource = 'lcs' | 'interpolated' | 'interjection' | 'manual'
 
+/** Per-line auto-align quality after the validation pass. */
+export type LineAlignmentQuality = 'good' | 'approximate' | 'needs_review'
+
 /** A canonical sung unit derived from timed rows + the audio transcript (Phase 1).
  * Phrases re-group the pasted sheet rows to match how the song is actually sung:
  * one sheet row can split into several phrases, and several rows can merge into one.
@@ -105,6 +108,8 @@ export interface LyricsData {
   /** Per-line start anchor from the last content align, kept so the phrase layer can
    * be re-derived faithfully on open (Phase 5). */
   anchorSources?: ('lcs' | 'interpolated' | 'interjection')[]
+  /** Per-line quality from the last validation pass (same order as `lines`). */
+  lineAlignmentQuality?: LineAlignmentQuality[]
   /** Canonical sung units derived after auto-align (Phase 1). Optional until derived;
    * the UI keeps rendering `lines` by default (D1 hybrid). */
   phrases?: SungPhrase[]

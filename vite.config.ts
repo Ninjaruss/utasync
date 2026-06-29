@@ -207,18 +207,23 @@ export default defineConfig({
     kuromojiRollupShim,
     react(),
     VitePWA({
-      registerType: 'prompt',
+      // Auto-apply SW updates so users drop stale precache (old builds pinned COEP on index.html).
+      registerType: 'autoUpdate',
       workbox: {
-        // Bumped when COEP headers were removed — clears precache that still
-        // carried Cross-Origin-Embedder-Policy from older builds (breaks YouTube on Firefox/Zen).
-        cacheId: 'utasync-v2-no-coep',
+        cacheId: 'utasync-v3-no-coep',
         cleanupOutdatedCaches: true,
-        globPatterns: ['**/*.{js,css,html,woff2,png,svg,ico,wasm}'],
-        // ONNX Runtime wasm blobs are 9–26 MB and only needed when AI features
-        // run, so keep them out of the precache (Workbox caps precache entries at
-        // 2 MiB) and cache them at runtime on first use instead.
-        globIgnores: ['**/ort-wasm*.wasm'],
+        skipWaiting: true,
+        clientsClaim: true,
+        // Do not precache index.html — cached Responses kept old COEP headers and broke YouTube on Firefox/Zen.
+        globPatterns: ['**/*.{js,css,woff2,png,svg,ico,wasm}'],
+        globIgnores: ['**/index.html', '**/ort-wasm*.wasm'],
+        // Never serve index.html from precache — stale COEP headers broke YouTube on Firefox/Zen.
+        navigateFallback: null,
         runtimeCaching: [
+          {
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkOnly',
+          },
           {
             urlPattern: /\/models\/.*\.onnx$/,
             handler: 'CacheFirst',

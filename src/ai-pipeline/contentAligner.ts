@@ -1,4 +1,4 @@
-import type { Language, TimedLine } from '../core/types'
+import type { Language, LineAlignmentQuality, TimedLine } from '../core/types'
 import { lineWeight, type TranscriptWord } from './aligner'
 
 // Characters worth matching on: lowercase Latin letters and Japanese scripts
@@ -543,6 +543,44 @@ function interpolateAnchors(
 }
 
 export type LineAnchorSource = 'lcs' | 'interpolated' | 'interjection'
+
+/** Minimum LCS coverage for a line to count as well-anchored (matches phrase re-align). */
+export const LINE_QUALITY_MIN_COVERAGE = 0.55
+
+export interface LineAlignmentScore {
+  coverage: number
+  anchorSource: LineAnchorSource
+  quality: LineAlignmentQuality
+}
+
+export function qualityRank(quality: LineAlignmentQuality): number {
+  if (quality === 'good') return 2
+  if (quality === 'approximate') return 1
+  return 0
+}
+
+function classifyLineQuality(anchorSource: LineAnchorSource, coverage: number): LineAlignmentQuality {
+  if (anchorSource === 'interjection') return 'approximate'
+  if (anchorSource === 'lcs' && coverage >= LINE_QUALITY_MIN_COVERAGE) return 'good'
+  if (anchorSource === 'lcs' && coverage >= 0.35) return 'approximate'
+  return 'needs_review'
+}
+
+/** Score how well lyric text correlates with transcript words in a time window. */
+export function scoreLineAlignment(
+  lineText: string,
+  windowWords: TranscriptWord[],
+  sourceLanguage: Language,
+): LineAlignmentScore {
+  const text = lineText.trim()
+  if (!text || windowWords.length === 0) {
+    return { coverage: 0, anchorSource: 'interpolated', quality: 'needs_review' }
+  }
+  const { confidence, anchorSources } = alignByContent([text], windowWords, undefined, sourceLanguage)
+  const anchorSource = anchorSources[0]
+  const coverage = confidence
+  return { coverage, anchorSource, quality: classifyLineQuality(anchorSource, coverage) }
+}
 
 export function alignByContent(
   lineTexts: string[],
