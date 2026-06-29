@@ -103,17 +103,20 @@ function extendLineEndToTranscriptTail(
 ): number {
   const lineNorm = normalizeForMatch(line.original)
   if (lineNorm.length < 2) return line.endTime
+  // Only extend through a later word that actually carries this line's CLOSING
+  // glyphs — i.e. Whisper split the line's tail across the next segment. A looser
+  // "shares any 2 chars" gate previously matched coarse segment-mode chunks that
+  // merely share common kana, stretching a line across the trailing instrumental
+  // up to the next line's onset (the 君の孤独…暴き出す朝だ → +33s over-extension).
+  const tail = lineNorm.slice(-3)
+  if (tail.length < 2) return line.endTime
   let extended = line.endTime
   for (const w of windowWords) {
     if (w.startTime < line.startTime - 0.3) continue
     if (w.startTime > maxEnd) break
     if (w.endTime <= line.endTime - 0.15) continue
     const wn = normalizeForMatch(w.word)
-    if (!wn) continue
-    let shared = 0
-    for (const ch of lineNorm) if (wn.includes(ch)) shared++
-    const tail = lineNorm.slice(-3)
-    if (shared >= 2 || (tail.length >= 2 && wn.includes(tail))) {
+    if (wn && wn.includes(tail)) {
       extended = Math.max(extended, Math.min(w.endTime, maxEnd))
     }
   }

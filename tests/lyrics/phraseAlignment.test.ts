@@ -192,11 +192,11 @@ describe.skipIf(!existsSync(SEGMENT_CACHE))('refineAlignmentWithPhrases — AKFG
     },
   )
 
-  it('uses sung layout when sheet rows merge into shared phrases', () => {
+  it('keeps the sheet row layout (sung phrasing is opt-in via the player UI)', () => {
     const refined = refineAlignmentWithPhrases(sheetRows, words, 'ja')
-    expect(refined.phraseLayout).toBe('sung')
-    expect(refined.lines.length).toBeLessThan(sheetRows.length)
-    expect(refined.sheetLinesSnapshot?.length).toBe(sheetRows.length)
+    expect(refined.phraseLayout).toBe('sheet')
+    expect(refined.lines.length).toBe(sheetRows.length)
+    expect(refined.sheetLinesSnapshot).toBeUndefined()
   })
 
   it('anchors rolling phrases at distinct chorus occurrences', () => {
@@ -278,18 +278,21 @@ describe.skipIf(!existsSync(USER_ROCKROLL_CACHE))(
       expect(cry!.endTime - cry!.startTime).toBeGreaterThan(5)
     })
 
-    it('anchors the second-chorus 何をなくした merge before 初めから', () => {
+    it('anchors the second-chorus 何をなくした row before the second 初めから', () => {
+      // Sheet layout keeps the rows separate (no merge), so assert the row-level
+      // anchoring: 何をなくした sits at the second chorus and resolves before the
+      // second 初めから持って row, each with a real vocal span.
       const refined = refineAlignmentWithPhrases(sheetRows, words, 'ja')
-      const lost = refined.lines.find((l) =>
-        l.original.includes('何をなくした') && l.original.includes('ローリング'),
-      )
+      expect(refined.phraseLayout).toBe('sheet')
+      const lost = refined.lines.find((l) => l.original.includes('何をなくした'))
       const firstPain = refined.lines.find(
         (l) =>
           l.original.includes('初めから持って') &&
           (l.startTime ?? 0) > 290,
       )
+      expect(lost?.startTime).toBeGreaterThan(290)
       expect(lost?.startTime).toBeLessThan(295)
-      expect(lost!.endTime - lost!.startTime).toBeGreaterThan(5)
+      expect(lost!.endTime - lost!.startTime).toBeGreaterThan(3)
       expect(firstPain!.startTime).toBeGreaterThanOrEqual(lost!.endTime - 0.5)
     })
 
