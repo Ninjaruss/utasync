@@ -161,6 +161,8 @@ function Row({
               {showAlignmentQuality && alignmentQuality === 'needs_review' && onLocalRealign && (
                 isRealigning ? (
                   <span
+                    role="status"
+                    aria-live="polite"
                     aria-label={`Realigning line ${index + 1}`}
                     className="text-[10px] text-amber-400/90 animate-pulse"
                   >⟳</span>
@@ -175,6 +177,8 @@ function Row({
               {showAlignmentQuality && alignmentQuality === 'approximate' && onLocalRealign && (
                 isRealigning ? (
                   <span
+                    role="status"
+                    aria-live="polite"
                     aria-label={`Realigning line ${index + 1}`}
                     className="text-[10px] text-white/35 animate-pulse"
                   >⟳</span>
@@ -424,6 +428,7 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
         )}
         {showAlignmentQuality && (weakLineCount ?? 0) > 0 && onRealignAllWeak && (
           <button
+            type="button"
             onClick={onRealignAllWeak}
             className={toolbarActionBtn}
             aria-label={`Re-align ${weakLineCount} weak lines`}
