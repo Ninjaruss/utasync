@@ -60,6 +60,20 @@ describe('reconcileTokenReadings', () => {
     expect(out[0].readingVerified).toBe(true)
   })
 
+  it('clears a stale adopted reading when re-reconciliation no longer adopts', () => {
+    // A token previously (mis)adopted a sung reading and it was persisted. On
+    // re-reconciliation the decision is now verified/neutral — the stale
+    // audioReading must be wiped, not carried over (otherwise sung mode keeps
+    // showing the wrong reading, e.g. 凍てつく stuck on a bogus ちるはが).
+    const tokens: Token[] = [{
+      surface: '君', reading: 'キミ', pos: '名詞', startIndex: 0, endIndex: 1,
+      audioReading: 'チルハガ', readingConfidence: 0.9,
+    }]
+    const words = [{ word: 'きみ', startTime: 10, endTime: 10.8 }]
+    const out = reconcileTokenReadings(tokens, line, words)
+    expect(out[0].audioReading).toBeUndefined()
+  })
+
   it('verifies a later token when its audio window matches', () => {
     const tokens = [tok('君', 'キミ', 0), tok('明日', 'アシタ', 1)]
     const words = [

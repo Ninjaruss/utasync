@@ -202,7 +202,10 @@ export function reconcileTokenReadings(
     const d = decisions[i]
     switch (d.kind) {
       case 'verified':
-        return { ...token, readingVerified: true, readingMismatch: false, readingConfidence: d.confidence ?? 1 }
+        // Clear any prior adopted reading: only 'adopt' should leave an
+        // audioReading, so a stale one from an earlier pass must not survive
+        // (otherwise sung mode keeps showing the old wrong reading).
+        return { ...token, audioReading: undefined, readingVerified: true, readingMismatch: false, readingConfidence: d.confidence ?? 1 }
       case 'adopt':
         return {
           ...token,
@@ -212,9 +215,9 @@ export function reconcileTokenReadings(
           readingConfidence: d.confidence,
         }
       case 'mismatch':
-        return { ...token, readingMismatch: true, readingVerified: false, readingConfidence: d.confidence }
+        return { ...token, audioReading: undefined, readingMismatch: true, readingVerified: false, readingConfidence: d.confidence }
       case 'neutral':
-        return { ...token, readingMismatch: false, readingVerified: false }
+        return { ...token, audioReading: undefined, readingMismatch: false, readingVerified: false, readingConfidence: undefined }
       default: // 'skip' — kana-only or unreadable: leave untouched
         return token
     }
