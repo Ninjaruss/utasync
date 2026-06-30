@@ -10,7 +10,7 @@ import { derivePhrases, type PhraseNormalizeReport } from './phraseNormalize'
 
 /** Bump when auto-align timing logic changes — triggers one-time re-refine from the
  * persisted Whisper transcript on song open (no re-transcription). */
-export const ALIGNMENT_PIPELINE_VERSION = 9
+export const ALIGNMENT_PIPELINE_VERSION = 10
 
 const ENTWINED_ROLLING_RE = /心絡まって.*ローリング/
 const RUN_LINE_RE = /凍てつく(?:世界|地面).*走り出した/

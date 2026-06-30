@@ -82,7 +82,12 @@ export function normalizeForMatch(text: string): string {
 }
 
 interface LyricChar { ch: string; line: number }
-interface TransChar { ch: string; time: number }
+// `time` is the char's sung *onset* (used to anchor line starts); `endTime` is
+// where the char stops being sung (used to anchor line ends). They differ for a
+// drawn-out closing mora — a single held token like も spanning 157.5→159s — and
+// keeping them apart stops a line from ending at the instant its last syllable
+// merely begins (which clipped the held tail off AB-loops / exports).
+interface TransChar { ch: string; time: number; endTime: number }
 
 function buildLyricChars(lineTexts: string[]): LyricChar[] {
   const out: LyricChar[] = []
@@ -108,7 +113,10 @@ function buildTransChars(words: TranscriptWord[]): TransChar[] {
           : j === k - 1
             ? w.endTime
             : w.startTime + duration * ((j + 0.5) / k)
-      out.push({ ch, time })
+      // Char offset: the last char owns the word's real end (a held final mora
+      // keeps its full duration); interior chars split the span evenly.
+      const endTime = j === k - 1 ? w.endTime : w.startTime + duration * ((j + 1) / k)
+      out.push({ ch, time, endTime })
       j++
     }
   }
@@ -116,8 +124,10 @@ function buildTransChars(words: TranscriptWord[]): TransChar[] {
 }
 
 interface LcsMatch {
-  /** Matched transcript time per lyric char index, or -1 (monotonic by construction). */
+  /** Matched transcript *onset* per lyric char index, or -1 (monotonic by construction). */
   matchTime: Float64Array
+  /** Matched transcript *offset* per lyric char index, or -1 — where the char stops being sung. */
+  matchEndTime: Float64Array
   /** Matched transcript char index per lyric char index, or -1. */
   matchBIndex: Int32Array
 }
@@ -133,14 +143,20 @@ function lcsMatchTimes(A: LyricChar[], B: TransChar[]): LcsMatch {
     }
   }
   const matchTime = new Float64Array(m).fill(-1)
+  const matchEndTime = new Float64Array(m).fill(-1)
   const matchBIndex = new Int32Array(m).fill(-1)
   let i = m, j = n
   while (i > 0 && j > 0) {
-    if (A[i - 1].ch === B[j - 1].ch) { matchTime[i - 1] = B[j - 1].time; matchBIndex[i - 1] = j - 1; i--; j-- }
+    if (A[i - 1].ch === B[j - 1].ch) {
+      matchTime[i - 1] = B[j - 1].time
+      matchEndTime[i - 1] = B[j - 1].endTime
+      matchBIndex[i - 1] = j - 1
+      i--; j--
+    }
     else if (dp[i - 1][j] >= dp[i][j - 1]) i--
     else j--
   }
-  return { matchTime, matchBIndex }
+  return { matchTime, matchEndTime, matchBIndex }
 }
 
 // Minimum run of *consecutive* lyric chars matched to *consecutive* transcript
@@ -166,6 +182,8 @@ interface ReliableRun {
   endTime: number
   /** Matched char count — used to weigh this run against others on the same line. */
   length: number
+  /** Lyric-char (A) index of this run's last matched char. */
+  endLyricIdx: number
 }
 
 // Two runs on the same line are treated as one continuous utterance (e.g. a
@@ -204,12 +222,17 @@ function strongestCluster(runs: ReliableRun[]): ReliableRun {
       bestChars = chars
     }
   }
-  return { startTime: best[0].startTime, endTime: best[best.length - 1].endTime, length: bestChars }
+  return {
+    startTime: best[0].startTime,
+    endTime: best[best.length - 1].endTime,
+    length: bestChars,
+    endLyricIdx: best[best.length - 1].endLyricIdx,
+  }
 }
 
 /** Reliable (MIN_RELIABLE_RUN+) contiguous matched-char runs per lyric line. */
 function collectReliableRunsByLine(A: LyricChar[], match: LcsMatch, lineCount: number): ReliableRun[][] {
-  const { matchTime, matchBIndex } = match
+  const { matchTime, matchEndTime, matchBIndex } = match
   const runsByLine: ReliableRun[][] = Array.from({ length: lineCount }, () => [])
   const m = A.length
   let runStart = 0
@@ -234,7 +257,14 @@ function collectReliableRunsByLine(A: LyricChar[], match: LcsMatch, lineCount: n
     const runLength = idx - runStart
     if (runLength >= MIN_RELIABLE_RUN && matchBIndex[runStart] >= 0) {
       const li = A[runStart].line
-      runsByLine[li].push({ startTime: matchTime[runStart], endTime: matchTime[idx - 1], length: runLength })
+      runsByLine[li].push({
+        // Start at the first char's onset, end at the last char's offset — so a
+        // held closing mora keeps its full sung duration in the run's end time.
+        startTime: matchTime[runStart],
+        endTime: matchEndTime[idx - 1],
+        length: runLength,
+        endLyricIdx: idx - 1,
+      })
     }
     runStart = idx
   }
@@ -259,6 +289,10 @@ interface LineCharStats {
   matchedCount: number
   unmatchedHead: number
   unmatchedTail: number
+  /** Trailing glyphs past the reliable-run end — includes isolated coincidental
+   * matches the reliable run excludes (so a stray final-mora match can't hide a
+   * line's unanchored drawn-out tail the way unmatchedTail does). */
+  unreliableTail: number
   firstMatchedTime: number
   lastMatchedTime: number
 }
@@ -269,6 +303,7 @@ function lineCharStats(A: LyricChar[], match: LcsMatch, lineCount: number): Line
     matchedCount: 0,
     unmatchedHead: 0,
     unmatchedTail: 0,
+    unreliableTail: 0,
     firstMatchedTime: Infinity,
     lastMatchedTime: -Infinity,
   }))
@@ -300,9 +335,20 @@ function lineCharStats(A: LyricChar[], match: LcsMatch, lineCount: number): Line
   const runsByLine = collectReliableRunsByLine(A, match, lineCount)
   for (let li = 0; li < lineCount; li++) {
     if (runsByLine[li].length === 0) continue
-    const { startTime, endTime } = strongestCluster(runsByLine[li])
+    const { startTime, endTime, endLyricIdx } = strongestCluster(runsByLine[li])
     stats[li].firstMatchedTime = startTime
     stats[li].lastMatchedTime = endTime
+    // Count this line's glyphs that fall after its reliable-run end. Unlike
+    // unmatchedTail this includes isolated coincidental matches (common single
+    // morae like て/た/の) the reliable run excludes, so a stray final-mora hit
+    // can't mask a drawn-out tail and skip the orphan-gap fill below.
+    let unreliable = 0
+    for (let idx = A.length - 1; idx >= 0; idx--) {
+      if (A[idx].line !== li) continue
+      if (idx <= endLyricIdx) break
+      unreliable++
+    }
+    stats[li].unreliableTail = unreliable
   }
   return stats
 }
@@ -635,7 +681,7 @@ export function alignByContent(
   }
   rejectDistantForwardAnchors(anchors, ownEndAnchors, stats, lineTexts)
   const hasAnchor = Array.from(anchors, (a) => !Number.isNaN(a))
-  const lastTime = B[B.length - 1].time
+  const lastTime = B[B.length - 1].endTime
   const starts = interpolateAnchors(anchors, lineTexts, sourceLanguage, lastTime)
 
   strengthenLineBoundaries(starts, ownEndAnchors, stats, lineTexts, hasAnchor)
@@ -659,7 +705,7 @@ export function alignByContent(
     const orphan = nextStart - cappedEnd
     const fillOrphan =
       li + 1 < starts.length &&
-      stats[li].unmatchedTail > 0 &&
+      stats[li].unreliableTail > 0 &&
       hasAnchor[li] &&
       hasAnchor[li + 1] &&
       orphan > 0 &&
