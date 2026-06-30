@@ -791,12 +791,32 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           lines,
           lineAlignmentQuality,
           anchorSources: anchorSources as Song['lyrics']['anchorSources'],
+          enrichmentVersion: undefined,
         },
         syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines } }),
       }
       setSong(updated)
       setLines(lines)
       await db.songs.put(updated)
+      if (linesNeedEnrichment(lines, updated.lyrics.enrichmentVersion)) {
+        enrichLines(lines, song.lyrics.sourceLanguage, song.lyrics.transcriptWords)
+          .then(runWordColoring)
+          .then((enriched) => {
+            if (
+              enriched.length === lines.length
+              && enrichmentMadeProgress(lines, enriched, updated.lyrics.enrichmentVersion)
+            ) {
+              void persistEnrichedLines(updated, enriched, true)
+            }
+          })
+      } else if (linesNeedAlignment(lines, updated.lyrics.enrichmentVersion) && canRunWordAlignment()) {
+        runWordColoring(lines)
+          .then((enriched) => {
+            if (enriched.length === lines.length && enrichmentMadeProgress(lines, enriched, updated.lyrics.enrichmentVersion)) {
+              void persistEnrichedLines(updated, enriched, true)
+            }
+          })
+      }
     } finally {
       setLocalRealigning((prev) => {
         const next = new Set(prev)
@@ -825,12 +845,32 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         lines,
         lineAlignmentQuality,
         anchorSources: anchorSources as Song['lyrics']['anchorSources'],
+        enrichmentVersion: undefined,
       },
       syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines } }),
     }
     setSong(updated)
     setLines(lines)
     await db.songs.put(updated)
+    if (linesNeedEnrichment(lines, updated.lyrics.enrichmentVersion)) {
+      enrichLines(lines, song.lyrics.sourceLanguage, song.lyrics.transcriptWords)
+        .then(runWordColoring)
+        .then((enriched) => {
+          if (
+            enriched.length === lines.length
+            && enrichmentMadeProgress(lines, enriched, updated.lyrics.enrichmentVersion)
+          ) {
+            void persistEnrichedLines(updated, enriched, true)
+          }
+        })
+    } else if (linesNeedAlignment(lines, updated.lyrics.enrichmentVersion) && canRunWordAlignment()) {
+      runWordColoring(lines)
+        .then((enriched) => {
+          if (enriched.length === lines.length && enrichmentMadeProgress(lines, enriched, updated.lyrics.enrichmentVersion)) {
+            void persistEnrichedLines(updated, enriched, true)
+          }
+        })
+    }
   }
 
   const progress = duration > 0 ? Math.min(1, position / duration) : 0
