@@ -829,47 +829,51 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const handleRealignAllWeak = async () => {
     if (!song?.lyrics.transcriptWords?.length) return
     if (!song.lyrics.lineAlignmentQuality?.length) return
-    const words = transcriptWordsToAlignInput(song.lyrics.transcriptWords)
-    await yieldToMainThread()
-    const { lines, lineAlignmentQuality, anchorSources } = realignAllWeakSections(
-      song.lyrics.lines,
-      words,
-      song.lyrics.lineAlignmentQuality,
-      song.lyrics.sourceLanguage,
-      song.lyrics.anchorSources as Parameters<typeof realignAllWeakSections>[4],
-    )
-    const updated: Song = {
-      ...song,
-      lyrics: {
-        ...song.lyrics,
-        lines,
-        lineAlignmentQuality,
-        anchorSources: anchorSources as Song['lyrics']['anchorSources'],
-        enrichmentVersion: undefined,
-      },
-      syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines } }),
-    }
-    setSong(updated)
-    setLines(lines)
-    await db.songs.put(updated)
-    if (linesNeedEnrichment(lines, updated.lyrics.enrichmentVersion)) {
-      enrichLines(lines, song.lyrics.sourceLanguage, song.lyrics.transcriptWords)
-        .then(runWordColoring)
-        .then((enriched) => {
-          if (
-            enriched.length === lines.length
-            && enrichmentMadeProgress(lines, enriched, updated.lyrics.enrichmentVersion)
-          ) {
-            void persistEnrichedLines(updated, enriched, true)
-          }
-        })
-    } else if (linesNeedAlignment(lines, updated.lyrics.enrichmentVersion) && canRunWordAlignment()) {
-      runWordColoring(lines)
-        .then((enriched) => {
-          if (enriched.length === lines.length && enrichmentMadeProgress(lines, enriched, updated.lyrics.enrichmentVersion)) {
-            void persistEnrichedLines(updated, enriched, true)
-          }
-        })
+    try {
+      const words = transcriptWordsToAlignInput(song.lyrics.transcriptWords)
+      await yieldToMainThread()
+      const { lines, lineAlignmentQuality, anchorSources } = realignAllWeakSections(
+        song.lyrics.lines,
+        words,
+        song.lyrics.lineAlignmentQuality,
+        song.lyrics.sourceLanguage,
+        song.lyrics.anchorSources as Parameters<typeof realignAllWeakSections>[4],
+      )
+      const updated: Song = {
+        ...song,
+        lyrics: {
+          ...song.lyrics,
+          lines,
+          lineAlignmentQuality,
+          anchorSources: anchorSources as Song['lyrics']['anchorSources'],
+          enrichmentVersion: undefined,
+        },
+        syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines } }),
+      }
+      setSong(updated)
+      setLines(lines)
+      await db.songs.put(updated)
+      if (linesNeedEnrichment(lines, updated.lyrics.enrichmentVersion)) {
+        enrichLines(lines, song.lyrics.sourceLanguage, song.lyrics.transcriptWords)
+          .then(runWordColoring)
+          .then((enriched) => {
+            if (
+              enriched.length === lines.length
+              && enrichmentMadeProgress(lines, enriched, updated.lyrics.enrichmentVersion)
+            ) {
+              void persistEnrichedLines(updated, enriched, true)
+            }
+          })
+      } else if (linesNeedAlignment(lines, updated.lyrics.enrichmentVersion) && canRunWordAlignment()) {
+        runWordColoring(lines)
+          .then((enriched) => {
+            if (enriched.length === lines.length && enrichmentMadeProgress(lines, enriched, updated.lyrics.enrichmentVersion)) {
+              void persistEnrichedLines(updated, enriched, true)
+            }
+          })
+      }
+    } catch {
+      toast('Re-align failed — could not improve timing', 'warning')
     }
   }
 
