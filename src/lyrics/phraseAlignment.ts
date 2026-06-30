@@ -32,6 +32,9 @@ const PHRASE_LOOKBACK_AFTER_CURSOR_S = 10
 /** Non-interjection rows shorter than this after pass-2 are treated as a regression. */
 const PHRASE_MIN_VOCAL_S = 1.5
 
+/** Max lines to walk outward when searching for a 'good'-quality anchor. */
+const MAX_ANCHOR_SEARCH_LINES = 15
+
 /** Local transcript window when scoring a line's alignment quality. */
 const LINE_VALIDATE_WINDOW_LEAD_S = 6
 const LINE_VALIDATE_WINDOW_TAIL_S = 8
@@ -952,52 +955,120 @@ export function refineAlignmentWithPhrases(
 }
 
 /**
- * Re-anchor the line at `targetIndex` plus its immediate neighbors (±1) using
- * the stored Whisper transcript. All other rows are returned as-is (same object
- * references). Useful for fixing individual `approximate`/`needs_review` rows
- * without a full re-transcription.
+ * Re-align the weak section that contains `targetIndex` using anchor-based
+ * boundary detection. Walks outward (up to MAX_ANCHOR_SEARCH_LINES each
+ * direction) to find `good`-quality anchor lines. The section between the
+ * anchors is re-aligned from scratch using `alignLyrics` on the transcript
+ * words that fall within the anchor time bounds, then refined with
+ * `validateAndRetryLineTimings`.
+ *
+ * Anchor lines are never modified. Non-timing fields (translation, tokens,
+ * furigana, etc.) are preserved on section lines.
  */
-export function realignLocalSlice(
+export function realignSection(
   lines: TimedLine[],
   targetIndex: number,
   transcriptWords: TranscriptWord[],
+  qualityIn: LineAlignmentQuality[],
   sourceLanguage: Language,
-  qualityIn?: LineAlignmentQuality[],
   anchorSourcesIn?: LineAnchorSource[],
 ): {
   lines: TimedLine[]
   lineAlignmentQuality: LineAlignmentQuality[]
   anchorSources: LineAnchorSource[]
 } {
-  const lo = Math.max(0, targetIndex - 1)
-  const hi = Math.min(lines.length - 1, targetIndex + 1)
-  const slice = lines.slice(lo, hi + 1)
-  const sliceAnchors = anchorSourcesIn?.slice(lo, hi + 1)
+  const clean = sanitizeTranscript(transcriptWords)
+  const lastTime = clean.at(-1)?.endTime ?? 0
 
-  const { lines: updated, lineAlignmentQuality: sliceQuality, anchorSources: sliceAnchors2 } =
-    validateAndRetryLineTimings(slice, transcriptWords, sourceLanguage, sliceAnchors)
+  // Walk left to find the nearest 'good' anchor, capped at MAX_ANCHOR_SEARCH_LINES.
+  let leftAnchorIdx = -1 // -1 = use t=0 as boundary
+  for (let i = targetIndex - 1; i >= 0 && targetIndex - i <= MAX_ANCHOR_SEARCH_LINES; i--) {
+    if (qualityIn[i] === 'good') { leftAnchorIdx = i; break }
+  }
 
+  // Walk right to find the nearest 'good' anchor, capped at MAX_ANCHOR_SEARCH_LINES.
+  let rightAnchorIdx = lines.length // lines.length = use lastTime as boundary
+  for (let i = targetIndex + 1; i < lines.length && i - targetIndex <= MAX_ANCHOR_SEARCH_LINES; i++) {
+    if (qualityIn[i] === 'good') { rightAnchorIdx = i; break }
+  }
+
+  const sectionLo = leftAnchorIdx + 1
+  const sectionHi = rightAnchorIdx - 1
+  if (sectionLo > sectionHi) {
+    return {
+      lines,
+      lineAlignmentQuality: qualityIn,
+      anchorSources: anchorSourcesIn ?? lines.map(() => 'interpolated' as LineAnchorSource),
+    }
+  }
+
+  // Time range is between anchor endpoints.
+  const timeFrom = leftAnchorIdx >= 0 ? lines[leftAnchorIdx].endTime : 0
+  const timeTo = rightAnchorIdx < lines.length ? lines[rightAnchorIdx].startTime : lastTime
+
+  // Words that overlap the anchor time range.
+  const sectionWords = clean.filter(
+    (w) => w.endTime > timeFrom && w.startTime < timeTo,
+  )
+
+  // No words in range → can't improve; return unchanged.
+  if (sectionWords.length === 0) {
+    return {
+      lines,
+      lineAlignmentQuality: qualityIn,
+      anchorSources: anchorSourcesIn ?? lines.map(() => 'interpolated' as LineAnchorSource),
+    }
+  }
+
+  // Fresh alignment pass on the section.
+  const sectionSlice = lines.slice(sectionLo, sectionHi + 1)
+  const sectionTexts = sectionSlice.map((l) => l.original || l.translation)
+  const { lines: aligned, anchorSources: pass1Anchors } = alignLyrics(
+    sectionTexts,
+    sectionWords as TranscriptWord[],
+    sectionSlice,
+    sourceLanguage,
+  )
+
+  // Merge timing into originals (preserve translation, tokens, furigana, etc.)
+  const mergedSection: TimedLine[] = sectionSlice.map((orig, k) => ({
+    ...orig,
+    startTime: aligned[k].startTime,
+    endTime: aligned[k].endTime,
+  }))
+
+  // Refine and score.
+  const refined = validateAndRetryLineTimings(
+    mergedSection,
+    sectionWords as TranscriptWord[],
+    sourceLanguage,
+    pass1Anchors,
+  )
+
+  // Merge back into full-length output arrays.
   const outLines = [...lines]
-  const outQuality: LineAlignmentQuality[] = qualityIn ? [...qualityIn] : lines.map(() => 'needs_review' as LineAlignmentQuality)
-  const outAnchors: LineAnchorSource[] = anchorSourcesIn ? [...anchorSourcesIn] : lines.map(() => 'interpolated' as LineAnchorSource)
+  const outQuality: LineAlignmentQuality[] = [...qualityIn]
+  const outAnchors: LineAnchorSource[] = anchorSourcesIn
+    ? [...anchorSourcesIn]
+    : lines.map(() => 'interpolated' as LineAnchorSource)
 
-  for (let k = 0; k < updated.length; k++) {
-    const li = lo + k
-    outLines[li] = updated[k]
-    outQuality[li] = sliceQuality[k]
-    outAnchors[li] = sliceAnchors2[k]
+  for (let k = 0; k < refined.lines.length; k++) {
+    const li = sectionLo + k
+    outLines[li] = { ...sectionSlice[k], startTime: refined.lines[k].startTime, endTime: refined.lines[k].endTime }
+    outQuality[li] = refined.lineAlignmentQuality[k]
+    outAnchors[li] = refined.anchorSources[k]
   }
 
   return { lines: outLines, lineAlignmentQuality: outQuality, anchorSources: outAnchors }
 }
 
 /**
- * Re-anchor all lines flagged `needs_review` or `approximate` by running
- * `realignLocalSlice` on each sequentially so each newly-anchored line's
- * updated timing becomes neighbor context for the next slice.
- * Returns the original arrays unchanged when there are no weak rows.
+ * Re-align all `needs_review` and `approximate` lines by grouping them into
+ * contiguous sections and calling `realignSection` once per section.
+ * Sections are accumulated sequentially so each re-anchored section's updated
+ * timing becomes anchor context for the next.
  */
-export function realignAllWeakLines(
+export function realignAllWeakSections(
   lines: TimedLine[],
   transcriptWords: TranscriptWord[],
   qualityIn: LineAlignmentQuality[],
@@ -1020,16 +1091,34 @@ export function realignAllWeakLines(
     }
   }
 
-  let acc = { lines, lineAlignmentQuality: qualityIn, anchorSources: anchorSourcesIn }
-  for (const i of weakIndices) {
-    acc = realignLocalSlice(
+  // Group weak indices into contiguous runs.
+  const sections: number[][] = []
+  let current = [weakIndices[0]]
+  for (let i = 1; i < weakIndices.length; i++) {
+    if (weakIndices[i] === weakIndices[i - 1] + 1) {
+      current.push(weakIndices[i])
+    } else {
+      sections.push(current)
+      current = [weakIndices[i]]
+    }
+  }
+  sections.push(current)
+
+  // Re-align each section using the middle line's index as the target.
+  let acc: { lines: TimedLine[]; lineAlignmentQuality: LineAlignmentQuality[]; anchorSources: LineAnchorSource[] | undefined } =
+    { lines, lineAlignmentQuality: qualityIn, anchorSources: anchorSourcesIn }
+
+  for (const section of sections) {
+    const targetIndex = section[Math.floor(section.length / 2)]
+    acc = realignSection(
       acc.lines,
-      i,
+      targetIndex,
       transcriptWords,
-      sourceLanguage,
       acc.lineAlignmentQuality,
+      sourceLanguage,
       acc.anchorSources,
     )
   }
+
   return acc as { lines: TimedLine[]; lineAlignmentQuality: LineAlignmentQuality[]; anchorSources: LineAnchorSource[] }
 }

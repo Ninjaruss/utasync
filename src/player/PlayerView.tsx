@@ -9,7 +9,7 @@ import { YouTubePlayer, type YouTubePlayerHandle } from './YouTubePlayer'
 import { youtubeErrorMessage, youtubeNeedsVisibleEmbed } from './youtubeEmbedPolicy'
 import { resolveYouTubeVideoId } from '../sources/youtube'
 import { ABLoopController } from './ABLoop'
-import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase } from '../core/types'
+import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, LineAlignmentQuality } from '../core/types'
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
 import { projectPhraseTokensToLines } from '../lyrics/phraseProjection'
 import { repairPhraseTranslationOrder } from '../lyrics/phraseNormalize'
@@ -19,8 +19,8 @@ import {
   applyRefinedAlignment,
   shouldRefineStoredAlignment,
   transcriptWordsToAlignInput,
-  realignLocalSlice,
-  realignAllWeakLines,
+  realignSection,
+  realignAllWeakSections,
 } from '../lyrics/phraseAlignment'
 import { summarizePhraseChanges, applySungLayout, revertToSheetLayout } from '../lyrics/phraseLayout'
 import { tokenizeJapanese } from '../language/japanese/tokenizer'
@@ -776,13 +776,13 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     setLocalRealigning((prev) => new Set([...prev, lineIndex]))
     try {
       const words = transcriptWordsToAlignInput(song.lyrics.transcriptWords)
-      const { lines, lineAlignmentQuality, anchorSources } = realignLocalSlice(
+      const { lines, lineAlignmentQuality, anchorSources } = realignSection(
         song.lyrics.lines,
         lineIndex,
         words,
+        song.lyrics.lineAlignmentQuality ?? song.lyrics.lines.map(() => 'needs_review' as LineAlignmentQuality),
         song.lyrics.sourceLanguage,
-        song.lyrics.lineAlignmentQuality,
-        song.lyrics.anchorSources as Parameters<typeof realignLocalSlice>[5],
+        song.lyrics.anchorSources as Parameters<typeof realignSection>[5],
       )
       const updated: Song = {
         ...song,
@@ -831,12 +831,12 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     if (!song.lyrics.lineAlignmentQuality?.length) return
     const words = transcriptWordsToAlignInput(song.lyrics.transcriptWords)
     await yieldToMainThread()
-    const { lines, lineAlignmentQuality, anchorSources } = realignAllWeakLines(
+    const { lines, lineAlignmentQuality, anchorSources } = realignAllWeakSections(
       song.lyrics.lines,
       words,
       song.lyrics.lineAlignmentQuality,
       song.lyrics.sourceLanguage,
-      song.lyrics.anchorSources as Parameters<typeof realignAllWeakLines>[4],
+      song.lyrics.anchorSources as Parameters<typeof realignAllWeakSections>[4],
     )
     const updated: Song = {
       ...song,
