@@ -8,8 +8,10 @@ import {
   projectPhraseTimingToLines,
   refineAlignmentWithPhrases,
   sheetRowsForAlignment,
+  validateAndRetryLineTimings,
 } from '../../src/lyrics/phraseAlignment'
 import type { LyricsData } from '../../src/core/types'
+import type { TranscriptWord } from '../../src/ai-pipeline/aligner'
 
 const line = (
   original: string,
@@ -21,6 +23,27 @@ const line = (
 const here = dirname(fileURLToPath(import.meta.url))
 const SEGMENT_CACHE = join(here, '../../.cache/auto-align-audit/AKFG_FirstTake_segment.json')
 const LYRICS = join(here, '../ai-pipeline/fixtures/akfg-user-ja.txt')
+
+describe('validateAndRetryLineTimings — repeated-line partial match', () => {
+  it('does not jump a weak repeated row onto a later occurrence', () => {
+    // Row 0 is a repeated chorus line whose own audio is garbled; the same line
+    // is sung again later (25s). The partial-match retry must stay in row 0's
+    // window and not latch onto the later occurrence (which would push the row
+    // past row 1 and collapse it under monotonicity).
+    const lines: TimedLine[] = [
+      line('ローリング ローリング', 10, 12),
+      line('次の行です', 20, 22),
+    ]
+    const words: TranscriptWord[] = [
+      { word: 'ノイズ', startTime: 8, endTime: 12 },
+      { word: '次の行です', startTime: 20, endTime: 22 },
+      { word: 'ローリング', startTime: 25, endTime: 27 },
+    ]
+    const { lines: out } = validateAndRetryLineTimings(lines, words, 'ja')
+    expect(out[0].startTime).toBeLessThan(out[1].startTime)
+    expect(out[0].startTime).toBeLessThan(20)
+  })
+})
 
 describe('sheetRowsForAlignment', () => {
   it('prefers the sheet snapshot over sung display rows', () => {

@@ -9,7 +9,7 @@ import { MPEGDecoder } from 'mpg123-decoder'
 export async function decodeMp3ToMono(path) {
   const decoder = new MPEGDecoder()
   await decoder.ready
-  const buf = readFileSync(path)
+  const buf = new Uint8Array(readFileSync(path))
   const { channelData, sampleRate } = decoder.decode(buf)
   decoder.free()
 

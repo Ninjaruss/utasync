@@ -7,10 +7,12 @@ import {
   type LineAnchorSource,
 } from '../ai-pipeline/contentAligner'
 import { derivePhrases, type PhraseNormalizeReport } from './phraseNormalize'
+import { anchorLineByPartialMatch } from '../ai-pipeline/partialMatchAnchor'
+import { realignRepeatedStanzaOccurrences } from './repeatedStanzaAlignment'
 
 /** Bump when auto-align timing logic changes — triggers one-time re-refine from the
  * persisted Whisper transcript on song open (no re-transcription). */
-export const ALIGNMENT_PIPELINE_VERSION = 10
+export const ALIGNMENT_PIPELINE_VERSION = 12
 
 const ENTWINED_ROLLING_RE = /心絡まって.*ローリング/
 const RUN_LINE_RE = /凍てつく(?:世界|地面).*走り出した/
@@ -36,6 +38,8 @@ const LINE_VALIDATE_WINDOW_TAIL_S = 8
 /** Wider search when the first pass flags a line for retry. */
 const LINE_RETRY_EXPAND_LEAD_S = 14
 const LINE_RETRY_EXPAND_TAIL_S = 16
+/** Minimum visible highlight when a row has room before the next start. */
+const MIN_HIGHLIGHT_S = 1.2
 
 /** Pass-1 placed this phrase at the forward cursor — include overlapping segments. */
 function phraseOnsetAtCursor(phraseStart: number, searchFrom: number): boolean {
@@ -139,11 +143,12 @@ function rebalanceEntwinedRunPair(
 
   const runNorm = normalizeForMatch(run.original)
   for (const w of tailWords) {
-    if (w.startTime < entwined.startTime + 0.8) continue
     const wn = normalizeForMatch(w.word)
     if (!wn) continue
     let shared = 0
     for (const ch of runNorm.slice(0, 12)) if (wn.includes(ch)) shared++
+    const runOpener = /^(凍|痛|転|走)/.test(wn) || shared >= 3
+    if (w.startTime < entwined.startTime + 0.8 && !runOpener) continue
     if (shared >= 3 || /^(凍|痛|転|走)/.test(wn)) {
       runStart = Math.min(runStart, w.startTime)
     }
@@ -158,6 +163,22 @@ function rebalanceEntwinedRunPair(
   return { entwinedEnd, runStart, runEnd }
 }
 
+function enforceLineMonotonicity(out: TimedLine[]): void {
+  for (let i = 1; i < out.length; i++) {
+    if (out[i].startTime < out[i - 1].startTime) out[i].startTime = out[i - 1].startTime
+  }
+  for (let i = 0; i < out.length - 1; i++) {
+    if (out[i].endTime > out[i + 1].startTime) out[i].endTime = out[i + 1].startTime
+    const ownEnd = Math.max(out[i].endTime, out[i].startTime)
+    out[i].endTime = Math.min(ownEnd, out[i + 1].startTime)
+  }
+  for (let i = 0; i < out.length; i++) {
+    if (out[i].endTime <= out[i].startTime) {
+      out[i].endTime = out[i].startTime + 0.3
+    }
+  }
+}
+
 /** Extend vocal tails and fix rolling-chorus boundaries on validated sheet rows. */
 function extendValidatedLineTails(lines: TimedLine[], words: TranscriptWord[]): TimedLine[] {
   const clean = sanitizeTranscript(words)
@@ -166,10 +187,17 @@ function extendValidatedLineTails(lines: TimedLine[], words: TranscriptWord[]): 
 
   for (let i = 0; i < out.length; i++) {
     const nextStart = i + 1 < out.length ? out[i + 1].startTime : lastTime
+    const runFollows =
+      i + 1 < out.length
+      && ENTWINED_ROLLING_RE.test(out[i].original)
+      && RUN_LINE_RE.test(out[i + 1].original)
     const windowWords = clean.filter(
-      (w) => w.endTime > out[i].startTime - 0.5 && w.startTime < nextStart + 4,
+      (w) => w.endTime > out[i].startTime - 0.5 && w.startTime < nextStart + (runFollows ? 4 : 2),
     )
-    const maxEnd = Math.min(lastTime, nextStart > out[i].endTime ? nextStart + 0.15 : nextStart + 3.5)
+    const maxEnd = runFollows
+      ? Math.min(lastTime, out[i + 1].startTime + 2.5, out[i].endTime + 5)
+      : Math.min(lastTime, nextStart - 0.05, out[i].endTime + 3.5)
+    if (maxEnd <= out[i].startTime + 0.08) continue
     out[i].endTime = extendLineEndToTranscriptTail(out[i], windowWords, maxEnd)
     out[i].endTime = extendThroughMatchingTail(
       out[i].original,
@@ -194,19 +222,7 @@ function extendValidatedLineTails(lines: TimedLine[], words: TranscriptWord[]): 
     out[i + 1].endTime = runEnd
   }
 
-  for (let i = 1; i < out.length; i++) {
-    if (out[i].startTime < out[i - 1].startTime) out[i].startTime = out[i - 1].startTime
-  }
-  for (let i = 0; i < out.length - 1; i++) {
-    if (out[i].endTime > out[i + 1].startTime) out[i].endTime = out[i + 1].startTime
-    const ownEnd = Math.max(out[i].endTime, out[i].startTime)
-    out[i].endTime = Math.min(ownEnd, out[i + 1].startTime)
-  }
-  for (let i = 0; i < out.length; i++) {
-    if (out[i].endTime <= out[i].startTime) {
-      out[i].endTime = out[i].startTime + 0.3
-    }
-  }
+  enforceLineMonotonicity(out)
   return out
 }
 
@@ -316,17 +332,22 @@ function extendUndershotPhrases(
   phrases: SungPhrase[],
   words: readonly TranscriptWord[],
 ): SungPhrase[] {
+  const order = [...phrases].sort(
+    (a, b) => a.startTime - b.startTime || a.sourceLineIndices[0] - b.sourceLineIndices[0],
+  )
   return phrases.map((p) => {
     const minSpan = minPhraseVocalSpan(p.original)
     const span = p.endTime - p.startTime
     if (span >= minSpan) return p
+    const ordIdx = order.indexOf(p)
+    const nextStart = order[ordIdx + 1]?.startTime ?? p.endTime + minSpan + 4
     const norm = normalizeForMatch(p.original)
     const open = norm.slice(0, Math.min(8, norm.length))
     const close = norm.slice(-Math.min(8, norm.length))
     let start = p.startTime
     let end = p.endTime
     const window = words.filter(
-      (w) => w.endTime > p.startTime - 6 && w.startTime < p.endTime + 6,
+      (w) => w.endTime > p.startTime - 6 && w.startTime < Math.min(p.endTime + 6, nextStart + 0.5),
     )
     if (open.length >= 2) {
       let acc = ''
@@ -348,6 +369,7 @@ function extendUndershotPhrases(
         if (hit >= 2) end = Math.max(end, w.endTime)
       }
     }
+    end = Math.min(end, nextStart - 0.05)
     end = Math.max(end, start + Math.max(minSpan, span))
     if (end - start > span + 0.15 || start < p.startTime - 0.1) {
       return { ...p, startTime: start, endTime: end }
@@ -605,6 +627,77 @@ function retryLineInWindows(
   return best
 }
 
+function retryPartialMatchForLine(
+  lineText: string,
+  line: TimedLine,
+  clean: readonly TranscriptWord[],
+  prevEnd: number,
+  nextStart: number,
+  lastTime: number,
+): { startTime: number; endTime: number } | null {
+  const searchFrom = Math.max(prevEnd, line.startTime - LINE_RETRY_EXPAND_LEAD_S)
+  // Keep the search inside this row's window. Letting it run past the next row's
+  // onset lets a repeated line (e.g. a ローリング chorus) latch onto a LATER
+  // occurrence, jumping the row forward where monotonicity then collapses it to
+  // the floor and breaks chorus ordering.
+  const searchTo = Math.min(
+    lastTime,
+    line.endTime + LINE_RETRY_EXPAND_TAIL_S,
+    nextStart > line.startTime ? nextStart + 0.5 : lastTime,
+  )
+  const partial = anchorLineByPartialMatch(lineText, clean, searchFrom, searchTo)
+  if (!partial) return null
+  const startTime = Math.max(partial.startTime, prevEnd)
+  // Never let the retry push this row's start at/after the next row.
+  if (nextStart > prevEnd && startTime >= nextStart) return null
+  const endTime = Math.max(partial.endTime, startTime + 0.35)
+  if (endTime > nextStart + 0.5 && nextStart > startTime) return null
+  return { startTime, endTime }
+}
+
+function expandSquashedLineHighlights(lines: TimedLine[]): TimedLine[] {
+  const out = lines.map((l) => ({ ...l }))
+  for (let i = 0; i < out.length; i++) {
+    const span = out[i].endTime - out[i].startTime
+    if (span >= MIN_HIGHLIGHT_S) continue
+    const nextStart = out[i + 1]?.startTime ?? out[i].endTime + MIN_HIGHLIGHT_S
+    const room = nextStart - out[i].startTime
+    if (room < MIN_HIGHLIGHT_S) continue
+    out[i].endTime = Math.min(out[i].startTime + Math.max(span, MIN_HIGHLIGHT_S), nextStart)
+  }
+  return out
+}
+
+function recomputeLineQuality(
+  lines: TimedLine[],
+  words: TranscriptWord[],
+  sourceLanguage: Language,
+  anchorSourcesIn?: LineAnchorSource[],
+): Pick<LineValidationResult, 'anchorSources' | 'lineAlignmentQuality'> {
+  const clean = sanitizeTranscript(words)
+  const lastTime = clean.at(-1)?.endTime ?? 0
+  const anchorSources: LineAnchorSource[] = []
+  const lineAlignmentQuality: LineAlignmentQuality[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const prevEnd = i > 0 ? lines[i - 1].endTime : 0
+    const nextStart = i + 1 < lines.length ? lines[i + 1].startTime : lastTime
+    const windowWords = transcriptWindowForLine(
+      clean,
+      lines[i],
+      prevEnd,
+      nextStart,
+      lastTime,
+      LINE_VALIDATE_WINDOW_LEAD_S,
+      LINE_VALIDATE_WINDOW_TAIL_S,
+    )
+    const score = scoreLineAlignment(lines[i].original || lines[i].translation, windowWords, sourceLanguage)
+    anchorSources[i] =
+      score.quality === 'needs_review' && anchorSourcesIn?.[i] === 'lcs' ? 'lcs' : score.anchorSource
+    lineAlignmentQuality[i] = score.quality
+  }
+  return { anchorSources, lineAlignmentQuality }
+}
+
 export interface LineValidationResult {
   lines: TimedLine[]
   anchorSources: LineAnchorSource[]
@@ -661,6 +754,22 @@ export function validateAndRetryLineTimings(
           out[i].startTime = retried.startTime
           out[i].endTime = retried.endTime
           score = retried.score
+          retryCount++
+        }
+      }
+      if (score.quality !== 'good') {
+        const partial = retryPartialMatchForLine(
+          lineText,
+          out[i],
+          clean,
+          prevEnd,
+          nextStart,
+          lastTime,
+        )
+        if (partial) {
+          out[i].startTime = partial.startTime
+          out[i].endTime = partial.endTime
+          score = scoreLineAlignment(lineText, windowWords, sourceLanguage)
           retryCount++
         }
       }
@@ -813,17 +922,30 @@ export function refineAlignmentWithPhrases(
     sourceLanguage,
     pass1.anchorSources,
   )
-  const extendedLines = extendValidatedLineTails(validated.lines, words)
-  const syncedPhrases = syncPhrasesFromValidatedLines(phrases, extendedLines)
+  let tunedLines = realignRepeatedStanzaOccurrences(
+    validated.lines,
+    words,
+    lineTexts,
+    sourceLanguage,
+  )
+  tunedLines = extendValidatedLineTails(tunedLines, words)
+  tunedLines = expandSquashedLineHighlights(tunedLines)
+  const quality = recomputeLineQuality(
+    tunedLines,
+    words,
+    sourceLanguage,
+    pass1.anchorSources,
+  )
+  const syncedPhrases = syncPhrasesFromValidatedLines(phrases, tunedLines)
 
   return {
-    lines: extendedLines,
+    lines: tunedLines,
     phrases: syncedPhrases,
     report,
     mode: pass1.mode,
     confidence: pass1.confidence,
-    anchorSources: validated.anchorSources,
-    lineAlignmentQuality: validated.lineAlignmentQuality,
+    anchorSources: quality.anchorSources,
+    lineAlignmentQuality: quality.lineAlignmentQuality,
     phraseLayout: 'sheet',
     sheetLinesSnapshot: undefined,
   }
