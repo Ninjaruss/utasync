@@ -19,6 +19,8 @@ import {
   applyRefinedAlignment,
   shouldRefineStoredAlignment,
   transcriptWordsToAlignInput,
+  realignLocalSlice,
+  realignAllWeakLines,
 } from '../lyrics/phraseAlignment'
 import { summarizePhraseChanges, applySungLayout, revertToSheetLayout } from '../lyrics/phraseLayout'
 import { tokenizeJapanese } from '../language/japanese/tokenizer'
@@ -293,6 +295,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [localAudioLoadFailed, setLocalAudioLoadFailed] = useState(false)
   const [showLyricsReimport, setShowLyricsReimport] = useState(false)
   const [phrasingBusy, setPhrasingBusy] = useState(false)
+  const [localRealigning, setLocalRealigning] = useState<Set<number>>(new Set())
   const {
     setBusy: setLyricsReimportBusy,
     confirming: confirmLyricsReimportClose,
@@ -768,8 +771,73 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
   }
 
+  const handleLocalRealign = async (lineIndex: number) => {
+    if (!song?.lyrics.transcriptWords?.length) return
+    setLocalRealigning((prev) => new Set([...prev, lineIndex]))
+    try {
+      const words = transcriptWordsToAlignInput(song.lyrics.transcriptWords)
+      const { lines, lineAlignmentQuality, anchorSources } = realignLocalSlice(
+        song.lyrics.lines,
+        lineIndex,
+        words,
+        song.lyrics.sourceLanguage,
+        song.lyrics.lineAlignmentQuality,
+        song.lyrics.anchorSources as Parameters<typeof realignLocalSlice>[5],
+      )
+      const updated: Song = {
+        ...song,
+        lyrics: {
+          ...song.lyrics,
+          lines,
+          lineAlignmentQuality,
+          anchorSources: anchorSources as Song['lyrics']['anchorSources'],
+        },
+        syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines } }),
+      }
+      setSong(updated)
+      setLines(lines)
+      await db.songs.put(updated)
+    } finally {
+      setLocalRealigning((prev) => {
+        const next = new Set(prev)
+        next.delete(lineIndex)
+        return next
+      })
+    }
+  }
+
+  const handleRealignAllWeak = async () => {
+    if (!song?.lyrics.transcriptWords?.length) return
+    if (!song.lyrics.lineAlignmentQuality?.length) return
+    const words = transcriptWordsToAlignInput(song.lyrics.transcriptWords)
+    await yieldToMainThread()
+    const { lines, lineAlignmentQuality, anchorSources } = realignAllWeakLines(
+      song.lyrics.lines,
+      words,
+      song.lyrics.lineAlignmentQuality,
+      song.lyrics.sourceLanguage,
+      song.lyrics.anchorSources as Parameters<typeof realignAllWeakLines>[4],
+    )
+    const updated: Song = {
+      ...song,
+      lyrics: {
+        ...song.lyrics,
+        lines,
+        lineAlignmentQuality,
+        anchorSources: anchorSources as Song['lyrics']['anchorSources'],
+      },
+      syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines } }),
+    }
+    setSong(updated)
+    setLines(lines)
+    await db.songs.put(updated)
+  }
+
   const progress = duration > 0 ? Math.min(1, position / duration) : 0
   const isJapanese = song?.lyrics.sourceLanguage === 'ja'
+  const weakLineCount = song?.lyrics.lineAlignmentQuality?.filter(
+    (q) => q === 'needs_review' || q === 'approximate',
+  ).length ?? 0
   const hasTranslation = !!song?.lyrics.lines.some(hasVisibleTranslation)
 
   const sungLayoutActive = song?.lyrics.phraseLayout === 'sung'
@@ -1197,6 +1265,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               onPausePlayback={pausePlayback}
               lineAlignmentQuality={song?.lyrics.lineAlignmentQuality}
               showAlignmentQuality={song?.lyrics.alignmentMode === 'auto'}
+              onLocalRealign={song?.lyrics.transcriptWords?.length ? handleLocalRealign : undefined}
+              onRealignAllWeak={song?.lyrics.transcriptWords?.length ? handleRealignAllWeak : undefined}
+              localRealigning={localRealigning}
+              weakLineCount={weakLineCount}
             />
           )}
         </div>
