@@ -1,0 +1,46 @@
+{
+  "veil": {
+    "lines": "48/48",
+    "mode": "content",
+    "align_needs_review": 7,
+    "align_monotonicity": 0,
+    "align_zero_dur": 0,
+    "align_long_dur": 0,
+    "read_kanji_tokens": 119,
+    "read_adopt": 1,
+    "read_mismatch": 3
+  },
+  "akfg-firsttake-word": {
+    "lines": "30/30",
+    "mode": "content",
+    "align_needs_review": 2,
+    "align_monotonicity": 0,
+    "align_zero_dur": 0,
+    "align_long_dur": 0,
+    "read_kanji_tokens": 87,
+    "read_adopt": 1,
+    "read_mismatch": 0
+  },
+  "akfg-firsttake-segment": {
+    "lines": "30/30",
+    "mode": "content",
+    "align_needs_review": 1,
+    "align_monotonicity": 0,
+    "align_zero_dur": 0,
+    "align_long_dur": 0,
+    "read_kanji_tokens": 87,
+    "read_adopt": 1,
+    "read_mismatch": 0
+  },
+  "my-eyes-only": {
+    "lines": "40/40",
+    "mode": "content",
+    "align_needs_review": 2,
+    "align_monotonicity": 0,
+    "align_zero_dur": 0,
+    "align_long_dur": 0,
+    "read_kanji_tokens": 42,
+    "read_adopt": 0,
+    "read_mismatch": 1
+  }
+}

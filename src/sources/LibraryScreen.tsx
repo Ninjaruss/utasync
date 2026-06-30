@@ -60,7 +60,13 @@ export function LibraryScreen({ onOpen, onAdd, onSettings }: Props) {
 
         <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-2">
           {songs.length === 0 && (
-            <div className="flex-1 flex items-center justify-center text-white/30 text-sm py-20">No songs yet</div>
+            <div className="flex flex-col items-center justify-center text-center gap-2 py-24 px-6 animate-[progress-enter_220ms_ease-out_both]">
+              <div className="w-12 h-12 rounded-2xl bg-cinnabar-900 border border-cinnabar-800 flex items-center justify-center text-cinnabar-accent/70 text-xl mb-1">♪</div>
+              <p className="text-white/55 text-sm font-medium text-balance">Your library is empty</p>
+              <p className="text-white/30 text-xs text-pretty max-w-[16rem] leading-relaxed">
+                Add a song from a YouTube link or an audio file to start syncing lyrics.
+              </p>
+            </div>
           )}
           {songs.map((song) => {
             const sync = song.syncState ?? computeSyncState(song)

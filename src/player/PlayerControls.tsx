@@ -558,7 +558,7 @@ function PlaylistCompactPlayer({
                 <span
                   key={i}
                   className={[
-                    'rounded-full transition-all duration-200 ease-out',
+                    'rounded-full transition-[width,background-color] duration-200 ease-out',
                     i === playlistIndex
                       ? 'w-2.5 h-1.5 bg-cinnabar-accent'
                       : 'w-1.5 h-1.5 bg-white/20',

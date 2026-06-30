@@ -1,0 +1,30 @@
+{
+  "_comment": "Deterministic audit corpus for scripts/audit-corpus.mjs. Each song references committed lyrics + a sanitized Whisper transcript (word array or {chunks} format). Paths are relative to tests/ai-pipeline/fixtures/.",
+  "songs": [
+    {
+      "name": "veil",
+      "lang": "ja",
+      "lyrics": "veil/lyrics.ja.txt",
+      "en": "veil/lyrics.en.txt",
+      "transcript": "veil/transcript.words.json"
+    },
+    {
+      "name": "akfg-firsttake-word",
+      "lang": "ja",
+      "lyrics": "akfg/lyrics.ja.txt",
+      "transcript": "akfg/transcript.word.json"
+    },
+    {
+      "name": "akfg-firsttake-segment",
+      "lang": "ja",
+      "lyrics": "akfg/lyrics.ja.txt",
+      "transcript": "akfg/transcript.segment.json"
+    },
+    {
+      "name": "my-eyes-only",
+      "lang": "ja",
+      "lyrics": "my-eyes-only.lyrics.txt",
+      "transcript": "my-eyes-only.transcript.json"
+    }
+  ]
+}
