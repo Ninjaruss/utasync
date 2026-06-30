@@ -8,7 +8,6 @@ import { useToast } from './core/ui/Toast'
 import { OfflineBanner } from './core/ui/OfflineBanner'
 import { UpdateBanner } from './core/ui/UpdateBanner'
 import { Onboarding } from './core/ui/Onboarding'
-import { ensureDemoSong } from './landing/demoSong'
 
 const LandingScreen = lazy(() =>
   import('./landing/LandingScreen').then((m) => ({ default: m.LandingScreen })),
@@ -63,17 +62,6 @@ export default function App() {
     setView('library')
   }
 
-  const tryDemo = async () => {
-    markLandingSeen()
-    try {
-      const id = await ensureDemoSong()
-      openSong(id)
-    } catch {
-      toast('Could not load the demo song. Opening the library instead.', 'error')
-      setView('library')
-    }
-  }
-
   return (
     <>
       <div className="fixed top-0 inset-x-0 z-[65] flex flex-col">
@@ -82,7 +70,7 @@ export default function App() {
       </div>
       {view === 'landing' ? (
         <Suspense fallback={<div className="h-[100dvh] bg-cinnabar-950" />}>
-          <LandingScreen onTryDemo={tryDemo} onOpenApp={leaveLanding} />
+          <LandingScreen onOpenApp={leaveLanding} />
         </Suspense>
       ) : view === 'song' && songId ? (
         <PlayerView

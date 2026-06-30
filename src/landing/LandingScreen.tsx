@@ -1,5 +1,4 @@
 interface Props {
-  onTryDemo: () => void
   onOpenApp: () => void
 }
 
@@ -24,7 +23,7 @@ const FEATURES = [
   },
 ]
 
-export function LandingScreen({ onTryDemo, onOpenApp }: Props) {
+export function LandingScreen({ onOpenApp }: Props) {
   return (
     <div className="h-[100dvh] overflow-y-auto bg-cinnabar-950 text-white">
       <div className="w-full max-w-2xl mx-auto px-5 pb-16">
@@ -51,20 +50,13 @@ export function LandingScreen({ onTryDemo, onOpenApp }: Props) {
             Utasync syncs lyrics to the audio, adds furigana the way the singer actually sings them,
             and pairs every word with its translation — all on your device.
           </p>
-          <div className="mt-8 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={onTryDemo}
-              className="min-h-12 px-6 rounded-xl bg-cinnabar-accent hover:bg-cinnabar-accent/90 text-white font-semibold text-sm flex items-center gap-2 touch-manipulation shadow-lg shadow-cinnabar-accent/20 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97]"
-            >
-              ▶ Try the demo
-            </button>
+          <div className="mt-8">
             <button
               type="button"
               onClick={onOpenApp}
-              className="min-h-12 px-6 rounded-xl border border-cinnabar-800 hover:border-cinnabar-accent/50 text-white/75 hover:text-white font-medium text-sm touch-manipulation transition-[color,border-color,transform] duration-150 ease-out active:scale-[0.97]"
+              className="min-h-12 px-6 rounded-xl bg-cinnabar-accent hover:bg-cinnabar-accent/90 text-white font-semibold text-sm flex items-center gap-2 touch-manipulation shadow-lg shadow-cinnabar-accent/20 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97]"
             >
-              Add your own song
+              Get started →
             </button>
           </div>
         </section>
@@ -88,16 +80,16 @@ export function LandingScreen({ onTryDemo, onOpenApp }: Props) {
 
         {/* Closing CTA */}
         <section className="mt-12 rounded-2xl border border-cinnabar-900 bg-gradient-to-b from-cinnabar-900/50 to-cinnabar-950 p-6 text-center">
-          <h2 className="text-lg font-semibold text-balance">See it on a real song</h2>
+          <h2 className="text-lg font-semibold text-balance">Ready to study your favourite song?</h2>
           <p className="mt-2 text-white/55 text-sm text-pretty max-w-md mx-auto">
-            Open the demo to watch alignment, furigana, and word pairing work together — then add your own.
+            Add any song with a YouTube link or a local audio file and let Utasync do the rest.
           </p>
           <button
             type="button"
-            onClick={onTryDemo}
+            onClick={onOpenApp}
             className="mt-5 min-h-12 px-6 rounded-xl bg-cinnabar-accent hover:bg-cinnabar-accent/90 text-white font-semibold text-sm touch-manipulation shadow-lg shadow-cinnabar-accent/20 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97]"
           >
-            ▶ Try the demo
+            Open the app
           </button>
         </section>
 

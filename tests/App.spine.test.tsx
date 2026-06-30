@@ -25,9 +25,8 @@ describe('App navigation spine', () => {
     localStorage.removeItem('utasync_landing_seen')
     render(<App />)
     // Lazy-loaded landing — wait for its CTA, then enter the library.
-    await waitFor(() => screen.getByRole('button', { name: /open the app/i }))
-    expect(screen.getAllByRole('button', { name: /try the demo/i }).length).toBeGreaterThan(0)
-    fireEvent.click(screen.getByRole('button', { name: /open the app/i }))
+    await waitFor(() => screen.getAllByRole('button', { name: /open the app/i }))
+    fireEvent.click(screen.getAllByRole('button', { name: /open the app/i })[0])
     await waitFor(() => screen.getByRole('button', { name: /add a song/i }))
     // Returning now skips the landing.
     expect(localStorage.getItem('utasync_landing_seen')).toBe('1')
