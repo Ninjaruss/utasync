@@ -950,3 +950,86 @@ export function refineAlignmentWithPhrases(
     sheetLinesSnapshot: undefined,
   }
 }
+
+/**
+ * Re-anchor the line at `targetIndex` plus its immediate neighbors (±1) using
+ * the stored Whisper transcript. All other rows are returned as-is (same object
+ * references). Useful for fixing individual `approximate`/`needs_review` rows
+ * without a full re-transcription.
+ */
+export function realignLocalSlice(
+  lines: TimedLine[],
+  targetIndex: number,
+  transcriptWords: TranscriptWord[],
+  sourceLanguage: Language,
+  qualityIn?: LineAlignmentQuality[],
+  anchorSourcesIn?: LineAnchorSource[],
+): {
+  lines: TimedLine[]
+  lineAlignmentQuality: LineAlignmentQuality[]
+  anchorSources: LineAnchorSource[]
+} {
+  const lo = Math.max(0, targetIndex - 1)
+  const hi = Math.min(lines.length - 1, targetIndex + 1)
+  const slice = lines.slice(lo, hi + 1)
+  const sliceAnchors = anchorSourcesIn?.slice(lo, hi + 1)
+
+  const { lines: updated, lineAlignmentQuality: sliceQuality, anchorSources: sliceAnchors2 } =
+    validateAndRetryLineTimings(slice, transcriptWords, sourceLanguage, sliceAnchors)
+
+  const outLines = [...lines]
+  const outQuality: LineAlignmentQuality[] = qualityIn ? [...qualityIn] : lines.map(() => 'needs_review' as LineAlignmentQuality)
+  const outAnchors: LineAnchorSource[] = anchorSourcesIn ? [...anchorSourcesIn] : lines.map(() => 'interpolated' as LineAnchorSource)
+
+  for (let k = 0; k < updated.length; k++) {
+    const li = lo + k
+    outLines[li] = updated[k]
+    outQuality[li] = sliceQuality[k]
+    outAnchors[li] = sliceAnchors2[k]
+  }
+
+  return { lines: outLines, lineAlignmentQuality: outQuality, anchorSources: outAnchors }
+}
+
+/**
+ * Re-anchor all lines flagged `needs_review` or `approximate` by running
+ * `realignLocalSlice` on each sequentially so each newly-anchored line's
+ * updated timing becomes neighbor context for the next slice.
+ * Returns the original arrays unchanged when there are no weak rows.
+ */
+export function realignAllWeakLines(
+  lines: TimedLine[],
+  transcriptWords: TranscriptWord[],
+  qualityIn: LineAlignmentQuality[],
+  sourceLanguage: Language,
+  anchorSourcesIn?: LineAnchorSource[],
+): {
+  lines: TimedLine[]
+  lineAlignmentQuality: LineAlignmentQuality[]
+  anchorSources: LineAnchorSource[]
+} {
+  const weakIndices = lines
+    .map((_, i) => i)
+    .filter((i) => qualityIn[i] === 'needs_review' || qualityIn[i] === 'approximate')
+
+  if (weakIndices.length === 0) {
+    return {
+      lines,
+      lineAlignmentQuality: qualityIn,
+      anchorSources: anchorSourcesIn ?? lines.map(() => 'interpolated' as LineAnchorSource),
+    }
+  }
+
+  let acc = { lines, lineAlignmentQuality: qualityIn, anchorSources: anchorSourcesIn }
+  for (const i of weakIndices) {
+    acc = realignLocalSlice(
+      acc.lines,
+      i,
+      transcriptWords,
+      sourceLanguage,
+      acc.lineAlignmentQuality,
+      acc.anchorSources,
+    )
+  }
+  return acc as { lines: TimedLine[]; lineAlignmentQuality: LineAlignmentQuality[]; anchorSources: LineAnchorSource[] }
+}

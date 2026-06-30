@@ -2,10 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { TimedLine } from '../../src/core/types'
+import type { LineAlignmentQuality, TimedLine } from '../../src/core/types'
 import {
   alignPhrasesToTranscript,
   projectPhraseTimingToLines,
+  realignAllWeakLines,
+  realignLocalSlice,
   refineAlignmentWithPhrases,
   sheetRowsForAlignment,
   validateAndRetryLineTimings,
@@ -341,3 +343,105 @@ describe.skipIf(!existsSync(USER_ROCKROLL_CACHE))(
     })
   },
 )
+
+describe('realignLocalSlice', () => {
+  const mkLine = (original: string, startTime: number, endTime: number) => ({
+    original, translation: '', startTime, endTime,
+  })
+
+  it('only mutates the target ± 1 rows, leaving the rest untouched', () => {
+    const lines = [
+      mkLine('line0', 0, 2),
+      mkLine('line1', 3, 5),
+      mkLine('line2', 6, 8),   // target index 2
+      mkLine('line3', 9, 11),
+      mkLine('line4', 12, 14),
+    ]
+    const words: TranscriptWord[] = [
+      { word: 'line2', startTime: 6.1, endTime: 7.9 },
+      { word: 'line3', startTime: 9.1, endTime: 10.9 },
+    ]
+    const quality: LineAlignmentQuality[] = ['good', 'good', 'needs_review', 'approximate', 'good']
+    const result = realignLocalSlice(lines, 2, words, 'ja', quality)
+    // rows 0 and 4 are outside the slice — must be identical objects
+    expect(result.lines[0]).toBe(lines[0])
+    expect(result.lines[4]).toBe(lines[4])
+    // the slice rows are new objects (immutable update)
+    expect(result.lines[1]).not.toBe(lines[1])
+    expect(result.lines[2]).not.toBe(lines[2])
+    expect(result.lines[3]).not.toBe(lines[3])
+  })
+
+  it('clamps correctly at the start of the array (target index 0)', () => {
+    const lines = [
+      mkLine('line0', 0, 2),
+      mkLine('line1', 3, 5),
+      mkLine('line2', 6, 8),
+    ]
+    const words: TranscriptWord[] = [{ word: 'line0', startTime: 0.1, endTime: 1.9 }]
+    const quality: LineAlignmentQuality[] = ['needs_review', 'good', 'good']
+    const result = realignLocalSlice(lines, 0, words, 'ja', quality)
+    expect(result.lines[2]).toBe(lines[2])
+    expect(result.lines.length).toBe(lines.length)
+    expect(result.lineAlignmentQuality.length).toBe(lines.length)
+  })
+
+  it('clamps correctly at the end of the array (target = last index)', () => {
+    const lines = [
+      mkLine('line0', 0, 2),
+      mkLine('line1', 3, 5),
+      mkLine('line2', 6, 8),
+    ]
+    const words: TranscriptWord[] = [{ word: 'line2', startTime: 6.1, endTime: 7.9 }]
+    const quality: LineAlignmentQuality[] = ['good', 'good', 'needs_review']
+    const result = realignLocalSlice(lines, 2, words, 'ja', quality)
+    expect(result.lines[0]).toBe(lines[0])
+    expect(result.lines.length).toBe(lines.length)
+  })
+
+  it('returns full-length lineAlignmentQuality and anchorSources arrays', () => {
+    const lines = [
+      mkLine('a', 0, 2),
+      mkLine('b', 3, 5),
+      mkLine('c', 6, 8),
+    ]
+    const words: TranscriptWord[] = [{ word: 'b', startTime: 3.1, endTime: 4.9 }]
+    const quality: LineAlignmentQuality[] = ['good', 'needs_review', 'good']
+    const result = realignLocalSlice(lines, 1, words, 'ja', quality)
+    expect(result.lines.length).toBe(3)
+    expect(result.lineAlignmentQuality.length).toBe(3)
+    expect(result.anchorSources.length).toBe(3)
+  })
+})
+
+describe('realignAllWeakLines', () => {
+  const mkLine = (original: string, startTime: number, endTime: number) => ({
+    original, translation: '', startTime, endTime,
+  })
+
+  it('processes every needs_review and approximate row', () => {
+    const lines = [
+      mkLine('good-line', 0, 2),
+      mkLine('weak-one', 3, 5),
+      mkLine('good-line2', 6, 8),
+      mkLine('weak-two', 9, 11),
+    ]
+    const words: TranscriptWord[] = [
+      { word: 'weak-one', startTime: 3.1, endTime: 4.9 },
+      { word: 'weak-two', startTime: 9.1, endTime: 10.9 },
+    ]
+    const quality: LineAlignmentQuality[] = ['good', 'needs_review', 'good', 'approximate']
+    const result = realignAllWeakLines(lines, words, quality, 'ja')
+    expect(result.lines.length).toBe(4)
+    expect(result.lineAlignmentQuality.length).toBe(4)
+  })
+
+  it('returns the original arrays unchanged when there are no weak rows', () => {
+    const lines = [mkLine('a', 0, 2), mkLine('b', 3, 5)]
+    const words: TranscriptWord[] = []
+    const quality: LineAlignmentQuality[] = ['good', 'good']
+    const result = realignAllWeakLines(lines, words, quality, 'ja')
+    expect(result.lines).toBe(lines)
+    expect(result.lineAlignmentQuality).toBe(quality)
+  })
+})
