@@ -281,3 +281,92 @@ describe('EditMode', () => {
     expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled()
   })
 })
+
+describe('EditMode — local re-align', () => {
+  it('renders a tappable chip for needs_review rows when onLocalRealign is provided', () => {
+    const onLocalRealign = vi.fn()
+    renderEditMode({
+      lineAlignmentQuality: ['good', 'needs_review'],
+      showAlignmentQuality: true,
+      onLocalRealign,
+    })
+    const chip = screen.getByRole('button', { name: /re-sync line 2/i })
+    expect(chip).toBeTruthy()
+  })
+
+  it('calls onLocalRealign with the correct line index when the chip is clicked', () => {
+    const onLocalRealign = vi.fn()
+    renderEditMode({
+      lineAlignmentQuality: ['good', 'needs_review'],
+      showAlignmentQuality: true,
+      onLocalRealign,
+    })
+    fireEvent.click(screen.getByRole('button', { name: /re-sync line 2/i }))
+    expect(onLocalRealign).toHaveBeenCalledWith(1)
+  })
+
+  it('renders a tappable chip for approximate rows when onLocalRealign is provided', () => {
+    const onLocalRealign = vi.fn()
+    renderEditMode({
+      lineAlignmentQuality: ['approximate', 'good'],
+      showAlignmentQuality: true,
+      onLocalRealign,
+    })
+    const chip = screen.getByRole('button', { name: /re-sync line 1/i })
+    expect(chip).toBeTruthy()
+  })
+
+  it('shows a spinner instead of the icon when the row is in localRealigning', () => {
+    const onLocalRealign = vi.fn()
+    renderEditMode({
+      lineAlignmentQuality: ['good', 'needs_review'],
+      showAlignmentQuality: true,
+      onLocalRealign,
+      localRealigning: new Set([1]),
+    })
+    expect(screen.getByLabelText(/realigning line 2/i)).toBeTruthy()
+  })
+
+  it('falls back to static badge when onLocalRealign is not provided', () => {
+    renderEditMode({
+      lineAlignmentQuality: ['good', 'needs_review'],
+      showAlignmentQuality: true,
+    })
+    expect(screen.getByText(/timing approximate/i)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /re-sync/i })).toBeNull()
+  })
+
+  it('shows Re-align N weak lines button in toolbar when onRealignAllWeak is provided', () => {
+    const onRealignAllWeak = vi.fn()
+    renderEditMode({
+      lineAlignmentQuality: ['needs_review', 'needs_review'],
+      showAlignmentQuality: true,
+      onRealignAllWeak,
+      weakLineCount: 2,
+    })
+    expect(screen.getByRole('button', { name: /re-align 2 weak lines/i })).toBeTruthy()
+  })
+
+  it('calls onRealignAllWeak when the bulk button is clicked', () => {
+    const onRealignAllWeak = vi.fn()
+    renderEditMode({
+      lineAlignmentQuality: ['needs_review', 'approximate'],
+      showAlignmentQuality: true,
+      onRealignAllWeak,
+      weakLineCount: 2,
+    })
+    fireEvent.click(screen.getByRole('button', { name: /re-align 2 weak lines/i }))
+    expect(onRealignAllWeak).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides the bulk button when weakLineCount is 0', () => {
+    const onRealignAllWeak = vi.fn()
+    renderEditMode({
+      lineAlignmentQuality: ['good', 'good'],
+      showAlignmentQuality: true,
+      onRealignAllWeak,
+      weakLineCount: 0,
+    })
+    expect(screen.queryByRole('button', { name: /re-align.*weak/i })).toBeNull()
+  })
+})
