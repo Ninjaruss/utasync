@@ -97,4 +97,20 @@ describe('resolveLineReadings — adoption', () => {
     const d = resolveLineReadings(sube, 'かきくけこすべさしすせそたちつてと')
     expect(d[3].kind).not.toBe('adopt')
   })
+
+  // 凍てつく (いてつく) is mis-sung/mis-transcribed as 傷つく / 痛つく. comparableKana
+  // drops the differing kanji (傷/痛), leaving only the shared okurigana つく — a
+  // SUBSTRING of the correct reading いてつく, not a real alternate. Adopting つく
+  // shows the wrong reading in sung mode. The shared-okurigana fragment must not
+  // be adopted (nor flagged as a mismatch).
+  it('does not adopt a shared-okurigana fragment of the dictionary reading (凍てつく)', () => {
+    const ja = [
+      tok('凍てつく', 'イテツク'), tok('世界', 'セカイ'), tok('を', 'ヲ'),
+      tok('転がる', 'コロガル'), tok('よう', 'ヨウ'), tok('に', 'ニ'),
+      tok('走り出し', 'ハシリダシ'), tok('た', 'タ'),
+    ]
+    const d = resolveLineReadings(ja, 'きずつくせかいをころがるようにはしりだした')
+    expect(d[0].kind).not.toBe('adopt')
+    expect(d[0].kind).not.toBe('mismatch')
+  })
 })

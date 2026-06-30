@@ -4,7 +4,7 @@ import { hasVisibleTranslation } from './bilingual'
 import { alignmentIndicesAreValid } from './lineAligner'
 
 /** Bump when persisted enrichment shape changes and songs should re-normalize once. */
-export const LYRICS_ENRICHMENT_VERSION = 9
+export const LYRICS_ENRICHMENT_VERSION = 10
 
 /** True when tokenization still needs to run for these lines. */
 export function linesNeedEnrichment(lines: TimedLine[], enrichmentVersion?: number): boolean {

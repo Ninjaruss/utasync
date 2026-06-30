@@ -99,6 +99,18 @@ function kanjiRunOf(surface: string): string {
   return [...surface].filter((ch) => KANJI_RE.test(ch)).join('')
 }
 
+/** Trailing kana okurigana of a surface as comparable kana (e.g. 凍てつく→てつく,
+ * 走り出し→し, 術→''). This kana is literal — it appears verbatim in the reading
+ * and cannot differ between a word's dictionary and sung readings. */
+function trailingOkurigana(surface: string): string {
+  let tail = ''
+  for (const ch of [...surface].reverse()) {
+    if (KANJI_RE.test(ch)) break
+    tail = ch + tail
+  }
+  return comparableKana(tail)
+}
+
 export function resolveLineReadings(tokens: Token[], windowText: string): ReadingDecision[] {
   const decisions: ReadingDecision[] = tokens.map(() => ({ kind: 'skip' as ReadingDecisionKind }))
   const { a: A, owner } = buildExpectedKana(tokens)
@@ -148,7 +160,14 @@ export function resolveLineReadings(tokens: Token[], windowText: string): Readin
     const contextScore = contextLen > 0 ? (lineMatches - tokMatches) / contextLen : 0
     const bracketed = isAnchored(cols, firstCol, A, B, 'left') && isAnchored(cols, lastCol, A, B, 'right')
     const clean = span.length >= 2 && span !== R
-    if (bracketed && clean && contextScore >= MISMATCH_CONTEXT_FLOOR) {
+    // The surface okurigana is literal kana shared by dictionary and sung readings
+    // of the SAME word, so a real alternate reading must still end in it. When the
+    // sung span doesn't, Whisper sang a DIFFERENT word that merely shares okurigana
+    // (e.g. 凍てつく/いてつく mis-sung as 傷つく/痛つく → きずつく): not an alternate
+    // reading, so neither adopt it nor flag a mismatch.
+    const okurigana = trailingOkurigana(token.surface)
+    const okuriganaKept = !okurigana || span.endsWith(okurigana)
+    if (bracketed && clean && okuriganaKept && contextScore >= MISMATCH_CONTEXT_FLOOR) {
       const confidence = Math.round((0.5 * contextScore + 0.5) * 100) / 100
       if (contextScore >= ADOPT_CONTEXT_FLOOR && confidence >= ADOPT_MIN_CONFIDENCE) {
         decisions[idx] = { kind: 'adopt', audioReading: span, confidence }
