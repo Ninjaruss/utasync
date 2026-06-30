@@ -28,10 +28,10 @@
 .furigana-text ruby rt {
   font-size: 0.58em;
   font-weight: 500;
-  color: rgba(252, 165, 165, 0.98);
+  color: rgba(148, 163, 184, 0.85);
   opacity: 1;
   letter-spacing: 0.03em;
-  text-shadow: 0 0 8px rgba(248, 113, 113, 0.35);
+  text-shadow: 0 0 6px rgba(15, 23, 42, 0.5);
   pointer-events: none;
   user-select: none;
 }
