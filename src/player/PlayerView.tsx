@@ -21,7 +21,6 @@ import {
   transcriptWordsToAlignInput,
 } from '../lyrics/phraseAlignment'
 import { summarizePhraseChanges, applySungLayout, revertToSheetLayout } from '../lyrics/phraseLayout'
-import { PhraseNormalizePanel } from '../lyrics/PhraseNormalizePanel'
 import { tokenizeJapanese } from '../language/japanese/tokenizer'
 import { toRomaji, toFurigana } from '../language/japanese/phonetics'
 import { detectGrammarPatterns } from '../language/japanese/grammar'
@@ -293,7 +292,6 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [attachAudioError, setAttachAudioError] = useState('')
   const [localAudioLoadFailed, setLocalAudioLoadFailed] = useState(false)
   const [showLyricsReimport, setShowLyricsReimport] = useState(false)
-  const [phrasingDismissed, setPhrasingDismissed] = useState(false)
   const [phrasingBusy, setPhrasingBusy] = useState(false)
   const {
     setBusy: setLyricsReimportBusy,
@@ -1125,18 +1123,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         </div>
       )}
 
-      {mode === 'play' && !phrasingDismissed && phraseChanges.length > 0 && (
-        <PhraseNormalizePanel
-          changes={phraseChanges}
-          active={sungLayoutActive}
-          busy={phrasingBusy}
-          onApply={applySungPhrasing}
-          onRevert={restoreSheetPhrasing}
-          onDismiss={() => setPhrasingDismissed(true)}
-        />
-      )}
-
-      {mode === 'play' && (isJapanese || hasTranslation) && (
+      {mode === 'play' && (isJapanese || hasTranslation || phraseChanges.length > 0) && (
         <div className={`${displayToolbarRow} md:py-2.5 py-2`}>
           <p className="text-xs text-white/40 text-pretty shrink-0 hidden sm:block">Lyrics display</p>
           <DisplayMenu
@@ -1146,9 +1133,13 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
             showTranslation={showTranslation}
             lyricsLayout={lyricsLayout}
             wordPairColoringAvailable={getDeviceTier() !== 'manual'}
+            phrasingAvailable={phraseChanges.length > 0}
+            sungLayoutActive={sungLayoutActive}
+            phrasingBusy={phrasingBusy}
             onFuriganaCycle={cycleFurigana}
             onToggleTranslation={() => setShowTranslation(!showTranslation)}
             onToggleLayout={() => setLyricsLayout(lyricsLayout === 'sideBySide' ? 'stacked' : 'sideBySide')}
+            onTogglePhrasing={sungLayoutActive ? restoreSheetPhrasing : applySungPhrasing}
           />
         </div>
       )}

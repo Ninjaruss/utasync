@@ -20,9 +20,17 @@ interface Props {
   showTranslation: boolean
   lyricsLayout: LyricsLayout
   wordPairColoringAvailable?: boolean
+  /** True when the song has sung-phrase regroupings the user can opt into. */
+  phrasingAvailable?: boolean
+  /** True when rows are currently rendered in the sung-phrase layout. */
+  sungLayoutActive?: boolean
+  /** True while applying/reverting the sung layout (async re-enrichment). */
+  phrasingBusy?: boolean
   onFuriganaCycle: () => void
   onToggleTranslation: () => void
   onToggleLayout: () => void
+  /** Apply the sung phrasing when off, restore pasted rows when on. */
+  onTogglePhrasing?: () => void
 }
 
 const FURIGANA_LABEL: Record<FuriganaMode, string> = {
@@ -36,10 +44,12 @@ function hasNonDefaultDisplay(
   furiganaMode: FuriganaMode,
   showTranslation: boolean,
   lyricsLayout: LyricsLayout,
+  sungLayoutActive: boolean,
 ): boolean {
   if (isJapanese && furiganaMode !== 'furigana') return true
   if (!showTranslation) return true
   if (lyricsLayout === 'sideBySide') return true
+  if (sungLayoutActive) return true
   return false
 }
 
@@ -48,11 +58,13 @@ function displaySummary(
   furiganaMode: FuriganaMode,
   showTranslation: boolean,
   lyricsLayout: LyricsLayout,
+  sungLayoutActive: boolean,
 ): string | null {
   const parts: string[] = []
   if (isJapanese && furiganaMode !== 'furigana') parts.push(FURIGANA_LABEL[furiganaMode])
   if (!showTranslation) parts.push('No translation')
   else if (lyricsLayout === 'sideBySide') parts.push('Side by side')
+  if (sungLayoutActive) parts.push('Sung phrasing')
   return parts.length > 0 ? parts.join(' · ') : null
 }
 
@@ -63,9 +75,13 @@ function DisplayMenuPanel({
   showTranslation,
   lyricsLayout,
   wordPairColoringAvailable,
+  phrasingAvailable,
+  sungLayoutActive,
+  phrasingBusy,
   onFuriganaCycle,
   onToggleTranslation,
   onToggleLayout,
+  onTogglePhrasing,
   compact,
 }: Props & { compact?: boolean }) {
   const chip = compact ? `${toolbarChipBtn} min-h-9 py-1.5 text-[11px]` : toolbarChipBtn
@@ -129,6 +145,32 @@ function DisplayMenuPanel({
           </div>
         </section>
       )}
+
+      {phrasingAvailable && (
+        <section className={compact ? 'space-y-1' : 'space-y-2'} aria-label="Phrasing">
+          {(isJapanese || hasTranslation) && <div className={compact ? 'border-t border-cinnabar-800/80 pt-1.5' : 'border-t border-cinnabar-800/80 pt-3'} />}
+          <p className={toolbarSectionLabel}>Phrasing</p>
+          <div className="space-y-1.5">
+            <label className={[
+              'flex items-center justify-between gap-3 px-2.5 py-2 rounded-lg border cursor-pointer touch-manipulation',
+              compact ? 'min-h-9 text-xs' : 'min-h-11 px-3 py-2.5 text-sm',
+              phrasingBusy ? 'opacity-50 pointer-events-none' : sungLayoutActive ? 'border-cinnabar-accent/50 bg-cinnabar-accent/5' : 'border-cinnabar-800 hover:border-cinnabar-accent/30',
+            ].join(' ')}>
+              <span className="text-white/80">Match song phrasing</span>
+              <input
+                type="checkbox"
+                checked={!!sungLayoutActive}
+                onChange={onTogglePhrasing}
+                disabled={phrasingBusy}
+                className="accent-cinnabar-accent w-4 h-4 shrink-0"
+              />
+            </label>
+            <p className="text-[10px] text-white/35 px-1 text-pretty leading-snug">
+              Regroup rows to match how the song is actually sung — clearer word pairing and seek points.
+            </p>
+          </div>
+        </section>
+      )}
     </>
   )
 }
@@ -140,6 +182,8 @@ export function DisplayMenu(props: Props) {
     furiganaMode,
     showTranslation,
     lyricsLayout,
+    phrasingAvailable,
+    sungLayoutActive,
   } = props
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -147,8 +191,8 @@ export function DisplayMenu(props: Props) {
   const panelRef = useRef<HTMLDivElement>(null)
   const [panelPos, setPanelPos] = useState<{ top: number; right: number; width: number } | null>(null)
   const isDesktop = useMinWidthMd()
-  const customized = hasNonDefaultDisplay(isJapanese, furiganaMode, showTranslation, lyricsLayout)
-  const summary = displaySummary(isJapanese, furiganaMode, showTranslation, lyricsLayout)
+  const customized = hasNonDefaultDisplay(isJapanese, furiganaMode, showTranslation, lyricsLayout, !!sungLayoutActive)
+  const summary = displaySummary(isJapanese, furiganaMode, showTranslation, lyricsLayout, !!sungLayoutActive)
 
   useOutsideDismiss(rootRef, open && isDesktop, () => setOpen(false))
 
@@ -175,7 +219,7 @@ export function DisplayMenu(props: Props) {
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [open, isDesktop])
 
-  if (!isJapanese && !hasTranslation) return null
+  if (!isJapanese && !hasTranslation && !phrasingAvailable) return null
 
   const triggerActive = open || customized
 
