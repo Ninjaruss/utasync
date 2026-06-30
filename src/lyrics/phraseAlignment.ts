@@ -992,6 +992,33 @@ export function realignSection(
     if (qualityIn[i] === 'good') { rightAnchorIdx = i; break }
   }
 
+  // Helper accessors that read the current anchor indices.
+  const anchorFrom = () => (leftAnchorIdx >= 0 ? lines[leftAnchorIdx].endTime : 0)
+  const anchorTo = () => (rightAnchorIdx < lines.length ? lines[rightAnchorIdx].startTime : lastTime)
+  const anchorLineCount = () => rightAnchorIdx - leftAnchorIdx - 1
+
+  // If the initial anchors are too close together (< 1 s/line) the initial
+  // alignment likely crammed several lines into one transcript word and the
+  // anchor timing is itself wrong. Walk one step further out in each direction
+  // to find anchors with a realistic time spread.
+  if (anchorTo() - anchorFrom() < anchorLineCount() * 1.0) {
+    let newLeft = -1
+    for (let i = (leftAnchorIdx < 0 ? -1 : leftAnchorIdx) - 1; i >= 0; i--) {
+      if (qualityIn[i] === 'good') { newLeft = i; break }
+    }
+    let newRight = lines.length
+    for (let i = (rightAnchorIdx >= lines.length ? lines.length : rightAnchorIdx) + 1; i < lines.length; i++) {
+      if (qualityIn[i] === 'good') { newRight = i; break }
+    }
+    leftAnchorIdx = newLeft
+    rightAnchorIdx = newRight
+    // Final fallback: still too tight → use full song range.
+    if (anchorTo() - anchorFrom() < anchorLineCount() * 1.0) {
+      leftAnchorIdx = -1
+      rightAnchorIdx = lines.length
+    }
+  }
+
   const sectionLo = leftAnchorIdx + 1
   const sectionHi = rightAnchorIdx - 1
   if (sectionLo > sectionHi) {
@@ -1003,12 +1030,28 @@ export function realignSection(
   }
 
   // Time range is between anchor endpoints.
-  const timeFrom = leftAnchorIdx >= 0 ? lines[leftAnchorIdx].endTime : 0
-  const timeTo = rightAnchorIdx < lines.length ? lines[rightAnchorIdx].startTime : lastTime
+  const timeFrom = anchorFrom()
+  const timeTo = anchorTo()
 
-  // Words that overlap the anchor time range.
-  const sectionWords = clean.filter(
-    (w) => w.endTime > timeFrom && w.startTime < timeTo,
+  // Words that overlap the anchor time range, clipped so a straddling word
+  // doesn't drag line timestamps outside the section bounds.
+  const sectionWords = clean
+    .filter((w) => w.endTime > timeFrom && w.startTime < timeTo)
+    .map((w) => ({
+      ...w,
+      startTime: Math.max(w.startTime, timeFrom),
+      endTime: Math.min(w.endTime, timeTo),
+    }))
+    .filter((w) => w.startTime < w.endTime)
+
+  const fmt = (t: number) => `${Math.floor(t/60)}:${(t%60).toFixed(2).padStart(5,'0')}`
+  console.log(
+    `[realignSection] target=${targetIndex} "${lines[targetIndex]?.original}"`,
+    `\n  leftAnchor=${leftAnchorIdx}${leftAnchorIdx>=0?` "${lines[leftAnchorIdx]?.original}" ends@${fmt(lines[leftAnchorIdx].endTime)}`:'(none)'}`,
+    `\n  rightAnchor=${rightAnchorIdx}${rightAnchorIdx<lines.length?` "${lines[rightAnchorIdx]?.original}" starts@${fmt(lines[rightAnchorIdx].startTime)}`:'(none)'}`,
+    `\n  timeWindow=[${fmt(timeFrom)}..${fmt(timeTo)}]`,
+    `\n  sectionLines=[${sectionLo}..${sectionHi}] (${sectionHi-sectionLo+1} lines)`,
+    `\n  sectionWords(${sectionWords.length}):`, sectionWords.map(w=>`"${w.word}"@${fmt(w.startTime)}-${fmt(w.endTime)}`),
   )
 
   // No words in range → can't improve; return unchanged.
@@ -1030,6 +1073,11 @@ export function realignSection(
     sourceLanguage,
   )
 
+  console.log(
+    `[realignSection] alignLyrics output:`,
+    aligned.map((l,k)=>`\n  [${sectionLo+k}] "${sectionSlice[k]?.original}" → [${fmt(l.startTime)}..${fmt(l.endTime)}]`),
+  )
+
   // Merge timing into originals (preserve translation, tokens, furigana, etc.)
   const mergedSection: TimedLine[] = sectionSlice.map((orig, k) => ({
     ...orig,
@@ -1043,6 +1091,11 @@ export function realignSection(
     sectionWords as TranscriptWord[],
     sourceLanguage,
     pass1Anchors,
+  )
+
+  console.log(
+    `[realignSection] after validateAndRetry:`,
+    refined.lines.map((l,k)=>`\n  [${sectionLo+k}] quality=${refined.lineAlignmentQuality[k]} [${fmt(l.startTime)}..${fmt(l.endTime)}]`),
   )
 
   // Merge back into full-length output arrays.

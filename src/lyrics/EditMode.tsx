@@ -158,36 +158,31 @@ function Row({
                   <span className="ml-2 text-[10px] text-white/35">approx</span>
                 )}
               </button>
-              {showAlignmentQuality && alignmentQuality === 'needs_review' && onLocalRealign && (
+              {timed && onLocalRealign && (
                 isRealigning ? (
                   <span
                     role="status"
                     aria-live="polite"
                     aria-label={`Realigning line ${index + 1}`}
-                    className="text-[10px] text-amber-400/90 animate-pulse"
+                    className={`text-[10px] animate-pulse ${
+                      alignmentQuality === 'needs_review' ? 'text-amber-400/90'
+                      : alignmentQuality === 'approximate' ? 'text-white/35'
+                      : 'text-white/20'
+                    }`}
                   >⟳</span>
                 ) : (
                   <button
+                    type="button"
                     onClick={(e) => { e.stopPropagation(); onLocalRealign() }}
                     aria-label={`Re-sync line ${index + 1}`}
-                    className="text-[10px] text-amber-400/90 hover:text-amber-300 touch-manipulation"
-                  >⟳ re-sync</button>
-                )
-              )}
-              {showAlignmentQuality && alignmentQuality === 'approximate' && onLocalRealign && (
-                isRealigning ? (
-                  <span
-                    role="status"
-                    aria-live="polite"
-                    aria-label={`Realigning line ${index + 1}`}
-                    className="text-[10px] text-white/35 animate-pulse"
-                  >⟳</span>
-                ) : (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onLocalRealign() }}
-                    aria-label={`Re-sync line ${index + 1}`}
-                    className="text-[10px] text-white/35 hover:text-white/60 touch-manipulation"
-                  >⟳ approx</button>
+                    className={`text-[10px] touch-manipulation ${
+                      alignmentQuality === 'needs_review'
+                        ? 'text-amber-400/90 hover:text-amber-300'
+                        : alignmentQuality === 'approximate'
+                        ? 'text-white/35 hover:text-white/60'
+                        : 'text-white/20 hover:text-white/50'
+                    }`}
+                  >{alignmentQuality === 'needs_review' ? '⟳ re-sync' : alignmentQuality === 'approximate' ? '⟳ approx' : '⟳'}</button>
                 )
               )}
             </div>
