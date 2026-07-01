@@ -175,6 +175,25 @@ function Row({
         </div>
 
         <div className="flex items-center gap-0.5 shrink-0">
+          {editing && showAlignmentQuality && onLocalRealign && (alignmentQuality === 'needs_review' || alignmentQuality === 'approximate') && (
+            isRealigning ? (
+              <span
+                role="status"
+                aria-live="polite"
+                aria-label={`Realigning line ${index + 1}`}
+                className="min-w-11 min-h-11 flex items-center justify-center text-[11px] tabular-nums select-none text-amber-400/70"
+              >
+                {realignProgress !== undefined ? `${Math.round(realignProgress)}%` : <span className="animate-spin inline-block text-base">⟳</span>}
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onLocalRealign() }}
+                aria-label={`Re-sync line ${index + 1}`}
+                className="min-w-11 min-h-11 flex items-center justify-center text-amber-400/60 hover:text-amber-300 touch-manipulation transition-[color,transform] duration-150 ease-out active:scale-[0.96] text-base"
+              >⟳</button>
+            )
+          )}
           {editing && (
             <>
               <button onClick={onAdd} aria-label={`Add line after ${index + 1}`} className="min-w-11 min-h-11 flex items-center justify-center text-white/50 hover:text-white touch-manipulation transition-[color,transform] duration-150 ease-out active:scale-[0.96]">⊕</button>
@@ -187,30 +206,6 @@ function Row({
           )}
         </div>
       </div>
-
-      {editing && showAlignmentQuality && onLocalRealign && (alignmentQuality === 'needs_review' || alignmentQuality === 'approximate') && (
-        <div className="mt-1.5 flex items-center">
-          {isRealigning ? (
-            <span
-              role="status"
-              aria-live="polite"
-              aria-label={`Realigning line ${index + 1}`}
-              className="text-[11px] tabular-nums select-none text-amber-400/80"
-            >
-              {realignProgress !== undefined ? `${Math.round(realignProgress)}%` : <span className="animate-spin inline-block">⟳</span>}
-            </span>
-          ) : (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onLocalRealign() }}
-              aria-label={`Re-sync line ${index + 1}`}
-              className="text-[11px] bg-amber-400/10 hover:bg-amber-400/20 text-amber-400/80 rounded-full px-2.5 py-0.5 touch-manipulation transition-colors duration-100"
-            >
-              ⟳ Re-sync
-            </button>
-          )}
-        </div>
-      )}
 
       {editing ? (
         <input
