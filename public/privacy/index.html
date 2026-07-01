@@ -15,7 +15,7 @@
       <header>
         <h1>Privacy Policy</h1>
         <p class="subtitle">Utasync (歌sync) — learn languages through music</p>
-        <p class="updated">Last updated: June 21, 2026</p>
+        <p class="updated">Last updated: June 30, 2026</p>
       </header>
 
       <main>
@@ -31,7 +31,7 @@
           <li>No user accounts or sign-in required to use the app.</li>
           <li>No analytics, advertising, or crash-reporting SDKs are built into Utasync.</li>
           <li>Songs, lyrics, audio, and settings are stored locally in your browser.</li>
-          <li>Some optional features contact third-party services (YouTube, LRCLIB, Hugging Face, Lemon Squeezy).</li>
+          <li>Some optional features contact third-party services (YouTube, LRCLIB, lyrics.ovh, Hugging Face, Payhip).</li>
           <li>AI features run on your device after models are downloaded; your audio is not sent to us for processing.</li>
         </ul>
 
@@ -54,6 +54,9 @@
         <p>
           Utasync does not operate a backend that receives your lyrics, audio, or library. We do
           not maintain user profiles and do not collect your email through normal use of the app.
+          The only server endpoint is license verification: when you restore a Pro license, your
+          browser sends the license key to our <code>/api/verify-license</code> endpoint, which
+          forwards it to Payhip for validation. No lyrics, audio, or library data is sent.
         </p>
 
         <h2>Third-party services</h2>
@@ -70,15 +73,23 @@
             to find matching lyrics.
           </li>
           <li>
+            <strong>lyrics.ovh</strong> — when LRCLIB does not have plain lyrics for a song, the
+            app may send title and artist text to
+            <a href="https://lyrics.ovh/" rel="noopener noreferrer" target="_blank">api.lyrics.ovh</a>
+            to find matching lyrics.
+          </li>
+          <li>
             <strong>Hugging Face</strong> — when you first use on-device AI features, the app
             downloads open machine-learning models from Hugging Face to your browser cache. No
             account with Hugging Face is required.
           </li>
           <li>
-            <strong>Lemon Squeezy</strong> — if you purchase Utasync Pro, checkout and payment
-            processing are handled by Lemon Squeezy. They collect payment and contact information
-            according to their policies. We receive license data needed to unlock Pro on your device
-            (for example, through a license key or signed license token).
+            <strong>Payhip</strong> — if you purchase Utasync Pro, checkout and payment
+            processing are handled by
+            <a href="https://payhip.com/" rel="noopener noreferrer" target="_blank">Payhip</a>.
+            They collect payment and contact information according to their policies. License key
+            verification may contact our server endpoint, which forwards the key to Payhip; we do
+            not receive your lyrics, audio, or library data through this flow.
           </li>
         </ul>
 

@@ -196,22 +196,18 @@ function Row({
               <button onClick={onStartEdit} className="flex-1 text-sm text-white font-jp text-left" aria-label={`Edit line ${index + 1}`}>
                 {line.original || <span className="text-white/30">empty</span>}
                 {!timed && <span className="ml-2 text-[10px] text-cinnabar-accent">untimed</span>}
-                {showAlignmentQuality && !onLocalRealign && alignmentQuality === 'needs_review' && (
-                  <span className="ml-2 text-[10px] text-amber-400/90">timing approximate</span>
-                )}
-                {showAlignmentQuality && !onLocalRealign && alignmentQuality === 'approximate' && (
-                  <span className="ml-2 text-[10px] text-white/35">approx</span>
-                )}
               </button>
-              {showAlignmentQuality && onLocalRealign && (alignmentQuality === 'needs_review' || alignmentQuality === 'approximate') && (
-                <ResyncChip alignmentQuality={alignmentQuality} isRealigning={!!isRealigning} realignProgress={realignProgress} onLocalRealign={onLocalRealign} index={index} />
+              {showAlignmentQuality && alignmentQuality === 'needs_review' && (
+                <span className="text-[10px] bg-amber-400/15 text-amber-400/80 rounded-full px-2 py-0.5 shrink-0 select-none">off-timing</span>
+              )}
+              {showAlignmentQuality && alignmentQuality === 'approximate' && (
+                <span className="text-[10px] bg-white/[0.07] text-white/35 rounded-full px-2 py-0.5 shrink-0 select-none">approx</span>
               )}
             </div>
           )}
         </div>
 
         <div className="flex items-center gap-0.5 shrink-0">
-          {/* Re-sync chip persists during editing for weak lines */}
           {editing && showAlignmentQuality && onLocalRealign && (alignmentQuality === 'needs_review' || alignmentQuality === 'approximate') && (
             <ResyncChip alignmentQuality={alignmentQuality} isRealigning={!!isRealigning} realignProgress={realignProgress} onLocalRealign={onLocalRealign} index={index} />
           )}
@@ -444,7 +440,7 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
         )}
         {needsReviewCount > 0 && (
           <p className="text-[10px] text-amber-400/80 text-pretty">
-            {needsReviewCount} line{needsReviewCount === 1 ? '' : 's'} off-timing — tap ⟳ to re-sync{precisionModeAvailable ? ' with audio analysis' : ''}.
+            {needsReviewCount} line{needsReviewCount === 1 ? '' : 's'} off-timing — tap a line to re-sync it.
           </p>
         )}
         {showAlignmentQuality && (weakLineCount ?? 0) > 0 && onRealignAllWeak && (

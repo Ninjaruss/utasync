@@ -138,7 +138,7 @@ describe('EditMode', () => {
       lineAlignmentQuality: ['good', 'needs_review'],
       showAlignmentQuality: true,
     })
-    expect(screen.getByText(/timing approximate/i)).toBeTruthy()
+    expect(screen.getAllByText(/off-timing/i).length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(/1.*off-timing/i)).toBeTruthy()
   })
 
@@ -290,6 +290,7 @@ describe('EditMode — local re-align', () => {
       showAlignmentQuality: true,
       onLocalRealign,
     })
+    fireEvent.click(screen.getByRole('button', { name: /edit line 2/i }))
     const chip = screen.getByRole('button', { name: /re-sync line 2/i })
     expect(chip).toBeTruthy()
   })
@@ -301,6 +302,7 @@ describe('EditMode — local re-align', () => {
       showAlignmentQuality: true,
       onLocalRealign,
     })
+    fireEvent.click(screen.getByRole('button', { name: /edit line 2/i }))
     fireEvent.click(screen.getByRole('button', { name: /re-sync line 2/i }))
     expect(onLocalRealign).toHaveBeenCalledWith(1)
   })
@@ -312,6 +314,7 @@ describe('EditMode — local re-align', () => {
       showAlignmentQuality: true,
       onLocalRealign,
     })
+    fireEvent.click(screen.getByRole('button', { name: /edit line 1/i }))
     const chip = screen.getByRole('button', { name: /re-sync line 1/i })
     expect(chip).toBeTruthy()
   })
@@ -324,15 +327,16 @@ describe('EditMode — local re-align', () => {
       onLocalRealign,
       localRealigning: new Set([1]),
     })
+    fireEvent.click(screen.getByRole('button', { name: /edit line 2/i }))
     expect(screen.getByLabelText(/realigning line 2/i)).toBeTruthy()
   })
 
-  it('falls back to static badge when onLocalRealign is not provided', () => {
+  it('shows static off-timing chip when onLocalRealign is not provided', () => {
     renderEditMode({
       lineAlignmentQuality: ['good', 'needs_review'],
       showAlignmentQuality: true,
     })
-    expect(screen.getByText(/timing approximate/i)).toBeTruthy()
+    expect(screen.getByText('off-timing')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /re-sync/i })).toBeNull()
   })
 

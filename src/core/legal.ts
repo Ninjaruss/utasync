@@ -6,4 +6,4 @@ export const LEGAL_PATHS = {
 
 export const LEGAL_CONTACT_EMAIL = 'support@utasync.app'
 
-export const LEGAL_LAST_UPDATED = 'June 21, 2026'
+export const LEGAL_LAST_UPDATED = 'June 30, 2026'

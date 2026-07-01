@@ -199,11 +199,50 @@ const serveRawDict = {
   },
 }
 
+const LEGAL_PAGE_PATHS: Record<string, string> = {
+  '/privacy': 'privacy/index.html',
+  '/privacy/': 'privacy/index.html',
+  '/terms': 'terms/index.html',
+  '/terms/': 'terms/index.html',
+}
+
+function serveLegalPages(
+  req: Connect.IncomingMessage,
+  res: import('node:http').ServerResponse,
+  next: Connect.NextFunction,
+) {
+  const url = req.url?.split('?')[0]
+  const rel = url ? LEGAL_PAGE_PATHS[url] : undefined
+  if (!rel) {
+    next()
+    return
+  }
+  try {
+    const filePath = fileURLToPath(new URL(`./public/${rel}`, import.meta.url))
+    const data = readFileSync(filePath, 'utf8')
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    res.end(data)
+  } catch {
+    next()
+  }
+}
+
+const serveLegal = {
+  name: 'serve-legal-pages',
+  configureServer(server: ViteDevServer) {
+    server.middlewares.use(serveLegalPages)
+  },
+  configurePreviewServer(server: PreviewServer) {
+    server.middlewares.use(serveLegalPages)
+  },
+}
+
 export default defineConfig({
   plugins: [
     onnxRuntimeForTransformers,
     serveOnnxWasm,
     serveRawDict,
+    serveLegal,
     kuromojiRollupShim,
     react(),
     VitePWA({
