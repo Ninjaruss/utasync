@@ -423,9 +423,10 @@ function estimatedLineEnd(
       : ownEnd
   if (!Number.isFinite(end)) return NaN
   const start = starts[li]
-  if (unmatchedTail > 0 && matchedCount > 0) {
+  const tailReserve = Math.max(unmatchedTail, stats[li].unreliableTail)
+  if (tailReserve > 0 && matchedCount > 0) {
     const sungSpan = Math.max(0, end - start)
-    if (sungSpan > 0) end += sungSpan * (unmatchedTail / matchedCount)
+    if (sungSpan > 0) end += sungSpan * (tailReserve / matchedCount)
   }
   const repFrac = lyricRepetitionTailFraction(lineTexts[li] ?? '')
   if (repFrac > 0 && end > start) {
@@ -703,9 +704,15 @@ export function alignByContent(
     // leaving a rest, so the line spans its real sung duration (tightens AB-loop /
     // export and the boundary on merged-segment splits like 角を曲がって｜此処…).
     const orphan = nextStart - cappedEnd
+    const lineGlyphs = normalizeForMatch(lineTexts[li] ?? '').length
+    const coverage = lineGlyphs > 0 ? stats[li].matchedCount / lineGlyphs : 0
+    const weakTail =
+      stats[li].unreliableTail > 0
+      || stats[li].unmatchedTail > 0
+      || (coverage > 0 && coverage < 0.82)
     const fillOrphan =
       li + 1 < starts.length &&
-      stats[li].unreliableTail > 0 &&
+      weakTail &&
       hasAnchor[li] &&
       hasAnchor[li + 1] &&
       orphan > 0 &&

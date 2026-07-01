@@ -1,6 +1,7 @@
 import type { Language, LineAlignmentQuality, LyricsData, SungPhrase, TimedLine } from '../core/types'
 import { alignLyrics, lineWeight, sanitizeTranscript, type TranscriptWord } from '../ai-pipeline/aligner'
 import {
+  isInterjectionLyricLine,
   normalizeForMatch,
   qualityRank,
   scoreLineAlignment,
@@ -49,6 +50,10 @@ const LINE_RETRY_EXPAND_TAIL_S = 16
 const MIN_HIGHLIGHT_S = 1.2
 /** Max orphan gap (seconds) to claim for a mis-transcribed line tail. */
 const ORPHAN_GAP_FILL_MAX_S = 4
+/** Silence gap (seconds) after the last transcript word that triggers tail-clipping. */
+const SILENCE_CLIP_THRESHOLD_S = 2.5
+/** Maximum tail to keep after the last word in a clipped line. */
+const MAX_TAIL_AFTER_WORD_S = 1.5
 
 /** Pass-1 placed this phrase at the forward cursor — include overlapping segments. */
 function phraseOnsetAtCursor(phraseStart: number, searchFrom: number): boolean {
@@ -276,6 +281,112 @@ function extendUndershotLinesWithPartialMatch(
     if (extendedEnd <= out[i].startTime + 0.2) continue
     if (extendedEnd - out[i].startTime <= span + 0.25) continue
     out[i].endTime = extendedEnd
+  }
+
+  return out
+}
+
+/**
+ * Clip line endTimes that extend into long silences after the last transcript
+ * word within the line's span.  Fixes cases like a 17-second span where
+ * Whisper produced no chunks for an 8-second instrumental break that follows
+ * the singing (e.g. line 13 凍てつく地面… in AKFG).
+ *
+ * Only fires when the gap between the last word's end and the line's endTime
+ * exceeds SILENCE_CLIP_THRESHOLD_S (2.5 s).  Safe to run after extend passes.
+ */
+function clipSilencePaddedLineTails(
+  lines: TimedLine[],
+  transcriptWords: TranscriptWord[],
+): TimedLine[] {
+  const clean = sanitizeTranscript(transcriptWords)
+  const out = lines.map((l) => ({ ...l }))
+
+  for (let i = 0; i < out.length; i++) {
+    const line = out[i]
+    // Words that start within this line's span (exclude words that only bleed
+    // in from the previous chunk).
+    const wordsIn = clean.filter(
+      (w) => w.startTime >= line.startTime && w.startTime < line.endTime,
+    )
+    if (wordsIn.length === 0) continue
+
+    const lastWordEnd = wordsIn.at(-1)!.endTime
+    const silence = line.endTime - lastWordEnd
+    if (silence <= SILENCE_CLIP_THRESHOLD_S) continue
+
+    const nextStart = i + 1 < out.length ? out[i + 1].startTime : Infinity
+    const clipped = Math.min(lastWordEnd + MAX_TAIL_AFTER_WORD_S, nextStart - 0.05)
+    if (clipped - line.startTime < MIN_HIGHLIGHT_S) continue
+    out[i].endTime = clipped
+  }
+
+  return out
+}
+
+/**
+ * Recover timing for interjection-type lines (嗚呼, repeated vowels, etc.)
+ * when a previous line's tail-extension has absorbed the transcript chunk that
+ * belongs to the interjection.
+ *
+ * Two cases are handled:
+ *  A) Gap case: the interjection starts after prevLine.endTime and there is a
+ *     short (< 3 s) chunk between them.  The previous line absorbed that chunk.
+ *  B) Absorbed-no-gap case: prevLine.endTime == interjection.startTime (zero
+ *     gap), but the interjection starts exactly at a chunk's END rather than
+ *     its start — i.e. the chunk is just before interjStart.  Re-assign.
+ */
+function recoverInterjectionTiming(
+  lines: TimedLine[],
+  transcriptWords: TranscriptWord[],
+): TimedLine[] {
+  const clean = sanitizeTranscript(transcriptWords)
+  const out = lines.map((l) => ({ ...l }))
+
+  for (let i = 1; i < out.length; i++) {
+    if (!isInterjectionLyricLine(out[i].original || out[i].translation)) continue
+
+    const prevEnd = out[i - 1].endTime
+    const interjStart = out[i].startTime
+    const nextStart = i + 1 < out.length ? out[i + 1].startTime : Infinity
+
+    // Case A: gap between prev line and interjection — look for absorbed chunk.
+    if (interjStart > prevEnd + 0.1) {
+      const chunk = clean.find(
+        (w) =>
+          w.startTime > prevEnd - 0.5
+          && w.startTime < interjStart
+          && w.endTime > prevEnd
+          && w.endTime - w.startTime < 3.0,
+      )
+      if (chunk) {
+        if (out[i - 1].endTime > chunk.startTime + 0.05) {
+          out[i - 1].endTime = chunk.startTime - 0.05
+        }
+        out[i].startTime = chunk.startTime
+        out[i].endTime = Math.min(chunk.endTime, nextStart - 0.05)
+      }
+      continue
+    }
+
+    // Case B: interjection is butted right against prev line end (zero gap),
+    // but its startTime coincides with a chunk's endTime — the chunk was
+    // absorbed.  Check for a short chunk ending at or very near interjStart.
+    const absorbed = clean.find(
+      (w) =>
+        Math.abs(w.endTime - interjStart) < 0.15
+        && w.endTime - w.startTime < 3.0
+        && w.startTime >= out[i - 1].startTime,
+    )
+    if (!absorbed) continue
+    // Verify the chunk starts after the previous line's own LCS region would
+    // naturally end (i.e. it isn't the chunk that defines prevLine's timing).
+    if (absorbed.startTime <= out[i - 1].startTime + 0.1) continue
+
+    // Trim prev line to the chunk's start; give interjection the chunk.
+    out[i - 1].endTime = absorbed.startTime - 0.05
+    out[i].startTime = absorbed.startTime
+    out[i].endTime = Math.min(absorbed.endTime, nextStart - 0.05)
   }
 
   return out
@@ -1066,6 +1177,8 @@ export function refineAlignmentWithPhrases(
   tunedLines = realignRepeatedRepetitionOnlyLines(tunedLines, words, lineTexts, sourceLanguage)
   tunedLines = extendValidatedLineTails(tunedLines, words)
   tunedLines = extendUndershotLinesWithPartialMatch(tunedLines, words, sourceLanguage)
+  tunedLines = clipSilencePaddedLineTails(tunedLines, words)
+  tunedLines = recoverInterjectionTiming(tunedLines, words)
   tunedLines = expandSquashedLineHighlights(tunedLines)
   const quality = recomputeLineQuality(
     tunedLines,
