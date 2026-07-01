@@ -884,6 +884,15 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           ) {
             lines[lineIndex] = { ...raw, startTime: dl.startTime, endTime: dl.endTime }
             applied = true
+            // Trailing word extension: catch focused words just beyond the LCS boundary that
+            // Whisper may have compressed (e.g. repeated phrases like ローリング ローリング).
+            // Only extend within the section — stop well before the next anchor.
+            const extendedEnd = sectionWords
+              .filter(w => w.startTime >= dl.endTime - 0.2 && w.endTime < windowEnd - 0.3)
+              .reduce((best, w) => Math.max(best, w.endTime), dl.endTime)
+            if (extendedEnd > dl.endTime) {
+              lines[lineIndex] = { ...lines[lineIndex], endTime: extendedEnd }
+            }
           }
         }
         if (!applied && sectionWords.length > 0) {
@@ -905,6 +914,21 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           if (snappedEnd > snappedStart + 0.1 && snappedStart >= windowStart && snappedEnd <= windowEnd) {
             lines[lineIndex] = { ...lines[lineIndex], startTime: snappedStart, endTime: snappedEnd }
           }
+        }
+        // Guard: don't start before the immediately preceding line ends. Focused transcription
+        // pads 10 s before the anchor, so legato tails or the previous line's final syllable can
+        // appear in the word stream and pull this line's LCS-matched start too early.
+        if (lineIndex > 0) {
+          const prevEnd = song.lyrics.lines[lineIndex - 1].endTime
+          const cur = lines[lineIndex]
+          if (cur.startTime < prevEnd - 0.1 && prevEnd >= windowStart && prevEnd < cur.endTime) {
+            lines[lineIndex] = { ...cur, startTime: prevEnd }
+          }
+        }
+        // Mark as good once LCS produced a confident character-anchored result so the
+        // off-timing chip clears — quality from realignSection was scored before the snap.
+        if (applied) {
+          lineAlignmentQuality[lineIndex] = 'good'
         }
       }
       const next = lines[lineIndex]
