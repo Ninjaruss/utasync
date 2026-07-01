@@ -393,9 +393,9 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
               onChange={(e) => setAccurateReadings(e.target.checked)}
             />
             <span className="text-sm text-white/80 text-pretty">
-              <span className="font-medium text-white">Accurate readings (slower)</span>
+              <span className="font-medium text-white">Precise timing + accurate readings (slower)</span>
               {' — '}
-              Word-level speech timing for more reliable furigana on long songs.
+              Word-level timestamps for per-line sync precision and reliable furigana on long songs.
             </span>
           </label>
         )}

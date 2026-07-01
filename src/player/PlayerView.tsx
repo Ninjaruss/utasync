@@ -51,6 +51,7 @@ import { exportAbLoopClip, exportAbLoopPlaylistClip, abLoopHasTimedLyrics, abLoo
 import { createPlaylistEntry, shouldAdvancePlaylistAfterCycle, wrapPlaylistIndex } from './abLoopPlaylist'
 import { useAbLoopPlaylistStore } from './abLoopPlaylistStore'
 import { getAudioFile } from '../core/opfs/audio'
+import { transcribeLineWindow } from '../ai-pipeline/focusedTranscriber'
 import { PlayerControls } from './PlayerControls'
 import { DisplayMenu } from './DisplayMenu'
 import { YouTubePlaybackPanel } from './YouTubePlaybackPanel'
@@ -780,28 +781,60 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   }
 
   const handleLocalRealign = async (lineIndex: number) => {
-    if (!song?.lyrics.transcriptWords?.length) return
+    if (!song) return
     setLocalRealigning((prev) => new Set([...prev, lineIndex]))
     try {
-      const words = transcriptWordsToAlignInput(song.lyrics.transcriptWords)
+      const line = song.lyrics.lines[lineIndex]
+      const quality = song.lyrics.lineAlignmentQuality ?? song.lyrics.lines.map(() => 'needs_review' as LineAlignmentQuality)
+
+      // Prefer focused word-level transcription of the audio window around this line.
+      // Falls back to the stored transcript when no local audio is available.
+      let words: ReturnType<typeof transcriptWordsToAlignInput>
+      let usedFocused = false
+      if (hasStoredAudio) {
+        try {
+          const focused = await transcribeLineWindow(
+            song.id,
+            line.startTime,
+            line.endTime,
+            song.lyrics.sourceLanguage,
+          )
+          if (focused.length > 0) {
+            words = focused
+            usedFocused = true
+          } else {
+            words = transcriptWordsToAlignInput(song.lyrics.transcriptWords ?? [])
+          }
+        } catch {
+          words = transcriptWordsToAlignInput(song.lyrics.transcriptWords ?? [])
+        }
+      } else if (song.lyrics.transcriptWords?.length) {
+        words = transcriptWordsToAlignInput(song.lyrics.transcriptWords)
+      } else {
+        toast('No audio available — use Auto-align first to enable re-sync', 'info')
+        return
+      }
+
       const { lines, lineAlignmentQuality, anchorSources } = realignSection(
         song.lyrics.lines,
         lineIndex,
         words,
-        song.lyrics.lineAlignmentQuality ?? song.lyrics.lines.map(() => 'needs_review' as LineAlignmentQuality),
+        quality,
         song.lyrics.sourceLanguage,
         song.lyrics.anchorSources as Parameters<typeof realignSection>[5],
       )
-      // If the target line moved by < 0.3 s on both ends the transcript doesn't have
-      // enough resolution to improve timing further. Bail out to preserve any
-      // phrase-level correction the refine pass already applied.
       const orig = song.lyrics.lines[lineIndex]
       const next = lines[lineIndex]
       if (
         Math.abs(next.startTime - orig.startTime) < 0.3
         && Math.abs(next.endTime - orig.endTime) < 0.3
       ) {
-        toast('Timing already optimized — use ⏱ to adjust manually', 'info')
+        toast(
+          usedFocused
+            ? 'Whisper couldn\'t find a better position — try ⏱ for manual adjustment'
+            : 'Timing already optimized — use ⏱ to adjust manually',
+          'info',
+        )
         return
       }
       const updated: Song = {
@@ -849,7 +882,14 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [isRealigningAll, setIsRealigningAll] = useState(false)
 
   const handleRealignAllWeak = async () => {
-    if (!song?.lyrics.transcriptWords?.length) return
+    if (!song) return
+    // Segment-mode transcript has merged chunks — realignAllWeakSections can't help.
+    // Open the Auto-align flow in word-level mode for a proper precision pass instead.
+    if (suggestWordLevelAlign) {
+      beginAlignment('auto', true)
+      return
+    }
+    if (!song.lyrics.transcriptWords?.length) return
     if (!song.lyrics.lineAlignmentQuality?.length) return
     setIsRealigningAll(true)
     try {
@@ -1334,11 +1374,12 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               onPausePlayback={pausePlayback}
               lineAlignmentQuality={song?.lyrics.lineAlignmentQuality}
               showAlignmentQuality={song?.lyrics.alignmentMode === 'auto'}
-              onLocalRealign={song?.lyrics.transcriptWords?.length ? handleLocalRealign : undefined}
-              onRealignAllWeak={song?.lyrics.transcriptWords?.length ? handleRealignAllWeak : undefined}
+              onLocalRealign={hasStoredAudio || song?.lyrics.transcriptWords?.length ? handleLocalRealign : undefined}
+              onRealignAllWeak={hasStoredAudio || song?.lyrics.transcriptWords?.length ? handleRealignAllWeak : undefined}
               localRealigning={localRealigning}
               weakLineCount={weakLineCount}
               isRealigningAll={isRealigningAll}
+              precisionModeAvailable={suggestWordLevelAlign}
             />
           )}
         </div>

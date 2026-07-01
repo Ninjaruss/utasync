@@ -51,6 +51,9 @@ interface Props {
   weakLineCount?: number
   /** True while the batch re-align is running — disables and relabels the bulk button. */
   isRealigningAll?: boolean
+  /** When true the stored transcript is segment-mode with merged chunks — the bulk
+   * button opens a precision word-level re-align instead of the fast local rearrange. */
+  precisionModeAvailable?: boolean
 }
 
 const DELETE_CONFIRM_MS = 3000
@@ -230,7 +233,7 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, onLocalRealign, onRealignAllWeak, localRealigning, weakLineCount, isRealigningAll }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, onLocalRealign, onRealignAllWeak, localRealigning, weakLineCount, isRealigningAll, precisionModeAvailable }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
@@ -416,7 +419,9 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
         <p className="text-[10px] text-white/30 text-pretty">Tap a line to edit text · ⏱ to set timestamps</p>
         {needsReviewCount > 0 && (
           <p className="text-[10px] text-amber-400/80 text-pretty">
-            {needsReviewCount} line{needsReviewCount === 1 ? '' : 's'} may be misaligned — tap ⟳ to re-sync, or use ⏱ / tap-through for manual timing.
+            {precisionModeAvailable
+              ? `${needsReviewCount} line${needsReviewCount === 1 ? '' : 's'} may be misaligned — tap ⟳ to re-sync each line with precise audio analysis.`
+              : `${needsReviewCount} line${needsReviewCount === 1 ? '' : 's'} may be misaligned — tap ⟳ to re-sync, or use ⏱ / tap-through for manual timing.`}
           </p>
         )}
         {showAlignmentQuality && (weakLineCount ?? 0) > 0 && onRealignAllWeak && (
@@ -425,9 +430,13 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             onClick={onRealignAllWeak}
             disabled={isRealigningAll}
             className={`${toolbarActionBtn} disabled:opacity-50`}
-            aria-label={`Re-align ${weakLineCount} weak lines`}
+            aria-label={precisionModeAvailable ? 'Re-align with word-level precision' : `Re-align ${weakLineCount} weak lines`}
           >
-            {isRealigningAll ? '⟳ Re-aligning…' : `Re-align ${weakLineCount} weak lines`}
+            {isRealigningAll
+              ? '⟳ Re-aligning…'
+              : precisionModeAvailable
+                ? `Re-align with precision (${weakLineCount} lines)`
+                : `Re-align ${weakLineCount} weak lines`}
           </button>
         )}
       </div>
