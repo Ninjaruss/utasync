@@ -139,7 +139,7 @@ describe('EditMode', () => {
       showAlignmentQuality: true,
     })
     expect(screen.getByText(/timing approximate/i)).toBeTruthy()
-    expect(screen.getByText(/1 line may be misaligned/i)).toBeTruthy()
+    expect(screen.getByText(/1.*off-timing/i)).toBeTruthy()
   })
 
   it('hides alignment quality badges when showAlignmentQuality is false', () => {

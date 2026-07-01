@@ -47,6 +47,10 @@ interface Props {
   onRealignAllWeak?: () => void
   /** Set of line indices currently being re-aligned (shows spinner on those rows). */
   localRealigning?: Set<number>
+  /** Transcription progress (0–100) per line index — shown inside the row spinner. */
+  realignLineProgress?: Map<number, number>
+  /** Bulk re-align progress — drives label on the toolbar button. */
+  realignBulkProgress?: { done: number; total: number } | null
   /** Count of needs_review + approximate lines — drives the bulk button label. */
   weakLineCount?: number
   /** True while the batch re-align is running — disables and relabels the bulk button. */
@@ -99,13 +103,49 @@ interface RowProps {
   showAlignmentQuality?: boolean
   onLocalRealign?: () => void   // pre-bound to this row's index by EditMode
   isRealigning?: boolean
+  /** Transcription progress 0–100 while re-syncing (undefined = not yet started or done). */
+  realignProgress?: number
+}
+
+function ResyncChip({ alignmentQuality, isRealigning, realignProgress, onLocalRealign, index }: {
+  alignmentQuality: LineAlignmentQuality
+  isRealigning: boolean
+  realignProgress?: number
+  onLocalRealign: () => void
+  index: number
+}) {
+  const isWeak = alignmentQuality === 'needs_review'
+  if (isRealigning) {
+    return (
+      <span
+        role="status"
+        aria-live="polite"
+        aria-label={`Realigning line ${index + 1}`}
+        className={`text-[11px] tabular-nums select-none min-w-[2.5rem] text-center ${isWeak ? 'text-amber-400/90' : 'text-white/45'}`}
+      >
+        {realignProgress !== undefined
+          ? `${Math.round(realignProgress)}%`
+          : <span className="animate-spin inline-block">⟳</span>}
+      </span>
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onLocalRealign() }}
+      aria-label={`Re-sync line ${index + 1}`}
+      className={`text-[11px] px-1.5 py-0.5 rounded touch-manipulation transition-colors duration-100 ${
+        isWeak ? 'text-amber-400/90 hover:text-amber-300' : 'text-white/40 hover:text-white/65'
+      }`}
+    >⟳ re-sync</button>
+  )
 }
 
 /** One lyric row. Holds local draft text so typing doesn't push a change on every keystroke — committed only on blur, same discipline the old expand-into-panel editor used. */
 function Row({
   line, index, timed, editing, deleteArmed, playheadActive, onStartEdit, onStopEdit, onCommitText, onAdd,
   onArmDelete, onConfirmDelete, onOpenPopover, popoverOpen, playhead, seek, onScrubStart, onScrubEnd, onCommitTime, onClosePopover,
-  alignmentQuality, showAlignmentQuality, onLocalRealign, isRealigning,
+  alignmentQuality, showAlignmentQuality, onLocalRealign, isRealigning, realignProgress,
 }: RowProps) {
   const [original, setOriginal] = useState(line.original)
   const [translation, setTranslation] = useState(line.translation)
@@ -156,50 +196,36 @@ function Row({
               <button onClick={onStartEdit} className="flex-1 text-sm text-white font-jp text-left" aria-label={`Edit line ${index + 1}`}>
                 {line.original || <span className="text-white/30">empty</span>}
                 {!timed && <span className="ml-2 text-[10px] text-cinnabar-accent">untimed</span>}
-                {showAlignmentQuality && alignmentQuality === 'needs_review' && !onLocalRealign && (
+                {showAlignmentQuality && !onLocalRealign && alignmentQuality === 'needs_review' && (
                   <span className="ml-2 text-[10px] text-amber-400/90">timing approximate</span>
                 )}
-                {showAlignmentQuality && alignmentQuality === 'approximate' && !onLocalRealign && (
+                {showAlignmentQuality && !onLocalRealign && alignmentQuality === 'approximate' && (
                   <span className="ml-2 text-[10px] text-white/35">approx</span>
                 )}
               </button>
-              {onLocalRealign && (alignmentQuality === 'needs_review' || alignmentQuality === 'approximate') && (
-                isRealigning ? (
-                  <span
-                    role="status"
-                    aria-live="polite"
-                    aria-label={`Realigning line ${index + 1}`}
-                    className={`text-[11px] animate-spin inline-block select-none ${
-                      alignmentQuality === 'needs_review' ? 'text-amber-400/90' : 'text-white/40'
-                    }`}
-                  >⟳</span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onLocalRealign() }}
-                    aria-label={`Re-sync line ${index + 1}`}
-                    className={`text-[11px] px-1 touch-manipulation transition-colors duration-100 ${
-                      alignmentQuality === 'needs_review'
-                        ? 'text-amber-400/90 hover:text-amber-300'
-                        : 'text-white/40 hover:text-white/65'
-                    }`}
-                  >⟳ re-sync</button>
-                )
+              {showAlignmentQuality && onLocalRealign && (alignmentQuality === 'needs_review' || alignmentQuality === 'approximate') && (
+                <ResyncChip alignmentQuality={alignmentQuality} isRealigning={!!isRealigning} realignProgress={realignProgress} onLocalRealign={onLocalRealign} index={index} />
               )}
             </div>
           )}
         </div>
 
-        {editing && (
-          <div className="flex items-center gap-0.5 shrink-0">
-            <button onClick={onAdd} aria-label={`Add line after ${index + 1}`} className="min-w-11 min-h-11 flex items-center justify-center text-white/50 hover:text-white touch-manipulation transition-[color,transform] duration-150 ease-out active:scale-[0.96]">⊕</button>
-            {deleteArmed ? (
-              <button onClick={onConfirmDelete} aria-label={`Confirm delete line ${index + 1}`} className="min-h-11 px-2 text-red-400 font-semibold whitespace-nowrap text-xs touch-manipulation active:scale-[0.96]">Confirm?</button>
-            ) : (
-              <button onClick={onArmDelete} aria-label={`Delete line ${index + 1}`} className="min-w-11 min-h-11 flex items-center justify-center text-white/50 hover:text-white touch-manipulation transition-[color,transform] duration-150 ease-out active:scale-[0.96]">🗑</button>
-            )}
-          </div>
-        )}
+        <div className="flex items-center gap-0.5 shrink-0">
+          {/* Re-sync chip persists during editing for weak lines */}
+          {editing && showAlignmentQuality && onLocalRealign && (alignmentQuality === 'needs_review' || alignmentQuality === 'approximate') && (
+            <ResyncChip alignmentQuality={alignmentQuality} isRealigning={!!isRealigning} realignProgress={realignProgress} onLocalRealign={onLocalRealign} index={index} />
+          )}
+          {editing && (
+            <>
+              <button onClick={onAdd} aria-label={`Add line after ${index + 1}`} className="min-w-11 min-h-11 flex items-center justify-center text-white/50 hover:text-white touch-manipulation transition-[color,transform] duration-150 ease-out active:scale-[0.96]">⊕</button>
+              {deleteArmed ? (
+                <button onClick={onConfirmDelete} aria-label={`Confirm delete line ${index + 1}`} className="min-h-11 px-2 text-red-400 font-semibold whitespace-nowrap text-xs touch-manipulation active:scale-[0.96]">Confirm?</button>
+              ) : (
+                <button onClick={onArmDelete} aria-label={`Delete line ${index + 1}`} className="min-w-11 min-h-11 flex items-center justify-center text-white/50 hover:text-white touch-manipulation transition-[color,transform] duration-150 ease-out active:scale-[0.96]">🗑</button>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {editing ? (
@@ -233,7 +259,7 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, onLocalRealign, onRealignAllWeak, localRealigning, weakLineCount, isRealigningAll, precisionModeAvailable }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, onLocalRealign, onRealignAllWeak, localRealigning, realignLineProgress, realignBulkProgress, weakLineCount, isRealigningAll, precisionModeAvailable }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
@@ -413,15 +439,12 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
         </div>
         {!hasLocalAudio && (
           <p className="text-[10px] text-white/30 text-pretty">
-            AI auto-align and A-B export need an audio file. Use Tap-through to time lyrics while the song plays.
+            No audio file — use Tap-through to time lyrics while the song plays.
           </p>
         )}
-        <p className="text-[10px] text-white/30 text-pretty">Tap a line to edit text · ⏱ to set timestamps</p>
         {needsReviewCount > 0 && (
           <p className="text-[10px] text-amber-400/80 text-pretty">
-            {precisionModeAvailable
-              ? `${needsReviewCount} line${needsReviewCount === 1 ? '' : 's'} may be misaligned — tap ⟳ to re-sync each line with precise audio analysis.`
-              : `${needsReviewCount} line${needsReviewCount === 1 ? '' : 's'} may be misaligned — tap ⟳ to re-sync, or use ⏱ / tap-through for manual timing.`}
+            {needsReviewCount} line{needsReviewCount === 1 ? '' : 's'} off-timing — tap ⟳ to re-sync{precisionModeAvailable ? ' with audio analysis' : ''}.
           </p>
         )}
         {showAlignmentQuality && (weakLineCount ?? 0) > 0 && onRealignAllWeak && (
@@ -430,13 +453,14 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             onClick={onRealignAllWeak}
             disabled={isRealigningAll}
             className={`${toolbarActionBtn} disabled:opacity-50`}
-            aria-label={precisionModeAvailable ? 'Re-align with word-level precision' : `Re-align ${weakLineCount} weak lines`}
           >
-            {isRealigningAll
-              ? '⟳ Re-aligning…'
-              : precisionModeAvailable
-                ? `Re-align with precision (${weakLineCount} lines)`
-                : `Re-align ${weakLineCount} weak lines`}
+            {realignBulkProgress
+              ? `⟳ ${realignBulkProgress.done} / ${realignBulkProgress.total} lines…`
+              : isRealigningAll
+                ? '⟳ Re-aligning…'
+                : precisionModeAvailable
+                  ? `Re-align with precision (${weakLineCount} lines)`
+                  : `Re-align ${weakLineCount} weak lines`}
           </button>
         )}
       </div>
@@ -474,6 +498,7 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
           showAlignmentQuality={showAlignmentQuality}
           onLocalRealign={onLocalRealign ? () => onLocalRealign(i) : undefined}
           isRealigning={localRealigning?.has(i)}
+          realignProgress={realignLineProgress?.get(i)}
         />
           </div>
         ))}
