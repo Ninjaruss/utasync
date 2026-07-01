@@ -796,14 +796,26 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         ? quality.map((q, i) => i === lineIndex ? 'needs_review' as LineAlignmentQuality : q)
         : quality
 
+      // Anchor-based window: use nearest good-quality lines as bounds so the
+      // focused transcription covers the correct audio even if this line's own
+      // timestamp is significantly wrong.
+      let windowStart = line.startTime
+      let windowEnd = line.endTime
+      for (let i = lineIndex - 1; i >= 0; i--) {
+        if (quality[i] === 'good') { windowStart = song.lyrics.lines[i].endTime; break }
+      }
+      for (let i = lineIndex + 1; i < song.lyrics.lines.length; i++) {
+        if (quality[i] === 'good') { windowEnd = song.lyrics.lines[i].startTime; break }
+      }
+
       let words: ReturnType<typeof transcriptWordsToAlignInput>
       let usedFocused = false
       if (hasStoredAudio) {
         try {
           const focused = await transcribeLineWindow(
             song.id,
-            line.startTime,
-            line.endTime,
+            windowStart,
+            windowEnd,
             song.lyrics.sourceLanguage,
             reportProgress,
           )
