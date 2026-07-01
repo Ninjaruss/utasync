@@ -160,16 +160,14 @@ function Row({
                   <span className="ml-2 text-[10px] text-white/35">approx</span>
                 )}
               </button>
-              {onLocalRealign && (
+              {onLocalRealign && (alignmentQuality === 'needs_review' || alignmentQuality === 'approximate') && (
                 isRealigning ? (
                   <span
                     role="status"
                     aria-live="polite"
                     aria-label={`Realigning line ${index + 1}`}
                     className={`text-[11px] animate-spin inline-block select-none ${
-                      alignmentQuality === 'needs_review' ? 'text-amber-400/90'
-                      : alignmentQuality === 'approximate' ? 'text-white/40'
-                      : 'text-white/25'
+                      alignmentQuality === 'needs_review' ? 'text-amber-400/90' : 'text-white/40'
                     }`}
                   >⟳</span>
                 ) : (
@@ -180,11 +178,9 @@ function Row({
                     className={`text-[11px] px-1 touch-manipulation transition-colors duration-100 ${
                       alignmentQuality === 'needs_review'
                         ? 'text-amber-400/90 hover:text-amber-300'
-                        : alignmentQuality === 'approximate'
-                        ? 'text-white/40 hover:text-white/65'
-                        : 'text-white/20 hover:text-white/50'
+                        : 'text-white/40 hover:text-white/65'
                     }`}
-                  >{alignmentQuality === 'needs_review' || alignmentQuality === 'approximate' ? '⟳ re-sync' : '⟳'}</button>
+                  >⟳ re-sync</button>
                 )
               )}
             </div>

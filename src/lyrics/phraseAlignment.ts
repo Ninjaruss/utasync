@@ -8,11 +8,15 @@ import {
 } from '../ai-pipeline/contentAligner'
 import { derivePhrases, type PhraseNormalizeReport } from './phraseNormalize'
 import { anchorLineByPartialMatch } from '../ai-pipeline/partialMatchAnchor'
-import { realignRepeatedStanzaOccurrences } from './repeatedStanzaAlignment'
+import { realignRepeatedStanzaOccurrences, realignRepeatedRepetitionOnlyLines, repairRepetitionPairAt } from './repeatedStanzaAlignment'
+import { findMergedLineGroups, mergedGroupNeedsRealign } from '../ai-pipeline/alignTimestampMode'
+import { isRepetitionOnlyLine } from './lineAligner'
+
+const REPETITION_REF_MIN_SPAN_S = 1.4
 
 /** Bump when auto-align timing logic changes — triggers one-time re-refine from the
  * persisted Whisper transcript on song open (no re-transcription). */
-export const ALIGNMENT_PIPELINE_VERSION = 12
+export const ALIGNMENT_PIPELINE_VERSION = 17
 
 const ENTWINED_ROLLING_RE = /心絡まって.*ローリング/
 const RUN_LINE_RE = /凍てつく(?:世界|地面).*走り出した/
@@ -43,6 +47,8 @@ const LINE_RETRY_EXPAND_LEAD_S = 14
 const LINE_RETRY_EXPAND_TAIL_S = 16
 /** Minimum visible highlight when a row has room before the next start. */
 const MIN_HIGHLIGHT_S = 1.2
+/** Max orphan gap (seconds) to claim for a mis-transcribed line tail. */
+const ORPHAN_GAP_FILL_MAX_S = 4
 
 /** Pass-1 placed this phrase at the forward cursor — include overlapping segments. */
 function phraseOnsetAtCursor(phraseStart: number, searchFrom: number): boolean {
@@ -182,6 +188,99 @@ function enforceLineMonotonicity(out: TimedLine[]): void {
   }
 }
 
+function realignMergedLineGroups(
+  lines: TimedLine[],
+  rawWords: TranscriptWord[],
+  sourceLanguage: Language,
+): TimedLine[] {
+  const groups = findMergedLineGroups(lines, rawWords)
+  if (!groups.length) return lines
+
+  const clean = sanitizeTranscript(rawWords)
+  const lastTime = clean.at(-1)?.endTime ?? 0
+  const out = lines.map((l) => ({ ...l }))
+
+  for (const group of groups) {
+    if (!mergedGroupNeedsRealign(out, group)) continue
+    const lo = group[0]
+    const hi = group[group.length - 1]
+    const prevEnd = lo > 0 ? out[lo - 1].endTime : 0
+    const nextStart = hi + 1 < out.length ? out[hi + 1].startTime : lastTime
+    const windowStart = Math.max(prevEnd, out[lo].startTime - 4)
+    const windowEnd = Math.min(lastTime, Math.max(out[hi].endTime + 2, nextStart))
+    const windowWords = clean.filter(
+      (w) => w.endTime > windowStart && w.startTime < windowEnd,
+    )
+    if (windowWords.length === 0) continue
+
+    const slice = out.slice(lo, hi + 1)
+    const texts = slice.map((l) => l.original || l.translation)
+    const { lines: aligned, anchorSources } = alignLyrics(
+      texts,
+      windowWords,
+      slice,
+      sourceLanguage,
+    )
+    const merged = slice.map((orig, k) => ({
+      ...orig,
+      startTime: aligned[k].startTime,
+      endTime: aligned[k].endTime,
+    }))
+    const refined = validateAndRetryLineTimings(
+      merged,
+      windowWords,
+      sourceLanguage,
+      anchorSources,
+    )
+    for (let k = 0; k < group.length; k++) {
+      out[lo + k].startTime = refined.lines[k].startTime
+      out[lo + k].endTime = refined.lines[k].endTime
+    }
+  }
+
+  return out
+}
+
+function extendUndershotLinesWithPartialMatch(
+  lines: TimedLine[],
+  words: TranscriptWord[],
+  sourceLanguage: Language,
+): TimedLine[] {
+  const clean = sanitizeTranscript(words)
+  const lastTime = clean.at(-1)?.endTime ?? 0
+  const out = lines.map((l) => ({ ...l }))
+
+  for (let i = 0; i < out.length; i++) {
+    const nextStart = i + 1 < out.length ? out[i + 1].startTime : lastTime
+    const span = out[i].endTime - out[i].startTime
+    const gap = nextStart - out[i].endTime
+    if (gap <= 0.15 || gap > ORPHAN_GAP_FILL_MAX_S) continue
+    if (span >= MIN_HIGHLIGHT_S && gap < 1.2) continue
+
+    const lineText = out[i].original || out[i].translation
+    const score = scoreLineAlignment(lineText, clean.filter(
+      (w) => w.endTime > out[i].startTime - 4 && w.startTime < nextStart + 4,
+    ), sourceLanguage)
+    if (score.coverage >= 0.82 && span >= MIN_HIGHLIGHT_S) continue
+
+    const partial = retryPartialMatchForLine(
+      lineText,
+      out[i],
+      clean,
+      i > 0 ? out[i - 1].endTime : 0,
+      nextStart,
+      lastTime,
+    )
+    if (!partial) continue
+    const extendedEnd = Math.min(nextStart, Math.max(out[i].endTime, partial.endTime))
+    if (extendedEnd <= out[i].startTime + 0.2) continue
+    if (extendedEnd - out[i].startTime <= span + 0.25) continue
+    out[i].endTime = extendedEnd
+  }
+
+  return out
+}
+
 /** Extend vocal tails and fix rolling-chorus boundaries on validated sheet rows. */
 function extendValidatedLineTails(lines: TimedLine[], words: TranscriptWord[]): TimedLine[] {
   const clean = sanitizeTranscript(words)
@@ -253,6 +352,33 @@ function trimEmbeddedNextVocal(
   return phrases
 }
 
+function resyncEntwinedRollingPair(
+  lines: TimedLine[],
+  targetIndex: number,
+  words: TranscriptWord[],
+): TimedLine[] {
+  const out = lines.map((l) => ({ ...l }))
+  const tuned = extendValidatedLineTails(out, words)
+  if (ENTWINED_ROLLING_RE.test(out[targetIndex].original)) {
+    out[targetIndex].startTime = tuned[targetIndex].startTime
+    out[targetIndex].endTime = tuned[targetIndex].endTime
+    if (targetIndex + 1 < out.length && RUN_LINE_RE.test(out[targetIndex + 1].original)) {
+      out[targetIndex + 1].startTime = tuned[targetIndex + 1].startTime
+      out[targetIndex + 1].endTime = tuned[targetIndex + 1].endTime
+    }
+  } else if (
+    targetIndex > 0
+    && ENTWINED_ROLLING_RE.test(out[targetIndex - 1].original)
+    && RUN_LINE_RE.test(out[targetIndex].original)
+  ) {
+    out[targetIndex - 1].startTime = tuned[targetIndex - 1].startTime
+    out[targetIndex - 1].endTime = tuned[targetIndex - 1].endTime
+    out[targetIndex].startTime = tuned[targetIndex].startTime
+    out[targetIndex].endTime = tuned[targetIndex].endTime
+  }
+  return out
+}
+
 /** Post-pass: tighten boundaries, extend short vocals, remove cross-line bleed. */
 function finalizePhraseTimings(
   phrases: SungPhrase[],
@@ -293,9 +419,14 @@ function findNextVocalOnset(
     if (wn.startsWith(head.slice(0, 2)) || head.startsWith(wn.slice(0, 2))) {
       return accStart
     }
-    let shared = 0
-    for (const ch of head.slice(0, 4)) if (wn.includes(ch)) shared++
-    if (shared >= 2) return accStart
+    // Require the first char of the next phrase to be present so common kana
+    // (e.g. なく appearing in both 見えなくなった and なくした) can't trigger a
+    // false-positive onset detection mid-phrase.
+    if (head[0] && wn.includes(head[0])) {
+      let shared = 1
+      for (const ch of head.slice(1, 4)) if (wn.includes(ch)) shared++
+      if (shared >= 2) return accStart
+    }
   }
   return null
 }
@@ -925,13 +1056,16 @@ export function refineAlignmentWithPhrases(
     sourceLanguage,
     pass1.anchorSources,
   )
-  let tunedLines = realignRepeatedStanzaOccurrences(
-    validated.lines,
+  let tunedLines = realignMergedLineGroups(validated.lines, words, sourceLanguage)
+  tunedLines = realignRepeatedStanzaOccurrences(
+    tunedLines,
     words,
     lineTexts,
     sourceLanguage,
   )
+  tunedLines = realignRepeatedRepetitionOnlyLines(tunedLines, words, lineTexts, sourceLanguage)
   tunedLines = extendValidatedLineTails(tunedLines, words)
+  tunedLines = extendUndershotLinesWithPartialMatch(tunedLines, words, sourceLanguage)
   tunedLines = expandSquashedLineHighlights(tunedLines)
   const quality = recomputeLineQuality(
     tunedLines,
@@ -977,6 +1111,16 @@ export function realignSection(
   lineAlignmentQuality: LineAlignmentQuality[]
   anchorSources: LineAnchorSource[]
 } {
+  // Already well-matched — realigning would not improve anything and risks
+  // corrupting the timing of neighboring approximate/needs_review lines.
+  if (qualityIn[targetIndex] === 'good') {
+    return {
+      lines,
+      lineAlignmentQuality: qualityIn,
+      anchorSources: anchorSourcesIn ?? lines.map(() => 'interpolated' as LineAnchorSource),
+    }
+  }
+
   const clean = sanitizeTranscript(transcriptWords)
   const lastTime = clean.at(-1)?.endTime ?? 0
 
@@ -990,6 +1134,66 @@ export function realignSection(
   let rightAnchorIdx = lines.length // lines.length = use lastTime as boundary
   for (let i = targetIndex + 1; i < lines.length && i - targetIndex <= MAX_ANCHOR_SEARCH_LINES; i++) {
     if (qualityIn[i] === 'good') { rightAnchorIdx = i; break }
+  }
+
+  const lineTexts = lines.map((l) => l.original || l.translation)
+  const targetText = lineTexts[targetIndex] ?? lines[targetIndex].original
+  const initialSectionLo = leftAnchorIdx + 1
+  const initialSectionHi = rightAnchorIdx - 1
+  const initialPairIdx = isRepetitionOnlyLine(targetText)
+    ? targetIndex
+    : targetIndex + 1 < lines.length && isRepetitionOnlyLine(lineTexts[targetIndex + 1] ?? '')
+      ? targetIndex + 1
+      : -1
+  const initialPairSection =
+    initialPairIdx > 0
+    && initialSectionLo <= initialSectionHi
+    && (initialSectionLo === initialPairIdx && initialSectionHi === initialPairIdx
+      || (initialSectionHi - initialSectionLo === 1
+        && initialSectionHi === initialPairIdx
+        && initialPairIdx - 1 === initialSectionLo))
+
+  if (initialPairSection) {
+    const outLines = lines.map((l) => ({ ...l }))
+    const repaired = repairRepetitionPairAt(
+      outLines,
+      initialPairIdx,
+      clean,
+      lineTexts,
+      sourceLanguage,
+      { preservePrevStart: leftAnchorIdx === initialPairIdx - 1 },
+    )
+    if (repaired) {
+      const outQuality: LineAlignmentQuality[] = [...qualityIn]
+      const outAnchors: LineAnchorSource[] = anchorSourcesIn
+        ? [...anchorSourcesIn]
+        : lines.map(() => 'interpolated' as LineAnchorSource)
+      for (const li of [initialPairIdx - 1, initialPairIdx]) {
+        const prevEnd = li > 0 ? outLines[li - 1].endTime : 0
+        const nextStart = li + 1 < outLines.length ? outLines[li + 1].startTime : lastTime
+        const windowWords = transcriptWindowForLine(
+          clean,
+          outLines[li],
+          prevEnd,
+          nextStart,
+          lastTime,
+          LINE_VALIDATE_WINDOW_LEAD_S,
+          LINE_VALIDATE_WINDOW_TAIL_S,
+        )
+        const score = scoreLineAlignment(lineTexts[li], windowWords, sourceLanguage)
+        outQuality[li] = score.quality
+        outAnchors[li] = score.anchorSource
+      }
+      return { lines: outLines, lineAlignmentQuality: outQuality, anchorSources: outAnchors }
+    }
+    const rollingSpan = lines[initialPairIdx].endTime - lines[initialPairIdx].startTime
+    if (rollingSpan >= REPETITION_REF_MIN_SPAN_S) {
+      return {
+        lines,
+        lineAlignmentQuality: qualityIn,
+        anchorSources: anchorSourcesIn ?? lines.map(() => 'interpolated' as LineAnchorSource),
+      }
+    }
   }
 
   // Helper accessors that read the current anchor indices.
@@ -1020,7 +1224,7 @@ export function realignSection(
   }
 
   const sectionLo = leftAnchorIdx + 1
-  const sectionHi = rightAnchorIdx - 1
+  let sectionHi = rightAnchorIdx - 1
   if (sectionLo > sectionHi) {
     return {
       lines,
@@ -1029,9 +1233,74 @@ export function realignSection(
     }
   }
 
+  if (sectionLo <= sectionHi) {
+    if (
+      ENTWINED_ROLLING_RE.test(targetText)
+      || (targetIndex > 0 && ENTWINED_ROLLING_RE.test(lineTexts[targetIndex - 1] ?? ''))
+    ) {
+      const outLines = resyncEntwinedRollingPair(lines, targetIndex, clean)
+      const outQuality: LineAlignmentQuality[] = [...qualityIn]
+      const outAnchors: LineAnchorSource[] = anchorSourcesIn
+        ? [...anchorSourcesIn]
+        : lines.map(() => 'interpolated' as LineAnchorSource)
+      const tuneLo = ENTWINED_ROLLING_RE.test(targetText) ? targetIndex : targetIndex - 1
+      const tuneHi = RUN_LINE_RE.test(lineTexts[tuneLo + 1] ?? '') ? tuneLo + 1 : tuneLo
+      for (let li = tuneLo; li <= tuneHi; li++) {
+        const prevEnd = li > 0 ? outLines[li - 1].endTime : 0
+        const nextStart = li + 1 < outLines.length ? outLines[li + 1].startTime : lastTime
+        const windowWords = transcriptWindowForLine(
+          clean,
+          outLines[li],
+          prevEnd,
+          nextStart,
+          lastTime,
+          LINE_VALIDATE_WINDOW_LEAD_S,
+          LINE_VALIDATE_WINDOW_TAIL_S,
+        )
+        const score = scoreLineAlignment(lineTexts[li], windowWords, sourceLanguage)
+        outQuality[li] = score.quality
+        outAnchors[li] = score.anchorSource
+      }
+      return { lines: outLines, lineAlignmentQuality: outQuality, anchorSources: outAnchors }
+    }
+  }
+
+  const strictFrom = anchorFrom()
+  const strictTo = anchorTo()
+  const strictWords = clean.filter(
+    (w) => w.endTime > strictFrom && w.startTime < strictTo,
+  )
+  if (strictWords.length === 0) {
+    return {
+      lines,
+      lineAlignmentQuality: qualityIn,
+      anchorSources: anchorSourcesIn ?? lines.map(() => 'interpolated' as LineAnchorSource),
+    }
+  }
+
+  // When a single row sits between two good anchors inside one Whisper segment,
+  // align it together with the neighbor anchor row for split/orphan-fill context
+  // but do not overwrite anchor timings (AKFG 角を曲がって｜此処から…).
+  let contextLo = sectionLo
+  let contextHi = sectionHi
+  if (sectionLo === sectionHi) {
+    if (rightAnchorIdx === sectionHi + 1 && rightAnchorIdx < lines.length) {
+      contextHi = rightAnchorIdx
+    }
+    if (leftAnchorIdx === sectionLo - 1 && leftAnchorIdx >= 0) {
+      contextLo = leftAnchorIdx
+    }
+  }
+
   // Time range is between anchor endpoints.
-  const timeFrom = anchorFrom()
-  const timeTo = anchorTo()
+  let timeFrom = anchorFrom()
+  let timeTo = anchorTo()
+  if (contextHi > sectionHi && rightAnchorIdx < lines.length && contextHi === rightAnchorIdx) {
+    timeTo = Math.min(lastTime, Math.max(timeTo, lines[rightAnchorIdx].endTime))
+  }
+  if (contextLo < sectionLo && leftAnchorIdx >= 0 && contextLo === leftAnchorIdx) {
+    timeFrom = Math.max(0, Math.min(timeFrom, lines[leftAnchorIdx].startTime))
+  }
 
   // Words that overlap the anchor time range, clipped so a straddling word
   // doesn't drag line timestamps outside the section bounds.
@@ -1044,16 +1313,6 @@ export function realignSection(
     }))
     .filter((w) => w.startTime < w.endTime)
 
-  const fmt = (t: number) => `${Math.floor(t/60)}:${(t%60).toFixed(2).padStart(5,'0')}`
-  console.log(
-    `[realignSection] target=${targetIndex} "${lines[targetIndex]?.original}"`,
-    `\n  leftAnchor=${leftAnchorIdx}${leftAnchorIdx>=0?` "${lines[leftAnchorIdx]?.original}" ends@${fmt(lines[leftAnchorIdx].endTime)}`:'(none)'}`,
-    `\n  rightAnchor=${rightAnchorIdx}${rightAnchorIdx<lines.length?` "${lines[rightAnchorIdx]?.original}" starts@${fmt(lines[rightAnchorIdx].startTime)}`:'(none)'}`,
-    `\n  timeWindow=[${fmt(timeFrom)}..${fmt(timeTo)}]`,
-    `\n  sectionLines=[${sectionLo}..${sectionHi}] (${sectionHi-sectionLo+1} lines)`,
-    `\n  sectionWords(${sectionWords.length}):`, sectionWords.map(w=>`"${w.word}"@${fmt(w.startTime)}-${fmt(w.endTime)}`),
-  )
-
   // No words in range → can't improve; return unchanged.
   if (sectionWords.length === 0) {
     return {
@@ -1063,23 +1322,18 @@ export function realignSection(
     }
   }
 
-  // Fresh alignment pass on the section.
-  const sectionSlice = lines.slice(sectionLo, sectionHi + 1)
-  const sectionTexts = sectionSlice.map((l) => l.original || l.translation)
+  // Fresh alignment pass on the section (+ neighbor context rows when needed).
+  const contextSlice = lines.slice(contextLo, contextHi + 1)
+  const contextTexts = contextSlice.map((l) => l.original || l.translation)
   const { lines: aligned, anchorSources: pass1Anchors } = alignLyrics(
-    sectionTexts,
+    contextTexts,
     sectionWords as TranscriptWord[],
-    sectionSlice,
+    contextSlice,
     sourceLanguage,
   )
 
-  console.log(
-    `[realignSection] alignLyrics output:`,
-    aligned.map((l,k)=>`\n  [${sectionLo+k}] "${sectionSlice[k]?.original}" → [${fmt(l.startTime)}..${fmt(l.endTime)}]`),
-  )
-
   // Merge timing into originals (preserve translation, tokens, furigana, etc.)
-  const mergedSection: TimedLine[] = sectionSlice.map((orig, k) => ({
+  const mergedContext: TimedLine[] = contextSlice.map((orig, k) => ({
     ...orig,
     startTime: aligned[k].startTime,
     endTime: aligned[k].endTime,
@@ -1087,18 +1341,13 @@ export function realignSection(
 
   // Refine and score.
   const refined = validateAndRetryLineTimings(
-    mergedSection,
+    mergedContext,
     sectionWords as TranscriptWord[],
     sourceLanguage,
     pass1Anchors,
   )
 
-  console.log(
-    `[realignSection] after validateAndRetry:`,
-    refined.lines.map((l,k)=>`\n  [${sectionLo+k}] quality=${refined.lineAlignmentQuality[k]} [${fmt(l.startTime)}..${fmt(l.endTime)}]`),
-  )
-
-  // Merge back into full-length output arrays.
+  // Merge back into full-length output arrays (skip context-only anchor rows).
   const outLines = [...lines]
   const outQuality: LineAlignmentQuality[] = [...qualityIn]
   const outAnchors: LineAnchorSource[] = anchorSourcesIn
@@ -1106,8 +1355,13 @@ export function realignSection(
     : lines.map(() => 'interpolated' as LineAnchorSource)
 
   for (let k = 0; k < refined.lines.length; k++) {
-    const li = sectionLo + k
-    outLines[li] = { ...sectionSlice[k], startTime: refined.lines[k].startTime, endTime: refined.lines[k].endTime }
+    const li = contextLo + k
+    if (li < sectionLo || li > sectionHi) continue
+    outLines[li] = {
+      ...lines[li],
+      startTime: refined.lines[k].startTime,
+      endTime: refined.lines[k].endTime,
+    }
     outQuality[li] = refined.lineAlignmentQuality[k]
     outAnchors[li] = refined.anchorSources[k]
   }
