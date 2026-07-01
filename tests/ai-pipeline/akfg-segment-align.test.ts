@@ -165,4 +165,96 @@ describe.skipIf(!existsSync(SEGMENT_CACHE))('AKFG First Take segment transcript'
     expect(finalRun.endTime).toBeGreaterThan(322)
     expect(finalRun.endTime - finalRun.startTime).toBeGreaterThan(2.5)
   })
+
+  // YouTube ground-truth: timestamps from the official video captions (seconds).
+  // Tolerance is ±2 s unless noted — Whisper's segment transcript introduces up to
+  // ~1 s of drift and phrase-boundary estimation adds another ~1 s.
+  it('refine aligns verse lines within 2 s of YouTube captions', () => {
+    const sheetRows = lineTexts.map((original) => ({
+      original,
+      translation: '',
+      startTime: 0,
+      endTime: 0,
+    }))
+    const { lines } = refineAlignmentWithPhrases(sheetRows, words, 'ja')
+    const gt: Array<{ text: string; ytStart: number; tol?: number }> = [
+      { text: '出来れば世界を', ytStart: 98 },
+      { text: '戦争をなくすような', ytStart: 104 },
+      { text: 'だけどちょっと', ytStart: 111 },
+      { text: '俳優や映画スターには', ytStart: 118 },
+      { text: 'それどころか', ytStart: 122 },
+      { text: 'そんな僕に術はないよな', ytStart: 131 },
+      { text: '何を間違った', ytStart: 141 },
+      { text: '初めから持ってないのに胸が痛んだ', ytStart: 148 },
+      { text: '僕らはきっとこの先も', ytStart: 154 },
+      { text: '凍てつく地面を', ytStart: 161, tol: 2 },
+      { text: '理由もないのに', ytStart: 177 },
+      { text: '泣けやしないから', ytStart: 183 },
+      { text: 'そんな夜を', ytStart: 190 },
+      { text: '岩は転がって', ytStart: 203 },
+      { text: '固い地面を分けて', ytStart: 210 },
+      { text: 'あの丘を越えた', ytStart: 217 },
+      { text: '君の孤独も', ytStart: 223, tol: 3 },
+    ]
+    for (const { text, ytStart, tol = 2 } of gt) {
+      const line = lines.find((l) => l.original.includes(text))
+      expect(line, `no line for "${text}"`).toBeDefined()
+      expect(line!.startTime, `"${text}" should start within ${tol}s of YT ${ytStart}s`).toBeGreaterThan(ytStart - tol)
+      expect(line!.startTime, `"${text}" should start within ${tol}s of YT ${ytStart}s`).toBeLessThan(ytStart + tol)
+    }
+  })
+
+  it('refine aligns second-verse / second-chorus lines within 2 s of YouTube captions', () => {
+    const sheetRows = lineTexts.map((original) => ({
+      original,
+      translation: '',
+      startTime: 0,
+      endTime: 0,
+    }))
+    const { lines } = refineAlignmentWithPhrases(sheetRows, words, 'ja')
+    // For repeated lines (初めから, 僕らは) use the second occurrence (after 250 s)
+    const gt: Array<{ text: string; ytStart: number; tol?: number; afterS?: number }> = [
+      { text: '赤い 赤い小さな車は', ytStart: 262 },
+      { text: '遠く向こうの角を', ytStart: 275 },
+      { text: '此処からは見えなくなった', ytStart: 282 },
+      { text: '何をなくした', ytStart: 292 },
+      { text: '初めから持ってないのに胸が痛んだ', ytStart: 299, afterS: 250 },
+      { text: '僕らはきっとこの先も', ytStart: 306, afterS: 250 },
+      { text: '凍てつく世界を転がるように走り出した', ytStart: 312, tol: 2 },
+    ]
+    for (const { text, ytStart, tol = 2, afterS } of gt) {
+      const line = afterS
+        ? lines.find((l) => l.original.includes(text) && l.startTime > afterS)
+        : lines.find((l) => l.original.includes(text))
+      expect(line, `no line for "${text}"`).toBeDefined()
+      expect(line!.startTime, `"${text}" should start within ${tol}s of YT ${ytStart}s`).toBeGreaterThan(ytStart - tol)
+      expect(line!.startTime, `"${text}" should start within ${tol}s of YT ${ytStart}s`).toBeLessThan(ytStart + tol)
+    }
+  })
+
+  it('refine places 心絡まって correctly between 僕らは and 凍てつく世界を', () => {
+    const sheetRows = lineTexts.map((original) => ({
+      original,
+      translation: '',
+      startTime: 0,
+      endTime: 0,
+    }))
+    const { lines } = refineAlignmentWithPhrases(sheetRows, words, 'ja')
+    const surelyIdx = lineTexts.findIndex((t) => t.includes('僕らはきっとこの先も') && lineTexts.indexOf(t) > 20)
+    // second chorus only: after 300 s
+    const surelyLine = lines.slice(20).find((l) => l.original.includes('僕らはきっとこの先も') && l.startTime > 300)
+    const entwinedLine = lines.find((l) => l.original.includes('心絡まって') && l.startTime > 300)
+    const finalRunLine = lines.find((l) => l.original.includes('凍てつく世界') && l.startTime > 300)
+    expect(surelyLine, 'second 僕らは').toBeDefined()
+    expect(entwinedLine, '心絡まって').toBeDefined()
+    expect(finalRunLine, '凍てつく世界').toBeDefined()
+    // 心絡まって sits between 僕らは and 凍てつく世界
+    expect(entwinedLine!.startTime).toBeGreaterThan(surelyLine!.startTime)
+    expect(entwinedLine!.startTime).toBeLessThan(finalRunLine!.startTime)
+    // spans at least 1.5 s
+    expect(entwinedLine!.endTime - entwinedLine!.startTime).toBeGreaterThan(1.5)
+    // within 3 s of the window anchors
+    expect(entwinedLine!.startTime).toBeGreaterThan(305)
+    expect(entwinedLine!.endTime).toBeLessThan(314)
+  })
 })

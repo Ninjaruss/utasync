@@ -1202,6 +1202,23 @@ export function refineAlignmentWithPhrases(
     sourceLanguage,
     pass1.anchorSources,
   )
+
+  // Whisper's segment transcript may not phonetically match repetition-only lines
+  // (e.g. "ローリング ローリング") even when their timing is correct — Whisper merges
+  // them into neighbouring lyric text.  Upgrade needs_review → approximate for any
+  // repetition-only line that has a reasonable span and is sandwiched between two
+  // good-quality anchors: the neighbours constrain the position well enough.
+  const lineAlignmentQuality = [...quality.lineAlignmentQuality]
+  for (let i = 1; i < tunedLines.length - 1; i++) {
+    if (lineAlignmentQuality[i] !== 'needs_review') continue
+    if (!isRepetitionOnlyLine(lineTexts[i])) continue
+    const span = tunedLines[i].endTime - tunedLines[i].startTime
+    if (span < REPETITION_REF_MIN_SPAN_S) continue
+    if (lineAlignmentQuality[i - 1] === 'good' && lineAlignmentQuality[i + 1] === 'good') {
+      lineAlignmentQuality[i] = 'approximate'
+    }
+  }
+
   const syncedPhrases = syncPhrasesFromValidatedLines(phrases, tunedLines)
 
   return {
@@ -1211,7 +1228,7 @@ export function refineAlignmentWithPhrases(
     mode: pass1.mode,
     confidence: pass1.confidence,
     anchorSources: quality.anchorSources,
-    lineAlignmentQuality: quality.lineAlignmentQuality,
+    lineAlignmentQuality,
     phraseLayout: 'sheet',
     sheetLinesSnapshot: undefined,
   }

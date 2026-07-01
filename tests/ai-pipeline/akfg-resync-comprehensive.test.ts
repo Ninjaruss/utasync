@@ -70,12 +70,16 @@ describe.skipIf(!existsSync(SEGMENT_CACHE))('AKFG resync — segment transcript'
     expect(span).toBeLessThan(4)
   })
 
-  it('ローリング2 (idx 25, needs_review) has reasonable span (1.5–4 s)', () => {
+  it('ローリング2 (idx 25, approximate) has reasonable span (1.5–4 s)', () => {
+    // Whisper's segment transcript merges ローリング ローリング into the previous lyric
+    // line's text ("わからないんだろうに"), so LCS can't confirm the match.  The quality
+    // is upgraded from needs_review → approximate because the line has a reasonable span
+    // and is sandwiched between two good-quality anchors.
     const rIndices = lineTexts
       .map((t, i) => (t === 'ローリング ローリング' ? i : -1))
       .filter((i) => i >= 0)
     const r2Idx = rIndices[1] // second instance
-    expect(quality[r2Idx]).toBe('needs_review')
+    expect(quality[r2Idx]).toBe('approximate')
     const span = refined.lines[r2Idx].endTime - refined.lines[r2Idx].startTime
     expect(span).toBeGreaterThan(1.5)
     expect(span).toBeLessThan(5)
