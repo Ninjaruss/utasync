@@ -832,6 +832,14 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         Math.abs(next.startTime - orig.startTime) < 0.3
         && Math.abs(next.endTime - orig.endTime) < 0.3
       ) {
+        // Timing already correct — still dismiss the chip by confirming this line as good
+        if (usedFocused) {
+          const confirmedQuality = [...quality]
+          confirmedQuality[lineIndex] = 'good'
+          const confirmed: Song = { ...song, lyrics: { ...song.lyrics, lineAlignmentQuality: confirmedQuality } }
+          setSong(confirmed)
+          await db.songs.put(confirmed)
+        }
         toast(usedFocused ? 'Timing looks correct — use ⏱ to adjust manually' : 'Timing already optimized', 'info')
         return
       }

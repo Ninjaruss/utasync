@@ -107,39 +107,6 @@ interface RowProps {
   realignProgress?: number
 }
 
-function ResyncChip({ alignmentQuality, isRealigning, realignProgress, onLocalRealign, index }: {
-  alignmentQuality: LineAlignmentQuality
-  isRealigning: boolean
-  realignProgress?: number
-  onLocalRealign: () => void
-  index: number
-}) {
-  const isWeak = alignmentQuality === 'needs_review'
-  if (isRealigning) {
-    return (
-      <span
-        role="status"
-        aria-live="polite"
-        aria-label={`Realigning line ${index + 1}`}
-        className={`text-[11px] tabular-nums select-none min-w-[2.5rem] text-center ${isWeak ? 'text-amber-400/90' : 'text-white/45'}`}
-      >
-        {realignProgress !== undefined
-          ? `${Math.round(realignProgress)}%`
-          : <span className="animate-spin inline-block">⟳</span>}
-      </span>
-    )
-  }
-  return (
-    <button
-      type="button"
-      onClick={(e) => { e.stopPropagation(); onLocalRealign() }}
-      aria-label={`Re-sync line ${index + 1}`}
-      className={`text-[11px] px-1.5 py-0.5 rounded touch-manipulation transition-colors duration-100 ${
-        isWeak ? 'text-amber-400/90 hover:text-amber-300' : 'text-white/40 hover:text-white/65'
-      }`}
-    >⟳ re-sync</button>
-  )
-}
 
 /** One lyric row. Holds local draft text so typing doesn't push a change on every keystroke — committed only on blur, same discipline the old expand-into-panel editor used. */
 function Row({
@@ -208,9 +175,6 @@ function Row({
         </div>
 
         <div className="flex items-center gap-0.5 shrink-0">
-          {editing && showAlignmentQuality && onLocalRealign && (alignmentQuality === 'needs_review' || alignmentQuality === 'approximate') && (
-            <ResyncChip alignmentQuality={alignmentQuality} isRealigning={!!isRealigning} realignProgress={realignProgress} onLocalRealign={onLocalRealign} index={index} />
-          )}
           {editing && (
             <>
               <button onClick={onAdd} aria-label={`Add line after ${index + 1}`} className="min-w-11 min-h-11 flex items-center justify-center text-white/50 hover:text-white touch-manipulation transition-[color,transform] duration-150 ease-out active:scale-[0.96]">⊕</button>
@@ -223,6 +187,30 @@ function Row({
           )}
         </div>
       </div>
+
+      {editing && showAlignmentQuality && onLocalRealign && (alignmentQuality === 'needs_review' || alignmentQuality === 'approximate') && (
+        <div className="mt-1.5 flex items-center">
+          {isRealigning ? (
+            <span
+              role="status"
+              aria-live="polite"
+              aria-label={`Realigning line ${index + 1}`}
+              className="text-[11px] tabular-nums select-none text-amber-400/80"
+            >
+              {realignProgress !== undefined ? `${Math.round(realignProgress)}%` : <span className="animate-spin inline-block">⟳</span>}
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onLocalRealign() }}
+              aria-label={`Re-sync line ${index + 1}`}
+              className="text-[11px] bg-amber-400/10 hover:bg-amber-400/20 text-amber-400/80 rounded-full px-2.5 py-0.5 touch-manipulation transition-colors duration-100"
+            >
+              ⟳ Re-sync
+            </button>
+          )}
+        </div>
+      )}
 
       {editing ? (
         <input
