@@ -49,6 +49,8 @@ interface Props {
   localRealigning?: Set<number>
   /** Count of needs_review + approximate lines — drives the bulk button label. */
   weakLineCount?: number
+  /** True while the batch re-align is running — disables and relabels the bulk button. */
+  isRealigningAll?: boolean
 }
 
 const DELETE_CONFIRM_MS = 3000
@@ -158,16 +160,16 @@ function Row({
                   <span className="ml-2 text-[10px] text-white/35">approx</span>
                 )}
               </button>
-              {timed && onLocalRealign && (
+              {onLocalRealign && (
                 isRealigning ? (
                   <span
                     role="status"
                     aria-live="polite"
                     aria-label={`Realigning line ${index + 1}`}
-                    className={`text-[10px] animate-pulse ${
+                    className={`text-[11px] animate-spin inline-block select-none ${
                       alignmentQuality === 'needs_review' ? 'text-amber-400/90'
-                      : alignmentQuality === 'approximate' ? 'text-white/35'
-                      : 'text-white/20'
+                      : alignmentQuality === 'approximate' ? 'text-white/40'
+                      : 'text-white/25'
                     }`}
                   >⟳</span>
                 ) : (
@@ -175,14 +177,14 @@ function Row({
                     type="button"
                     onClick={(e) => { e.stopPropagation(); onLocalRealign() }}
                     aria-label={`Re-sync line ${index + 1}`}
-                    className={`text-[10px] touch-manipulation ${
+                    className={`text-[11px] px-1 touch-manipulation transition-colors duration-100 ${
                       alignmentQuality === 'needs_review'
                         ? 'text-amber-400/90 hover:text-amber-300'
                         : alignmentQuality === 'approximate'
-                        ? 'text-white/35 hover:text-white/60'
+                        ? 'text-white/40 hover:text-white/65'
                         : 'text-white/20 hover:text-white/50'
                     }`}
-                  >{alignmentQuality === 'needs_review' ? '⟳ re-sync' : alignmentQuality === 'approximate' ? '⟳ approx' : '⟳'}</button>
+                  >{alignmentQuality === 'needs_review' || alignmentQuality === 'approximate' ? '⟳ re-sync' : '⟳'}</button>
                 )
               )}
             </div>
@@ -232,7 +234,7 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, onLocalRealign, onRealignAllWeak, localRealigning, weakLineCount }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, onLocalRealign, onRealignAllWeak, localRealigning, weakLineCount, isRealigningAll }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
@@ -418,17 +420,18 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
         <p className="text-[10px] text-white/30 text-pretty">Tap a line to edit text · ⏱ to set timestamps</p>
         {needsReviewCount > 0 && (
           <p className="text-[10px] text-amber-400/80 text-pretty">
-            {needsReviewCount} line{needsReviewCount === 1 ? '' : 's'} may be misaligned — use ⏱ or tap-sync to fix.
+            {needsReviewCount} line{needsReviewCount === 1 ? '' : 's'} may be misaligned — tap ⟳ to re-sync, or use ⏱ / tap-through for manual timing.
           </p>
         )}
         {showAlignmentQuality && (weakLineCount ?? 0) > 0 && onRealignAllWeak && (
           <button
             type="button"
             onClick={onRealignAllWeak}
-            className={toolbarActionBtn}
+            disabled={isRealigningAll}
+            className={`${toolbarActionBtn} disabled:opacity-50`}
             aria-label={`Re-align ${weakLineCount} weak lines`}
           >
-            Re-align {weakLineCount} weak lines
+            {isRealigningAll ? '⟳ Re-aligning…' : `Re-align ${weakLineCount} weak lines`}
           </button>
         )}
       </div>

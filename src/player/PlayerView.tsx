@@ -12,7 +12,7 @@ import { ABLoopController } from './ABLoop'
 import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, LineAlignmentQuality } from '../core/types'
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
 import { projectPhraseTokensToLines } from '../lyrics/phraseProjection'
-import { repairPhraseTranslationOrder } from '../lyrics/phraseNormalize'
+import { repairPhraseTranslationOrder, remapPhraseTranslations } from '../lyrics/phraseNormalize'
 import {
   refineAlignmentWithPhrases,
   sheetRowsForAlignment,
@@ -688,7 +688,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     if (!song?.lyrics.phrases?.length || phrasingBusy) return
     setPhrasingBusy(true)
     try {
-      const applied = applySungLayout(song.lyrics)
+      // Sync phrase translations from current sheet lines before projecting onto
+      // phrase rows, so hasTranslation stays true and side-by-side can be used.
+      const freshPhrases = remapPhraseTranslations(song.lyrics.lines, song.lyrics.phrases)
+      const applied = applySungLayout({ ...song.lyrics, phrases: freshPhrases })
       const base: Song = { ...song, lyrics: applied }
       await db.songs.put(base)
       setSong(base)
@@ -738,6 +741,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         l.startTime !== song.lyrics.lines[i]?.startTime
         || l.endTime !== song.lyrics.lines[i]?.endTime,
     )
+    const translationChanged = lines.some((l, i) => l.translation !== song.lyrics.lines[i]?.translation)
+    const phrases = song.lyrics.phrases?.length && translationChanged
+      ? remapPhraseTranslations(lines, song.lyrics.phrases)
+      : song.lyrics.phrases
     const updated: Song = {
       ...song,
       lyrics: {
@@ -745,6 +752,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         lines,
         enrichmentVersion: undefined,
         ...(timingChanged ? { lineAlignmentQuality: undefined } : {}),
+        ...(phrases !== song.lyrics.phrases ? { phrases } : {}),
       },
       syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines } }),
     }
@@ -826,9 +834,12 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
   }
 
+  const [isRealigningAll, setIsRealigningAll] = useState(false)
+
   const handleRealignAllWeak = async () => {
     if (!song?.lyrics.transcriptWords?.length) return
     if (!song.lyrics.lineAlignmentQuality?.length) return
+    setIsRealigningAll(true)
     try {
       const words = transcriptWordsToAlignInput(song.lyrics.transcriptWords)
       await yieldToMainThread()
@@ -874,6 +885,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       }
     } catch {
       toast('Re-align failed — could not improve timing', 'warning')
+    } finally {
+      setIsRealigningAll(false)
     }
   }
 
@@ -1313,6 +1326,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               onRealignAllWeak={song?.lyrics.transcriptWords?.length ? handleRealignAllWeak : undefined}
               localRealigning={localRealigning}
               weakLineCount={weakLineCount}
+              isRealigningAll={isRealigningAll}
             />
           )}
         </div>
