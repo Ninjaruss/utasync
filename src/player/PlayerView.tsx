@@ -842,6 +842,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         qualityForRealign,
         song.lyrics.sourceLanguage,
         song.lyrics.anchorSources as Parameters<typeof realignSection>[5],
+        { focused: usedFocused },
       )
       const orig = song.lyrics.lines[lineIndex]
       const next = lines[lineIndex]

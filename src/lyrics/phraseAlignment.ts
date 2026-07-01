@@ -1235,6 +1235,15 @@ export function realignSection(
   qualityIn: LineAlignmentQuality[],
   sourceLanguage: Language,
   anchorSourcesIn?: LineAnchorSource[],
+  options?: {
+    /**
+     * When true, skip bulk-alignment heuristics (repetition-pair repair,
+     * ENTWINED_ROLLING resync) and go straight to the general alignLyrics path.
+     * Use this for focused per-line resync where the transcript words are
+     * already constrained to the correct audio section.
+     */
+    focused?: boolean
+  },
 ): {
   lines: TimedLine[]
   lineAlignmentQuality: LineAlignmentQuality[]
@@ -1282,7 +1291,7 @@ export function realignSection(
         && initialSectionHi === initialPairIdx
         && initialPairIdx - 1 === initialSectionLo))
 
-  if (initialPairSection) {
+  if (initialPairSection && !options?.focused) {
     const outLines = lines.map((l) => ({ ...l }))
     const repaired = repairRepetitionPairAt(
       outLines,
@@ -1362,7 +1371,7 @@ export function realignSection(
     }
   }
 
-  if (sectionLo <= sectionHi) {
+  if (sectionLo <= sectionHi && !options?.focused) {
     if (
       ENTWINED_ROLLING_RE.test(targetText)
       || (targetIndex > 0 && ENTWINED_ROLLING_RE.test(lineTexts[targetIndex - 1] ?? ''))
