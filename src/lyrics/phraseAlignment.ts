@@ -471,21 +471,37 @@ function resyncEntwinedRollingPair(
   const out = lines.map((l) => ({ ...l }))
   const tuned = extendValidatedLineTails(out, words)
   if (ENTWINED_ROLLING_RE.test(out[targetIndex].original)) {
-    out[targetIndex].startTime = tuned[targetIndex].startTime
-    out[targetIndex].endTime = tuned[targetIndex].endTime
+    const tStart = tuned[targetIndex].startTime
+    const tEnd = tuned[targetIndex].endTime
+    if (tEnd - tStart > 0.1) {
+      out[targetIndex].startTime = tStart
+      out[targetIndex].endTime = tEnd
+    }
     if (targetIndex + 1 < out.length && RUN_LINE_RE.test(out[targetIndex + 1].original)) {
-      out[targetIndex + 1].startTime = tuned[targetIndex + 1].startTime
-      out[targetIndex + 1].endTime = tuned[targetIndex + 1].endTime
+      const rStart = tuned[targetIndex + 1].startTime
+      const rEnd = tuned[targetIndex + 1].endTime
+      if (rEnd - rStart > 0.1) {
+        out[targetIndex + 1].startTime = rStart
+        out[targetIndex + 1].endTime = rEnd
+      }
     }
   } else if (
     targetIndex > 0
     && ENTWINED_ROLLING_RE.test(out[targetIndex - 1].original)
     && RUN_LINE_RE.test(out[targetIndex].original)
   ) {
-    out[targetIndex - 1].startTime = tuned[targetIndex - 1].startTime
-    out[targetIndex - 1].endTime = tuned[targetIndex - 1].endTime
-    out[targetIndex].startTime = tuned[targetIndex].startTime
-    out[targetIndex].endTime = tuned[targetIndex].endTime
+    const eStart = tuned[targetIndex - 1].startTime
+    const eEnd = tuned[targetIndex - 1].endTime
+    if (eEnd - eStart > 0.1) {
+      out[targetIndex - 1].startTime = eStart
+      out[targetIndex - 1].endTime = eEnd
+    }
+    const rStart = tuned[targetIndex].startTime
+    const rEnd = tuned[targetIndex].endTime
+    if (rEnd - rStart > 0.1) {
+      out[targetIndex].startTime = rStart
+      out[targetIndex].endTime = rEnd
+    }
   }
   return out
 }

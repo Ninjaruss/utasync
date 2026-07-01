@@ -833,6 +833,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       )
       const orig = song.lyrics.lines[lineIndex]
       const next = lines[lineIndex]
+      if (next.endTime - next.startTime < 0.15) {
+        toast('Re-sync couldn\'t determine timing — adjust with ⏱', 'warning')
+        return
+      }
       if (
         Math.abs(next.startTime - orig.startTime) < 0.3
         && Math.abs(next.endTime - orig.endTime) < 0.3
