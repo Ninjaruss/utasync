@@ -790,6 +790,11 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     try {
       const line = song.lyrics.lines[lineIndex]
       const quality = song.lyrics.lineAlignmentQuality ?? song.lyrics.lines.map(() => 'needs_review' as LineAlignmentQuality)
+      // User explicitly requested re-sync — bypass the good-quality guard so the
+      // line is actually re-evaluated even if it was previously marked good.
+      const qualityForRealign = quality[lineIndex] === 'good'
+        ? quality.map((q, i) => i === lineIndex ? 'needs_review' as LineAlignmentQuality : q)
+        : quality
 
       let words: ReturnType<typeof transcriptWordsToAlignInput>
       let usedFocused = false
@@ -822,7 +827,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         song.lyrics.lines,
         lineIndex,
         words,
-        quality,
+        qualityForRealign,
         song.lyrics.sourceLanguage,
         song.lyrics.anchorSources as Parameters<typeof realignSection>[5],
       )

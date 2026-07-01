@@ -175,13 +175,13 @@ function Row({
         </div>
 
         <div className="flex items-center gap-0.5 shrink-0">
-          {editing && showAlignmentQuality && onLocalRealign && (alignmentQuality === 'needs_review' || alignmentQuality === 'approximate') && (
+          {editing && onLocalRealign && (
             isRealigning ? (
               <span
                 role="status"
                 aria-live="polite"
                 aria-label={`Realigning line ${index + 1}`}
-                className="min-w-11 min-h-11 flex items-center justify-center text-[11px] tabular-nums select-none text-amber-400/70"
+                className={`min-w-11 min-h-11 flex items-center justify-center text-[11px] tabular-nums select-none ${alignmentQuality === 'needs_review' || alignmentQuality === 'approximate' ? 'text-amber-400/70' : 'text-white/40'}`}
               >
                 {realignProgress !== undefined ? `${Math.round(realignProgress)}%` : <span className="animate-spin inline-block text-base">⟳</span>}
               </span>
@@ -190,7 +190,7 @@ function Row({
                 type="button"
                 onClick={(e) => { e.stopPropagation(); onLocalRealign() }}
                 aria-label={`Re-sync line ${index + 1}`}
-                className="min-w-11 min-h-11 flex items-center justify-center text-amber-400/60 hover:text-amber-300 touch-manipulation transition-[color,transform] duration-150 ease-out active:scale-[0.96] text-base"
+                className={`min-w-11 min-h-11 flex items-center justify-center touch-manipulation transition-[color,transform] duration-150 ease-out active:scale-[0.96] text-base ${alignmentQuality === 'needs_review' || alignmentQuality === 'approximate' ? 'text-amber-400/60 hover:text-amber-300' : 'text-white/30 hover:text-white/70'}`}
               >⟳</button>
             )
           )}

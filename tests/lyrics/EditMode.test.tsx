@@ -331,6 +331,17 @@ describe('EditMode — local re-align', () => {
     expect(screen.getByLabelText(/realigning line 2/i)).toBeTruthy()
   })
 
+  it('renders a re-sync button for good-quality rows when onLocalRealign is provided', () => {
+    const onLocalRealign = vi.fn()
+    renderEditMode({
+      lineAlignmentQuality: ['good', 'good'],
+      showAlignmentQuality: true,
+      onLocalRealign,
+    })
+    fireEvent.click(screen.getByRole('button', { name: /edit line 1/i }))
+    expect(screen.getByRole('button', { name: /re-sync line 1/i })).toBeTruthy()
+  })
+
   it('shows static off-timing chip when onLocalRealign is not provided', () => {
     renderEditMode({
       lineAlignmentQuality: ['good', 'needs_review'],
