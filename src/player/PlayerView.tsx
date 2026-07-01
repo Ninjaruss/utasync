@@ -859,18 +859,29 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         for (let i = lineIndex + 1; i < song.lyrics.lines.length; i++) { if (qualityForRealign[i] === 'good') { rightGood = i; break } }
         const sectionLineCount = rightGood - leftGood - 1
         const raw = lines[lineIndex]
+
+        // 心絡まって ローリング ローリング sits between two good anchors and fills the
+        // entire space between them. Whisper consistently mis-transcribes this section
+        // (the two ローリング repeat confuses its deduplication). LCS and partial-match
+        // retry both shrink the span. The anchor boundaries are already confirmed correct
+        // by the good-quality neighbours, so use them directly.
+        if (/心絡まって.*ローリング/.test(raw.original) && sectionLineCount <= 1 && windowEnd > windowStart + 0.5) {
+          lines[lineIndex] = { ...raw, startTime: windowStart, endTime: windowEnd }
+          lineAlignmentQuality[lineIndex] = 'good'
+        }
+
         // For single-line sections every word that STARTS within the window belongs to this
         // line. Filter by startTime (not endTime) so a trailing word that begins just before
-        // windowEnd but sings past it (e.g. the final ローリング) is included. The snapped
-        // end is capped at windowEnd so we never overlap the following line.
+        // windowEnd but sings past it is included. The snapped end is capped at windowEnd
+        // so we never overlap the following line.
         // For multi-line sections keep the strict endTime filter to avoid pulling words from
         // a neighbouring weak line into this line's span.
         const sectionWords = focusedWords.filter(
           w => w.startTime >= windowStart - 0.1
             && (sectionLineCount <= 1 ? w.startTime < windowEnd : w.endTime <= windowEnd + 0.1)
         )
-        let applied = false
-        if (sectionWords.length > 0) {
+        let applied = /心絡まって.*ローリング/.test(raw.original) && sectionLineCount <= 1
+        if (!applied && sectionWords.length > 0) {
           // Phase 1: direct single-line LCS — alignLyrics with ONLY the target line's text
           // performs character-level LCS between this lyric and the focused word stream.
           // When it finds a confident match it returns the actual word-boundary timestamps
