@@ -52,6 +52,7 @@ import { createPlaylistEntry, shouldAdvancePlaylistAfterCycle, wrapPlaylistIndex
 import { useAbLoopPlaylistStore } from './abLoopPlaylistStore'
 import { getAudioFile } from '../core/opfs/audio'
 import { transcribeLineWindow } from '../ai-pipeline/focusedTranscriber'
+import { alignLyrics } from '../ai-pipeline/aligner'
 import { PlayerControls } from './PlayerControls'
 import { DisplayMenu } from './DisplayMenu'
 import { YouTubePlaybackPanel } from './YouTubePlaybackPanel'
@@ -851,10 +852,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         { focused: usedFocused },
       )
       const orig = song.lyrics.lines[lineIndex]
-      // Snap boundaries to actual focused-word timestamps to recover precision
-      // lost when alignLyrics proportionally splits time across lines.
+      // Precision refinement: try direct single-line LCS first, then word boundary snap fallback.
       if (usedFocused && focusedWords.length > 0) {
-        // Count how many lyric lines sit between the two good anchors.
         let leftGood = -1, rightGood = song.lyrics.lines.length
         for (let i = lineIndex - 1; i >= 0; i--) { if (qualityForRealign[i] === 'good') { leftGood = i; break } }
         for (let i = lineIndex + 1; i < song.lyrics.lines.length; i++) { if (qualityForRealign[i] === 'good') { rightGood = i; break } }
@@ -863,23 +862,48 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         const sectionWords = focusedWords.filter(
           w => w.startTime >= windowStart - 0.1 && w.endTime <= windowEnd + 0.1
         )
+        let applied = false
         if (sectionWords.length > 0) {
-          let snappedStart = raw.startTime
-          let snappedEnd = raw.endTime
+          // Phase 1: direct single-line LCS — alignLyrics with ONLY the target line's text
+          // performs character-level LCS between this lyric and the focused word stream.
+          // When it finds a confident match it returns the actual word-boundary timestamps
+          // for the matched region, bypassing proportional splitting across all section lines.
+          const directMatch = alignLyrics(
+            [raw.original],
+            sectionWords,
+            undefined,
+            song.lyrics.sourceLanguage,
+          )
+          const dl = directMatch.lines[0]
+          if (
+            dl != null
+            && directMatch.confidence >= 0.5
+            && dl.endTime - dl.startTime >= 0.3
+            && dl.startTime >= windowStart
+            && dl.endTime <= windowEnd
+          ) {
+            lines[lineIndex] = { ...raw, startTime: dl.startTime, endTime: dl.endTime }
+            applied = true
+          }
+        }
+        if (!applied && sectionWords.length > 0) {
+          // Phase 2: word boundary snap fallback (LCS confidence < 0.5).
+          const raw2 = lines[lineIndex]
+          let snappedStart = raw2.startTime
+          let snappedEnd = raw2.endTime
           if (sectionLineCount <= 1) {
-            // Sole line in section — every focused word belongs to it.
+            // Sole line: every focused word in section belongs to this line.
             snappedStart = Math.min(...sectionWords.map(w => w.startTime))
             snappedEnd = Math.max(...sectionWords.map(w => w.endTime))
           } else {
-            // Multiple lines share the section — use a conservative snap window biased
-            // toward earlier start (catch missed beginnings) and later end (catch cutoffs).
-            const startCandidates = sectionWords.filter(w => w.startTime >= snappedStart - 0.8 && w.startTime <= snappedStart + 0.4)
-            if (startCandidates.length > 0) snappedStart = Math.min(...startCandidates.map(w => w.startTime))
-            const endCandidates = sectionWords.filter(w => w.endTime >= snappedEnd - 0.4 && w.endTime <= snappedEnd + 0.8)
-            if (endCandidates.length > 0) snappedEnd = Math.max(...endCandidates.map(w => w.endTime))
+            // Multi-line section: wider 1.5 s window biased toward earlier start / later end.
+            const sc = sectionWords.filter(w => w.startTime >= snappedStart - 1.5 && w.startTime <= snappedStart + 0.5)
+            if (sc.length > 0) snappedStart = Math.min(...sc.map(w => w.startTime))
+            const ec = sectionWords.filter(w => w.endTime >= snappedEnd - 0.5 && w.endTime <= snappedEnd + 1.5)
+            if (ec.length > 0) snappedEnd = Math.max(...ec.map(w => w.endTime))
           }
           if (snappedEnd > snappedStart + 0.1 && snappedStart >= windowStart && snappedEnd <= windowEnd) {
-            lines[lineIndex] = { ...raw, startTime: snappedStart, endTime: snappedEnd }
+            lines[lineIndex] = { ...lines[lineIndex], startTime: snappedStart, endTime: snappedEnd }
           }
         }
       }
