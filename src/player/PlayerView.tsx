@@ -792,6 +792,18 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         song.lyrics.sourceLanguage,
         song.lyrics.anchorSources as Parameters<typeof realignSection>[5],
       )
+      // If the target line moved by < 0.3 s on both ends the transcript doesn't have
+      // enough resolution to improve timing further. Bail out to preserve any
+      // phrase-level correction the refine pass already applied.
+      const orig = song.lyrics.lines[lineIndex]
+      const next = lines[lineIndex]
+      if (
+        Math.abs(next.startTime - orig.startTime) < 0.3
+        && Math.abs(next.endTime - orig.endTime) < 0.3
+      ) {
+        toast('Timing already optimized — use ⏱ to adjust manually', 'info')
+        return
+      }
       const updated: Song = {
         ...song,
         lyrics: {
