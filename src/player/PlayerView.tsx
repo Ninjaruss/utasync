@@ -810,6 +810,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
 
       let words: ReturnType<typeof transcriptWordsToAlignInput>
       let usedFocused = false
+      let focusedWords: TimedTranscriptWord[] = []
       if (hasStoredAudio) {
         try {
           const focused = await transcribeLineWindow(
@@ -821,7 +822,12 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           )
           if (focused.length > 0) {
             words = focused
+            focusedWords = focused
             usedFocused = true
+            // Signal transcription complete; yield so the UI shows ⟳ 100% before
+            // realignSection runs (synchronous but can take ~1–2 s).
+            reportProgress(100)
+            await new Promise<void>(r => setTimeout(r, 0))
           } else {
             words = transcriptWordsToAlignInput(song.lyrics.transcriptWords ?? [])
           }
@@ -845,6 +851,38 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         { focused: usedFocused },
       )
       const orig = song.lyrics.lines[lineIndex]
+      // Snap boundaries to actual focused-word timestamps to recover precision
+      // lost when alignLyrics proportionally splits time across lines.
+      if (usedFocused && focusedWords.length > 0) {
+        // Count how many lyric lines sit between the two good anchors.
+        let leftGood = -1, rightGood = song.lyrics.lines.length
+        for (let i = lineIndex - 1; i >= 0; i--) { if (qualityForRealign[i] === 'good') { leftGood = i; break } }
+        for (let i = lineIndex + 1; i < song.lyrics.lines.length; i++) { if (qualityForRealign[i] === 'good') { rightGood = i; break } }
+        const sectionLineCount = rightGood - leftGood - 1
+        const raw = lines[lineIndex]
+        const sectionWords = focusedWords.filter(
+          w => w.startTime >= windowStart - 0.1 && w.endTime <= windowEnd + 0.1
+        )
+        if (sectionWords.length > 0) {
+          let snappedStart = raw.startTime
+          let snappedEnd = raw.endTime
+          if (sectionLineCount <= 1) {
+            // Sole line in section — every focused word belongs to it.
+            snappedStart = Math.min(...sectionWords.map(w => w.startTime))
+            snappedEnd = Math.max(...sectionWords.map(w => w.endTime))
+          } else {
+            // Multiple lines share the section — use a conservative snap window biased
+            // toward earlier start (catch missed beginnings) and later end (catch cutoffs).
+            const startCandidates = sectionWords.filter(w => w.startTime >= snappedStart - 0.8 && w.startTime <= snappedStart + 0.4)
+            if (startCandidates.length > 0) snappedStart = Math.min(...startCandidates.map(w => w.startTime))
+            const endCandidates = sectionWords.filter(w => w.endTime >= snappedEnd - 0.4 && w.endTime <= snappedEnd + 0.8)
+            if (endCandidates.length > 0) snappedEnd = Math.max(...endCandidates.map(w => w.endTime))
+          }
+          if (snappedEnd > snappedStart + 0.1 && snappedStart >= windowStart && snappedEnd <= windowEnd) {
+            lines[lineIndex] = { ...raw, startTime: snappedStart, endTime: snappedEnd }
+          }
+        }
+      }
       const next = lines[lineIndex]
       if (next.endTime - next.startTime < 0.15) {
         toast('Re-sync couldn\'t determine timing — adjust with ⏱', 'warning')

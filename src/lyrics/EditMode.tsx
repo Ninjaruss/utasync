@@ -183,7 +183,9 @@ function Row({
                 aria-label={`Realigning line ${index + 1}`}
                 className={`min-w-11 min-h-11 flex items-center justify-center text-[11px] tabular-nums select-none ${alignmentQuality === 'needs_review' || alignmentQuality === 'approximate' ? 'text-amber-400/70' : 'text-white/40'}`}
               >
-                {realignProgress !== undefined ? `${Math.round(realignProgress)}%` : <span className="animate-spin inline-block text-base">⟳</span>}
+                {realignProgress !== undefined
+                  ? <><span className="animate-spin inline-block">⟳</span><span className="ml-0.5 tabular-nums">{Math.round(realignProgress)}%</span></>
+                  : <span className="animate-spin inline-block text-base">⟳</span>}
               </span>
             ) : (
               <button
