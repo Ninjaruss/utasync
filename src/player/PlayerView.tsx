@@ -859,8 +859,15 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         for (let i = lineIndex + 1; i < song.lyrics.lines.length; i++) { if (qualityForRealign[i] === 'good') { rightGood = i; break } }
         const sectionLineCount = rightGood - leftGood - 1
         const raw = lines[lineIndex]
+        // For single-line sections every word that STARTS within the window belongs to this
+        // line. Filter by startTime (not endTime) so a trailing word that begins just before
+        // windowEnd but sings past it (e.g. the final ローリング) is included. The snapped
+        // end is capped at windowEnd so we never overlap the following line.
+        // For multi-line sections keep the strict endTime filter to avoid pulling words from
+        // a neighbouring weak line into this line's span.
         const sectionWords = focusedWords.filter(
-          w => w.startTime >= windowStart - 0.1 && w.endTime <= windowEnd + 0.1
+          w => w.startTime >= windowStart - 0.1
+            && (sectionLineCount <= 1 ? w.startTime < windowEnd : w.endTime <= windowEnd + 0.1)
         )
         let applied = false
         if (sectionWords.length > 0) {
@@ -880,17 +887,19 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
             && directMatch.confidence >= 0.5
             && dl.endTime - dl.startTime >= 0.3
             && dl.startTime >= windowStart
-            && dl.endTime <= windowEnd
+            && dl.startTime < windowEnd
           ) {
-            lines[lineIndex] = { ...raw, startTime: dl.startTime, endTime: dl.endTime }
+            // Clamp to windowEnd: a word may sing past the anchor boundary.
+            const clampedEnd = Math.min(dl.endTime, windowEnd)
+            lines[lineIndex] = { ...raw, startTime: dl.startTime, endTime: clampedEnd }
             applied = true
             // Trailing word extension: catch focused words just beyond the LCS boundary that
             // Whisper may have compressed (e.g. repeated phrases like ローリング ローリング).
             // Only extend within the section — stop well before the next anchor.
             const extendedEnd = sectionWords
               .filter(w => w.startTime >= dl.endTime - 0.2 && w.endTime < windowEnd - 0.3)
-              .reduce((best, w) => Math.max(best, w.endTime), dl.endTime)
-            if (extendedEnd > dl.endTime) {
+              .reduce((best, w) => Math.max(best, w.endTime), clampedEnd)
+            if (extendedEnd > lines[lineIndex].endTime) {
               lines[lineIndex] = { ...lines[lineIndex], endTime: extendedEnd }
             }
           }
@@ -901,9 +910,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           let snappedStart = raw2.startTime
           let snappedEnd = raw2.endTime
           if (sectionLineCount <= 1) {
-            // Sole line: every focused word in section belongs to this line.
+            // Sole line: every focused word that started in the window belongs to this line.
+            // Cap at windowEnd so a trailing word that sings past the boundary doesn't bleed.
             snappedStart = Math.min(...sectionWords.map(w => w.startTime))
-            snappedEnd = Math.max(...sectionWords.map(w => w.endTime))
+            snappedEnd = Math.min(Math.max(...sectionWords.map(w => w.endTime)), windowEnd)
           } else {
             // Multi-line section: wider 1.5 s window biased toward earlier start / later end.
             const sc = sectionWords.filter(w => w.startTime >= snappedStart - 1.5 && w.startTime <= snappedStart + 0.5)
