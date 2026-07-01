@@ -62,6 +62,11 @@ export default function App() {
     setView('library')
   }
 
+  const goToLanding = () => {
+    setSettingsOpen(false)
+    setView('landing')
+  }
+
   return (
     <>
       <div className="fixed top-0 inset-x-0 z-[65] flex flex-col">
@@ -106,6 +111,7 @@ export default function App() {
               setAutoAlignOnOpen(false)
             }
           }}
+          onViewLanding={goToLanding}
         />
       )}
     </>

@@ -2,6 +2,7 @@ import type { Language, TimedLine } from '../core/types'
 import { alignLyrics, lineWeight, sanitizeTranscript, type TranscriptWord } from '../ai-pipeline/aligner'
 import { anchorLineByPartialMatch } from '../ai-pipeline/partialMatchAnchor'
 import { normalizeForMatch, scoreLineAlignment } from '../ai-pipeline/contentAligner'
+import { isRepetitionOnlyLine } from './lineAligner'
 
 export interface RepeatedStanza {
   /** Normalized row texts in order. */
@@ -262,4 +263,212 @@ export function realignRepeatedStanzaOccurrences(
 
   enforceSheetMonotonicity(out)
   return out
+}
+
+const SHARED_TAIL_MIN_CHARS = 6
+const REPETITION_REF_MIN_SPAN_S = 1.4
+
+function sharedSuffixPrefixLen(prevNorm: string, wordNorm: string): number {
+  const max = Math.min(prevNorm.length, wordNorm.length)
+  for (let len = max; len >= SHARED_TAIL_MIN_CHARS; len--) {
+    if (prevNorm.endsWith(wordNorm.slice(0, len))) return len
+  }
+  return 0
+}
+
+function findSharedTailWord(
+  prevLineText: string,
+  words: readonly TranscriptWord[],
+  searchFrom: number,
+  searchTo: number,
+): TranscriptWord | null {
+  const prevNorm = normalizeForMatch(prevLineText)
+  let best: TranscriptWord | null = null
+  let bestShared = 0
+  for (const w of words) {
+    if (w.endTime <= searchFrom || w.startTime >= searchTo) continue
+    const shared = sharedSuffixPrefixLen(prevNorm, normalizeForMatch(w.word))
+    if (shared > bestShared) {
+      bestShared = shared
+      best = w
+    }
+  }
+  return bestShared >= SHARED_TAIL_MIN_CHARS ? best : null
+}
+
+/**
+ * When a repetition-only row (e.g. ローリング ローリング) repeats later but Whisper
+ * drops or mishears the sung tail, re-split the preceding row + repetition pair
+ * using lyric-weight timing from the first good occurrence (same split as chorus 1).
+ */
+export function realignRepeatedRepetitionOnlyLines(
+  lines: TimedLine[],
+  words: TranscriptWord[],
+  lineTexts: readonly string[],
+  sourceLanguage: Language,
+): TimedLine[] {
+  const clean = sanitizeTranscript(words)
+  const out = lines.map((l) => ({ ...l }))
+  const firstGoodByNorm = new Map<string, number>()
+
+  for (let i = 0; i < out.length; i++) {
+    const text = lineTexts[i] ?? out[i].original
+    if (!isRepetitionOnlyLine(text)) continue
+    const span = out[i].endTime - out[i].startTime
+    if (span >= REPETITION_REF_MIN_SPAN_S && !firstGoodByNorm.has(normalizeForMatch(text))) {
+      firstGoodByNorm.set(normalizeForMatch(text), i)
+    }
+  }
+
+  for (let i = 0; i < out.length; i++) {
+    const text = lineTexts[i] ?? out[i].original
+    if (!isRepetitionOnlyLine(text) || i === 0) continue
+    const norm = normalizeForMatch(text)
+    const ref = firstGoodByNorm.get(norm)
+    if (ref === undefined || ref === i || ref === 0) continue
+
+    const refSpan = out[ref].endTime - out[ref].startTime
+    const refPrevSpan = out[ref - 1].endTime - out[ref - 1].startTime
+    const span = out[i].endTime - out[i].startTime
+    const prevSpan = out[i - 1].endTime - out[i - 1].startTime
+    if (refSpan < REPETITION_REF_MIN_SPAN_S) continue
+
+    const nextStart = i + 1 < out.length ? out[i + 1].startTime : clean.at(-1)?.endTime ?? out[i].endTime
+    const searchFrom = Math.max(0, out[i - 1].startTime)
+    const searchTo = nextStart + 0.5
+    const tailWord = findSharedTailWord(out[i - 1].original || out[i - 1].translation, clean, searchFrom, searchTo)
+    if (!tailWord) continue
+
+    const refNextStart =
+      ref + 1 < out.length ? out[ref + 1].startTime : clean.at(-1)?.endTime ?? out[ref].endTime
+    const refTailWord = findSharedTailWord(
+      out[ref - 1].original || out[ref - 1].translation,
+      clean,
+      Math.max(0, out[ref - 1].startTime),
+      refNextStart + 0.5,
+    )
+    const refOverflow = refTailWord
+      ? Math.max(0, out[ref].endTime - refTailWord.endTime)
+      : 0
+
+    const blockStartTime = out[i - 1].startTime
+    const blockEndTime = Math.min(nextStart, tailWord.endTime + refOverflow)
+    if (blockEndTime - blockStartTime < refSpan * 0.75) continue
+
+    const localWords = clean.filter(
+      (w) => w.endTime > out[i].startTime - 4 && w.startTime < nextStart + 4,
+    )
+    const weakRepetition =
+      scoreLineAlignment(text, localWords, sourceLanguage).quality === 'needs_review'
+      || span < refSpan * 0.85
+    const weakPair =
+      prevSpan < refPrevSpan * 0.88
+      || blockHasSquashedLine(out, ref - 1, i - 1, 2)
+    if (!weakRepetition && !weakPair) continue
+
+    applyReferenceStanzaTiming(
+      out,
+      ref - 1,
+      i - 1,
+      2,
+      blockStartTime,
+      blockEndTime,
+      sourceLanguage,
+    )
+    enforceBlockMonotonic(out, i - 1, 2)
+  }
+
+  enforceSheetMonotonicity(out)
+  return out
+}
+
+/** Repair one repetition-only row + its preceding clause using reference chorus timing. */
+export function repairRepetitionPairAt(
+  out: TimedLine[],
+  repetitionIdx: number,
+  words: readonly TranscriptWord[],
+  lineTexts: readonly string[],
+  sourceLanguage: Language,
+  options?: { preservePrevStart?: boolean },
+): boolean {
+  if (repetitionIdx <= 0 || repetitionIdx >= out.length) return false
+  const text = lineTexts[repetitionIdx] ?? out[repetitionIdx].original
+  if (!isRepetitionOnlyLine(text)) return false
+
+  const clean = sanitizeTranscript([...words])
+  const norm = normalizeForMatch(text)
+  let ref = -1
+  for (let j = 0; j < repetitionIdx; j++) {
+    if (!isRepetitionOnlyLine(lineTexts[j] ?? out[j].original)) continue
+    if (normalizeForMatch(lineTexts[j] ?? out[j].original) !== norm) continue
+    const refSpan = out[j].endTime - out[j].startTime
+    if (refSpan >= REPETITION_REF_MIN_SPAN_S) {
+      ref = j
+      break
+    }
+  }
+  if (ref <= 0) return false
+
+  const refSpan = out[ref].endTime - out[ref].startTime
+  const refPrevSpan = out[ref - 1].endTime - out[ref - 1].startTime
+  const span = out[repetitionIdx].endTime - out[repetitionIdx].startTime
+  const prevSpan = out[repetitionIdx - 1].endTime - out[repetitionIdx - 1].startTime
+  const nextStart =
+    repetitionIdx + 1 < out.length
+      ? out[repetitionIdx + 1].startTime
+      : clean.at(-1)?.endTime ?? out[repetitionIdx].endTime
+  const searchFrom = Math.max(0, out[repetitionIdx - 1].startTime)
+  const tailWord = findSharedTailWord(
+    out[repetitionIdx - 1].original || out[repetitionIdx - 1].translation,
+    clean,
+    searchFrom,
+    nextStart + 0.5,
+  )
+  if (!tailWord) return false
+
+  const refNextStart =
+    ref + 1 < out.length ? out[ref + 1].startTime : clean.at(-1)?.endTime ?? out[ref].endTime
+  const refTailWord = findSharedTailWord(
+    out[ref - 1].original || out[ref - 1].translation,
+    clean,
+    Math.max(0, out[ref - 1].startTime),
+    refNextStart + 0.5,
+  )
+  const refOverflow = refTailWord
+    ? Math.max(0, out[ref].endTime - refTailWord.endTime)
+    : 0
+
+  const blockStartTime = out[repetitionIdx - 1].startTime
+  const blockEndTime = Math.min(nextStart, tailWord.endTime + refOverflow)
+  if (blockEndTime - blockStartTime < refSpan * 0.75) return false
+
+  const localWords = clean.filter(
+    (w) => w.endTime > out[repetitionIdx].startTime - 4 && w.startTime < nextStart + 4,
+  )
+  const weakRepetition =
+    scoreLineAlignment(text, localWords, sourceLanguage).quality === 'needs_review'
+    || span < refSpan * 0.85
+  const weakPair =
+    prevSpan < refPrevSpan * 0.88
+    || prevSpan > refPrevSpan * 1.2
+    || blockHasSquashedLine(out, ref - 1, repetitionIdx - 1, 2)
+  if (!weakRepetition && !weakPair) return false
+
+  const savedPrevStart = options?.preservePrevStart
+    ? out[repetitionIdx - 1].startTime
+    : undefined
+  applyReferenceStanzaTiming(
+    out,
+    ref - 1,
+    repetitionIdx - 1,
+    2,
+    blockStartTime,
+    blockEndTime,
+    sourceLanguage,
+  )
+  if (savedPrevStart !== undefined) {
+    out[repetitionIdx - 1].startTime = savedPrevStart
+  }
+  enforceBlockMonotonic(out, repetitionIdx - 1, 2)
+  return true
 }

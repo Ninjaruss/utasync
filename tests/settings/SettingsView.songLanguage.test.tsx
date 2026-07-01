@@ -30,7 +30,7 @@ describe('SettingsView song language', () => {
 
   it('defaults to Japanese and can switch to English', async () => {
     render(<SettingsView onClose={() => {}} embedded />)
-    const ja = await screen.findByRole('button', { name: 'Japanese' })
+    const ja = await screen.findByRole('button', { name: '日本語' })
     const en = screen.getByRole('button', { name: 'English' })
     expect(ja).toHaveAttribute('aria-pressed', 'true')
     expect(en).toHaveAttribute('aria-pressed', 'false')

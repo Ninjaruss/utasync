@@ -35,6 +35,51 @@ export function accurateReadingsEstimate(tier: DeviceTier, durationSec: number):
 /** Number of merged segments to see before suggesting the word-level pass. */
 const MERGED_SEGMENT_SUGGEST_THRESHOLD = 2
 
+/** Contiguous line-index runs that share one long transcript chunk (segment mode). */
+export function findMergedLineGroups(
+  lines: TimedLine[],
+  transcriptWords: readonly { startTime: number; endTime: number }[],
+): number[][] {
+  const groups: number[][] = []
+  const used = new Set<number>()
+  for (const w of transcriptWords) {
+    if (w.endTime - w.startTime < 2.5) continue
+    const hits: number[] = []
+    for (let i = 0; i < lines.length; i++) {
+      const t = lines[i].startTime
+      // Strictly inside the chunk — exclude rows that only touch the closing edge
+      // (e.g. 角を曲がって at t=275 must not join the prior red-car segment).
+      if (t >= w.startTime && t < w.endTime - 0.08) hits.push(i)
+    }
+    if (hits.length < 2) continue
+    const lo = Math.min(...hits)
+    const hi = Math.max(...hits)
+    const run: number[] = []
+    for (let i = lo; i <= hi; i++) {
+      if (hits.includes(i) && !used.has(i)) run.push(i)
+    }
+    if (run.length >= 2) {
+      groups.push(run)
+      for (const i of run) used.add(i)
+    }
+  }
+  return groups
+}
+
+/** True when consecutive rows in a group share one vocal run (not a segment boundary artifact). */
+export function mergedGroupNeedsRealign(
+  lines: TimedLine[],
+  group: readonly number[],
+): boolean {
+  if (group.length < 2) return false
+  for (let k = 0; k < group.length - 1; k++) {
+    const gap = lines[group[k + 1]].startTime - lines[group[k]].endTime
+    const short = lines[group[k]].endTime - lines[group[k]].startTime < 1.2
+    if (gap < 1.5 || short) return true
+  }
+  return false
+}
+
 /** Count transcript chunks that span two or more lyric lines. Segment-mode Whisper
  * groups several sung lines into one chunk (e.g. 角を曲がって｜此処…); word mode does
  * not. A chunk is "merged" when ≥2 lines start within its [start, end) window. */

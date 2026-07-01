@@ -1,5 +1,8 @@
+import { toRomaji as kanaToRomaji } from 'wanakana'
 import type { ReadingMode, Token } from '../core/types'
 import { katakanaToHiragana } from '../language/japanese/phonetics'
+
+const KANA_ONLY_RE = /^[぀-ゟ゠-ヿ]+$/u
 
 /** Below this an adopted sung reading is flagged "uncertain" in the tooltip. */
 const UNCERTAIN_READING_CONFIDENCE = 0.5
@@ -27,6 +30,12 @@ export function shouldPromoteSungReading(
   return readingMode === 'sung'
 }
 
+function resolveTokenKana(token: Token, readingMode: ReadingMode): string | null {
+  const dict = token.reading ? katakanaToHiragana(token.reading) : null
+  const sung = token.audioReading ? katakanaToHiragana(token.audioReading) : null
+  return shouldPromoteSungReading(token, readingMode) ? sung : dict
+}
+
 /**
  * Reading precedence: dictionary by default; promote a detected sung alternate when
  * confidence is high enough or the user prefers sung readings. Low-confidence
@@ -41,7 +50,7 @@ export function resolveTokenReading(
   const conf = token.readingConfidence ?? 0
   const showSung = shouldPromoteSungReading(token, readingMode)
 
-  const chosen = showSung ? sung : dict
+  const chosen = resolveTokenKana(token, readingMode)
   const ruby = chosen && chosen !== token.surface ? chosen : null
 
   let title: string | undefined
@@ -59,4 +68,23 @@ export function resolveTokenReading(
   }
 
   return { ruby, title, source: showSung ? 'sung' : 'dictionary' }
+}
+
+/** Romanize one token using the same dictionary/sung precedence as the furigana
+ * ruby, so romaji mode reflects audio-corrected readings instead of going stale. */
+function tokenRomaji(token: Token, readingMode: ReadingMode): string {
+  const kana = resolveTokenKana(token, readingMode) ?? (KANA_ONLY_RE.test(token.surface) ? token.surface : null)
+  if (!kana) return token.surface
+  return kanaToRomaji(kana)
+}
+
+/** Build a line's romaji from its tokens' resolved readings (dictionary or
+ * audio-adopted, per `readingMode`) instead of a static whole-line conversion,
+ * so it stays in sync with reading corrections applied after initial enrichment. */
+export function lineRomajiFromTokens(tokens: Token[], readingMode: ReadingMode = 'dictionary'): string {
+  return tokens
+    .map((t) => tokenRomaji(t, readingMode))
+    .join(' ')
+    .replace(/\s+([、。！？,.!?])/g, '$1')
+    .trim()
 }

@@ -177,6 +177,44 @@ export function repairPhraseTranslationOrder(phrases: SungPhrase[]): SungPhrase[
   return out
 }
 
+/** Re-sync each phrase's `translation` from the current `lines[].translation` text,
+ * using the same merge/split heuristics as {@link derivePhrases} — without re-running
+ * structural derivation. Keeps the sung-phrase layout's translations current after a
+ * line translation is edited (e.g. attaching/replacing a second-language import). */
+export function remapPhraseTranslations(lines: TimedLine[], phrases: SungPhrase[]): SungPhrase[] {
+  const splitGroups = new Map<number, SungPhrase[]>()
+  for (const p of phrases) {
+    if (p.sourceLineIndices.length !== 1) continue
+    const li = p.sourceLineIndices[0]
+    const list = splitGroups.get(li)
+    if (list) list.push(p)
+    else splitGroups.set(li, [p])
+  }
+
+  return phrases.map((p) => {
+    if (p.sourceLineIndices.length > 1) {
+      const translation = p.sourceLineIndices.reduce(
+        (acc, li) => joinText(acc, lines[li]?.translation ?? ''),
+        '',
+      )
+      return { ...p, translation }
+    }
+
+    const li = p.sourceLineIndices[0]
+    const group = splitGroups.get(li) ?? [p]
+    if (group.length === 1) {
+      return { ...p, translation: lines[li]?.translation ?? '' }
+    }
+
+    const parts = (lines[li]?.translation ?? '').split(TRANSLATION_BOUNDARY).map((t) => t.trim())
+    const groupIndex = group.indexOf(p)
+    const translation = parts.length === group.length
+      ? parts[groupIndex]
+      : groupIndex === 0 ? (lines[li]?.translation ?? '').trim() : ''
+    return { ...p, translation }
+  })
+}
+
 /** @deprecated Use {@link shouldRefineStoredAlignment} from `phraseAlignment.ts`. */
 export function shouldDerivePhrasesForStoredSong(lyrics: LyricsData): boolean {
   if (!lyrics.lines.length) return false

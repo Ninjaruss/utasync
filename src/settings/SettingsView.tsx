@@ -19,9 +19,11 @@ interface Props {
   embedded?: boolean
   /** Called after a song is successfully deleted. */
   onSongDeleted?: (songId: string) => void
+  /** Navigate to the public landing page, when available. */
+  onViewLanding?: () => void
 }
 
-export function SettingsView({ onClose, embedded = false, onSongDeleted }: Props) {
+export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewLanding }: Props) {
   const [songs, setSongs] = useState<Song[]>([])
   const [storage, setStorage] = useState<StorageBreakdown | null>(null)
   const toast = useToast()
@@ -124,7 +126,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted }: Props
                   : 'bg-cinnabar-800 text-white/50 hover:text-white/80',
               ].join(' ')}
             >
-              {lang === 'ja' ? 'Japanese' : 'English'}
+              {lang === 'ja' ? '日本語' : 'English'}
             </button>
           ))}
         </div>
@@ -289,6 +291,15 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted }: Props
         <p className="text-sm font-medium">Legal</p>
         <LegalLinks external />
         <p className="text-xs text-white/30 text-center">Last updated {LEGAL_LAST_UPDATED}</p>
+        {onViewLanding && (
+          <button
+            type="button"
+            onClick={onViewLanding}
+            className="block mx-auto min-h-11 px-3 text-xs text-white/35 hover:text-white/70 underline underline-offset-2 touch-manipulation transition-colors duration-150"
+          >
+            About 歌sync
+          </button>
+        )}
       </div>
     </div>
   )

@@ -4,7 +4,7 @@ import { useSettingsStore } from '../payment/SettingsStore'
 import type { TimedLine, FuriganaMode, ReadingMode, Token } from '../core/types'
 import { isSameText, hasVisibleTranslation } from './bilingual'
 import { colorForToken, colorForTranslationWord, splitTranslationLines } from '../language/wordColors'
-import { resolveTokenReading } from './readingDisplay'
+import { resolveTokenReading, lineRomajiFromTokens } from './readingDisplay'
 import type { ABLoop, ABLoopPlaylistEntry } from '../core/types'
 import { isABLoopActive, lyricLoopHighlight, type LyricLoopHighlight } from '../player/abLoopUtils'
 import { lyricRowLoopRegion, lyricRowPlayheadActive, lyricRowPlaylistCurrent, lyricRowPlaylistRegion } from '../core/ui/toolbarClasses'
@@ -144,11 +144,14 @@ function PrimaryText({ line, isActive, furiganaMode, readingMode, colored, hover
       ) : (
         line.original
       )}
-      {furiganaMode === 'romaji' && line.reading && !isSameText(line.reading, line.original) && (
-        <div className={isActive ? 'text-sm text-cinnabar-accent/80 mt-1' : 'text-xs text-white/30 mt-0.5'}>
-          {line.reading}
-        </div>
-      )}
+      {furiganaMode === 'romaji' && (() => {
+        const romaji = line.tokens?.length ? lineRomajiFromTokens(line.tokens, readingMode) : line.reading
+        return romaji && !isSameText(romaji, line.original) ? (
+          <div className={isActive ? 'text-sm text-cinnabar-accent/80 mt-1' : 'text-xs text-white/30 mt-0.5'}>
+            {romaji}
+          </div>
+        ) : null
+      })()}
     </div>
   )
 }
