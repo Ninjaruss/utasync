@@ -2,6 +2,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import type { Song, TimedLine, AlignmentMode, Language } from '../core/types'
 import { getDefaultSongLanguage } from '../payment/SettingsStore'
+import { cleanPastedLyrics } from '../lyrics/lyricCleanup'
 
 export interface BuildSongInput {
   id?: string
@@ -40,7 +41,7 @@ export function buildSong(input: BuildSongInput): Song {
 }
 
 export function linesFromPlainText(text: string): TimedLine[] {
-  return text
+  return cleanPastedLyrics(text)
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l.length > 0)

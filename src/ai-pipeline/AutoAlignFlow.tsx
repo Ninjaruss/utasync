@@ -384,7 +384,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           </label>
         )}
 
-        {tier === 'full' && stage === 'idle' && !autoStart && (
+        {stage === 'idle' && !autoStart && (
           <label className="flex items-start gap-3 rounded-xl bg-cinnabar-900/80 p-3 cursor-pointer touch-manipulation">
             <input
               type="checkbox"
@@ -393,9 +393,9 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
               onChange={(e) => setAccurateReadings(e.target.checked)}
             />
             <span className="text-sm text-white/80 text-pretty">
-              <span className="font-medium text-white">Precise timing + accurate readings (slower)</span>
+              <span className="font-medium text-white">Word-level timestamps (slower)</span>
               {' — '}
-              Word-level timestamps for per-line sync precision and reliable furigana on long songs.
+              More reliable furigana and readings on long songs. Timing accuracy varies by song.
             </span>
           </label>
         )}

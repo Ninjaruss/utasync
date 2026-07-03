@@ -20,9 +20,6 @@ vi.mock('../../src/sources/lyricsResolver', () => ({
   lyricsSourceLabel: vi.fn(() => 'LRCLIB (plain)'),
 }))
 
-vi.mock('../../src/sources/secondLanguageResolver', () => ({
-  findSecondLanguageLyrics: vi.fn(async () => null),
-}))
 
 vi.mock('../../src/sources/audioIngest', () => ({
   ingestAudioFile: vi.fn(async () => ({ songId: 'id1', audioStoredPath: 'songs/id1.mp3' })),
@@ -78,18 +75,13 @@ describe('LinkParser', () => {
     )
   })
 
-  it('auto-attaches a translation on add song when counts match', async () => {
-    const secondLang = await import('../../src/sources/secondLanguageResolver')
-    vi.mocked(secondLang.findSecondLanguageLyrics).mockResolvedValueOnce({
-      lrc: 'Translated one\nTranslated two',
-      synced: false,
-      source: 'lyrics-ovh',
-    })
+  it('does not auto-attach a second language on add song', async () => {
     const onSongReady = vi.fn()
     await continueToLyricsFound(onSongReady)
     const songId = onSongReady.mock.calls[0][0]
     const song = await db.songs.get(songId)
-    expect(song?.lyrics.lines.map((l) => l.translation)).toEqual(['Translated one', 'Translated two'])
+    // Translations stay empty — the second-language search was removed from import.
+    expect(song?.lyrics.lines.every((l) => !l.translation)).toBe(true)
   })
 
   it('lets the user skip search and paste lyrics', async () => {

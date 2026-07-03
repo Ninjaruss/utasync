@@ -1,5 +1,5 @@
 import type { Language, LineAlignmentQuality, LyricsData, SungPhrase, TimedLine } from '../core/types'
-import { alignLyrics, lineWeight, sanitizeTranscript, type TranscriptWord } from '../ai-pipeline/aligner'
+import { alignLyrics, lineWeight, sanitizeTranscript, subdivideTranscriptWord, type TranscriptWord } from '../ai-pipeline/aligner'
 import {
   isInterjectionLyricLine,
   normalizeForMatch,
@@ -9,7 +9,7 @@ import {
 } from '../ai-pipeline/contentAligner'
 import { derivePhrases, type PhraseNormalizeReport } from './phraseNormalize'
 import { anchorLineByPartialMatch } from '../ai-pipeline/partialMatchAnchor'
-import { realignRepeatedStanzaOccurrences, realignRepeatedRepetitionOnlyLines, repairRepetitionPairAt } from './repeatedStanzaAlignment'
+import { realignRepeatedStanzaOccurrences, realignRepeatedRepetitionOnlyLines } from './repeatedStanzaAlignment'
 import { findMergedLineGroups, mergedGroupNeedsRealign } from '../ai-pipeline/alignTimestampMode'
 import { isRepetitionOnlyLine } from './lineAligner'
 
@@ -17,7 +17,7 @@ const REPETITION_REF_MIN_SPAN_S = 1.4
 
 /** Bump when auto-align timing logic changes — triggers one-time re-refine from the
  * persisted Whisper transcript on song open (no re-transcription). */
-export const ALIGNMENT_PIPELINE_VERSION = 17
+export const ALIGNMENT_PIPELINE_VERSION = 18
 
 const ENTWINED_ROLLING_RE = /心絡まって.*ローリング/
 const RUN_LINE_RE = /凍てつく(?:世界|地面).*走り出した/
@@ -36,9 +36,6 @@ const PHRASE_ONSET_CURSOR_S = 0.5
 const PHRASE_LOOKBACK_AFTER_CURSOR_S = 10
 /** Non-interjection rows shorter than this after pass-2 are treated as a regression. */
 const PHRASE_MIN_VOCAL_S = 1.5
-
-/** Max lines to walk outward when searching for a 'good'-quality anchor. */
-const MAX_ANCHOR_SEARCH_LINES = 15
 
 /** Local transcript window when scoring a line's alignment quality. */
 const LINE_VALIDATE_WINDOW_LEAD_S = 6
@@ -141,6 +138,103 @@ function extendLineEndToTranscriptTail(
   return extended
 }
 
+/** The transcript chunk a line begins inside, IFF the line owns it outright — no
+ * other line's start falls within the chunk.  Segment-mode Whisper emits one
+ * [start,end] per chunk; a line that solely occupies a chunk should span exactly
+ * that chunk.  Returns null for merged chunks (two lines share one segment — left
+ * to realignMergedLineGroups) or when no chunk encloses the start. */
+function findExclusiveChunk(
+  line: TimedLine,
+  clean: readonly TranscriptWord[],
+  allLines: readonly TimedLine[],
+): TranscriptWord | null {
+  const enclosing = clean.find(
+    (w) => w.startTime - 0.6 <= line.startTime && w.endTime - 0.08 > line.startTime,
+  )
+  if (!enclosing) return null
+  const owners = allLines.filter(
+    (l) =>
+      l.startTime >= enclosing.startTime - 0.6 && l.startTime < enclosing.endTime - 0.08,
+  )
+  return owners.length === 1 ? enclosing : null
+}
+
+/** Fraction of a line's distinct glyphs that appear in a transcript chunk's text.
+ * A cheap phonetic-affinity proxy used to tell which line a chunk belongs to. */
+function chunkLineAffinity(chunkText: string, lineText: string): number {
+  const lineGlyphs = new Set(normalizeForMatch(lineText))
+  if (lineGlyphs.size === 0) return 0
+  const chunkGlyphs = new Set(normalizeForMatch(chunkText))
+  let hit = 0
+  for (const ch of lineGlyphs) if (chunkGlyphs.has(ch)) hit++
+  return hit / lineGlyphs.size
+}
+
+/** Snap solely-owned lines to their enclosing chunk's start.  When a proportional
+ * / LCS estimate places a start a beat late, the previous line over-extends to
+ * fill the gap (光輝いた bleeding into 君の孤独).  Snapping the start back — and
+ * letting monotonicity clamp the predecessor's tail — fixes both directions at
+ * once.  The rolling 心絡まって / 凍てつく pair keeps its dedicated handling.
+ *
+ * A timing-only ownership test is not enough: a chunk carrying the previous
+ * line's tail (…わからないんだ) can still contain the next line's start (ローリング),
+ * and snapping there would steal the tail.  So only snap when the chunk's text
+ * matches THIS line at least as well as the previous line. */
+function snapLinesToOwnedChunks(
+  lines: TimedLine[],
+  words: TranscriptWord[],
+): TimedLine[] {
+  const clean = sanitizeTranscript(words)
+  const out = lines.map((l) => ({ ...l }))
+  for (let i = 0; i < out.length; i++) {
+    if (ENTWINED_ROLLING_RE.test(out[i].original) || RUN_LINE_RE.test(out[i].original)) continue
+    const chunk = findExclusiveChunk(out[i], clean, out)
+    if (!chunk) continue
+    const delta = out[i].startTime - chunk.startTime
+    // Only a small correction (< 1.5 s late); larger gaps mean a lead-in that
+    // legitimately delays the vocal, or a mis-anchor better left alone.
+    if (delta <= 0.15 || delta >= 1.5) continue
+    // The chunk must phonetically belong to this line alone. If the previous
+    // line's tail also lands in it (…わからないんだ | ロリー merged into one chunk),
+    // the chunk START belongs to that tail, so snapping this line to the chunk
+    // start would steal it — leave the alignLyrics boundary in place.
+    const ownAffinity = chunkLineAffinity(chunk.word, out[i].original)
+    const prevAffinity = i > 0 ? chunkLineAffinity(chunk.word, out[i - 1].original) : 0
+    if (ownAffinity < 0.34 || prevAffinity >= 0.25) continue
+    const prevStart = i > 0 ? out[i - 1].startTime : -Infinity
+    const snapped = Math.max(chunk.startTime, prevStart + 0.2)
+    if (snapped < out[i].startTime) out[i].startTime = snapped
+  }
+  enforceLineMonotonicity(out)
+  return out
+}
+
+/** Word-mode run-start finder: locate where the run line's opening glyphs are
+ * actually sung.  The opener regex (/^(凍|痛|転|走)/) and the shared>=3 heuristic
+ * both fail on single-glyph word-mode tokens when Whisper mishears the opener
+ * (凍てつく地面 → 傷つく地面), so the run latches onto its LAST glyph (走) far too
+ * late.  Scan consecutive glyphs for a bigram from the run's first few characters
+ * (つく / 地面) and return that onset.  Returns null in segment mode (whole-phrase
+ * tokens never form a 2-char bigram match). */
+function findRunStartByEarlyGlyphs(
+  runText: string,
+  tailWords: readonly TranscriptWord[],
+  searchLo: number,
+  searchHi: number,
+): number | null {
+  const early = normalizeForMatch(runText).slice(0, 8)
+  if (early.length < 2) return null
+  const seq = tailWords
+    .filter((w) => w.startTime >= searchLo && w.startTime < searchHi)
+    .map((w) => ({ g: normalizeForMatch(w.word), t: w.startTime }))
+    .filter((x) => x.g.length > 0 && x.g.length <= 2)
+  for (let k = 0; k + 1 < seq.length; k++) {
+    const bigram = (seq[k].g + seq[k + 1].g).slice(0, 2)
+    if (bigram.length === 2 && early.includes(bigram)) return seq[k].t
+  }
+  return null
+}
+
 /** Split 心絡まって/ローリング from the following 凍てつく…走り出した run line. */
 function rebalanceEntwinedRunPair(
   entwined: TimedLine,
@@ -171,6 +265,16 @@ function rebalanceEntwinedRunPair(
     }
   }
 
+  // Word mode: if the opener glyph was misheard the loop above anchors runStart to
+  // the run's LATE glyphs (走); recover the true onset from its opening bigram.
+  const earlyStart = findRunStartByEarlyGlyphs(
+    run.original,
+    tailWords,
+    entwined.startTime + 0.3,
+    runStart,
+  )
+  if (earlyStart != null) runStart = Math.min(runStart, earlyStart)
+
   runStart = Math.max(runStart, entwined.startTime + 0.3)
   const entwinedEnd = Math.min(entwined.endTime, runStart)
   runEnd = Math.max(runEnd, runStart + 1.2)
@@ -193,6 +297,95 @@ function enforceLineMonotonicity(out: TimedLine[]): void {
   }
 }
 
+const KANJI_RE = /[一-龯]/
+/** Fold katakana onto hiragana so a katakana lyric (ローリング) matches a hiragana
+ * transcript (ろう) and vice-versa. */
+function kanaFold(s: string): string {
+  return s.replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60))
+}
+
+/** Snap an adjacent-line boundary to the real glyph transition in the transcript.
+ * Repeated kana (…向こう vs 此処 — both こ) or a katakana lyric against a hiragana
+ * transcript (ローリング → ろう) make the LCS split two lines a beat late, so a line
+ * loses its closing syllable (何を間違った…んだ) or starts inside the previous one
+ * (此処 starting 1.3 s late).  The true boundary is where the previous line's LAST
+ * kana is immediately followed by this line's onset — find that adjacent glyph pair
+ * within ~2.5 s of the current split and snap both sides to it.  When this line
+ * opens on a kanji (no phonetic glyph to match) it anchors on the previous line's
+ * last kana alone.  Word-mode only: segment chunks never form the adjacent pair. */
+function snapBoundaryToGlyphTransition(
+  lines: TimedLine[],
+  words: TranscriptWord[],
+): TimedLine[] {
+  const clean = sanitizeTranscript(words)
+  const out = lines.map((l) => ({ ...l }))
+  for (let i = 1; i < out.length; i++) {
+    const prevLast = kanaFold(normalizeForMatch(out[i - 1].original)).slice(-1)
+    const thisFirst = kanaFold(normalizeForMatch(out[i].original)).slice(0, 1)
+    if (!prevLast || !thisFirst || KANJI_RE.test(prevLast)) continue
+    const cur = out[i].startTime
+    const onsetIsKanji = KANJI_RE.test(thisFirst)
+    let best: number | null = null
+    for (let k = 0; k + 1 < clean.length; k++) {
+      const b = clean[k + 1]
+      if (b.startTime < cur - 2.5) continue
+      if (b.startTime > cur + 2.5) break
+      const a = kanaFold(normalizeForMatch(clean[k].word))
+      const bn = kanaFold(normalizeForMatch(b.word))
+      if (a.endsWith(prevLast) && (onsetIsKanji || bn.startsWith(thisFirst))) {
+        if (best === null || Math.abs(b.startTime - cur) < Math.abs(best - cur)) best = b.startTime
+      }
+    }
+    if (
+      best !== null
+      && Math.abs(best - cur) > 0.3
+      && best > out[i - 1].startTime + 0.5
+      && best < (out[i + 1]?.startTime ?? Infinity)
+    ) {
+      out[i - 1].endTime = best
+      out[i].startTime = best
+    }
+  }
+  return out
+}
+
+/** Pull a line's start back to a fresh vocal onset it currently begins after.
+ * When Whisper mishears a line's opening (理由→わけ) the LCS can't anchor the first
+ * syllable, so the line starts a beat or two into its own audio — bad for looping.
+ * A transcript glyph that follows a silence gap (no vocal just before) and sits
+ * after the previous line's end is this line's true onset; snap to it. */
+function backfillLineStartsToVocalOnset(
+  lines: TimedLine[],
+  words: TranscriptWord[],
+): TimedLine[] {
+  const clean = sanitizeTranscript(words)
+  const SILENCE = 1.0
+  const out = lines.map((l) => ({ ...l }))
+  for (let i = 0; i < out.length; i++) {
+    const prevEnd = i > 0 ? out[i - 1].endTime : 0
+    const start = out[i].startTime
+    let onset: number | null = null
+    for (const w of clean) {
+      if (w.startTime <= prevEnd + 0.25) continue
+      if (w.startTime > start + 0.05) break
+      const precededByVocal = clean.some(
+        (v) => v.startTime < w.startTime && v.endTime > w.startTime - SILENCE,
+      )
+      if (!precededByVocal) {
+        onset = w.startTime
+        break
+      }
+    }
+    // Only a modest correction (0.5–2.5 s). A larger gap means the onset glyph
+    // belongs to another line (e.g. an interjection the previous row left behind),
+    // not a late-anchored start of this one.
+    if (onset != null && start - onset > 0.5 && start - onset < 2.5) {
+      out[i].startTime = Math.max(onset, prevEnd)
+    }
+  }
+  return out
+}
+
 function realignMergedLineGroups(
   lines: TimedLine[],
   rawWords: TranscriptWord[],
@@ -213,9 +406,16 @@ function realignMergedLineGroups(
     const nextStart = hi + 1 < out.length ? out[hi + 1].startTime : lastTime
     const windowStart = Math.max(prevEnd, out[lo].startTime - 4)
     const windowEnd = Math.min(lastTime, Math.max(out[hi].endTime + 2, nextStart))
-    const windowWords = clean.filter(
-      (w) => w.endTime > windowStart && w.startTime < windowEnd,
-    )
+    // Subdivide multi-glyph chunks in the window into char-level slots so a short
+    // merged chunk (…わからないんだロリー) splits by glyph position instead of handing
+    // the whole chunk to one line. Long chunks are already subdivided by sanitize.
+    const windowWords = clean
+      .filter((w) => w.endTime > windowStart && w.startTime < windowEnd)
+      .flatMap((w) =>
+        w.endTime - w.startTime > 1.2 && [...normalizeForMatch(w.word)].length > 2
+          ? subdivideTranscriptWord(w)
+          : [w],
+      )
     if (windowWords.length === 0) continue
 
     const slice = out.slice(lo, hi + 1)
@@ -350,6 +550,21 @@ function recoverInterjectionTiming(
     const interjStart = out[i].startTime
     const nextStart = i + 1 < out.length ? out[i + 1].startTime : Infinity
 
+    // Case C: the interjection's own held vowel (ああ / あー) is sung LATER than
+    // where the LCS anchored it — a breath then a drawn-out "ahh". Snap to it.
+    const vowel = clean.find(
+      (w) =>
+        w.startTime > interjStart + 0.3
+        && w.startTime < nextStart - 0.1
+        && /^[あぁーア]+$/.test(normalizeForMatch(w.word)),
+    )
+    if (vowel) {
+      if (out[i - 1].endTime > vowel.startTime) out[i - 1].endTime = vowel.startTime - 0.05
+      out[i].startTime = vowel.startTime
+      out[i].endTime = Math.min(nextStart - 0.05, vowel.startTime + 2.5)
+      continue
+    }
+
     // Case A: gap between prev line and interjection — look for absorbed chunk.
     if (interjStart > prevEnd + 0.1) {
       const chunk = clean.find(
@@ -407,9 +622,13 @@ function extendValidatedLineTails(lines: TimedLine[], words: TranscriptWord[]): 
     const windowWords = clean.filter(
       (w) => w.endTime > out[i].startTime - 0.5 && w.startTime < nextStart + (runFollows ? 4 : 2),
     )
+    // A line that solely owns a long transcript chunk (e.g. 赤い…乗せて, ~12 s) must
+    // be allowed to extend to that chunk's end; the flat +3.5 s cap alone clips it.
+    // Still bounded by nextStart, so it can never bleed into the following line.
+    const ownedEnd = findExclusiveChunk(out[i], clean, out)?.endTime ?? -Infinity
     const maxEnd = runFollows
       ? Math.min(lastTime, out[i + 1].startTime + 2.5, out[i].endTime + 5)
-      : Math.min(lastTime, nextStart - 0.05, out[i].endTime + 3.5)
+      : Math.min(lastTime, nextStart - 0.05, Math.max(out[i].endTime + 3.5, ownedEnd))
     if (maxEnd <= out[i].startTime + 0.08) continue
     out[i].endTime = extendLineEndToTranscriptTail(out[i], windowWords, maxEnd)
     out[i].endTime = extendThroughMatchingTail(
@@ -424,14 +643,60 @@ function extendValidatedLineTails(lines: TimedLine[], words: TranscriptWord[]): 
   for (let i = 0; i < out.length - 1; i++) {
     if (!ENTWINED_ROLLING_RE.test(out[i].original)) continue
     if (!RUN_LINE_RE.test(out[i + 1].original)) continue
-    const { entwinedEnd, runStart, runEnd } = rebalanceEntwinedRunPair(
+    // Word-mode Whisper often fails to transcribe 心絡まって — the LCS then anchors
+    // the line to a late ローリング chunk, leaving a large gap after the previous line.
+    // Snap the start back to fill the gap so rebalanceEntwinedRunPair has the
+    // correct anchor window to work from.
+    if (i > 0 && out[i].startTime - out[i - 1].endTime > 1.0) {
+      out[i].startTime = out[i - 1].endTime
+    }
+    // Floor for the 心絡まって / 凍てつく boundary: how long 心絡まって is actually
+    // sung.  Use the first healthy chorus pair's observed 心絡まって duration as a
+    // direct offset from this line's start — a stable, physical estimate.  A
+    // fraction of the *combined* pair span (previous approach) overshoots here
+    // because the second chorus's run line (凍てつく世界) is longer, inflating the
+    // window and pushing the boundary past the true onset.  Fall back to 3.5 s.
+    let refEntwinedDur = 3.5
+    for (let j = 0; j < i; j++) {
+      if (!ENTWINED_ROLLING_RE.test(out[j].original)) continue
+      if (j + 1 >= out.length || !RUN_LINE_RE.test(out[j + 1].original)) continue
+      const refSpan = out[j].endTime - out[j].startTime
+      // Only trust a plausible sung duration (< 20 s); a run line over-extended to
+      // cover an instrumental break would poison the estimate.
+      if (refSpan > 1.5 && refSpan < 20) {
+        refEntwinedDur = refSpan
+        break
+      }
+    }
+    // proportionalFloor guards against garbage words in rebalanceEntwinedRunPair
+    // in BOTH segment mode (split fires) and word mode (split doesn't fire but the
+    // shared >= 3 false-positive still pulls runStart into 心絡まって's span).  Cap
+    // at the run line's own start so the floor can never push past the pair.
+    const proportionalFloor = Math.min(
+      out[i].startTime + refEntwinedDur,
+      out[i + 1].endTime - 0.5,
+    )
+
+    // Segment-mode collapse: 心絡まって has near-zero duration — seed a split so
+    // rebalanceEntwinedRunPair receives a real endTime to work from.
+    if (out[i].endTime < out[i].startTime + 1.5 && out[i + 1].endTime > out[i + 1].startTime + 2.0) {
+      out[i].endTime = proportionalFloor
+      out[i + 1].startTime = proportionalFloor
+    }
+    const { runStart, runEnd } = rebalanceEntwinedRunPair(
       out[i],
       out[i + 1],
       clean,
       lastTime,
     )
-    out[i].endTime = Math.max(out[i].startTime + 0.08, entwinedEnd)
-    out[i + 1].startTime = runStart
+    // Always floor at the proportional estimate — garbage words can pull runStart
+    // below it regardless of whether the segment-mode split fired above.
+    const effectiveRunStart = Math.max(runStart, proportionalFloor)
+    // 心絡まって ローリング flows straight into 凍てつく with no rest, so butt its end
+    // against the run onset — this also reclaims the trailing ローリング glyphs the
+    // LCS left short (心絡まって ending at 160.4 while ロリー runs to ~161.6).
+    out[i].endTime = Math.max(out[i].startTime + 0.08, effectiveRunStart)
+    out[i + 1].startTime = effectiveRunStart
     out[i + 1].endTime = runEnd
   }
 
@@ -461,49 +726,6 @@ function trimEmbeddedNextVocal(
     }
   }
   return phrases
-}
-
-function resyncEntwinedRollingPair(
-  lines: TimedLine[],
-  targetIndex: number,
-  words: TranscriptWord[],
-): TimedLine[] {
-  const out = lines.map((l) => ({ ...l }))
-  const tuned = extendValidatedLineTails(out, words)
-  if (ENTWINED_ROLLING_RE.test(out[targetIndex].original)) {
-    const tStart = tuned[targetIndex].startTime
-    const tEnd = tuned[targetIndex].endTime
-    if (tEnd - tStart > 0.1) {
-      out[targetIndex].startTime = tStart
-      out[targetIndex].endTime = tEnd
-    }
-    if (targetIndex + 1 < out.length && RUN_LINE_RE.test(out[targetIndex + 1].original)) {
-      const rStart = tuned[targetIndex + 1].startTime
-      const rEnd = tuned[targetIndex + 1].endTime
-      if (rEnd - rStart > 0.1) {
-        out[targetIndex + 1].startTime = rStart
-        out[targetIndex + 1].endTime = rEnd
-      }
-    }
-  } else if (
-    targetIndex > 0
-    && ENTWINED_ROLLING_RE.test(out[targetIndex - 1].original)
-    && RUN_LINE_RE.test(out[targetIndex].original)
-  ) {
-    const eStart = tuned[targetIndex - 1].startTime
-    const eEnd = tuned[targetIndex - 1].endTime
-    if (eEnd - eStart > 0.1) {
-      out[targetIndex - 1].startTime = eStart
-      out[targetIndex - 1].endTime = eEnd
-    }
-    const rStart = tuned[targetIndex].startTime
-    const rEnd = tuned[targetIndex].endTime
-    if (rEnd - rStart > 0.1) {
-      out[targetIndex].startTime = rStart
-      out[targetIndex].endTime = rEnd
-    }
-  }
-  return out
 }
 
 /** Post-pass: tighten boundaries, extend short vocals, remove cross-line bleed. */
@@ -967,6 +1189,13 @@ export interface LineValidationResult {
 }
 
 /** Score each line against its local transcript window; retry weak rows once. */
+/** Rough lower bound on a line's sung duration from its glyph count — used to
+ * reject retry results that collapse a plausible span onto a few matched glyphs. */
+function minSungSpan(lineText: string): number {
+  const glyphs = normalizeForMatch(lineText).length
+  return Math.max(0.8, Math.min(4.5, glyphs * 0.14))
+}
+
 export function validateAndRetryLineTimings(
   lines: TimedLine[],
   words: TranscriptWord[],
@@ -1011,7 +1240,18 @@ export function validateAndRetryLineTimings(
       if (retried) {
         const oldRank = qualityRank(score.quality)
         const newRank = qualityRank(retried.score.quality)
-        if (newRank > oldRank || (newRank === oldRank && retried.score.coverage > score.coverage + 0.08)) {
+        // A re-align in isolation can latch onto a high-coverage sliver when
+        // Whisper misheard most of the line (word-mode 君の孤独 → 全て…出す only),
+        // collapsing a well-formed span. Accept a same-rank retry only when it
+        // does not shrink an already-plausible span below the char-count floor.
+        const curSpan = out[i].endTime - out[i].startTime
+        const newSpan = retried.endTime - retried.startTime
+        const collapses =
+          curSpan >= minSungSpan(lineText) && newSpan < curSpan * 0.6 && newSpan < minSungSpan(lineText)
+        const accept =
+          newRank > oldRank
+          || (newRank === oldRank && retried.score.coverage > score.coverage + 0.08 && !collapses)
+        if (accept) {
           out[i].startTime = retried.startTime
           out[i].endTime = retried.endTime
           score = retried.score
@@ -1027,7 +1267,11 @@ export function validateAndRetryLineTimings(
           nextStart,
           lastTime,
         )
-        if (partial) {
+        const curSpan = out[i].endTime - out[i].startTime
+        const partialSpan = partial ? partial.endTime - partial.startTime : 0
+        const partialCollapses =
+          curSpan >= minSungSpan(lineText) && partialSpan < curSpan * 0.6 && partialSpan < minSungSpan(lineText)
+        if (partial && !partialCollapses) {
           out[i].startTime = partial.startTime
           out[i].endTime = partial.endTime
           score = scoreLineAlignment(lineText, windowWords, sourceLanguage)
@@ -1191,10 +1435,13 @@ export function refineAlignmentWithPhrases(
     sourceLanguage,
   )
   tunedLines = realignRepeatedRepetitionOnlyLines(tunedLines, words, lineTexts, sourceLanguage)
+  tunedLines = snapLinesToOwnedChunks(tunedLines, words)
   tunedLines = extendValidatedLineTails(tunedLines, words)
   tunedLines = extendUndershotLinesWithPartialMatch(tunedLines, words, sourceLanguage)
   tunedLines = clipSilencePaddedLineTails(tunedLines, words)
   tunedLines = recoverInterjectionTiming(tunedLines, words)
+  tunedLines = snapBoundaryToGlyphTransition(tunedLines, words)
+  tunedLines = backfillLineStartsToVocalOnset(tunedLines, words)
   tunedLines = expandSquashedLineHighlights(tunedLines)
   const quality = recomputeLineQuality(
     tunedLines,
@@ -1232,355 +1479,4 @@ export function refineAlignmentWithPhrases(
     phraseLayout: 'sheet',
     sheetLinesSnapshot: undefined,
   }
-}
-
-/**
- * Re-align the weak section that contains `targetIndex` using anchor-based
- * boundary detection. Walks outward (up to MAX_ANCHOR_SEARCH_LINES each
- * direction) to find `good`-quality anchor lines. The section between the
- * anchors is re-aligned from scratch using `alignLyrics` on the transcript
- * words that fall within the anchor time bounds, then refined with
- * `validateAndRetryLineTimings`.
- *
- * Anchor lines are never modified. Non-timing fields (translation, tokens,
- * furigana, etc.) are preserved on section lines.
- */
-export function realignSection(
-  lines: TimedLine[],
-  targetIndex: number,
-  transcriptWords: TranscriptWord[],
-  qualityIn: LineAlignmentQuality[],
-  sourceLanguage: Language,
-  anchorSourcesIn?: LineAnchorSource[],
-  options?: {
-    /**
-     * When true, skip bulk-alignment heuristics (repetition-pair repair,
-     * ENTWINED_ROLLING resync) and go straight to the general alignLyrics path.
-     * Use this for focused per-line resync where the transcript words are
-     * already constrained to the correct audio section.
-     */
-    focused?: boolean
-  },
-): {
-  lines: TimedLine[]
-  lineAlignmentQuality: LineAlignmentQuality[]
-  anchorSources: LineAnchorSource[]
-} {
-  // Already well-matched — realigning would not improve anything and risks
-  // corrupting the timing of neighboring approximate/needs_review lines.
-  if (qualityIn[targetIndex] === 'good') {
-    return {
-      lines,
-      lineAlignmentQuality: qualityIn,
-      anchorSources: anchorSourcesIn ?? lines.map(() => 'interpolated' as LineAnchorSource),
-    }
-  }
-
-  const clean = sanitizeTranscript(transcriptWords)
-  const lastTime = clean.at(-1)?.endTime ?? 0
-
-  // Walk left to find the nearest 'good' anchor, capped at MAX_ANCHOR_SEARCH_LINES.
-  let leftAnchorIdx = -1 // -1 = use t=0 as boundary
-  for (let i = targetIndex - 1; i >= 0 && targetIndex - i <= MAX_ANCHOR_SEARCH_LINES; i--) {
-    if (qualityIn[i] === 'good') { leftAnchorIdx = i; break }
-  }
-
-  // Walk right to find the nearest 'good' anchor, capped at MAX_ANCHOR_SEARCH_LINES.
-  let rightAnchorIdx = lines.length // lines.length = use lastTime as boundary
-  for (let i = targetIndex + 1; i < lines.length && i - targetIndex <= MAX_ANCHOR_SEARCH_LINES; i++) {
-    if (qualityIn[i] === 'good') { rightAnchorIdx = i; break }
-  }
-
-  const lineTexts = lines.map((l) => l.original || l.translation)
-  const targetText = lineTexts[targetIndex] ?? lines[targetIndex].original
-  const initialSectionLo = leftAnchorIdx + 1
-  const initialSectionHi = rightAnchorIdx - 1
-  const initialPairIdx = isRepetitionOnlyLine(targetText)
-    ? targetIndex
-    : targetIndex + 1 < lines.length && isRepetitionOnlyLine(lineTexts[targetIndex + 1] ?? '')
-      ? targetIndex + 1
-      : -1
-  const initialPairSection =
-    initialPairIdx > 0
-    && initialSectionLo <= initialSectionHi
-    && (initialSectionLo === initialPairIdx && initialSectionHi === initialPairIdx
-      || (initialSectionHi - initialSectionLo === 1
-        && initialSectionHi === initialPairIdx
-        && initialPairIdx - 1 === initialSectionLo))
-
-  if (initialPairSection && !options?.focused) {
-    const outLines = lines.map((l) => ({ ...l }))
-    const repaired = repairRepetitionPairAt(
-      outLines,
-      initialPairIdx,
-      clean,
-      lineTexts,
-      sourceLanguage,
-      { preservePrevStart: leftAnchorIdx === initialPairIdx - 1 },
-    )
-    if (repaired) {
-      const outQuality: LineAlignmentQuality[] = [...qualityIn]
-      const outAnchors: LineAnchorSource[] = anchorSourcesIn
-        ? [...anchorSourcesIn]
-        : lines.map(() => 'interpolated' as LineAnchorSource)
-      for (const li of [initialPairIdx - 1, initialPairIdx]) {
-        const prevEnd = li > 0 ? outLines[li - 1].endTime : 0
-        const nextStart = li + 1 < outLines.length ? outLines[li + 1].startTime : lastTime
-        const windowWords = transcriptWindowForLine(
-          clean,
-          outLines[li],
-          prevEnd,
-          nextStart,
-          lastTime,
-          LINE_VALIDATE_WINDOW_LEAD_S,
-          LINE_VALIDATE_WINDOW_TAIL_S,
-        )
-        const score = scoreLineAlignment(lineTexts[li], windowWords, sourceLanguage)
-        outQuality[li] = score.quality
-        outAnchors[li] = score.anchorSource
-      }
-      return { lines: outLines, lineAlignmentQuality: outQuality, anchorSources: outAnchors }
-    }
-    const rollingSpan = lines[initialPairIdx].endTime - lines[initialPairIdx].startTime
-    if (rollingSpan >= REPETITION_REF_MIN_SPAN_S) {
-      return {
-        lines,
-        lineAlignmentQuality: qualityIn,
-        anchorSources: anchorSourcesIn ?? lines.map(() => 'interpolated' as LineAnchorSource),
-      }
-    }
-  }
-
-  // Helper accessors that read the current anchor indices.
-  const anchorFrom = () => (leftAnchorIdx >= 0 ? lines[leftAnchorIdx].endTime : 0)
-  const anchorTo = () => (rightAnchorIdx < lines.length ? lines[rightAnchorIdx].startTime : lastTime)
-  const anchorLineCount = () => rightAnchorIdx - leftAnchorIdx - 1
-
-  // If the initial anchors are too close together (< 1 s/line) the initial
-  // alignment likely crammed several lines into one transcript word and the
-  // anchor timing is itself wrong. Walk one step further out in each direction
-  // to find anchors with a realistic time spread.
-  if (anchorTo() - anchorFrom() < anchorLineCount() * 1.0) {
-    let newLeft = -1
-    for (let i = (leftAnchorIdx < 0 ? -1 : leftAnchorIdx) - 1; i >= 0; i--) {
-      if (qualityIn[i] === 'good') { newLeft = i; break }
-    }
-    let newRight = lines.length
-    for (let i = (rightAnchorIdx >= lines.length ? lines.length : rightAnchorIdx) + 1; i < lines.length; i++) {
-      if (qualityIn[i] === 'good') { newRight = i; break }
-    }
-    leftAnchorIdx = newLeft
-    rightAnchorIdx = newRight
-    // Final fallback: still too tight → use full song range.
-    if (anchorTo() - anchorFrom() < anchorLineCount() * 1.0) {
-      leftAnchorIdx = -1
-      rightAnchorIdx = lines.length
-    }
-  }
-
-  const sectionLo = leftAnchorIdx + 1
-  let sectionHi = rightAnchorIdx - 1
-  if (sectionLo > sectionHi) {
-    return {
-      lines,
-      lineAlignmentQuality: qualityIn,
-      anchorSources: anchorSourcesIn ?? lines.map(() => 'interpolated' as LineAnchorSource),
-    }
-  }
-
-  if (sectionLo <= sectionHi && !options?.focused) {
-    if (
-      ENTWINED_ROLLING_RE.test(targetText)
-      || (targetIndex > 0 && ENTWINED_ROLLING_RE.test(lineTexts[targetIndex - 1] ?? ''))
-    ) {
-      const outLines = resyncEntwinedRollingPair(lines, targetIndex, clean)
-      const outQuality: LineAlignmentQuality[] = [...qualityIn]
-      const outAnchors: LineAnchorSource[] = anchorSourcesIn
-        ? [...anchorSourcesIn]
-        : lines.map(() => 'interpolated' as LineAnchorSource)
-      const tuneLo = ENTWINED_ROLLING_RE.test(targetText) ? targetIndex : targetIndex - 1
-      const tuneHi = RUN_LINE_RE.test(lineTexts[tuneLo + 1] ?? '') ? tuneLo + 1 : tuneLo
-      for (let li = tuneLo; li <= tuneHi; li++) {
-        const prevEnd = li > 0 ? outLines[li - 1].endTime : 0
-        const nextStart = li + 1 < outLines.length ? outLines[li + 1].startTime : lastTime
-        const windowWords = transcriptWindowForLine(
-          clean,
-          outLines[li],
-          prevEnd,
-          nextStart,
-          lastTime,
-          LINE_VALIDATE_WINDOW_LEAD_S,
-          LINE_VALIDATE_WINDOW_TAIL_S,
-        )
-        const score = scoreLineAlignment(lineTexts[li], windowWords, sourceLanguage)
-        outQuality[li] = score.quality
-        outAnchors[li] = score.anchorSource
-      }
-      return { lines: outLines, lineAlignmentQuality: outQuality, anchorSources: outAnchors }
-    }
-  }
-
-  const strictFrom = anchorFrom()
-  const strictTo = anchorTo()
-  const strictWords = clean.filter(
-    (w) => w.endTime > strictFrom && w.startTime < strictTo,
-  )
-  if (strictWords.length === 0) {
-    return {
-      lines,
-      lineAlignmentQuality: qualityIn,
-      anchorSources: anchorSourcesIn ?? lines.map(() => 'interpolated' as LineAnchorSource),
-    }
-  }
-
-  // When a single row sits between two good anchors inside one Whisper segment,
-  // align it together with the neighbor anchor row for split/orphan-fill context
-  // but do not overwrite anchor timings (AKFG 角を曲がって｜此処から…).
-  let contextLo = sectionLo
-  let contextHi = sectionHi
-  if (sectionLo === sectionHi) {
-    if (rightAnchorIdx === sectionHi + 1 && rightAnchorIdx < lines.length) {
-      contextHi = rightAnchorIdx
-    }
-    if (leftAnchorIdx === sectionLo - 1 && leftAnchorIdx >= 0) {
-      contextLo = leftAnchorIdx
-    }
-  }
-
-  // Time range is between anchor endpoints.
-  let timeFrom = anchorFrom()
-  let timeTo = anchorTo()
-  if (contextHi > sectionHi && rightAnchorIdx < lines.length && contextHi === rightAnchorIdx) {
-    timeTo = Math.min(lastTime, Math.max(timeTo, lines[rightAnchorIdx].endTime))
-  }
-  if (contextLo < sectionLo && leftAnchorIdx >= 0 && contextLo === leftAnchorIdx) {
-    timeFrom = Math.max(0, Math.min(timeFrom, lines[leftAnchorIdx].startTime))
-  }
-
-  // Words that overlap the anchor time range, clipped so a straddling word
-  // doesn't drag line timestamps outside the section bounds.
-  const sectionWords = clean
-    .filter((w) => w.endTime > timeFrom && w.startTime < timeTo)
-    .map((w) => ({
-      ...w,
-      startTime: Math.max(w.startTime, timeFrom),
-      endTime: Math.min(w.endTime, timeTo),
-    }))
-    .filter((w) => w.startTime < w.endTime)
-
-  // No words in range → can't improve; return unchanged.
-  if (sectionWords.length === 0) {
-    return {
-      lines,
-      lineAlignmentQuality: qualityIn,
-      anchorSources: anchorSourcesIn ?? lines.map(() => 'interpolated' as LineAnchorSource),
-    }
-  }
-
-  // Fresh alignment pass on the section (+ neighbor context rows when needed).
-  const contextSlice = lines.slice(contextLo, contextHi + 1)
-  const contextTexts = contextSlice.map((l) => l.original || l.translation)
-  const { lines: aligned, anchorSources: pass1Anchors } = alignLyrics(
-    contextTexts,
-    sectionWords as TranscriptWord[],
-    contextSlice,
-    sourceLanguage,
-  )
-
-  // Merge timing into originals (preserve translation, tokens, furigana, etc.)
-  const mergedContext: TimedLine[] = contextSlice.map((orig, k) => ({
-    ...orig,
-    startTime: aligned[k].startTime,
-    endTime: aligned[k].endTime,
-  }))
-
-  // Refine and score.
-  const refined = validateAndRetryLineTimings(
-    mergedContext,
-    sectionWords as TranscriptWord[],
-    sourceLanguage,
-    pass1Anchors,
-  )
-
-  // Merge back into full-length output arrays (skip context-only anchor rows).
-  const outLines = [...lines]
-  const outQuality: LineAlignmentQuality[] = [...qualityIn]
-  const outAnchors: LineAnchorSource[] = anchorSourcesIn
-    ? [...anchorSourcesIn]
-    : lines.map(() => 'interpolated' as LineAnchorSource)
-
-  for (let k = 0; k < refined.lines.length; k++) {
-    const li = contextLo + k
-    if (li < sectionLo || li > sectionHi) continue
-    outLines[li] = {
-      ...lines[li],
-      startTime: refined.lines[k].startTime,
-      endTime: refined.lines[k].endTime,
-    }
-    outQuality[li] = refined.lineAlignmentQuality[k]
-    outAnchors[li] = refined.anchorSources[k]
-  }
-
-  return { lines: outLines, lineAlignmentQuality: outQuality, anchorSources: outAnchors }
-}
-
-/**
- * Re-align all `needs_review` and `approximate` lines by grouping them into
- * contiguous sections and calling `realignSection` once per section.
- * Sections are accumulated sequentially so each re-anchored section's updated
- * timing becomes anchor context for the next.
- */
-export function realignAllWeakSections(
-  lines: TimedLine[],
-  transcriptWords: TranscriptWord[],
-  qualityIn: LineAlignmentQuality[],
-  sourceLanguage: Language,
-  anchorSourcesIn?: LineAnchorSource[],
-): {
-  lines: TimedLine[]
-  lineAlignmentQuality: LineAlignmentQuality[]
-  anchorSources: LineAnchorSource[]
-} {
-  const weakIndices = lines
-    .map((_, i) => i)
-    .filter((i) => qualityIn[i] === 'needs_review' || qualityIn[i] === 'approximate')
-
-  if (weakIndices.length === 0) {
-    return {
-      lines,
-      lineAlignmentQuality: qualityIn,
-      anchorSources: anchorSourcesIn ?? lines.map(() => 'interpolated' as LineAnchorSource),
-    }
-  }
-
-  // Group weak indices into contiguous runs.
-  const sections: number[][] = []
-  let current = [weakIndices[0]]
-  for (let i = 1; i < weakIndices.length; i++) {
-    if (weakIndices[i] === weakIndices[i - 1] + 1) {
-      current.push(weakIndices[i])
-    } else {
-      sections.push(current)
-      current = [weakIndices[i]]
-    }
-  }
-  sections.push(current)
-
-  // Re-align each section using the middle line's index as the target.
-  let acc: { lines: TimedLine[]; lineAlignmentQuality: LineAlignmentQuality[]; anchorSources: LineAnchorSource[] | undefined } =
-    { lines, lineAlignmentQuality: qualityIn, anchorSources: anchorSourcesIn }
-
-  for (const section of sections) {
-    const targetIndex = section[Math.floor(section.length / 2)]
-    acc = realignSection(
-      acc.lines,
-      targetIndex,
-      transcriptWords,
-      acc.lineAlignmentQuality,
-      sourceLanguage,
-      acc.anchorSources,
-    )
-  }
-
-  return acc as { lines: TimedLine[]; lineAlignmentQuality: LineAlignmentQuality[]; anchorSources: LineAnchorSource[] }
 }

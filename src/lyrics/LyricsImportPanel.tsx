@@ -3,7 +3,6 @@ import type { TimedLine, Language } from '../core/types'
 import { linesFromPlainText } from '../sources/songBuilder'
 import { parseSubtitle } from './subtitle-parser'
 import { resolveLyricsForSong, lyricsSourceLabel, type LyricsResolveSource } from '../sources/lyricsResolver'
-import { normalizeImportedLines } from '../sources/importNormalize'
 import { LyricsFoundConfirm, lyricsFoundReadyToApply } from './LyricsFoundConfirm'
 import type { LyricsLookupMatch } from '../sources/lrclib'
 import { getDefaultSongLanguage } from '../payment/SettingsStore'
@@ -115,10 +114,7 @@ export function LyricsImportPanel({
         setApplying(false)
         return
       }
-      const finalLines = lines.length
-        ? await normalizeImportedLines(title.trim(), artist.trim(), lines)
-        : lines
-      onApply(finalLines)
+      onApply(lines)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not import lyrics')
       setApplying(false)

@@ -32,6 +32,11 @@ const MAX_REPEATS_KEPT = 1
 // the onset is kept without dropping the whole chunk (>28s) or smearing chars.
 const MAX_SEC_PER_GLYPH = 0.65
 const MIN_CLIPPED_SEGMENT_S = 1.2
+// A slow ballad (e.g. AKFG First Take) can genuinely hold ~0.9 s per glyph. Above
+// this rate a long segment is an overstamp, not singing. Used together with
+// contiguity so a plausibly-paced phrase backed by an immediately-following chunk
+// is kept in full (赤い…乗せて, 262–275 s) while a sparse overstamp still clips.
+const SLOW_SING_MAX_SEC_PER_GLYPH = 1.2
 const JA_SCRIPT_RE = /[぀-ヿ㐀-鿿]/
 
 function normalizeToken(word: string): string {
@@ -41,7 +46,7 @@ function normalizeToken(word: string): string {
 }
 
 /** Split an over-long segment phrase into char-level slots with real timestamps. */
-function subdivideTranscriptWord(w: TranscriptWord): TranscriptWord[] {
+export function subdivideTranscriptWord(w: TranscriptWord): TranscriptWord[] {
   const glyphs = [...normalizeForMatch(w.word)]
   if (glyphs.length <= 1) return [w]
   const duration = w.endTime - w.startTime
@@ -58,14 +63,19 @@ function pushSanitizedWord(kept: TranscriptWord[], w: TranscriptWord): void {
   kept.push(w)
 }
 
-/** Clip Japanese segment overstamps; leave Latin-only loops for the drop rule. */
-function clipImplausibleSegmentEnd(w: TranscriptWord): TranscriptWord {
+/** Clip Japanese segment overstamps; leave Latin-only loops for the drop rule.
+ * `nextStart` is the following raw chunk's onset (if any): a long segment that is
+ * both plausibly paced AND immediately followed by the next chunk is slow singing,
+ * not an overstamp into silence, so it is kept in full. */
+function clipImplausibleSegmentEnd(w: TranscriptWord, nextStart?: number): TranscriptWord {
   const duration = w.endTime - w.startTime
   if (duration <= MAX_WORD_DURATION_S) return w
   const glyphs = [...normalizeForMatch(w.word)]
   if (glyphs.length === 0 || !glyphs.some((ch) => JA_SCRIPT_RE.test(ch))) return w
   const maxDur = Math.max(MIN_CLIPPED_SEGMENT_S, glyphs.length * MAX_SEC_PER_GLYPH)
   if (duration <= maxDur) return w
+  const contiguousFollower = nextStart != null && nextStart <= w.endTime + 0.35
+  if (duration / glyphs.length <= SLOW_SING_MAX_SEC_PER_GLYPH && contiguousFollower) return w
   return { ...w, endTime: w.startTime + maxDur }
 }
 
@@ -83,9 +93,11 @@ export function sanitizeTranscript(words: TranscriptWord[]): TranscriptWord[] {
   let runToken = ''
   let runCount = 0
 
-  for (const raw of words) {
+  for (let wi = 0; wi < words.length; wi++) {
+    const raw = words[wi]
     if (!Number.isFinite(raw.startTime) || !Number.isFinite(raw.endTime)) continue
-    const w = clipImplausibleSegmentEnd(raw)
+    const nextRawStart = words[wi + 1]?.startTime
+    const w = clipImplausibleSegmentEnd(raw, nextRawStart)
     const duration = w.endTime - w.startTime
     if (duration <= 0) continue
 

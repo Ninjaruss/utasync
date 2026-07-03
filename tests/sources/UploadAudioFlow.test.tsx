@@ -12,9 +12,6 @@ vi.mock('../../src/sources/lrclib', () => ({
   findLyrics: vi.fn(async () => null),
 }))
 
-vi.mock('../../src/sources/secondLanguageResolver', () => ({
-  findSecondLanguageLyrics: vi.fn(async () => null),
-}))
 
 import { extractAudioMetadata } from '../../src/sources/audioMetadata'
 vi.mock('../../src/sources/audioMetadata', async (orig) => {
@@ -28,9 +25,6 @@ beforeEach(async () => {
   const lrclib = await import('../../src/sources/lrclib')
   vi.mocked(lrclib.findLyrics).mockReset()
   vi.mocked(lrclib.findLyrics).mockResolvedValue(null)
-  const secondLang = await import('../../src/sources/secondLanguageResolver')
-  vi.mocked(secondLang.findSecondLanguageLyrics).mockReset()
-  vi.mocked(secondLang.findSecondLanguageLyrics).mockResolvedValue(null)
 })
 
 async function pickFileAndTitle(container: HTMLElement, title = 'My Song') {
@@ -171,35 +165,14 @@ describe('UploadAudioFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: /add song/i }))
   }
 
-  it('auto-attaches a translation on add song when counts match', async () => {
-    const secondLang = await import('../../src/sources/secondLanguageResolver')
-    vi.mocked(secondLang.findSecondLanguageLyrics).mockResolvedValueOnce({
-      lrc: 'Translated one\nTranslated two',
-      synced: false,
-      source: 'lyrics-ovh',
-    })
+  it('does not auto-attach a second language on add song', async () => {
     const onSongReady = vi.fn()
     await submitWithPastedLyrics(onSongReady)
 
     await waitFor(() => expect(onSongReady).toHaveBeenCalled(), { timeout: 5000 })
     const songId = onSongReady.mock.calls[0][0]
     const song = await db.songs.get(songId)
-    expect(song?.lyrics.lines.map((l) => l.translation)).toEqual(['Translated one', 'Translated two'])
-  })
-
-  it('skips a mismatched-count translation silently on add song', async () => {
-    const secondLang = await import('../../src/sources/secondLanguageResolver')
-    vi.mocked(secondLang.findSecondLanguageLyrics).mockResolvedValueOnce({
-      lrc: 'Only one translated line',
-      synced: false,
-      source: 'lyrics-ovh',
-    })
-    const onSongReady = vi.fn()
-    await submitWithPastedLyrics(onSongReady)
-
-    await waitFor(() => expect(onSongReady).toHaveBeenCalled(), { timeout: 5000 })
-    const songId = onSongReady.mock.calls[0][0]
-    const song = await db.songs.get(songId)
-    expect(song?.lyrics.lines.map((l) => l.translation)).toEqual(['', ''])
+    // Translations stay empty — the second-language search was removed from import.
+    expect(song?.lyrics.lines.every((l) => !l.translation)).toBe(true)
   })
 })

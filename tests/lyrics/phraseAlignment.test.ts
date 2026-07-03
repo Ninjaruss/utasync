@@ -6,8 +6,6 @@ import type { LineAlignmentQuality, TimedLine } from '../../src/core/types'
 import {
   alignPhrasesToTranscript,
   projectPhraseTimingToLines,
-  realignAllWeakSections,
-  realignSection,
   refineAlignmentWithPhrases,
   sheetRowsForAlignment,
   validateAndRetryLineTimings,
@@ -321,11 +319,13 @@ describe.skipIf(!existsSync(USER_ROCKROLL_CACHE))(
       expect(firstPain!.startTime).toBeGreaterThanOrEqual(lost!.endTime - 0.5)
     })
 
-    it('gives every sung row at least 2s except sigh rows', () => {
+    it('gives every sung row at least 2s except sigh and short-repetition rows', () => {
       const refined = refineAlignmentWithPhrases(sheetRows, words, 'ja')
       for (const row of refined.lines) {
         const dur = row.endTime - row.startTime
-        if (/^(嗚呼|うーん|あー)/.test(row.original.trim())) continue
+        // Sighs and short repetition lines (ローリング ローリング) are genuinely brief —
+        // ~1.6 s — once the preceding clause reclaims its own わからないんだ tail.
+        if (/^(嗚呼|うーん|あー|ローリング)/.test(row.original.trim())) continue
         expect(dur).toBeGreaterThan(2)
       }
     })
@@ -353,161 +353,3 @@ function makeLine(startTime: number, endTime: number, text = ''): TimedLine {
 function makeWord(word: string, startTime: number, endTime: number): TranscriptWord {
   return { word, startTime, endTime }
 }
-
-// ─── realignSection ───────────────────────────────────────────────────────────
-
-describe('realignSection', () => {
-  it('re-aligns lines between good anchors without touching the anchors', () => {
-    const lines = [
-      makeLine(0, 2, 'one'),
-      makeLine(50, 51, 'two'),
-      makeLine(50, 51, 'three'),
-      makeLine(9, 11, 'four'),
-    ]
-    const quality: LineAlignmentQuality[] = ['good', 'needs_review', 'needs_review', 'good']
-    const words = [
-      makeWord('one', 0, 2),
-      makeWord('two', 3, 4),
-      makeWord('three', 6, 7),
-      makeWord('four', 9, 11),
-    ]
-
-    const result = realignSection(lines, 1, words, quality, 'ja')
-
-    expect(result.lines[0]).toEqual(lines[0])
-    expect(result.lines[3]).toEqual(lines[3])
-    expect(result.lines[1].startTime).toBeGreaterThanOrEqual(2)
-    expect(result.lines[1].startTime).toBeLessThan(9)
-    expect(result.lines[2].endTime).toBeLessThanOrEqual(9)
-    expect(result.lines[1].startTime).not.toBe(50)
-    expect(result.lines[2].startTime).not.toBe(50)
-    expect(result.lines).toHaveLength(4)
-    expect(result.lineAlignmentQuality).toHaveLength(4)
-    expect(result.anchorSources).toHaveLength(4)
-  })
-
-  it('returns unchanged when no transcript words fall within anchor bounds', () => {
-    const lines = [
-      makeLine(1, 2, 'anchor left'),
-      makeLine(5, 6, 'target'),
-      makeLine(9, 10, 'anchor right'),
-    ]
-    const quality: LineAlignmentQuality[] = ['good', 'needs_review', 'good']
-    const words = [
-      makeWord('x', 0, 1),
-      makeWord('y', 9.5, 10),
-    ]
-
-    const result = realignSection(lines, 1, words, quality, 'ja')
-
-    expect(result.lines[1].startTime).toBe(5)
-    expect(result.lines[1].endTime).toBe(6)
-  })
-
-  it('uses song start as left boundary when no good anchor is left of target', () => {
-    const lines = [
-      makeLine(0, 1, 'a'),
-      makeLine(5, 6, 'b'),
-      makeLine(9, 10, 'c'),
-    ]
-    const quality: LineAlignmentQuality[] = ['needs_review', 'needs_review', 'good']
-    const words = [
-      makeWord('a', 0, 1),
-      makeWord('b', 4, 5),
-      makeWord('c', 9, 10),
-    ]
-
-    const result = realignSection(lines, 1, words, quality, 'ja')
-
-    expect(result.lines).toHaveLength(3)
-    expect(result.lines[2]).toEqual(lines[2])
-  })
-
-  it('uses last transcript word time as right boundary when no good anchor is right of target', () => {
-    const lines = [
-      makeLine(0, 2, 'a'),
-      makeLine(5, 6, 'b'),
-      makeLine(8, 9, 'c'),
-    ]
-    const quality: LineAlignmentQuality[] = ['good', 'needs_review', 'needs_review']
-    const words = [
-      makeWord('a', 0, 2),
-      makeWord('b', 4, 5),
-      makeWord('c', 8, 9),
-    ]
-
-    const result = realignSection(lines, 1, words, quality, 'ja')
-
-    expect(result.lines).toHaveLength(3)
-    expect(result.lines[0]).toEqual(lines[0])
-  })
-
-  it('preserves non-timing fields on section lines', () => {
-    const lines: TimedLine[] = [
-      { startTime: 0, endTime: 2, original: 'one', translation: 'ONE' },
-      { startTime: 50, endTime: 51, original: 'two', translation: 'TWO' },
-      { startTime: 9, endTime: 10, original: 'four', translation: 'FOUR' },
-    ]
-    const quality: LineAlignmentQuality[] = ['good', 'needs_review', 'good']
-    const words = [makeWord('one', 0, 2), makeWord('two', 4, 6), makeWord('four', 9, 10)]
-
-    const result = realignSection(lines, 1, words, quality, 'ja')
-
-    expect(result.lines[1].translation).toBe('TWO')
-    expect(result.lines[1].original).toBe('two')
-  })
-})
-
-// ─── realignAllWeakSections ───────────────────────────────────────────────────
-
-describe('realignAllWeakSections', () => {
-  it('groups contiguous weak lines into sections and re-aligns each', () => {
-    const lines = [
-      makeLine(0, 1, 'a'),
-      makeLine(50, 51, 'b'),
-      makeLine(50, 51, 'c'),
-      makeLine(8, 9, 'd'),
-      makeLine(10, 11, 'e'),
-      makeLine(60, 61, 'f'),
-      makeLine(60, 61, 'g'),
-      makeLine(18, 19, 'h'),
-    ]
-    const quality: LineAlignmentQuality[] = [
-      'good', 'needs_review', 'needs_review', 'good',
-      'good', 'needs_review', 'needs_review', 'good',
-    ]
-    const words = [
-      makeWord('a', 0, 1),
-      makeWord('b', 2, 3),
-      makeWord('c', 5, 6),
-      makeWord('d', 8, 9),
-      makeWord('e', 10, 11),
-      makeWord('f', 13, 14),
-      makeWord('g', 15, 16),
-      makeWord('h', 18, 19),
-    ]
-
-    const result = realignAllWeakSections(lines, words, quality, 'ja')
-
-    expect(result.lines[0]).toEqual(lines[0])
-    expect(result.lines[3]).toEqual(lines[3])
-    expect(result.lines[4]).toEqual(lines[4])
-    expect(result.lines[7]).toEqual(lines[7])
-    expect(result.lines[1].startTime).not.toBe(50)
-    expect(result.lines[2].startTime).not.toBe(50)
-    expect(result.lines[5].startTime).not.toBe(60)
-    expect(result.lines[6].startTime).not.toBe(60)
-    expect(result.lines).toHaveLength(8)
-  })
-
-  it('returns original arrays unchanged when there are no weak lines', () => {
-    const lines = [makeLine(0, 1, 'a'), makeLine(2, 3, 'b')]
-    const quality: LineAlignmentQuality[] = ['good', 'good']
-    const words = [makeWord('a', 0, 1), makeWord('b', 2, 3)]
-
-    const result = realignAllWeakSections(lines, words, quality, 'ja')
-
-    expect(result.lines).toBe(lines)
-    expect(result.lineAlignmentQuality).toBe(quality)
-  })
-})

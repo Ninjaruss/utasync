@@ -2,7 +2,6 @@ import type { ProcessStep } from '../core/ui/progressUtils'
 
 export const UPLOAD_SAVE_STEPS: ProcessStep[] = [
   { label: 'Preparing lyrics', detail: 'Reading pasted text or subtitle file' },
-  { label: 'Looking for translation', detail: 'Optional — searching LRCLIB for a second language' },
   { label: 'Saving audio', detail: 'Copying file to local storage' },
   { label: 'Saving song', detail: 'Writing to your library' },
 ]
@@ -13,7 +12,6 @@ export const LINK_METADATA_STEPS: ProcessStep[] = [
 
 export const LINK_SAVE_STEPS: ProcessStep[] = [
   { label: 'Preparing lyrics', detail: 'Reading pasted text or subtitle file' },
-  { label: 'Looking for translation', detail: 'Optional — searching LRCLIB for a second language' },
   { label: 'Saving audio', detail: 'Copying file to local storage' },
   { label: 'Saving song', detail: 'Writing to your library' },
 ]
@@ -34,14 +32,13 @@ export const SECOND_LANGUAGE_ALIGN_STEPS: ProcessStep[] = [
   { label: 'Normalizing lyrics', detail: 'Matching translation lines to your lyrics' },
 ]
 
-export type UploadSavePhase = 'preparing' | 'normalizing' | 'saving-audio' | 'saving-song'
+export type UploadSavePhase = 'preparing' | 'saving-audio' | 'saving-song'
 
 export function uploadSaveStepIndex(phase: UploadSavePhase): number {
   switch (phase) {
     case 'preparing': return 0
-    case 'normalizing': return 1
-    case 'saving-audio': return 2
-    case 'saving-song': return 3
+    case 'saving-audio': return 1
+    case 'saving-song': return 2
   }
 }
 
@@ -49,12 +46,12 @@ export type LinkSavePhase = UploadSavePhase
 
 export function linkSaveSteps(includeAudio: boolean): ProcessStep[] {
   if (includeAudio) return LINK_SAVE_STEPS
-  return LINK_SAVE_STEPS.filter((_, i) => i !== 2)
+  return LINK_SAVE_STEPS.filter((_, i) => i !== 1)
 }
 
 export function linkSaveStepIndex(phase: LinkSavePhase, includeAudio: boolean): number {
   const order: LinkSavePhase[] = includeAudio
-    ? ['preparing', 'normalizing', 'saving-audio', 'saving-song']
-    : ['preparing', 'normalizing', 'saving-song']
+    ? ['preparing', 'saving-audio', 'saving-song']
+    : ['preparing', 'saving-song']
   return Math.max(0, order.indexOf(phase))
 }

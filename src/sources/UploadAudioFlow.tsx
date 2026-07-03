@@ -8,7 +8,6 @@ import { detectLanguage } from '../lyrics/bilingual'
 import type { Language } from '../core/types'
 import { parseLRC } from '../lyrics/lrc-parser'
 import { parseSubtitle } from '../lyrics/subtitle-parser'
-import { normalizeImportedLines, importNeedsTranslationAttach } from './importNormalize'
 import { LyricsFoundConfirm, lyricsFoundReadyToApply } from '../lyrics/LyricsFoundConfirm'
 import {
   extractAudioMetadata,
@@ -183,11 +182,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
         return
       }
 
-      let finalLines = lines
-      if (importNeedsTranslationAttach(lines)) {
-        setSaveProgress({ phase: 'normalizing' })
-        finalLines = await normalizeImportedLines(title.trim(), artist.trim(), lines)
-      }
+      const finalLines = lines
 
       const primaryLang = detectLanguage(finalLines.map((l) => l.original).join('\n'))
       const sourceLanguage: Language = primaryLang === 'ja' ? 'ja' : getDefaultSongLanguage()

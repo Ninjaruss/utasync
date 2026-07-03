@@ -41,23 +41,6 @@ interface Props {
   lineAlignmentQuality?: LineAlignmentQuality[]
   /** When false, suppress alignment quality badges (e.g. manual tap-sync). */
   showAlignmentQuality?: boolean
-  /** Called when user taps the per-row re-align chip. Index is into `lines`. */
-  onLocalRealign?: (lineIndex: number) => void
-  /** Called when user taps the "Re-align N weak lines" toolbar button. */
-  onRealignAllWeak?: () => void
-  /** Set of line indices currently being re-aligned (shows spinner on those rows). */
-  localRealigning?: Set<number>
-  /** Transcription progress (0–100) per line index — shown inside the row spinner. */
-  realignLineProgress?: Map<number, number>
-  /** Bulk re-align progress — drives label on the toolbar button. */
-  realignBulkProgress?: { done: number; total: number } | null
-  /** Count of needs_review + approximate lines — drives the bulk button label. */
-  weakLineCount?: number
-  /** True while the batch re-align is running — disables and relabels the bulk button. */
-  isRealigningAll?: boolean
-  /** When true the stored transcript is segment-mode with merged chunks — the bulk
-   * button opens a precision word-level re-align instead of the fast local rearrange. */
-  precisionModeAvailable?: boolean
 }
 
 const DELETE_CONFIRM_MS = 3000
@@ -101,10 +84,6 @@ interface RowProps {
   onClosePopover: () => void
   alignmentQuality?: LineAlignmentQuality
   showAlignmentQuality?: boolean
-  onLocalRealign?: () => void   // pre-bound to this row's index by EditMode
-  isRealigning?: boolean
-  /** Transcription progress 0–100 while re-syncing (undefined = not yet started or done). */
-  realignProgress?: number
 }
 
 
@@ -112,7 +91,7 @@ interface RowProps {
 function Row({
   line, index, timed, editing, deleteArmed, playheadActive, onStartEdit, onStopEdit, onCommitText, onAdd,
   onArmDelete, onConfirmDelete, onOpenPopover, popoverOpen, playhead, seek, onScrubStart, onScrubEnd, onCommitTime, onClosePopover,
-  alignmentQuality, showAlignmentQuality, onLocalRealign, isRealigning, realignProgress,
+  alignmentQuality, showAlignmentQuality,
 }: RowProps) {
   const [original, setOriginal] = useState(line.original)
   const [translation, setTranslation] = useState(line.translation)
@@ -175,27 +154,6 @@ function Row({
         </div>
 
         <div className="flex items-center gap-0.5 shrink-0">
-          {editing && onLocalRealign && (
-            isRealigning ? (
-              <span
-                role="status"
-                aria-live="polite"
-                aria-label={`Realigning line ${index + 1}`}
-                className={`min-w-11 min-h-11 flex items-center justify-center text-[11px] tabular-nums select-none ${alignmentQuality === 'needs_review' || alignmentQuality === 'approximate' ? 'text-amber-400/70' : 'text-white/40'}`}
-              >
-                {realignProgress !== undefined
-                  ? <><span className="animate-spin inline-block">⟳</span><span className="ml-0.5 tabular-nums">{Math.round(realignProgress)}%</span></>
-                  : <span className="animate-spin inline-block text-base">⟳</span>}
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); onLocalRealign() }}
-                aria-label={`Re-sync line ${index + 1}`}
-                className={`min-w-11 min-h-11 flex items-center justify-center touch-manipulation transition-[color,transform] duration-150 ease-out active:scale-[0.96] text-base ${alignmentQuality === 'needs_review' || alignmentQuality === 'approximate' ? 'text-amber-400/60 hover:text-amber-300' : 'text-white/30 hover:text-white/70'}`}
-              >⟳</button>
-            )
-          )}
           {editing && (
             <>
               <button onClick={onAdd} aria-label={`Add line after ${index + 1}`} className="min-w-11 min-h-11 flex items-center justify-center text-white/50 hover:text-white touch-manipulation transition-[color,transform] duration-150 ease-out active:scale-[0.96]">⊕</button>
@@ -240,7 +198,7 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, onLocalRealign, onRealignAllWeak, localRealigning, realignLineProgress, realignBulkProgress, weakLineCount, isRealigningAll, precisionModeAvailable }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
@@ -425,24 +383,8 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
         )}
         {needsReviewCount > 0 && (
           <p className="text-[10px] text-amber-400/80 text-pretty">
-            {needsReviewCount} line{needsReviewCount === 1 ? '' : 's'} off-timing — tap a line to re-sync it.
+            {needsReviewCount} line{needsReviewCount === 1 ? '' : 's'} off-timing — adjust the timestamps below or re-run Auto-align.
           </p>
-        )}
-        {showAlignmentQuality && (weakLineCount ?? 0) > 0 && onRealignAllWeak && (
-          <button
-            type="button"
-            onClick={onRealignAllWeak}
-            disabled={isRealigningAll}
-            className={`${toolbarActionBtn} disabled:opacity-50`}
-          >
-            {realignBulkProgress
-              ? `⟳ ${realignBulkProgress.done} / ${realignBulkProgress.total} lines…`
-              : isRealigningAll
-                ? '⟳ Re-aligning…'
-                : precisionModeAvailable
-                  ? `Re-align with precision (${weakLineCount} lines)`
-                  : `Re-align ${weakLineCount} weak lines`}
-          </button>
         )}
       </div>
 
@@ -477,9 +419,6 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
           onClosePopover={closePopoverAfterCommit}
           alignmentQuality={lineAlignmentQuality?.[i]}
           showAlignmentQuality={showAlignmentQuality}
-          onLocalRealign={onLocalRealign ? () => onLocalRealign(i) : undefined}
-          isRealigning={localRealigning?.has(i)}
-          realignProgress={realignLineProgress?.get(i)}
         />
           </div>
         ))}

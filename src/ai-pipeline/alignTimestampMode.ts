@@ -35,7 +35,11 @@ export function accurateReadingsEstimate(tier: DeviceTier, durationSec: number):
 /** Number of merged segments to see before suggesting the word-level pass. */
 const MERGED_SEGMENT_SUGGEST_THRESHOLD = 2
 
-/** Contiguous line-index runs that share one long transcript chunk (segment mode). */
+/** Contiguous line-index runs that share one long transcript chunk (segment mode).
+ * A line belongs to a chunk when its timing OVERLAPS the chunk by a meaningful
+ * amount — not only when its start falls inside.  This catches tail-straddling
+ * chunks where a previous line's closing syllables share the chunk with the next
+ * line (…わからないんだ｜ローリング), which a start-only test would miss. */
 export function findMergedLineGroups(
   lines: TimedLine[],
   transcriptWords: readonly { startTime: number; endTime: number }[],
@@ -43,13 +47,11 @@ export function findMergedLineGroups(
   const groups: number[][] = []
   const used = new Set<number>()
   for (const w of transcriptWords) {
-    if (w.endTime - w.startTime < 2.5) continue
+    if (w.endTime - w.startTime < 1.8) continue
     const hits: number[] = []
     for (let i = 0; i < lines.length; i++) {
-      const t = lines[i].startTime
-      // Strictly inside the chunk — exclude rows that only touch the closing edge
-      // (e.g. 角を曲がって at t=275 must not join the prior red-car segment).
-      if (t >= w.startTime && t < w.endTime - 0.08) hits.push(i)
+      const overlap = Math.min(lines[i].endTime, w.endTime) - Math.max(lines[i].startTime, w.startTime)
+      if (overlap > 0.3) hits.push(i)
     }
     if (hits.length < 2) continue
     const lo = Math.min(...hits)

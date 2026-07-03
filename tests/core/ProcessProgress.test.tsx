@@ -14,8 +14,8 @@ describe('overallPercent', () => {
 
 describe('linkSaveSteps', () => {
   it('omits the audio step when no file is attached', () => {
-    expect(linkSaveSteps(false)).toHaveLength(3)
-    expect(linkSaveStepIndex('saving-song', false)).toBe(2)
+    expect(linkSaveSteps(false)).toHaveLength(2)
+    expect(linkSaveStepIndex('saving-song', false)).toBe(1)
   })
 })
 

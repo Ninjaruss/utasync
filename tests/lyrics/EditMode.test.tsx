@@ -3,10 +3,6 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { EditMode } from '../../src/lyrics/EditMode'
 import type { TimedLine } from '../../src/core/types'
 
-vi.mock('../../src/sources/secondLanguageResolver', () => ({
-  findSecondLanguageLyrics: () => new Promise(() => {}),
-}))
-
 const lines: TimedLine[] = [
   { startTime: 0, endTime: 2, original: 'a', translation: '' },
   { startTime: 0, endTime: 0, original: 'b', translation: '' }, // untimed
@@ -283,104 +279,18 @@ describe('EditMode', () => {
 })
 
 describe('EditMode — local re-align', () => {
-  it('renders a tappable chip for needs_review rows when onLocalRealign is provided', () => {
-    const onLocalRealign = vi.fn()
-    renderEditMode({
-      lineAlignmentQuality: ['good', 'needs_review'],
-      showAlignmentQuality: true,
-      onLocalRealign,
-    })
-    fireEvent.click(screen.getByRole('button', { name: /edit line 2/i }))
-    const chip = screen.getByRole('button', { name: /re-sync line 2/i })
-    expect(chip).toBeTruthy()
-  })
-
-  it('calls onLocalRealign with the correct line index when the chip is clicked', () => {
-    const onLocalRealign = vi.fn()
-    renderEditMode({
-      lineAlignmentQuality: ['good', 'needs_review'],
-      showAlignmentQuality: true,
-      onLocalRealign,
-    })
-    fireEvent.click(screen.getByRole('button', { name: /edit line 2/i }))
-    fireEvent.click(screen.getByRole('button', { name: /re-sync line 2/i }))
-    expect(onLocalRealign).toHaveBeenCalledWith(1)
-  })
-
-  it('renders a tappable chip for approximate rows when onLocalRealign is provided', () => {
-    const onLocalRealign = vi.fn()
-    renderEditMode({
-      lineAlignmentQuality: ['approximate', 'good'],
-      showAlignmentQuality: true,
-      onLocalRealign,
-    })
-    fireEvent.click(screen.getByRole('button', { name: /edit line 1/i }))
-    const chip = screen.getByRole('button', { name: /re-sync line 1/i })
-    expect(chip).toBeTruthy()
-  })
-
-  it('shows a spinner instead of the icon when the row is in localRealigning', () => {
-    const onLocalRealign = vi.fn()
-    renderEditMode({
-      lineAlignmentQuality: ['good', 'needs_review'],
-      showAlignmentQuality: true,
-      onLocalRealign,
-      localRealigning: new Set([1]),
-    })
-    fireEvent.click(screen.getByRole('button', { name: /edit line 2/i }))
-    expect(screen.getByLabelText(/realigning line 2/i)).toBeTruthy()
-  })
-
-  it('renders a re-sync button for good-quality rows when onLocalRealign is provided', () => {
-    const onLocalRealign = vi.fn()
-    renderEditMode({
-      lineAlignmentQuality: ['good', 'good'],
-      showAlignmentQuality: true,
-      onLocalRealign,
-    })
-    fireEvent.click(screen.getByRole('button', { name: /edit line 1/i }))
-    expect(screen.getByRole('button', { name: /re-sync line 1/i })).toBeTruthy()
-  })
-
-  it('shows static off-timing chip when onLocalRealign is not provided', () => {
+  it('shows static off-timing chip when there are needs_review lines', () => {
     renderEditMode({
       lineAlignmentQuality: ['good', 'needs_review'],
       showAlignmentQuality: true,
     })
     expect(screen.getByText('off-timing')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /re-sync/i })).toBeNull()
   })
 
-  it('shows Re-align N weak lines button in toolbar when onRealignAllWeak is provided', () => {
-    const onRealignAllWeak = vi.fn()
+  it('does not render a bulk re-align button', () => {
     renderEditMode({
       lineAlignmentQuality: ['needs_review', 'needs_review'],
       showAlignmentQuality: true,
-      onRealignAllWeak,
-      weakLineCount: 2,
-    })
-    expect(screen.getByRole('button', { name: /re-align 2 weak lines/i })).toBeTruthy()
-  })
-
-  it('calls onRealignAllWeak when the bulk button is clicked', () => {
-    const onRealignAllWeak = vi.fn()
-    renderEditMode({
-      lineAlignmentQuality: ['needs_review', 'approximate'],
-      showAlignmentQuality: true,
-      onRealignAllWeak,
-      weakLineCount: 2,
-    })
-    fireEvent.click(screen.getByRole('button', { name: /re-align 2 weak lines/i }))
-    expect(onRealignAllWeak).toHaveBeenCalledTimes(1)
-  })
-
-  it('hides the bulk button when weakLineCount is 0', () => {
-    const onRealignAllWeak = vi.fn()
-    renderEditMode({
-      lineAlignmentQuality: ['good', 'good'],
-      showAlignmentQuality: true,
-      onRealignAllWeak,
-      weakLineCount: 0,
     })
     expect(screen.queryByRole('button', { name: /re-align.*weak/i })).toBeNull()
   })

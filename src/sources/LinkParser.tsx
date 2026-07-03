@@ -6,7 +6,6 @@ import { buildSong, linesFromPlainText, type BuildSongInput } from './songBuilde
 import { detectLanguage } from '../lyrics/bilingual'
 import { ingestAudioFile } from './audioIngest'
 import { resolveCoverArt } from './coverArt'
-import { normalizeImportedLines, importNeedsTranslationAttach } from './importNormalize'
 import type { TimedLine, Language } from '../core/types'
 import { parseSubtitle } from '../lyrics/subtitle-parser'
 import { ProgressOverlay } from '../core/ui/ProgressOverlay'
@@ -166,11 +165,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
         return
       }
 
-      let finalLines = lines
-      if (lines.length && importNeedsTranslationAttach(lines)) {
-        setSaveProgress({ phase: 'normalizing', includeAudio })
-        finalLines = await normalizeImportedLines(title.trim(), artist.trim(), lines)
-      }
+      const finalLines = lines
 
       const primaryLang = finalLines.length ? detectLanguage(finalLines.map((l) => l.original).join('\n')) : 'other'
       const sourceLanguage: Language = primaryLang === 'ja' ? 'ja' : getDefaultSongLanguage()

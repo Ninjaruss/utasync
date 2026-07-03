@@ -9,7 +9,7 @@ import { YouTubePlayer, type YouTubePlayerHandle } from './YouTubePlayer'
 import { youtubeErrorMessage, youtubeNeedsVisibleEmbed } from './youtubeEmbedPolicy'
 import { resolveYouTubeVideoId } from '../sources/youtube'
 import { ABLoopController } from './ABLoop'
-import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, LineAlignmentQuality } from '../core/types'
+import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase } from '../core/types'
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
 import { projectPhraseTokensToLines } from '../lyrics/phraseProjection'
 import { repairPhraseTranslationOrder, remapPhraseTranslations } from '../lyrics/phraseNormalize'
@@ -19,8 +19,6 @@ import {
   applyRefinedAlignment,
   shouldRefineStoredAlignment,
   transcriptWordsToAlignInput,
-  realignSection,
-  realignAllWeakSections,
 } from '../lyrics/phraseAlignment'
 import { summarizePhraseChanges, applySungLayout, revertToSheetLayout } from '../lyrics/phraseLayout'
 import { tokenizeJapanese } from '../language/japanese/tokenizer'
@@ -51,8 +49,6 @@ import { exportAbLoopClip, exportAbLoopPlaylistClip, abLoopHasTimedLyrics, abLoo
 import { createPlaylistEntry, shouldAdvancePlaylistAfterCycle, wrapPlaylistIndex } from './abLoopPlaylist'
 import { useAbLoopPlaylistStore } from './abLoopPlaylistStore'
 import { getAudioFile } from '../core/opfs/audio'
-import { transcribeLineWindow } from '../ai-pipeline/focusedTranscriber'
-import { alignLyrics } from '../ai-pipeline/aligner'
 import { PlayerControls } from './PlayerControls'
 import { DisplayMenu } from './DisplayMenu'
 import { YouTubePlaybackPanel } from './YouTubePlaybackPanel'
@@ -297,9 +293,6 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [localAudioLoadFailed, setLocalAudioLoadFailed] = useState(false)
   const [showLyricsReimport, setShowLyricsReimport] = useState(false)
   const [phrasingBusy, setPhrasingBusy] = useState(false)
-  const [localRealigning, setLocalRealigning] = useState<Set<number>>(new Set())
-  const [realignLineProgress, setRealignLineProgress] = useState<Map<number, number>>(new Map())
-  const [realignBulkProgress, setRealignBulkProgress] = useState<{ done: number; total: number } | null>(null)
   const {
     setBusy: setLyricsReimportBusy,
     confirming: confirmLyricsReimportClose,
@@ -783,345 +776,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
   }
 
-  const handleLocalRealign = async (lineIndex: number) => {
-    if (!song) return
-    setLocalRealigning((prev) => new Set([...prev, lineIndex]))
-    const reportProgress = (pct: number) =>
-      setRealignLineProgress((prev) => new Map(prev).set(lineIndex, pct))
-    try {
-      const line = song.lyrics.lines[lineIndex]
-      const quality = song.lyrics.lineAlignmentQuality ?? song.lyrics.lines.map(() => 'needs_review' as LineAlignmentQuality)
-      // User explicitly requested re-sync — bypass the good-quality guard so the
-      // line is actually re-evaluated even if it was previously marked good.
-      const qualityForRealign = quality[lineIndex] === 'good'
-        ? quality.map((q, i) => i === lineIndex ? 'needs_review' as LineAlignmentQuality : q)
-        : quality
-
-      // Anchor-based window: use nearest good-quality lines as bounds so the
-      // focused transcription covers the correct audio even if this line's own
-      // timestamp is significantly wrong.
-      let windowStart = line.startTime
-      let windowEnd = line.endTime
-      for (let i = lineIndex - 1; i >= 0; i--) {
-        if (quality[i] === 'good') { windowStart = song.lyrics.lines[i].endTime; break }
-      }
-      for (let i = lineIndex + 1; i < song.lyrics.lines.length; i++) {
-        if (quality[i] === 'good') { windowEnd = song.lyrics.lines[i].startTime; break }
-      }
-
-      let words: ReturnType<typeof transcriptWordsToAlignInput>
-      let usedFocused = false
-      let focusedWords: TimedTranscriptWord[] = []
-      if (hasStoredAudio) {
-        try {
-          const focused = await transcribeLineWindow(
-            song.id,
-            windowStart,
-            windowEnd,
-            song.lyrics.sourceLanguage,
-            reportProgress,
-          )
-          if (focused.length > 0) {
-            words = focused
-            focusedWords = focused
-            usedFocused = true
-            // Signal transcription complete; yield so the UI shows ⟳ 100% before
-            // realignSection runs (synchronous but can take ~1–2 s).
-            reportProgress(100)
-            await new Promise<void>(r => setTimeout(r, 0))
-          } else {
-            words = transcriptWordsToAlignInput(song.lyrics.transcriptWords ?? [])
-          }
-        } catch {
-          words = transcriptWordsToAlignInput(song.lyrics.transcriptWords ?? [])
-        }
-      } else if (song.lyrics.transcriptWords?.length) {
-        words = transcriptWordsToAlignInput(song.lyrics.transcriptWords)
-      } else {
-        toast('No audio available — use Auto-align first', 'info')
-        return
-      }
-
-      const { lines, lineAlignmentQuality, anchorSources } = realignSection(
-        song.lyrics.lines,
-        lineIndex,
-        words,
-        qualityForRealign,
-        song.lyrics.sourceLanguage,
-        song.lyrics.anchorSources as Parameters<typeof realignSection>[5],
-        { focused: usedFocused },
-      )
-      const orig = song.lyrics.lines[lineIndex]
-      // Precision refinement: try direct single-line LCS first, then word boundary snap fallback.
-      if (usedFocused && focusedWords.length > 0) {
-        let leftGood = -1, rightGood = song.lyrics.lines.length
-        for (let i = lineIndex - 1; i >= 0; i--) { if (qualityForRealign[i] === 'good') { leftGood = i; break } }
-        for (let i = lineIndex + 1; i < song.lyrics.lines.length; i++) { if (qualityForRealign[i] === 'good') { rightGood = i; break } }
-        const sectionLineCount = rightGood - leftGood - 1
-        const raw = lines[lineIndex]
-
-        // 心絡まって ローリング ローリング sits between two good anchors and fills the
-        // entire space between them. Whisper consistently mis-transcribes this section
-        // (the two ローリング repeat confuses its deduplication). LCS and partial-match
-        // retry both shrink the span. The anchor boundaries are already confirmed correct
-        // by the good-quality neighbours, so use them directly.
-        if (/心絡まって.*ローリング/.test(raw.original) && sectionLineCount <= 1 && windowEnd > windowStart + 0.5) {
-          lines[lineIndex] = { ...raw, startTime: windowStart, endTime: windowEnd }
-          lineAlignmentQuality[lineIndex] = 'good'
-        }
-
-        // For single-line sections every word that STARTS within the window belongs to this
-        // line. Filter by startTime (not endTime) so a trailing word that begins just before
-        // windowEnd but sings past it is included. The snapped end is capped at windowEnd
-        // so we never overlap the following line.
-        // For multi-line sections keep the strict endTime filter to avoid pulling words from
-        // a neighbouring weak line into this line's span.
-        const sectionWords = focusedWords.filter(
-          w => w.startTime >= windowStart - 0.1
-            && (sectionLineCount <= 1 ? w.startTime < windowEnd : w.endTime <= windowEnd + 0.1)
-        )
-        let applied = /心絡まって.*ローリング/.test(raw.original) && sectionLineCount <= 1
-        if (!applied && sectionWords.length > 0) {
-          // Phase 1: direct single-line LCS — alignLyrics with ONLY the target line's text
-          // performs character-level LCS between this lyric and the focused word stream.
-          // When it finds a confident match it returns the actual word-boundary timestamps
-          // for the matched region, bypassing proportional splitting across all section lines.
-          const directMatch = alignLyrics(
-            [raw.original],
-            sectionWords,
-            undefined,
-            song.lyrics.sourceLanguage,
-          )
-          const dl = directMatch.lines[0]
-          if (
-            dl != null
-            && directMatch.confidence >= 0.5
-            && dl.endTime - dl.startTime >= 0.3
-            && dl.startTime >= windowStart
-            && dl.startTime < windowEnd
-          ) {
-            // Clamp to windowEnd: a word may sing past the anchor boundary.
-            const clampedEnd = Math.min(dl.endTime, windowEnd)
-            lines[lineIndex] = { ...raw, startTime: dl.startTime, endTime: clampedEnd }
-            applied = true
-            // Trailing word extension: catch focused words just beyond the LCS boundary that
-            // Whisper may have compressed (e.g. repeated phrases like ローリング ローリング).
-            // Only extend within the section — stop well before the next anchor.
-            const extendedEnd = sectionWords
-              .filter(w => w.startTime >= dl.endTime - 0.2 && w.endTime < windowEnd - 0.3)
-              .reduce((best, w) => Math.max(best, w.endTime), clampedEnd)
-            if (extendedEnd > lines[lineIndex].endTime) {
-              lines[lineIndex] = { ...lines[lineIndex], endTime: extendedEnd }
-            }
-          }
-        }
-        if (!applied && sectionWords.length > 0) {
-          // Phase 2: word boundary snap fallback (LCS confidence < 0.5).
-          const raw2 = lines[lineIndex]
-          let snappedStart = raw2.startTime
-          let snappedEnd = raw2.endTime
-          if (sectionLineCount <= 1) {
-            // Sole line: every focused word that started in the window belongs to this line.
-            // Cap at windowEnd so a trailing word that sings past the boundary doesn't bleed.
-            snappedStart = Math.min(...sectionWords.map(w => w.startTime))
-            snappedEnd = Math.min(Math.max(...sectionWords.map(w => w.endTime)), windowEnd)
-          } else {
-            // Multi-line section: wider 1.5 s window biased toward earlier start / later end.
-            const sc = sectionWords.filter(w => w.startTime >= snappedStart - 1.5 && w.startTime <= snappedStart + 0.5)
-            if (sc.length > 0) snappedStart = Math.min(...sc.map(w => w.startTime))
-            const ec = sectionWords.filter(w => w.endTime >= snappedEnd - 0.5 && w.endTime <= snappedEnd + 1.5)
-            if (ec.length > 0) snappedEnd = Math.max(...ec.map(w => w.endTime))
-          }
-          if (snappedEnd > snappedStart + 0.1 && snappedStart >= windowStart && snappedEnd <= windowEnd) {
-            lines[lineIndex] = { ...lines[lineIndex], startTime: snappedStart, endTime: snappedEnd }
-          }
-        }
-        // Guard: don't start before the immediately preceding line ends. Focused transcription
-        // pads 10 s before the anchor, so legato tails or the previous line's final syllable can
-        // appear in the word stream and pull this line's LCS-matched start too early.
-        if (lineIndex > 0) {
-          const prevEnd = song.lyrics.lines[lineIndex - 1].endTime
-          const cur = lines[lineIndex]
-          if (cur.startTime < prevEnd - 0.1 && prevEnd >= windowStart && prevEnd < cur.endTime) {
-            lines[lineIndex] = { ...cur, startTime: prevEnd }
-          }
-        }
-        // Mark as good once LCS produced a confident character-anchored result so the
-        // off-timing chip clears — quality from realignSection was scored before the snap.
-        if (applied) {
-          lineAlignmentQuality[lineIndex] = 'good'
-        }
-      }
-      const next = lines[lineIndex]
-      if (next.endTime - next.startTime < 0.15) {
-        toast('Re-sync couldn\'t determine timing — adjust with ⏱', 'warning')
-        return
-      }
-      if (
-        Math.abs(next.startTime - orig.startTime) < 0.3
-        && Math.abs(next.endTime - orig.endTime) < 0.3
-      ) {
-        // Timing already correct — still dismiss the chip by confirming this line as good
-        if (usedFocused) {
-          const confirmedQuality = [...quality]
-          confirmedQuality[lineIndex] = 'good'
-          const confirmed: Song = { ...song, lyrics: { ...song.lyrics, lineAlignmentQuality: confirmedQuality } }
-          setSong(confirmed)
-          await db.songs.put(confirmed)
-        }
-        toast(usedFocused ? 'Timing looks correct — use ⏱ to adjust manually' : 'Timing already optimized', 'info')
-        return
-      }
-      const updated: Song = {
-        ...song,
-        lyrics: {
-          ...song.lyrics,
-          lines,
-          lineAlignmentQuality,
-          anchorSources: anchorSources as Song['lyrics']['anchorSources'],
-          enrichmentVersion: undefined,
-        },
-        syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines } }),
-      }
-      setSong(updated)
-      setLines(lines)
-      await db.songs.put(updated)
-      if (linesNeedEnrichment(lines, updated.lyrics.enrichmentVersion)) {
-        enrichLines(lines, song.lyrics.sourceLanguage, song.lyrics.transcriptWords)
-          .then(runWordColoring)
-          .then((enriched) => {
-            if (
-              enriched.length === lines.length
-              && enrichmentMadeProgress(lines, enriched, updated.lyrics.enrichmentVersion)
-            ) {
-              void persistEnrichedLines(updated, enriched, true)
-            }
-          })
-      } else if (linesNeedAlignment(lines, updated.lyrics.enrichmentVersion) && canRunWordAlignment()) {
-        runWordColoring(lines)
-          .then((enriched) => {
-            if (enriched.length === lines.length && enrichmentMadeProgress(lines, enriched, updated.lyrics.enrichmentVersion)) {
-              void persistEnrichedLines(updated, enriched, true)
-            }
-          })
-      }
-    } finally {
-      setLocalRealigning((prev) => { const s = new Set(prev); s.delete(lineIndex); return s })
-      setRealignLineProgress((prev) => { const m = new Map(prev); m.delete(lineIndex); return m })
-    }
-  }
-
-  const [isRealigningAll, setIsRealigningAll] = useState(false)
-
-  const handleRealignAllWeak = async () => {
-    if (!song) return
-    // Segment-mode: merged chunks mean realignSection can't help. Trigger a full
-    // word-level re-transcription instead (opens the AutoAlign flow).
-    if (suggestWordLevelAlign) {
-      beginAlignment('auto', true)
-      return
-    }
-
-    const quality = song.lyrics.lineAlignmentQuality
-    if (!quality?.length) return
-    const weakIndices = quality.map((q, i) => (q !== 'good' ? i : -1)).filter((i): i is number => i >= 0)
-    if (weakIndices.length === 0) return
-
-    setIsRealigningAll(true)
-    try {
-      if (hasStoredAudio) {
-        // Sequential focused transcription — same approach as per-line re-sync but batched.
-        setRealignBulkProgress({ done: 0, total: weakIndices.length })
-        let curLines = song.lyrics.lines
-        let curQuality = [...quality] as LineAlignmentQuality[]
-        let curAnchors = song.lyrics.anchorSources as Parameters<typeof realignSection>[5]
-        for (let i = 0; i < weakIndices.length; i++) {
-          setRealignBulkProgress({ done: i, total: weakIndices.length })
-          const idx = weakIndices[i]
-          const line = curLines[idx]
-          try {
-            const focused = await transcribeLineWindow(song.id, line.startTime, line.endTime, song.lyrics.sourceLanguage)
-            if (focused.length > 0) {
-              const result = realignSection(curLines, idx, focused, curQuality, song.lyrics.sourceLanguage, curAnchors)
-              curLines = result.lines
-              curQuality = result.lineAlignmentQuality
-              curAnchors = result.anchorSources as typeof curAnchors
-            }
-          } catch { /* skip this line if transcription fails */ }
-        }
-        setRealignBulkProgress({ done: weakIndices.length, total: weakIndices.length })
-        const updated: Song = {
-          ...song,
-          lyrics: {
-            ...song.lyrics,
-            lines: curLines,
-            lineAlignmentQuality: curQuality,
-            anchorSources: curAnchors as Song['lyrics']['anchorSources'],
-            enrichmentVersion: undefined,
-          },
-          syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines: curLines } }),
-        }
-        setSong(updated)
-        setLines(curLines)
-        await db.songs.put(updated)
-        if (linesNeedEnrichment(curLines, updated.lyrics.enrichmentVersion)) {
-          enrichLines(curLines, song.lyrics.sourceLanguage, song.lyrics.transcriptWords)
-            .then(runWordColoring)
-            .then((enriched) => {
-              if (enriched.length === curLines.length && enrichmentMadeProgress(curLines, enriched, updated.lyrics.enrichmentVersion)) {
-                void persistEnrichedLines(updated, enriched, true)
-              }
-            })
-        } else if (linesNeedAlignment(curLines, updated.lyrics.enrichmentVersion) && canRunWordAlignment()) {
-          runWordColoring(curLines).then((enriched) => {
-            if (enriched.length === curLines.length && enrichmentMadeProgress(curLines, enriched, updated.lyrics.enrichmentVersion)) {
-              void persistEnrichedLines(updated, enriched, true)
-            }
-          })
-        }
-      } else if (song.lyrics.transcriptWords?.length) {
-        // No local audio — fall back to rearranging the stored transcript chunks.
-        const words = transcriptWordsToAlignInput(song.lyrics.transcriptWords)
-        await yieldToMainThread()
-        const { lines, lineAlignmentQuality, anchorSources } = realignAllWeakSections(
-          song.lyrics.lines, words, quality, song.lyrics.sourceLanguage,
-          song.lyrics.anchorSources as Parameters<typeof realignAllWeakSections>[4],
-        )
-        const updated: Song = {
-          ...song,
-          lyrics: { ...song.lyrics, lines, lineAlignmentQuality, anchorSources: anchorSources as Song['lyrics']['anchorSources'], enrichmentVersion: undefined },
-          syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines } }),
-        }
-        setSong(updated)
-        setLines(lines)
-        await db.songs.put(updated)
-        if (linesNeedEnrichment(lines, updated.lyrics.enrichmentVersion)) {
-          enrichLines(lines, song.lyrics.sourceLanguage, song.lyrics.transcriptWords).then(runWordColoring).then((enriched) => {
-            if (enriched.length === lines.length && enrichmentMadeProgress(lines, enriched, updated.lyrics.enrichmentVersion)) {
-              void persistEnrichedLines(updated, enriched, true)
-            }
-          })
-        } else if (linesNeedAlignment(lines, updated.lyrics.enrichmentVersion) && canRunWordAlignment()) {
-          runWordColoring(lines).then((enriched) => {
-            if (enriched.length === lines.length && enrichmentMadeProgress(lines, enriched, updated.lyrics.enrichmentVersion)) {
-              void persistEnrichedLines(updated, enriched, true)
-            }
-          })
-        }
-      }
-    } catch {
-      toast('Re-align failed', 'warning')
-    } finally {
-      setIsRealigningAll(false)
-      setRealignBulkProgress(null)
-    }
-  }
-
   const progress = duration > 0 ? Math.min(1, position / duration) : 0
   const isJapanese = song?.lyrics.sourceLanguage === 'ja'
-  const weakLineCount = song?.lyrics.lineAlignmentQuality?.filter(
-    (q) => q === 'needs_review' || q === 'approximate',
-  ).length ?? 0
   const hasTranslation = !!song?.lyrics.lines.some(hasVisibleTranslation)
 
   const sungLayoutActive = song?.lyrics.phraseLayout === 'sung'
@@ -1549,14 +1205,6 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               onPausePlayback={pausePlayback}
               lineAlignmentQuality={song?.lyrics.lineAlignmentQuality}
               showAlignmentQuality={song?.lyrics.alignmentMode === 'auto'}
-              onLocalRealign={hasStoredAudio || song?.lyrics.transcriptWords?.length ? handleLocalRealign : undefined}
-              onRealignAllWeak={hasStoredAudio || song?.lyrics.transcriptWords?.length ? handleRealignAllWeak : undefined}
-              localRealigning={localRealigning}
-              realignLineProgress={realignLineProgress}
-              realignBulkProgress={realignBulkProgress}
-              weakLineCount={weakLineCount}
-              isRealigningAll={isRealigningAll}
-              precisionModeAvailable={suggestWordLevelAlign}
             />
           )}
         </div>
