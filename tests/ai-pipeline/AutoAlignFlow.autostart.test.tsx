@@ -48,6 +48,7 @@ vi.mock('../../src/ai-pipeline/aligner', () => ({
   })),
   sanitizeTranscript: vi.fn((words: { word: string }[]) => words),
   lineWeight: vi.fn(() => 1),
+  LOW_CONFIDENCE_WARN_THRESHOLD: 0.7,
 }))
 
 const song: Song = {

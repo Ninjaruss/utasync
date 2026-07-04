@@ -4,7 +4,7 @@ import { getWhisperDownloadHint } from './models'
 import { decodeAudioFileToMono } from '../core/audio/decodeToMono'
 import { getAudioFile } from '../core/opfs/audio'
 import type { Song } from '../core/types'
-import { sanitizeTranscript, type TranscriptWord } from './aligner'
+import { sanitizeTranscript, LOW_CONFIDENCE_WARN_THRESHOLD, type TranscriptWord } from './aligner'
 import { refineAlignmentWithPhrases, sheetRowsForAlignment, applyRefinedAlignment } from '../lyrics/phraseAlignment'
 import { db } from '../core/db/schema'
 import { computeSyncState } from '../core/db/migrations'
@@ -247,7 +247,12 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
       }
       await db.songs.put(updated)
 
-      setLowConfidence(refined.mode === 'proportional')
+      // Warn when the content match is weak, not only when it fully falls back to
+      // proportional — a mediocre 0.5–0.7 confidence (dense/bilingual tracks Whisper
+      // mis-transcribes) still ships unreliable per-line timings silently otherwise.
+      setLowConfidence(
+        refined.mode === 'proportional' || refined.confidence < LOW_CONFIDENCE_WARN_THRESHOLD,
+      )
       setStage('done')
       onComplete(updated)
     } catch (e: unknown) {
@@ -436,7 +441,12 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         )}
         {stage === 'done' && (
           lowConfidence
-            ? <p className="text-yellow-400 text-sm">Alignment is approximate — the audio didn't closely match these lyrics. Try tap-sync or double-check your lyrics.</p>
+            ? <p className="text-yellow-400 text-sm">
+                Alignment is approximate — the vocals were hard to transcribe, so per-line timings may be off.
+                {vocalSeparationSupported && demucsReady === true && !vocalSeparationRun
+                  ? ' Turn on Vocal separation and re-run for a cleaner result, or use tap-sync.'
+                  : ' Try tap-sync or double-check your lyrics.'}
+              </p>
             : <p className="text-green-400 text-sm">Lyrics aligned successfully.</p>
         )}
 

@@ -264,11 +264,14 @@ export default defineConfig({
             handler: 'NetworkOnly',
           },
           {
-            urlPattern: /\/models\/.*\.onnx$/,
+            // Cache any .onnx model (local /models/… or a remote VITE_DEMUCS_MODEL_URL
+            // host) after first download, like the runtime-fetched Whisper weights.
+            urlPattern: /\.onnx(\?.*)?$/,
             handler: 'CacheFirst',
             options: {
               cacheName: 'ai-models-v1',
               expiration: { maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [0, 200] },
             },
           },
           // ONNX wasm is served from /onnx-wasm/ on the same origin — do not

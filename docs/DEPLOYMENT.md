@@ -33,13 +33,23 @@ Re-run this after `npm install` if you remove `public/dict`.
 
 ### Optional: vocal separation model
 
-On capable devices (WebGPU + 6 GB+ RAM), auto-align can run vocal separation before transcription. Place the ONNX model at:
+On capable devices (WebGPU + 6 GB+ RAM), auto-align can run vocal separation before transcription. The model is a bespoke MDX-Net/Demucs ONNX with no canonical public host, so provide it one of two ways:
 
-```
-public/models/demucs-v1.onnx
-```
+- **Ship it in the build** — place the file at:
 
-If the file is missing, alignment still works on the **lite** path (transcription only). The app detects device tier automatically.
+  ```
+  public/models/demucs-v1.onnx
+  ```
+
+- **Fetch it from a remote host at runtime** (like the Whisper weights) — host the ONNX anywhere CORS-enabled (must allow `GET` and `HEAD` from the app origin) and set at build time:
+
+  ```
+  VITE_DEMUCS_MODEL_URL=https://your-host.example.com/demucs-v1.onnx
+  ```
+
+  It downloads on first use and is cached by the service worker (Cache Storage, ~30-day retention), so there's no shipped file.
+
+If neither is provided, the vocal-separation toggle stays unavailable and alignment still works on the transcription-only path. The app detects device tier and model availability automatically.
 
 ### AI models (automatic download)
 

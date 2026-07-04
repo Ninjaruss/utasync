@@ -1,12 +1,13 @@
 /** On-device vocal separation via Demucs ONNX (full-tier, opt-in). */
+import { DEMUCS_MODEL_URL } from './demucsModelUrl'
 
-const DEMUCS_MODEL_URL = '/models/demucs-v1.onnx'
 const NEGATIVE_CACHE_MS = 15_000
 
 let modelAvailable: boolean | null = null
 let lastCheckedMs = 0
 
-/** HEAD-check whether the Demucs ONNX file is deployed. */
+/** HEAD-check whether the Demucs ONNX model is reachable (local file or the
+ * configured remote host; the host must allow a CORS HEAD request). */
 export async function isDemucsModelAvailable(force = false): Promise<boolean> {
   const now = Date.now()
   if (!force && modelAvailable === true) return true

@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import * as ort from 'onnxruntime-web'
+import { DEMUCS_MODEL_URL } from './demucsModelUrl'
 
 let session: ort.InferenceSession | null = null
 
@@ -9,7 +10,7 @@ self.onmessage = async (e: MessageEvent) => {
   if (type === 'load') {
     try {
       self.postMessage({ type: 'progress', payload: { status: 'loading', progress: 0 } })
-      session = await ort.InferenceSession.create('/models/demucs-v1.onnx', {
+      session = await ort.InferenceSession.create(DEMUCS_MODEL_URL, {
         executionProviders: ['webgpu', 'wasm'],
       })
       self.postMessage({ type: 'loaded' })

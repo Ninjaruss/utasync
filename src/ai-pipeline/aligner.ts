@@ -15,6 +15,11 @@ function countMatches(text: string, re: RegExp): number {
 
 export const CONTENT_CONFIDENCE_THRESHOLD = 0.5
 
+/** Below this content-match confidence the alignment is content-mode but shaky —
+ * enough lines fail to anchor that timings are unreliable (dense/bilingual tracks
+ * Whisper mis-transcribes). Warn the user rather than silently shipping it. */
+export const LOW_CONFIDENCE_WARN_THRESHOLD = 0.7
+
 // A sung word/melisma can run a few seconds, but anything longer is a Whisper
 // artifact (it stamps absurd spans on silence). Used to discard garbage words.
 const MAX_WORD_DURATION_S = 10
