@@ -75,13 +75,13 @@ self.onmessage = async (e: MessageEvent) => {
 
       // 4. Chunked inference
       const nChunks = Math.max(1, Math.ceil((totalFrames - DIM_T) / STEP) + 1)
+      const inputData = new Float32Array(4 * DIM_F * DIM_T) // reused each chunk
 
       for (let c = 0; c < nChunks; c++) {
         const tStart = c * STEP
 
         // Pack [1, 4, DIM_F, DIM_T] — channels: L_re, L_im, R_re, R_im
         // Fake stereo: L == R (duplicate mono)
-        const inputData = new Float32Array(4 * DIM_F * DIM_T)
         for (let f = 0; f < DIM_F; f++) {
           const binRe = spec.real[f]
           const binIm = spec.imag[f]
@@ -99,7 +99,9 @@ self.onmessage = async (e: MessageEvent) => {
 
         const feeds = { input: new ort.Tensor('float32', inputData, [1, 4, DIM_F, DIM_T]) }
         const results = await session.run(feeds)
-        const out = results['output'].data as Float32Array
+        const outTensor = results['output'] ?? results[Object.keys(results)[0]]
+        if (!outTensor) throw new Error(`Model returned no output. Keys: ${Object.keys(results).join(', ')}`)
+        const out = outTensor.data as Float32Array
 
         // Overlap-add into accumulators
         for (let ch = 0; ch < 4; ch++) {
