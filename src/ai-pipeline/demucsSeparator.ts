@@ -37,6 +37,7 @@ export function resetDemucsModelCache(): void {
 }
 
 export interface SeparateVocalsOptions {
+  sampleRate?: number
   onProgress?: (progress: number) => void
   isCancelled?: () => boolean
 }
@@ -65,7 +66,10 @@ export async function separateVocals(
           // Clone before transfer — the worker takes ownership of the buffer and
           // cancel/retry must not neuter the caller's decoded audio.
           const pcm = new Float32Array(audioData)
-          worker.postMessage({ type: 'separate', payload: { audioData: pcm } }, [pcm.buffer])
+          worker.postMessage(
+            { type: 'separate', payload: { audioData: pcm, sampleRate: options?.sampleRate ?? 44100 } },
+            [pcm.buffer],
+          )
         } else if (type === 'result') {
           resolve(payload as Float32Array)
         } else if (type === 'error') {
