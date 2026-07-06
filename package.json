@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/ensure-jmdict-gloss.mjs && vite",
+    "prebuild": "node scripts/download-models.mjs",
     "build": "npm run build:jmdict && tsc -b && vite build",
     "build:jmdict": "node scripts/build-jmdict-gloss.mjs",
     "prepare": "node scripts/ensure-jmdict-gloss.mjs && node scripts/copy-kuromoji-dict.mjs",

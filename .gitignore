@@ -1,3 +1,6 @@
+# AI model binaries — downloaded at build time by scripts/download-models.mjs
+public/models/
+
 # Environment variables (never commit secrets)
 .env
 .env.local
