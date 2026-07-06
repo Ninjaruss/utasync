@@ -150,6 +150,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         setProgress(0)
         try {
           audioData = await separateVocals(audioData, {
+            sampleRate,
             onProgress: (pct) => setProgress(pct),
             isCancelled: () => cancelledRef.current,
           })
