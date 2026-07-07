@@ -38,7 +38,6 @@ import { linesNeedEnrichment, linesNeedAlignment, lineNeedsAlignment, enrichment
 import { runWhenIdle, yieldToMainThread } from '../core/idle'
 import { alignLinesTokens, countEmbedBatches } from '../ai-pipeline/wordAligner'
 import { preloadGlossLexicon } from '../ai-pipeline/lyricGloss'
-import { preloadEmbedder } from '../ai-pipeline/textEmbedder'
 import { buildAlignJobs } from '../lyrics/lineAligner'
 import { reconcileLinesReadingsAsync, reconcileLineReadingsAsync } from '../ai-pipeline/readingReconciler'
 import { fixAdjacentTranslationOrder } from '../ai-pipeline/translationOrder'
@@ -497,7 +496,9 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   useEffect(() => {
     if (canRunWordAlignment()) {
       preloadGlossLexicon()
-      preloadEmbedder()
+      // Dynamic so the embedder (and its transformers dependency chain) stays
+      // out of the main chunk; every other call site already imports it lazily.
+      void import('../ai-pipeline/textEmbedder').then(({ preloadEmbedder }) => preloadEmbedder())
     }
   }, [])
 
