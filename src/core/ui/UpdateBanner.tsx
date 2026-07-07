@@ -16,7 +16,7 @@ export function UpdateBanner() {
       <span>New version available.</span>
       <button
         onClick={() => updateServiceWorker(true)}
-        className="underline font-medium"
+        className="underline font-medium min-h-8 px-2 rounded touch-manipulation hover:opacity-80 transition-opacity duration-150 ease-out"
       >
         Update
       </button>

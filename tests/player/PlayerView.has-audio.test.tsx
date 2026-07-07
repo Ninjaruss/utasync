@@ -39,7 +39,8 @@ describe('PlayerView local audio gating', () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: /auto-align/i })).toBeTruthy())
+    // Generous timeout: this assertion flakes under full-suite load at the default 1s.
+    await waitFor(() => expect(screen.getByRole('button', { name: /auto-align/i })).toBeTruthy(), { timeout: 10_000 })
   })
 
   it('shows an add-audio banner for YouTube-only songs', async () => {

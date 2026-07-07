@@ -80,6 +80,7 @@ export function LyricsImportPanel({
 
   useEffect(() => {
     if (!title.trim() || lyricsPhase.kind !== 'idle') return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: start lyric search when inputs settle
     runSearch()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title, artist, videoId])

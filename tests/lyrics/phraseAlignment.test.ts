@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { LineAlignmentQuality, TimedLine } from '../../src/core/types'
+import type { TimedLine } from '../../src/core/types'
 import {
   alignPhrasesToTranscript,
   projectPhraseTimingToLines,
@@ -346,10 +346,3 @@ describe.skipIf(!existsSync(USER_ROCKROLL_CACHE))(
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-function makeLine(startTime: number, endTime: number, text = ''): TimedLine {
-  return { startTime, endTime, original: text, translation: '' }
-}
-
-function makeWord(word: string, startTime: number, endTime: number): TranscriptWord {
-  return { word, startTime, endTime }
-}

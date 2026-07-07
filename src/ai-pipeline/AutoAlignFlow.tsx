@@ -264,6 +264,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: kick off alignment on mount
     if (autoStart && tier !== 'manual') void start()
     return () => { cancelledRef.current = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps

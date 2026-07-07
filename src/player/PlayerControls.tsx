@@ -84,18 +84,37 @@ function formatTime(s: number): string {
 }
 
 function SeekBar({ progress, duration, onSeek }: { progress: number; duration: number; onSeek: (t: number) => void }) {
+  const trackRef = useRef<HTMLDivElement>(null)
+  const dragging = useRef(false)
+
+  const seekFromClientX = (clientX: number) => {
+    const rect = trackRef.current?.getBoundingClientRect()
+    if (!rect) return
+    onSeek(Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * duration)
+  }
+
   return (
     <div
-      className="py-2 -my-1 touch-manipulation"
-      onClick={(e) => {
-        const rect = e.currentTarget.getBoundingClientRect()
-        onSeek(((e.clientX - rect.left) / rect.width) * duration)
+      ref={trackRef}
+      className="group py-2 -my-1 touch-manipulation cursor-pointer"
+      onPointerDown={(e) => {
+        dragging.current = true
+        ;(e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId)
+        seekFromClientX(e.clientX)
       }}
+      onPointerMove={(e) => { if (dragging.current) seekFromClientX(e.clientX) }}
+      onPointerUp={() => { dragging.current = false }}
+      onPointerCancel={() => { dragging.current = false }}
     >
-      <div className="h-2.5 md:h-2 bg-cinnabar-900 rounded-full cursor-pointer">
+      <div className="relative h-2.5 md:h-2 bg-cinnabar-900 rounded-full">
         <div
-          className="h-full bg-cinnabar-accent rounded-full transition-[width] duration-150 ease-out"
+          className="h-full bg-cinnabar-accent rounded-full transition-[width] duration-100 ease-out"
           style={{ width: `${progress * 100}%` }}
+        />
+        <div
+          aria-hidden
+          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow-sm opacity-0 group-hover:opacity-100 transition-opacity duration-150 ease-out pointer-events-none"
+          style={{ left: `calc(${progress * 100}% - 6px)` }}
         />
       </div>
     </div>
@@ -315,10 +334,12 @@ function CollapsibleABLoopSection({
   const [expanded, setExpanded] = useState(abActive)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: auto-expand when a loop activates
     if (abActive) setExpanded(true)
   }, [abActive])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: collapse when another panel takes focus
     if (forceCollapsed && !armingAB) setExpanded(false)
   }, [forceCollapsed, armingAB])
 
@@ -962,10 +983,12 @@ function CollapsibleSpeedSection({
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: auto-expand when this control becomes active
     if (isActive) setExpanded(true)
   }, [isActive])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: collapse when another panel takes focus
     if (forceCollapsed && !isActive) setExpanded(false)
   }, [forceCollapsed, isActive])
 
@@ -1281,10 +1304,12 @@ export function PlayerControls({
   const [speedOpen, setSpeedOpen] = useState(false)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reveal saved loops when a loop activates
     if (abActive && isDesktop) setSavedLoopsOpen(true)
   }, [abActive, isDesktop])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reveal saved loops when a playlist activates
     if (playlistActive && isDesktop) setSavedLoopsOpen(true)
   }, [playlistActive, isDesktop])
 

@@ -4,28 +4,11 @@ import {
   findMorphSpans,
   lineTextFromTokens,
   morphMergeGroups,
-  normalizeTokenOffsets,
   tokenIndicesInSpan,
 } from '../../../src/language/japanese/morphSpans'
 import { buildAlignmentUnits } from '../../../src/ai-pipeline/wordAligner'
 
-const tok = (
-  surface: string,
-  pos = '動詞,自立',
-  reading?: string,
-  startIndex?: number,
-): Token => {
-  const start = startIndex ?? 0
-  return {
-    surface,
-    pos,
-    reading,
-    startIndex: start,
-    endIndex: start + surface.length,
-  }
-}
-
-const contiguous = (tokens: Omit<Token, 'startIndex' | 'endIndex'>[]): Token[] => {
+const contiguous =(tokens: Omit<Token, 'startIndex' | 'endIndex'>[]): Token[] => {
   let cursor = 0
   return tokens.map((t) => {
     const start = cursor

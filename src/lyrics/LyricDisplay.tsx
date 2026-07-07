@@ -318,8 +318,10 @@ export function LyricDisplay({
 
   if (lines.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-white/40 text-sm">
-        No lyrics loaded
+      <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center px-6 py-12">
+        <div className="w-10 h-10 rounded-2xl bg-cinnabar-900 border border-cinnabar-800 flex items-center justify-center text-cinnabar-accent/50 text-lg mb-1">♪</div>
+        <p className="text-white/40 text-sm font-medium">No lyrics loaded</p>
+        <p className="text-white/25 text-xs text-pretty max-w-[14rem] leading-relaxed">Switch to Edit mode to add or import lyrics for this song.</p>
       </div>
     )
   }

@@ -126,6 +126,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
     if (!file || !title.trim() || lyricsPhase.kind !== 'idle') return
 
     const gen = ++searchGenRef.current
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: start lyric search when inputs settle
     setLyricsPhase({ kind: 'searching' })
     setLyricSearchStage('exact')
     setError('')

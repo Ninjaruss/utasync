@@ -200,9 +200,12 @@ export function DisplayMenu(props: Props) {
     if (!open || isDesktop || !triggerRef.current) return
     const rect = triggerRef.current.getBoundingClientRect()
     const width = Math.min(280, window.innerWidth - 24)
+    // Clamp so the panel never extends past the left viewport edge when the
+    // trigger sits on the left side of the screen.
+    const maxRight = window.innerWidth - width - 12
     setPanelPos({
       top: rect.bottom + 6,
-      right: Math.max(12, window.innerWidth - rect.right),
+      right: Math.min(Math.max(12, window.innerWidth - rect.right), maxRight),
       width,
     })
   }, [open, isDesktop])

@@ -261,7 +261,7 @@ describe('EditMode', () => {
   })
 
   it('a new edit clears the redo stack', () => {
-    const { onChangeLines } = renderEditMode()
+    renderEditMode()
     fireEvent.click(screen.getByText('b'))
     const input = screen.getByLabelText('Original text')
     fireEvent.change(input, { target: { value: 'bb' } })

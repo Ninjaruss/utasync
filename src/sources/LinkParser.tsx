@@ -101,6 +101,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
     if (!metaLoaded || !title.trim() || lyricsPhase.kind !== 'idle') return
 
     const gen = ++searchGenRef.current
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: start lyric search when inputs settle
     setLyricsPhase({ kind: 'searching' })
     setLyricSearchStage(videoId ? 'youtube' : 'lrclib-exact')
     setError('')

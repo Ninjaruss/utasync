@@ -30,8 +30,8 @@ describe.skipIf(!existsSync(SEGMENT_CACHE))('AKFG First Take segment transcript'
     expect(red?.startTime).toBeLessThan(270)
     // 赤い…乗せて is a long, slowly-sung line (262.5–275 s); it should fill its
     // transcript chunk without bleeding across the following 遠く line.
-    expect(red?.endTime! - red!.startTime).toBeLessThan(13.5)
-    expect(red?.endTime! - red!.startTime).toBeGreaterThan(9)
+    expect(red!.endTime - red!.startTime).toBeLessThan(13.5)
+    expect(red!.endTime - red!.startTime).toBeGreaterThan(9)
     expect(corner?.startTime).toBeGreaterThan(red!.startTime)
     const redIdx = lineTexts.findIndex((t) => t.includes('赤い 赤い'))
     expect(anchorSources?.[redIdx]).toBe('lcs')
@@ -42,7 +42,7 @@ describe.skipIf(!existsSync(SEGMENT_CACHE))('AKFG First Take segment transcript'
     const hill = lines.find((l) => l.original.includes('あの丘'))
     expect(hill?.startTime).toBeGreaterThan(215)
     expect(hill?.startTime).toBeLessThan(218)
-    expect(hill?.endTime! - hill!.startTime).toBeLessThan(6)
+    expect(hill!.endTime - hill!.startTime).toBeLessThan(6)
   })
 
   it('covers the full bridge line through 朝だ despite Whisper mishearing', () => {
@@ -217,7 +217,6 @@ describe.skipIf(!existsSync(SEGMENT_CACHE))('AKFG First Take segment transcript'
       endTime: 0,
     }))
     const { lines } = refineAlignmentWithPhrases(sheetRows, words, 'ja')
-    const surelyIdx = lineTexts.findIndex((t) => t.includes('僕らはきっとこの先も') && lineTexts.indexOf(t) > 20)
     // second chorus only: after 300 s
     const surelyLine = lines.slice(20).find((l) => l.original.includes('僕らはきっとこの先も') && l.startTime > 300)
     const entwinedLine = lines.find((l) => l.original.includes('心絡まって') && l.startTime > 300)
