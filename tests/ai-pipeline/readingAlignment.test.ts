@@ -152,3 +152,21 @@ describe('resolveLineReadings — kanji-tainted sung spans', () => {
     expect(d[0].audioReading).toBe('わけ')
   })
 })
+
+describe('resolveLineReadings — near-match tolerance (mishearing vs mismatch)', () => {
+  // Production false flags: the singer sang the dictionary reading but Whisper
+  // misheard one kana (空→そら transcribed それ), and the "audio differed"
+  // tooltip fired. A span within edit distance 1 of the dictionary reading is
+  // a mishearing of that reading, not evidence of a different one.
+  it('verifies a span within edit distance 1 of the dictionary reading (空→それ)', () => {
+    const tokens = [tok('空', 'ソラ'), tok('を', 'ヲ'), tok('見上げ', 'ミアゲ')]
+    const decisions = resolveLineReadings(tokens, 'それをみつめ')
+    expect(decisions[0].kind).toBe('verified')
+  })
+
+  it('keeps a genuinely different span as mismatch (空 vs うみ)', () => {
+    const tokens = [tok('空', 'ソラ'), tok('を', 'ヲ'), tok('見上げ', 'ミアゲ')]
+    const decisions = resolveLineReadings(tokens, 'うみをみつめ')
+    expect(decisions[0].kind).toBe('mismatch')
+  })
+})

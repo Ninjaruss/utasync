@@ -7,7 +7,8 @@
  *
  * Run:
  *   npx tsx scripts/audit-corpus.mjs                  # alignment + readings
- *   npx tsx scripts/audit-corpus.mjs --pairing        # also word pairing (needs embed model)
+ *   npx tsx scripts/audit-corpus.mjs --pairing        # also word pairing (embed cache, model on miss)
+ *   npx tsx scripts/audit-corpus.mjs --pairing --write-embed-cache  # persist embeddings-cache.json
  *   npx tsx scripts/audit-corpus.mjs --write-baseline  # snapshot scorecard to fixtures
  *   npx tsx scripts/audit-corpus.mjs --check-baseline  # fail on regression vs snapshot
  *
@@ -27,6 +28,8 @@ const BASELINE = join(FIXTURES, 'corpus-baseline.json')
 const WANT_PAIRING = process.argv.includes('--pairing')
 const WRITE_BASELINE = process.argv.includes('--write-baseline')
 const CHECK_BASELINE = process.argv.includes('--check-baseline')
+const WRITE_EMBED_CACHE = process.argv.includes('--write-embed-cache')
+const DUMP_PAIRS = process.argv.includes('--dump-pairs')
 
 /** Normalize either a word array or a {chunks:[{text,timestamp:[s,e]}]} transcript to TranscriptWord[]. */
 function loadTranscriptWords(path) {
@@ -107,8 +110,15 @@ async function main() {
     const { buildAlignJob } = await import(pathToFileURL(join(root, 'src/lyrics/lineAligner.ts')).href)
     const { isAlignableToken, isParticleToken } = await import(pathToFileURL(join(root, 'src/core/language.ts')).href)
     const { splitTranslationWords } = await import(pathToFileURL(join(root, 'src/language/wordColors.ts')).href)
-    const { embedTexts } = await import(pathToFileURL(join(root, 'scripts/lib/nodeEmbedder.mjs')).href)
-    pairingDeps = { alignLinesTokens, buildAlignJob, isAlignableToken, isParticleToken, splitTranslationWords, embedTexts }
+    // Deterministic embeddings: serve from the committed cache; misses fall
+    // back to the real model (and are persisted with --write-embed-cache).
+    const { embedTexts: modelEmbedTexts } = await import(pathToFileURL(join(root, 'scripts/lib/nodeEmbedder.mjs')).href)
+    const { createCachedEmbedTexts } = await import(pathToFileURL(join(root, 'scripts/lib/cachedEmbedder.mjs')).href)
+    const embedCache = createCachedEmbedTexts({
+      cachePath: join(FIXTURES, 'embeddings-cache.json'),
+      fallback: modelEmbedTexts,
+    })
+    pairingDeps = { alignLinesTokens, buildAlignJob, isAlignableToken, isParticleToken, splitTranslationWords, embedTexts: embedCache.embedTexts, embedCache }
   }
 
   const manifest = JSON.parse(readFileSync(join(FIXTURES, 'corpus.json'), 'utf8'))
@@ -178,7 +188,10 @@ async function main() {
 
     // --- pairing metrics (optional) ---
     let pairing = null
-    if (pairingDeps) pairing = await auditPairing(song, refined.lines, pairingDeps, tokenizeJa)
+    if (pairingDeps) {
+      const pairingTruth = JSON.parse(readFileSync(join(FIXTURES, 'pairing-truth.json'), 'utf8'))
+      pairing = await auditPairing(song, refined.lines, pairingDeps, tokenizeJa, pairingTruth[song.name] ?? [])
+    }
 
     scorecard[song.name] = {
       lines: `${refined.lines.length}/${lineTexts.length}`,
@@ -210,13 +223,28 @@ async function main() {
       read_adopt: adopt,
       read_mismatch: mismatch,
       read_ruby_wrong: rubyWrong,
-      ...(pairing ? { pair_unpaired: pairing.unpaired, pair_magnet: pairing.magnet } : {}),
+      ...(pairing ? { pair_unpaired: pairing.unpaired, pair_magnet: pairing.magnet, pair_wrong: pairing.wrong } : {}),
     }
   }
 
   printScorecard(scorecard)
 
+  if (pairingDeps && WRITE_EMBED_CACHE) {
+    const wrote = pairingDeps.embedCache.flush()
+    if (wrote) console.log(`\nEmbedding cache written (${pairingDeps.embedCache.size()} texts).`)
+  }
+
   if (WRITE_BASELINE) {
+    // A non-pairing run has no pair_* columns; carry them over from the previous
+    // snapshot so an alignment-only re-baseline can't silently drop the pairing guard.
+    if (!WANT_PAIRING && existsSync(BASELINE)) {
+      const prev = JSON.parse(readFileSync(BASELINE, 'utf8'))
+      for (const [name, row] of Object.entries(scorecard)) {
+        for (const [k, v] of Object.entries(prev[name] ?? {})) {
+          if (k.startsWith('pair_') && !(k in row)) row[k] = v
+        }
+      }
+    }
     writeFileSync(BASELINE, JSON.stringify(scorecard, null, 2) + '\n')
     console.log(`\nBaseline written to ${BASELINE}`)
   }
@@ -226,7 +254,7 @@ async function main() {
   }
 }
 
-async function auditPairing(song, lines, deps, tokenizeJa) {
+async function auditPairing(song, lines, deps, tokenizeJa, truthEntries = []) {
   const { alignLinesTokens, buildAlignJob, isAlignableToken, isParticleToken, splitTranslationWords, embedTexts } = deps
   // Attach EN: veil has a separate block; bilingual sheets (my-eyes-only) already interleave.
   let withEn = lines
@@ -249,13 +277,37 @@ async function auditPairing(song, lines, deps, tokenizeJa) {
     const tokens = line.tokens ?? tokenizeJa(line.original)
     jobs.push({ line, tokens, job: buildAlignJob({ ...line, tokens }) })
   }
-  if (jobs.length === 0) return { unpaired: 0, magnet: 0 }
+  if (jobs.length === 0) return { unpaired: 0, magnet: 0, wrong: 0 }
   const aligned = await alignLinesTokens(jobs.map((j) => j.job), embedTexts, { maxTextsPerBatch: 64 })
 
   let unpaired = 0
   let magnet = 0
+  let wrong = 0
   jobs.forEach(({ line }, li) => {
     const result = aligned[li]
+    // Hand-labeled known-bad pairs (pairing-truth.json): count each one the
+    // pairer still produces. Unlike unpaired/magnet this catches confidently
+    // wrong pairings, which the structural metrics are blind to.
+    const words = splitTranslationWords(line.translation ?? '')
+    if (DUMP_PAIRS) {
+      console.log(`\n--- [${song.name}] ${line.original}\n    EN: ${line.translation}`)
+      for (const t of result) {
+        if (!t.surface.trim() || isParticleToken(t)) continue
+        if (t.alignmentIndices?.length) {
+          console.log(`    ${t.surface} → ${t.alignmentIndices.map((i) => words[i] ?? `?${i}?`).join('+')}`)
+        }
+      }
+    }
+    for (const truth of truthEntries) {
+      if (truth.line !== line.original) continue
+      const produced = result.some(
+        (t) =>
+          t.surface.trim() &&
+          truth.surface.includes(t.surface) &&
+          t.alignmentIndices?.some((i) => (words[i] ?? '').toLowerCase() === truth.target.toLowerCase()),
+      )
+      if (produced) wrong++
+    }
     // Collect, per EN target, the positions of the INDEPENDENT content tokens
     // that map to it. Auxiliary stems (い/た/たい/ない …) carry their unit's
     // alignmentIndices for coloring continuity but aren't alignable content —
@@ -290,7 +342,7 @@ async function auditPairing(song, lines, deps, tokenizeJa) {
       if (!contiguous) magnet++
     }
   })
-  return { unpaired, magnet }
+  return { unpaired, magnet, wrong }
 }
 
 function printScorecard(scorecard) {

@@ -11,7 +11,7 @@
     "bnd_early_p1": 0,
     "bnd_early_p2": 0,
     "bnd_latestart_p1": 3,
-    "bnd_latestart_p2": 3,
+    "bnd_latestart_p2": 1,
     "bnd_late_p1": 1,
     "bnd_late_p2": 0,
     "bnd_midword_p2": 0,
@@ -20,8 +20,11 @@
     "bnd_gap_p95_p2": "3.16s",
     "read_kanji_tokens": 119,
     "read_adopt": 0,
-    "read_mismatch": 4,
-    "read_ruby_wrong": 0
+    "read_mismatch": 3,
+    "read_ruby_wrong": 0,
+    "pair_unpaired": 10,
+    "pair_magnet": 0,
+    "pair_wrong": 0
   },
   "akfg-firsttake-word": {
     "lines": "30/30",
@@ -45,7 +48,10 @@
     "read_kanji_tokens": 87,
     "read_adopt": 1,
     "read_mismatch": 0,
-    "read_ruby_wrong": 0
+    "read_ruby_wrong": 0,
+    "pair_unpaired": 9,
+    "pair_magnet": 0,
+    "pair_wrong": 6
   },
   "akfg-firsttake-segment": {
     "lines": "30/30",
@@ -69,7 +75,10 @@
     "read_kanji_tokens": 87,
     "read_adopt": 1,
     "read_mismatch": 0,
-    "read_ruby_wrong": 0
+    "read_ruby_wrong": 0,
+    "pair_unpaired": 0,
+    "pair_magnet": 0,
+    "pair_wrong": 0
   },
   "my-eyes-only": {
     "lines": "40/40",
@@ -93,12 +102,15 @@
     "read_kanji_tokens": 42,
     "read_adopt": 0,
     "read_mismatch": 1,
-    "read_ruby_wrong": 0
+    "read_ruby_wrong": 0,
+    "pair_unpaired": 0,
+    "pair_magnet": 0,
+    "pair_wrong": 0
   },
   "stranger-than-heaven-word": {
     "lines": "59/59",
     "mode": "content",
-    "align_needs_review": 22,
+    "align_needs_review": 20,
     "align_monotonicity": 0,
     "align_zero_dur": 0,
     "align_long_dur": 1,
@@ -107,7 +119,7 @@
     "bnd_early_p1": 0,
     "bnd_early_p2": 1,
     "bnd_latestart_p1": 2,
-    "bnd_latestart_p2": 2,
+    "bnd_latestart_p2": 0,
     "bnd_late_p1": 0,
     "bnd_late_p2": 0,
     "bnd_midword_p2": 2,
@@ -117,12 +129,15 @@
     "read_kanji_tokens": 47,
     "read_adopt": 0,
     "read_mismatch": 1,
-    "read_ruby_wrong": 0
+    "read_ruby_wrong": 0,
+    "pair_unpaired": 0,
+    "pair_magnet": 0,
+    "pair_wrong": 0
   },
   "stranger-than-heaven-segment": {
     "lines": "59/59",
     "mode": "content",
-    "align_needs_review": 16,
+    "align_needs_review": 14,
     "align_monotonicity": 0,
     "align_zero_dur": 0,
     "align_long_dur": 0,
@@ -131,17 +146,20 @@
     "bnd_early_p1": 0,
     "bnd_early_p2": 0,
     "bnd_latestart_p1": 1,
-    "bnd_latestart_p2": 1,
+    "bnd_latestart_p2": 0,
     "bnd_late_p1": 0,
     "bnd_late_p2": 0,
-    "bnd_midword_p2": 2,
+    "bnd_midword_p2": 1,
     "bnd_beyond_audio": 0,
     "bnd_gap_p50_p2": "0s",
     "bnd_gap_p95_p2": "0.5s",
     "read_kanji_tokens": 47,
     "read_adopt": 0,
     "read_mismatch": 0,
-    "read_ruby_wrong": 0
+    "read_ruby_wrong": 0,
+    "pair_unpaired": 0,
+    "pair_magnet": 0,
+    "pair_wrong": 0
   },
   "guitar-loneliness-word": {
     "lines": "47/47",
@@ -155,17 +173,20 @@
     "bnd_early_p1": 0,
     "bnd_early_p2": 0,
     "bnd_latestart_p1": 3,
-    "bnd_latestart_p2": 1,
+    "bnd_latestart_p2": 0,
     "bnd_late_p1": 3,
-    "bnd_late_p2": 1,
+    "bnd_late_p2": 0,
     "bnd_midword_p2": 3,
     "bnd_beyond_audio": 0,
     "bnd_gap_p50_p2": "0s",
     "bnd_gap_p95_p2": "9.81s",
     "read_kanji_tokens": 96,
     "read_adopt": 0,
-    "read_mismatch": 2,
-    "read_ruby_wrong": 0
+    "read_mismatch": 1,
+    "read_ruby_wrong": 0,
+    "pair_unpaired": 19,
+    "pair_magnet": 0,
+    "pair_wrong": 7
   },
   "guitar-loneliness-segment": {
     "lines": "47/47",
@@ -189,6 +210,9 @@
     "read_kanji_tokens": 96,
     "read_adopt": 0,
     "read_mismatch": 1,
-    "read_ruby_wrong": 0
+    "read_ruby_wrong": 0,
+    "pair_unpaired": 0,
+    "pair_magnet": 0,
+    "pair_wrong": 0
   }
 }

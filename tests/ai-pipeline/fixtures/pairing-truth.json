@@ -1,0 +1,27 @@
+{
+  "_comment": "Hand-labeled KNOWN-BAD word pairs per corpus song: each entry is a pairing the aligner must NOT produce (audit-corpus.mjs --pairing counts produced ones as pair_wrong). line = exact JA original, surface = the mis-paired token's surface, target = the wrong EN word (case-insensitive). All 2026-07 entries are embedding-noise pairs (sim 0.55-0.75) whose source token has a curated/JMdict gloss pointing at a different word.",
+  "veil": [
+    { "line": "届かないままの景色と", "surface": "届か", "target": "that", "why": "todoku=reach; EN has 'reached'" },
+    { "line": "どんなに繕ったって", "surface": "繕っ", "target": "how", "why": "tsukurou=mend/cover up; EN has 'cover'" },
+    { "line": "どんなに繕ったって", "surface": "繕っ", "target": "up", "why": "re-route noise seen after blocking 'how'" },
+    { "line": "その笑みの奥を疑ってしまうだろう", "surface": "奥", "target": "yours", "why": "re-route noise seen after blocking 'still'" },
+    { "line": "繕って吐いた言葉が誰かを呪うなら", "surface": "繕っ", "target": "that", "why": "tsukurou=mend/decorate; EN has 'decorated'" },
+    { "line": "その笑みの奥を疑ってしまうだろう", "surface": "奥", "target": "still", "why": "oku=depths/behind; EN has 'Behind'" },
+    { "line": "熱を持つ夜に変わっていく", "surface": "持つ", "target": "still", "why": "motsu=hold/bear; EN has 'heat-bearing'" },
+    { "line": "また歩いて行けるように", "surface": "また", "target": "able", "why": "mata=again; 'able' belongs to 行ける" },
+    { "line": "何処かでまた会えるように", "surface": "また", "target": "day", "why": "mata=again; EN has 'again'" }
+  ],
+  "akfg-firsttake-word": [
+    { "line": "それどころか 君の前でさえも上手に笑えない", "surface": "前", "target": "far", "why": "mae=front; EN has 'front'" },
+    { "line": "そんな僕に術はないよな", "surface": "僕", "target": "there", "why": "boku=I/me; EN has 'me'" },
+    { "line": "初めから持ってないのに胸が痛んだ", "surface": "持っ", "target": "my", "why": "motsu=have; EN has 'mine'" },
+    { "line": "何を間違った それさえもわからないんだ", "surface": "何", "target": "ah", "why": "nani=what; EN has 'What'" },
+    { "line": "だけどちょっと それもあるよな", "surface": "だけど", "target": "know", "why": "dakedo=but; EN has 'But'" }
+  ],
+  "guitar-loneliness-word": [
+    { "line": "殴り書きみたいな音", "surface": "殴り", "target": "like", "why": "naguri(gaki)=scribble compound; should join 'scribbling'" },
+    { "line": "出せない状態で叫んだよ", "surface": "状態", "target": "without", "why": "joutai=state/condition" },
+    { "line": "馬鹿なわたしは歌うだけ", "surface": "わたし", "target": "sing", "why": "watashi=I/me; EN has 'me'" },
+    { "line": "エリクサーに張り替える作業もなんとなくなんだ", "surface": "作業", "target": "somehow", "why": "sagyou=work/task" }
+  ]
+}

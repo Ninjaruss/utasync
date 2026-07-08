@@ -460,6 +460,75 @@ function backfillLineStartsToVocalOnset(
   return out
 }
 
+/** Reliable-span coverage floor — matches boundaryMetrics MIN_SPAN_COVERAGE
+ * (the metric's own "well-matched line" gate), stricter than the glyph-snap
+ * guard because this tuner moves boundaries on span evidence alone. */
+const LATESTART_SPAN_MIN_COVERAGE = 0.55
+/** Matches the boundary-metric lateStart threshold (boundaryMetrics.mjs). */
+const LATESTART_MIN_PULL_S = 0.35
+/** Corrections above this belong to another defect class (verse cascade /
+ * transcript garble), not a late-anchored start — leave those alone. */
+const LATESTART_MAX_PULL_S = 2.5
+
+/** Pull a line's start back to its own reliably-matched span (D3 late-starts).
+ * The silence-gap backfill above only fires when the onset follows >= 1s of
+ * silence; inside continuous singing the LCS span itself is the evidence — a
+ * well-covered line whose assigned start sits well after its first matched
+ * glyph is late, full stop. Ownership guard: never pull into audio the
+ * previous line's own matched span still claims. */
+function backfillLateStartsToMatchedSpan(
+  lines: TimedLine[],
+  words: TranscriptWord[],
+): TimedLine[] {
+  const clean = sanitizeTranscript(words)
+  const spans = computeLineMatchedSpans(
+    lines.map((l) => l.original || l.translation),
+    clean,
+  )
+  const out = lines.map((l) => ({ ...l }))
+  for (let i = 0; i < out.length; i++) {
+    const span = spans[i]
+    if (!span) continue
+    if (span.matchedChars / Math.max(1, span.totalChars) < LATESTART_SPAN_MIN_COVERAGE) continue
+    const late = out[i].startTime - span.firstTime
+    if (late <= LATESTART_MIN_PULL_S || late >= LATESTART_MAX_PULL_S) continue
+    const prevSpanEnd = i > 0 ? spans[i - 1]?.lastEndTime ?? -Infinity : -Infinity
+    // The evidence must be word-scale: the first matched char's containing
+    // transcript word gives a real acoustic edge to snap to, and the word must
+    // not be partly the previous line's audio (per its matched span). Long
+    // segment chunks only carry interpolated char times — too weak to move a
+    // boundary on (and the reading pass depends on these windows).
+    const container = clean.find((w) => w.startTime <= span.firstTime && w.endTime > span.firstTime)
+    if (!container || container.endTime - container.startTime > LATESTART_MAX_PULL_S) continue
+    if (container.startTime < prevSpanEnd - 0.05) continue
+    const target = container.startTime
+    // Pass-2 lines abut, so a late start means the previous line's end
+    // overshoots into this line's audio — move the shared boundary, never
+    // before the previous line's own matched content, and never squashing
+    // the previous line below a visible duration.
+    const prevFloor = i > 0 ? out[i - 1].startTime + 0.3 : 0
+    let boundary = Math.max(target, prevSpanEnd, prevFloor)
+    // A boundary strictly inside a short sung word would clip that word
+    // (bnd_midword): move out to the word's start when this line owns it,
+    // otherwise leave the line alone.
+    const straddled = clean.find((w) => {
+      const dur = w.endTime - w.startTime
+      return dur >= 0.4 && dur <= 2.5 && boundary > w.startTime + 0.05 && boundary < w.endTime - 0.05
+    })
+    if (straddled) {
+      if (straddled.startTime >= Math.max(prevSpanEnd, prevFloor) - 0.05) {
+        boundary = Math.max(straddled.startTime, prevFloor)
+      } else {
+        continue
+      }
+    }
+    if (boundary >= out[i].startTime) continue
+    out[i].startTime = boundary
+    if (i > 0 && out[i - 1].endTime > boundary) out[i - 1].endTime = boundary
+  }
+  return out
+}
+
 function realignMergedLineGroups(
   lines: TimedLine[],
   rawWords: TranscriptWord[],
@@ -1623,6 +1692,7 @@ export function refineAlignmentWithPhrases(
   tunedLines = snapBoundaryToGlyphTransition(tunedLines, words)
   tunedLines = extendLineEndOutOfMidWord(tunedLines, words)
   tunedLines = backfillLineStartsToVocalOnset(tunedLines, words)
+  tunedLines = backfillLateStartsToMatchedSpan(tunedLines, words)
   tunedLines = expandSquashedLineHighlights(tunedLines)
   const quality = recomputeLineQuality(
     tunedLines,
@@ -1653,6 +1723,25 @@ export function refineAlignmentWithPhrases(
   for (let i = 0; i < tunedLines.length; i++) {
     if (lineAlignmentQuality[i] !== 'needs_review') continue
     if (isInterjectionLyricLine(lineTexts[i])) lineAlignmentQuality[i] = 'approximate'
+  }
+
+  // Partial-anchor upgrade (class B, findings §rows 9/11): a needs_review line
+  // whose reliable matched span is small but REAL — several verbatim chars at
+  // minimum coverage, time-consistent with the assigned window, and flanked by
+  // lines that themselves aren't in review — is placed correctly even though
+  // its matched fraction sits below the classifier floor. Review can't improve
+  // it, so it reads approximate.
+  const upgradeSpans = computeLineMatchedSpans(lineTexts, transcriptWords)
+  for (let i = 0; i < tunedLines.length; i++) {
+    if (lineAlignmentQuality[i] !== 'needs_review') continue
+    const s = upgradeSpans[i]
+    if (!s || s.matchedChars < 4) continue
+    if (s.matchedChars / Math.max(1, s.totalChars) < 0.3) continue
+    if (s.firstTime < tunedLines[i].startTime - 0.5) continue
+    if (s.lastEndTime > tunedLines[i].endTime + 0.5) continue
+    const prevOk = i === 0 || lineAlignmentQuality[i - 1] !== 'needs_review'
+    const nextOk = i === tunedLines.length - 1 || lineAlignmentQuality[i + 1] !== 'needs_review'
+    if (prevOk && nextOk) lineAlignmentQuality[i] = 'approximate'
   }
 
   const syncedPhrases = syncPhrasesFromValidatedLines(phrases, tunedLines)

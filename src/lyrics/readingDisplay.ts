@@ -76,20 +76,38 @@ export function resolveTokenReading(
   return { ruby, title, source: showSung ? 'sung' : 'dictionary' }
 }
 
-/** Romanize one token using the same dictionary/sung precedence as the furigana
- * ruby, so romaji mode reflects audio-corrected readings instead of going stale. */
-function tokenRomaji(token: Token, readingMode: ReadingMode): string {
+/** Resolved kana + romaji for one token (kana null when the surface has none). */
+function tokenKanaRomaji(token: Token, readingMode: ReadingMode): { kana: string | null; romaji: string } {
   const kana = resolveTokenKana(token, readingMode) ?? (KANA_ONLY_RE.test(token.surface) ? token.surface : null)
-  if (!kana) return token.surface
-  return kanaToRomaji(kana)
+  if (!kana) return { kana: null, romaji: token.surface }
+  return { kana, romaji: kanaToRomaji(kana) }
 }
+
+/** Onsets a token-final っ geminates into (never vowels or n/y/w). */
+const GEMINATING_ONSET_RE = /^[bcdfghjkmpqrstz]/
 
 /** Build a line's romaji from its tokens' resolved readings (dictionary or
  * audio-adopted, per `readingMode`) instead of a static whole-line conversion,
- * so it stays in sync with reading corrections applied after initial enrichment. */
+ * so it stays in sync with reading corrections applied after initial enrichment.
+ *
+ * Cross-token gemination: wanakana silently drops a token-final っ (いっ →
+ * "i"), so splits like 一[イッ]+歩[ポ] would read "i po". A っ-final token
+ * fuses with a following consonant onset instead ("ippo"; "tch" before ch). */
 export function lineRomajiFromTokens(tokens: Token[], readingMode: ReadingMode = 'dictionary'): string {
-  return tokens
-    .map((t) => tokenRomaji(t, readingMode))
+  const parts = tokens.map((t) => tokenKanaRomaji(t, readingMode))
+  const words: string[] = []
+  for (let i = 0; i < parts.length; i++) {
+    let { kana, romaji: word } = parts[i]
+    while (i + 1 < parts.length && kana && /[っッ]$/.test(kana)) {
+      const next = parts[i + 1]
+      if (!GEMINATING_ONSET_RE.test(next.romaji)) break
+      word += (next.romaji.startsWith('ch') ? 't' : next.romaji.charAt(0)) + next.romaji
+      kana = next.kana
+      i++
+    }
+    words.push(word)
+  }
+  return words
     .join(' ')
     .replace(/\s+([、。！？,.!?])/g, '$1')
     .trim()

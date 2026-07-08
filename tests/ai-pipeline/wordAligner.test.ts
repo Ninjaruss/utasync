@@ -887,3 +887,115 @@ describe('tokenGlossText JMdict kanji fallback priority', () => {
     }
   })
 })
+
+describe('gloss-contradiction penalty for embedding-only pairs', () => {
+  const simVec = (sim: number) => [sim, Math.sqrt(1 - sim * sim), 0, 0]
+  const unit = [1, 0, 0, 0]
+
+  it('blocks a noise-floor embedding pair when the source has a gloss pointing elsewhere', async () => {
+    const { pairScore, resetGlossContradictionCacheForTests } = await import(
+      '../../src/ai-pipeline/wordAligner'
+    )
+    resetGlossContradictionCacheForTests()
+    // 持つ→"still" at 0.65 was a measured production wrong pair: the curated
+    // lexicon KNOWS motsu means "have", so a noise-band similarity to "still"
+    // is not evidence.
+    const contradicted = pairScore('motsu', 'still', unit, simVec(0.65), 0, 0, 1, 1, {
+      usePositionBonus: false,
+      sourceSurface: '持つ',
+    })
+    expect(contradicted).toBe(0)
+    // The gloss target itself is unaffected.
+    const glossPair = pairScore('motsu', 'have', unit, simVec(0.3), 0, 0, 1, 1, {
+      usePositionBonus: false,
+      sourceSurface: '持つ',
+    })
+    expect(glossPair).toBe(1)
+    // Strong similarity (>= 0.8) overrides the contradiction: genuinely
+    // paraphrased translations keep pairing.
+    const strong = pairScore('motsu', 'still', unit, simVec(0.85), 0, 0, 1, 1, {
+      usePositionBonus: false,
+      sourceSurface: '持つ',
+    })
+    expect(strong).toBeCloseTo(0.85, 5)
+  })
+
+  it('recognizes inflected godan stems as gloss-known (届か/todoka, 繕っ/tsukuro)', async () => {
+    const { setJmdictGlossForTests, resetJmdictGlossCache } = await import(
+      '../../src/ai-pipeline/jmdictGloss'
+    )
+    const { ensureGlossLexicon } = await import('../../src/ai-pipeline/lyricGloss')
+    const { pairScore, resetGlossContradictionCacheForTests } = await import(
+      '../../src/ai-pipeline/wordAligner'
+    )
+    setJmdictGlossForTests({
+      v: 1,
+      source: 'test',
+      romaji: { todoku: 'reach', tsukurou: 'mend' },
+      kanji: {},
+    })
+    await ensureGlossLexicon()
+    resetGlossContradictionCacheForTests()
+    try {
+      // 届か romanizes to the bare mizen stem "todoka" and 繕っ loses its っ
+      // ("tsukuro") — neither is a dictionary key, but both restore to known
+      // lemmas, so their embedding-noise pairs to light words must be blocked
+      // (measured production wrong pairs: 届か→that @0.76, 繕っ→that @0.79).
+      const todoka = pairScore('todoka', 'that', unit, simVec(0.76), 0, 0, 1, 1, {
+        usePositionBonus: false,
+        sourceSurface: '届か',
+      })
+      expect(todoka).toBe(0)
+      const tsukuro = pairScore('tsukuro', 'that', unit, simVec(0.79), 0, 0, 1, 1, {
+        usePositionBonus: false,
+        sourceSurface: '繕っ',
+      })
+      expect(tsukuro).toBe(0)
+    } finally {
+      resetJmdictGlossCache()
+      resetGlossContradictionCacheForTests()
+      await ensureGlossLexicon()
+    }
+  })
+
+  it('leaves gloss-less sources on the plain embedding path', async () => {
+    const { pairScore, resetGlossContradictionCacheForTests } = await import(
+      '../../src/ai-pipeline/wordAligner'
+    )
+    resetGlossContradictionCacheForTests()
+    // No dictionary knows "zoruku" — embedding similarity is the only signal
+    // and must pass through unchanged.
+    const score = pairScore('zoruku', 'still', unit, simVec(0.65), 0, 0, 1, 1, {
+      usePositionBonus: false,
+      sourceSurface: 'ゾルク',
+    })
+    expect(score).toBeCloseTo(0.65, 5)
+  })
+
+  it('unpairs 持つ from "still" end-to-end (熱を持つ夜に変わっていく)', async () => {
+    const { resetGlossContradictionCacheForTests } = await import(
+      '../../src/ai-pipeline/wordAligner'
+    )
+    resetGlossContradictionCacheForTests()
+    const tokens: Token[] = [
+      tok('熱', '名詞', 'ネツ'),
+      tok('を', '助詞', 'ヲ', '格助詞'),
+      tok('持つ', '動詞', 'モツ', '自立'),
+      tok('夜', '名詞', 'ヨル'),
+    ]
+    const targetWords = ['heat-bearing', 'night', 'still', 'arrive']
+    const embed = async (texts: string[]): Promise<number[][]> =>
+      texts.map((t) => {
+        if (t === '熱' || t === 'heat-bearing') return [1, 0, 0, 0]
+        if (t === '夜' || t === 'night') return [0, 1, 0, 0]
+        // Mirror the measured production noise: 持つ↔still ~0.65.
+        if (t === '持つ') return [0, 0, 1, 0]
+        if (t === 'still') return [0, 0, 0.65, Math.sqrt(1 - 0.65 * 0.65)]
+        return [0.05, 0.05, 0.05, 0.05]
+      })
+    const result = await alignLineTokens(tokens, targetWords, embed)
+    expect(result[0].alignmentIndices).toEqual([0]) // 熱 -> heat-bearing
+    expect(result[3].alignmentIndices).toEqual([1]) // 夜 -> night
+    expect(result[2].alignmentIndices ?? []).toEqual([]) // 持つ must not claim "still"
+  })
+})

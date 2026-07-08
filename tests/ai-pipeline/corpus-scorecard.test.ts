@@ -59,7 +59,9 @@ describe('audit corpus — alignment non-regression', () => {
   })
 
   for (const song of manifest.songs) {
-    it(`${song.name} does not regress vs baseline`, () => {
+    // 20s: the two-pass alignment re-run is CPU-bound and can exceed the 5s
+    // default when the whole suite runs in parallel workers.
+    it(`${song.name} does not regress vs baseline`, { timeout: 20_000 }, () => {
       const lineTexts = readFileSync(join(FIXTURES, song.lyrics), 'utf8')
         .split('\n')
         .map((l) => l.trim())
