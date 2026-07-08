@@ -7,7 +7,7 @@ import { resolveLineReadings, comparableKana } from './readingAlignment'
 const KANJI_RE = /[㐀-鿿]/
 
 /** Confidence at/above which an adopted sung reading is promoted into the ruby. */
-export const HIGH_READING_CONFIDENCE = 0.8
+export { HIGH_READING_CONFIDENCE } from '../lyrics/readingDisplay'
 
 /** Transcript words overlapping a token's [start, end] window. */
 function coveringWords(

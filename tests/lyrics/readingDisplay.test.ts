@@ -10,8 +10,13 @@ const token = (extra: Partial<Token>): Token => ({
 })
 
 describe('shouldPromoteSungReading', () => {
-  it('does not promote a high-confidence alternate in dictionary mode (dictionary owns the ruby)', () => {
+  it('promotes a high-confidence alternate even in dictionary mode', () => {
     const t = token({ audioReading: 'ワケ', readingConfidence: 0.95 })
+    expect(shouldPromoteSungReading(t, 'dictionary')).toBe(true)
+  })
+
+  it('does not promote a below-threshold alternate in dictionary mode', () => {
+    const t = token({ audioReading: 'ワケ', readingConfidence: 0.79 })
     expect(shouldPromoteSungReading(t, 'dictionary')).toBe(false)
   })
 
@@ -27,14 +32,14 @@ describe('shouldPromoteSungReading', () => {
 })
 
 describe('resolveTokenReading', () => {
-  it('keeps the dictionary reading in ruby even for a high-confidence alternate', () => {
+  it('promotes a high-confidence alternate into ruby in dictionary mode', () => {
     const resolved = resolveTokenReading(
       token({ reading: 'リユウ', audioReading: 'ワケ', readingConfidence: 0.85 }),
       'dictionary',
     )
-    expect(resolved.ruby).toBe('りゆう')
-    expect(resolved.source).toBe('dictionary')
-    expect(resolved.title).toContain('わけ')
+    expect(resolved.ruby).toBe('わけ')
+    expect(resolved.source).toBe('sung')
+    expect(resolved.title).toContain('りゆう')
   })
 
   it('promotes the sung reading into ruby in sung mode', () => {

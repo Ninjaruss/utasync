@@ -7,6 +7,11 @@ const KANA_ONLY_RE = /^[぀-ゟ゠-ヿ]+$/u
 /** Below this an adopted sung reading is flagged "uncertain" in the tooltip. */
 const UNCERTAIN_READING_CONFIDENCE = 0.5
 
+/** At/above this an adopted sung reading owns the ruby even in dictionary mode.
+ * Kept equal to readingAlignment.ADOPT_MIN_CONFIDENCE (re-exported by
+ * readingReconciler as its promotion threshold). */
+export const HIGH_READING_CONFIDENCE = 0.8
+
 export type ResolvedTokenReading = {
   /** Hiragana to render in the ruby, or null when the surface needs none. */
   ruby: string | null
@@ -18,16 +23,17 @@ export type ResolvedTokenReading = {
 
 /** True when the sung alternate should replace the dictionary reading in ruby.
  *
- * Correct-standard-readings policy: the dictionary reading owns the ruby. Detected
- * sung alternates are too unreliable (mis-hearings, proportional segment slices) to
- * override the ruby, so they surface only in the tooltip unless the user opts into
- * sung mode. */
+ * Sing-what-you-hear policy: a detected sung alternate owns the ruby once its
+ * audio-match confidence clears HIGH_READING_CONFIDENCE; weaker detections
+ * (mis-hearings, proportional segment slices) stay in the tooltip. Sung mode
+ * promotes every adopted alternate regardless of confidence. */
 export function shouldPromoteSungReading(
   token: Pick<Token, 'audioReading' | 'readingVerified' | 'readingConfidence'>,
   readingMode: ReadingMode,
 ): boolean {
   if (!token.audioReading || token.readingVerified) return false
-  return readingMode === 'sung'
+  if (readingMode === 'sung') return true
+  return (token.readingConfidence ?? 0) >= HIGH_READING_CONFIDENCE
 }
 
 function resolveTokenKana(token: Token, readingMode: ReadingMode): string | null {

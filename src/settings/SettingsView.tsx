@@ -162,7 +162,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
       <div className="bg-cinnabar-900 rounded-xl p-4 space-y-2">
         <p className="text-sm font-medium">Furigana</p>
         <p className="text-xs text-white/45 text-pretty">
-          Dictionary readings stay in the furigana by default; detected sung readings show in a tooltip. Turn this on to show sung readings in the furigana when detected.
+          By default the furigana shows dictionary readings, plus sung readings the audio confirms with high confidence; weaker detections show in a tooltip. Turn this on to show every detected sung reading in the furigana.
         </p>
         <button
           type="button"
