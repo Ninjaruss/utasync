@@ -89,4 +89,22 @@ describe('findRepeatedStanzas — fuzzy variants', () => {
     const block = stanzas.find((s) => s.lines.length === 2)
     expect(block?.occurrences).toEqual([1, 4])
   })
+
+  it('does not group different pure-ad-lib lines that strip to empty', () => {
+    const sheet = [
+      '(Hey)',
+      'verse line one here',
+      'verse line two here',
+      '(Woo)',
+      'verse line three different',
+    ]
+    const stanzas = findRepeatedStanzas(sheet)
+    expect(stanzas.find((s) => s.occurrences.includes(0) && s.occurrences.includes(3))).toBeUndefined()
+  })
+
+  it('still groups identical pure-ad-lib lines', () => {
+    const sheet = ['(Hey)', 'verse line one here', '(Hey)', 'verse line two here']
+    const stanzas = findRepeatedStanzas(sheet)
+    expect(stanzas.find((s) => s.occurrences.includes(0) && s.occurrences.includes(2))).toBeDefined()
+  })
 })

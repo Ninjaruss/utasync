@@ -20,7 +20,10 @@ function stanzaKey(lineTexts: readonly string[], start: number, len: number): st
 // belongs to. Strip them before repeat comparison.
 const AD_LIB_RE = /[（(][^）)]*[）)]/g
 function strippedForRepeat(text: string): string {
-  return normalizeForMatch(text.replace(AD_LIB_RE, ' '))
+  const stripped = normalizeForMatch(text.replace(AD_LIB_RE, ' '))
+  // A pure-ad-lib line ("(Hey)") strips to '' — compare its real content
+  // instead, so "(Hey)" doesn't spuriously group with "(Woo)".
+  return stripped || normalizeForMatch(text)
 }
 
 function charLcsLen(a: string, b: string): number {
