@@ -203,6 +203,12 @@ function naturalBlockEndTime(
  * when it strictly REDUCES needs_review lines — a block with none to begin with
  * (e.g. akfg's second ローリング block, already clean) has nothing to fix, so the
  * re-anchor is pure boundary risk and is declined.
+ *
+ * Cost: one scoreLineAlignment LCS per block line, run before AND after the
+ * speculative re-anchor — but only for 2-occurrence stanzas (3+ skip the gate),
+ * so it roughly doubles the per-block work for that case only. Do not replace
+ * the recompute with cached scores: the whole point is scoring the same lines
+ * at two different placements.
  */
 function blockQualityScore(
   out: TimedLine[],
