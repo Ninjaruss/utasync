@@ -770,7 +770,10 @@ function recoverInterjectionTiming(
     const windowSpan = windowEnd - windowStart
     const needsFix = Array.from({ length: runLen }, (_, k) => i + k)
       .some((idx) => out[idx].endTime - out[idx].startTime < MIN_INTERJECTION_SPAN_S)
-    if (needsFix && windowSpan > 0) {
+    // Redistribute only when the floor is actually achievable: a window
+    // smaller than runLen × floor would hand each line a share below the
+    // 0.01s inter-line gap and produce negative-duration lines.
+    if (needsFix && windowSpan >= runLen * MIN_INTERJECTION_SPAN_S) {
       const share = windowSpan / runLen
       for (let k = 0; k < runLen; k++) {
         const idx = i + k
