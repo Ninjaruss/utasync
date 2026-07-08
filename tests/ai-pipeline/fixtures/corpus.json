@@ -49,18 +49,6 @@
       "lang": "ja",
       "lyrics": "guitar-loneliness/lyrics.ja.txt",
       "transcript": "guitar-loneliness/transcript.segment.json"
-    },
-    {
-      "name": "akfg-user-word",
-      "lang": "ja",
-      "lyrics": "akfg-user-ja.txt",
-      "transcript": "akfg-user/transcript.word.json"
-    },
-    {
-      "name": "akfg-user-segment",
-      "lang": "ja",
-      "lyrics": "akfg-user-ja.txt",
-      "transcript": "akfg-user/transcript.segment.json"
     }
   ]
 }
