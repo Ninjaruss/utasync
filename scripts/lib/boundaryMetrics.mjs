@@ -5,12 +5,21 @@
  * Only well-matched lines are scored; a line whose LCS span no longer overlaps
  * its own window (repeat-stanza retarget) is skipped, not penalized.
  * Early (padded) line starts are intentionally NOT flagged; only late starts are.
+ *
+ * The mid-word scan only considers words within a plausible sung-word duration
+ * (MID_WORD_MIN_DURATION_S..MID_WORD_MAX_DURATION_S). Segment-mode Whisper
+ * collapses whole lyric phrases into a single multi-second "word", so every line
+ * boundary lands inside one by construction — those chunks measure transcript
+ * granularity, not a boundary defect, and are excluded from the mid-word count.
  */
 export const EARLY_END_THRESHOLD_S = 0.35
 export const OVERLAP_EPS_S = 0.05
 export const MIN_SPAN_COVERAGE = 0.55
-// Only a word this long can meaningfully "contain" a line boundary.
+// Only a word in this duration band can meaningfully "contain" a line boundary.
+// Below MIN it is too short to straddle a boundary; above MAX it is a segment
+// phrase chunk (a real sung word/melisma rarely exceeds ~2.5s).
 const MID_WORD_MIN_DURATION_S = 0.4
+const MID_WORD_MAX_DURATION_S = 2.5
 const MID_WORD_MARGIN_S = 0.15
 
 function wellMatched(line, span) {
@@ -43,7 +52,8 @@ export function computeBoundaryMetrics(lines, spans, words, opts = {}) {
     // (padded) starts into a preceding instrumental gap are by design.
     if (line.startTime - span.firstTime > early) lateStart++
     for (const w of words) {
-      if (w.endTime - w.startTime < MID_WORD_MIN_DURATION_S) continue
+      const dur = w.endTime - w.startTime
+      if (dur < MID_WORD_MIN_DURATION_S || dur > MID_WORD_MAX_DURATION_S) continue
       const inside = (t) => t > w.startTime + MID_WORD_MARGIN_S && t < w.endTime - MID_WORD_MARGIN_S
       if (inside(line.startTime) || inside(line.endTime)) {
         midWord++
