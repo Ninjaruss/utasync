@@ -1,6 +1,7 @@
 import type { Language, LineAlignmentQuality, LyricsData, SungPhrase, TimedLine } from '../core/types'
 import { alignLyrics, lineWeight, sanitizeTranscript, subdivideTranscriptWord, type TranscriptWord } from '../ai-pipeline/aligner'
 import {
+  computeLineMatchedSpans,
   isInterjectionLyricLine,
   normalizeForMatch,
   qualityRank,
@@ -437,9 +438,61 @@ function realignMergedLineGroups(
       sourceLanguage,
       anchorSources,
     )
+    // Each member line has its own reliable matched span within the window. The
+    // group redistribution recomputes timings from a group-level LCS window and
+    // can push a member's boundary out to the group envelope, overshooting the
+    // member's true onset/offset (guitar-loneliness-segment L4/L7 lateStart,
+    // L30 earlyEnd). Respect the member's own span: only accept a redistributed
+    // boundary when it does not sit further from that span than the pre-realign
+    // timing already did (beyond a small tolerance).
+    const memberSpans = computeLineMatchedSpans(texts, windowWords)
+    const RESPECT_TOL_S = 0.35
+    // A member span needs enough matched coverage before it can pull a boundary
+    // *earlier* (toward an onset the LCS may have mis-anchored to a later repeat);
+    // a 2-of-5-char coincidence (a repetition line spuriously matching a
+    // neighbour's audio) is not trustworthy for that.
+    const MIN_RESPECT_COVERAGE = 0.5
     for (let k = 0; k < group.length; k++) {
-      out[lo + k].startTime = refined.lines[k].startTime
-      out[lo + k].endTime = refined.lines[k].endTime
+      const span = memberSpans[k]
+      const cov = span && span.totalChars > 0 ? span.matchedChars / span.totalChars : 0
+      const reliable = span != null && cov >= MIN_RESPECT_COVERAGE
+      const priorStart = out[lo + k].startTime
+      const priorEnd = out[lo + k].endTime
+      let nextStart = refined.lines[k].startTime
+      let nextEnd = refined.lines[k].endTime
+      if (span && reliable) {
+        // A redistributed start later than the member's own first sung glyph is a
+        // lateStart; revert to the (validated) prior start when it tracked the
+        // span more closely.
+        if (
+          nextStart - span.firstTime > RESPECT_TOL_S
+          && nextStart - span.firstTime > priorStart - span.firstTime
+        ) {
+          nextStart = priorStart
+        }
+        // A redistributed end earlier than the member's own last sung glyph is an
+        // earlyEnd; revert to the prior end when it tracked the span more closely.
+        if (
+          span.lastEndTime - nextEnd > RESPECT_TOL_S
+          && span.lastEndTime - nextEnd > span.lastEndTime - priorEnd
+        ) {
+          nextEnd = priorEnd
+        }
+      } else {
+        // No reliable own span in the group window: the group-level LCS can
+        // re-anchor this member to a *later repeat* of the same phrase and shove
+        // its boundary well off its validated position, then monotonicity
+        // cascades that shift onto the following well-matched lines
+        // (guitar-loneliness-segment: L3 27.0→33.1 and L6 38.2→43.1 over-shift,
+        // dragging L4/L7 lateStart and clipping L30's tail via an early-dragged
+        // L31). A low-confidence re-anchor is less trustworthy than the validated
+        // timing, so keep the validated boundary whenever the redistribution
+        // moved it more than the tolerance.
+        if (Math.abs(nextStart - priorStart) > RESPECT_TOL_S) nextStart = priorStart
+        if (Math.abs(nextEnd - priorEnd) > RESPECT_TOL_S) nextEnd = priorEnd
+      }
+      out[lo + k].startTime = nextStart
+      out[lo + k].endTime = nextEnd
     }
   }
 
