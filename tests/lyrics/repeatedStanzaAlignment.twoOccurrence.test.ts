@@ -37,37 +37,43 @@ function refine(lyrics: string, transcript: string) {
 }
 
 describe('two-occurrence repeat re-anchor (evidence-gated)', () => {
-  // NOTE on the bridge assertion: stranger's bridge "Paved my way, won't live in
-  // my past" (sheet rows 44 & 48) is transcribed as unrelated garble in
-  // transcript.word.json — the entire bridge couplet is absent. Grepping the
-  // whole transcript for the bridge's content words ("paved", "pull", "shot",
-  // "once", "part of", "never look") yields only a single stray "past" at
-  // ~116.4s; the ~154s region reads "…made a way, boy / Taking us to the place
-  // where / Stranger…heaven". So neither bridge occurrence can score above
-  // needs_review from any placement (verified: even force-accepting the
-  // re-anchor leaves rows 48-50 needs_review). The evidence-gated re-anchor
-  // therefore CORRECTLY declines to move this block (candidate is not strictly
-  // better) — so we assert the gate is safe here (no worse than a no-op) rather
-  // than a re-anchor that this fixture's transcript cannot support.
-  it('stranger bridge repeat: gate declines an un-anchorable garbled re-anchor', () => {
+  // Targets the gate mechanism directly: stranger's 2-occurrence repeat block
+  // (rows 16-19 / 34-37: "錆ひとつない…" / "I found a place that I can call
+  // home" / "Tested my fate…" / "連れ行くその場所は") on the SEGMENT transcript.
+  // Under the old blanket 2-occurrence skip, the second occurrence sits on
+  // stale timing (rows 35-38 score needs_review/approximate/needs_review/good;
+  // sheet total 20). The gated re-anchor is accepted (strictly fewer
+  // needs_review lines, higher summed rank) and recovers rows 35-36 to "good",
+  // dropping the sheet total to 19. Both assertions are RED with the gate
+  // deleted (blanket skip restored) — verified by temporarily checking out the
+  // pre-gate src file.
+  //
+  // The bridge "Paved my way, won't live in my past" (rows 44 & 48) is
+  // intentionally NOT asserted: grepping the transcripts for its content words
+  // ("paved", "pull", "shot", "once", "part of", "never look") yields only a
+  // stray "past" at ~116.4s — the bridge couplet is absent from the transcript,
+  // so no placement policy can lift it above needs_review (transcript-limited).
+  it('stranger 2x repeat block re-anchors on the segment transcript', () => {
     const { lineTexts, refined } = refine(
       'stranger-than-heaven/lyrics.txt',
-      'stranger-than-heaven/transcript.word.json',
+      'stranger-than-heaven/transcript.segment.json',
     )
-    const first = lineTexts.indexOf('Paved my way, won\'t live in my past')
-    const second = lineTexts.indexOf('Paved my way, won\'t live in my past', first + 1)
-    expect(first).toBe(44)
-    expect(second).toBe(48)
+    const first = lineTexts.indexOf('I found a place that I can call home')
+    const second = lineTexts.indexOf('I found a place that I can call home', first + 1)
+    expect(first).toBe(17)
+    expect(second).toBe(35)
     const quality = refined.lineAlignmentQuality ?? []
-    // The second block never precedes the first (monotonic), and the gate does
-    // not push it earlier than the reference occurrence.
-    expect(refined.lines[second].startTime).toBeGreaterThanOrEqual(refined.lines[first].startTime)
-    // The gate must not REGRESS: total needs_review across the whole sheet stays
-    // at or below the Task-1 baseline (27 word). Proves the speculative 2-occ
-    // re-anchor never lands a worse placement anywhere (incl. this un-anchorable
-    // bridge, which it correctly declines to move).
+    // Whole-sheet count: blanket skip yields 20; the accepted re-anchor of the
+    // [16,34] block must bring it to 19 or better.
     const totalNeedsReview = quality.filter((q) => q === 'needs_review').length
-    expect(totalNeedsReview).toBeLessThanOrEqual(27)
+    expect(totalNeedsReview).toBeLessThanOrEqual(19)
+    // Block-local: of the 4 rows starting at the repeat's "I found a place…"
+    // line, the gated re-anchor achieves 3 non-needs_review (rows 35, 36, 38;
+    // row 37 "連れ行くその場所は" stays flagged). The blanket skip manages only 2.
+    const cleanInBlock = [0, 1, 2, 3].filter((k) => quality[second + k] !== 'needs_review').length
+    expect(cleanInBlock).toBeGreaterThanOrEqual(3)
+    // And the line the re-anchor recovers outright:
+    expect(quality[second]).not.toBe('needs_review')
   })
 
   it('veil does not regress (its 2-occurrence verse pairs must fail the gate)', () => {
