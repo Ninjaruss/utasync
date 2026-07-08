@@ -219,3 +219,31 @@ Pass-2 tuners were bisected by wrapping the chain (phraseAlignment.ts:1430–144
 combinations) disabled. The gate was reverted after measurement; `git status` on
 `src/lyrics/phraseAlignment.ts` is clean. Findings D1/D2 reproduce with a single-tuner skip;
 D3 defects persist with *all* tuners disabled (⇒ projection/pass-1 stage).
+
+## Accepted trade-offs (Task 8 fix loop)
+
+The D1/D2/midword fixes (a90f8ed, 8e14b29, 339eeb8) plus the mid-word-end tail
+extension (9e1a903) moved three non-boundary counters against the pre-fix table.
+Each was investigated per line; all are surfaced-by-correct-timing artifacts,
+not alignment regressions, and are accepted for the Task 9 baseline:
+
+- **veil `read_mismatch` 2 → 3** — new token 何処 on L47 「何処かでまた会えるように」
+  (now 199.53–201.92s). Whisper transcribed the sung どこかで as ここから
+  (`ここ[199.44] から[199.62] また[200.06] … ように[201.40]`). Pre-fix the line's
+  window missed this audio entirely, so the reconciler never saw it; the flag is
+  the reconciler doing its job against a mis-heard transcript. Timing is now
+  correct per the transcript shape.
+- **guitar-loneliness-segment `read_mismatch` 0 → 1** — new token 螺旋 on L6
+  「めまいの螺旋だ」 (now 38.19–40.85s). The segment transcript garbled the phrase
+  to 「名前のなぜんだ」 (39.00–50.46s chunk). Same pattern: correct window,
+  Whisper-caused reading flag.
+- **stranger-than-heaven-word `align_needs_review` 26 → 27** — churn among
+  repeated chorus lines: L14 "I found a place…" cleared, L15 + L53 "Tore down the
+  gates…" flagged. This is the repeat-occurrence disambiguation class documented
+  in §5 as out of scope for boundary tuning; net review load ±1 on a song whose
+  matching needs dedicated follow-up work.
+
+Record correction: the Task 8 report claimed veil `late_p2` 1 → 0 prematurely;
+at 339eeb8 it was still 1. The mid-word-end tail extension (9e1a903) resolved it —
+veil `late_p2` is 0 as of that commit, along with veil/akfg-word/guitar-seg
+`midword_p2` = 0 and stranger-seg `early_p2` = 0.
