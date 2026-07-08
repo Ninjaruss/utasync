@@ -284,3 +284,107 @@ Success-bar reckoning vs the design spec:
   disambiguation of identical chorus lines (first occurrence matches cleanly),
   not mixed-language tokenization. Needs dedicated follow-up work in the
   matching stage.
+
+## Repeat-chorus matching (follow-up effort)
+
+Follow-up to §5. The matching-stage work landed as branch `repeat-chorus-matching`
+(spec: `docs/superpowers/specs/2026-07-07-repeat-chorus-matching-design.md`):
+(1) fuzzy repeat detection tolerant of ad-lib parentheticals, (2) an
+evidence-gated re-anchor for 2-occurrence repeat blocks (accept only when it
+scores strictly better), (3) an EN-vocalization branch in
+`isInterjectionLyricLine` so all-vocalization lines classify as `approximate`
+(un-scoreable) instead of `needs_review`, plus an informational `unscoreable`
+scorecard column.
+
+### Before / after (stranger-than-heaven)
+
+| counter | word: before → after | segment: before → after |
+| --- | --- | --- |
+| align_needs_review | 27 → **22** | 20 → **16** |
+| unscoreable (new, informational) | — → 5 | — → 5 |
+| align_long_dur | 1 → 1 | 0 → 0 |
+| all boundary counters (bnd_*) | unchanged | unchanged |
+
+All 7 other corpus entries are byte-identical on every numeric counter to the
+locked baseline (the only baseline-file change besides stranger's two counters
+is the new `unscoreable` string column, exempt from the regression guard).
+
+### Per-line reckoning of the residual needs_review lines
+
+The stranger fixture transcript is an alternate/live take: nearly every English
+chorus and verse line is **re-sung with different words** vs the studio lyric
+sheet (e.g. the sheet's "I found a place where I'm not alone / Tore down the
+gates…" is sung/transcribed as "I'll find a place / made a way boy", and
+"Paved my way, won't live in my past" as "made a way boy / Taking us to the
+place where"). Those lines have no recoverable phonetic anchor and are the bulk
+of the residual.
+
+**Class A — transcript-garble carve-out** (sung content mis-transcribed beyond
+phonetic recovery; quoted evidence is the transcript at/near the line's window):
+
+Word mode (20 lines): 0,1,2,15,21,31,33,34,37,44,45,46,47,48,49,50,53,54,57
+
+| row | sheet line | transcript at window (quoted) |
+| --- | --- | --- |
+| 0 | I found a place where I'm not alone | `(♪~) 夜 は く take yourself away` |
+| 1 | Tore down the gates, took all my pain… | `夜 は く take yourself away` |
+| 2 | You know I could take you somewhere, oh | `take yourself away … St range in heaven` |
+| 15 | Tore down the gates… | `I found a place Oh no no no D ream and a gaze` |
+| 21 | Followed by the echoes where the black light dims | `T rou ble when the angels were the lamp light D im ms` |
+| 31 | 汚れだらけ痛みの果て | `observe the ends You are a daughter, get it?` (JA 痛/果 only at 66–67s, never near 123s window) |
+| 33 | Tore down the gates… | `I 'll find a place Oh no, don 't let me gaze` |
+| 34 | 錆ひとつない 触らせやしない 媚びる気はない | `I can 't die, I 'll find a place` (JA re-sung in EN) |
+| 37 | 連れ行くその場所は | `一 つ ない 変 わ ら せ や す い 飛 び 抜 き は` |
+| 44–49 | Paved my way… / Once you come here… / Pull no shot… / Stranger than heaven (bridge ×2) | `made a way boy T aking us to the place where` (the whole bridge block collapses onto this one window) |
+| 50 | Pull no shot till you're part of this pack, it's | `T aking us to the place where St range in the heaven` |
+| 53 | Tore down the gates… | `I know the moon So we don 't make it` |
+| 54 | 錆ひとつない 触らせやしない 媚びる気はない | `喋 ら せ した い こ ぴ る 気 を` |
+| 57 | 連れ行くその場所は、oh | `D en ied to a place Oh … St range over heaven` |
+
+Segment mode (12 lines): 0,1,2,31,37,45,48,49,50,53,54,57 — same lines/evidence
+as word mode where they overlap (45/48/49 are the bridge block, garbled to
+`So call my pain and made a way boy / Taking us to the place where`).
+
+**Class B — fixable-in-principle** (transcript DOES contain recognizable content
+at a plausible time; matching still fails — documented follow-up list):
+
+| row | mode | sheet line | recognizable transcript (time) | why matching fails |
+| --- | --- | --- | --- | --- |
+| 9 | word+seg | 滾らせるこの覚悟の血 (Hey) | `今 駆け出せる この影を呑み` (~45s, correct window) | garbled-but-adjacent JA: only `この` matches verbatim; the partial kana overlap falls below the line-scoring match threshold, so a correctly-timed line still reads needs_review. |
+| 11 | word+seg | 明かりの灯し方さえ知らず | `上がりの 灯しか` (~55s, correct window) | `灯し` is literally present but is too small a matched span (< the fraction the quality classifier needs) for a multi-token JA line. |
+| 29 | seg only | Under lock of death, the names still burn | `Under lock and death, some names still burn` (**119.5s**) | near-verbatim transcript exists, but the line's window is placed at 128–130s (`Oh no, don't let me gaze`); the preceding "Followed by the echoes" verse mis-anchored and pushed rows 29–30 ~9s late, and the monotonic forward search never recovers to 119s. |
+| 30 | seg only | Don't read between the lines, close your eyes and observe the answer | `Don't read between the lines,,Pulled your eyes, then observe the ends` (**122s**) | strongly recognizable at 122s, but window sits at 130–131s for the same cascade reason as row 29 — a projection/window-placement failure, not a garble. |
+
+**Class C — mis-flagged** (timing correct but scoring flags anyway): **none
+found.** Every flagged line is either genuinely un-anchorable (A) or a real
+placement/threshold gap (B).
+
+Classification counts: **word A=20 B=2 C=0**; **segment A=12 B=4 C=0**.
+
+### Effective-bar verdict
+
+Corpus needs_review = [7,0,0,2,22,16,2,2] → median **2**, so 1.5× median ≈ **3**.
+Effective residual = needs_review − class-A carve-outs:
+
+- **Word: 22 − 20 = 2** (rows 9, 11). **2 ≤ 3 → spec bar MET** after documented
+  transcript-garble carve-outs.
+- **Segment: 16 − 12 = 4** (rows 9, 11, 29, 30). **4 > 3 → PARTIALLY MET** (one
+  line over the bar). The two extra flags (29, 30) are the class-B
+  window-placement cascade, not garble.
+
+Honest bottom line: after carve-outs the matching-stage work brings stranger
+from ~13× the corpus median to at or just above the 1.5×-median bar. The bulk of
+the reduction is correctly reclassifying the 5 vocalization lines as unscoreable
+and refusing to flag lines the transcript simply does not contain.
+
+### Class-B follow-up list (next effort)
+
+1. **Partial-JA anchor scoring (rows 9, 11):** short JA lines with a small but
+   real matched span (`この`, `灯し`) still read needs_review. Consider crediting
+   correctly-timed lines with any verbatim token overlap, or lowering the
+   matched-fraction floor for short lines.
+2. **Verse-cascade window recovery (segment rows 29, 30):** near-verbatim
+   English verse lines are placed ~9s late because an upstream mis-anchor
+   ("Followed by the echoes" family) advances the monotonic search past their
+   true position. Needs a projection-stage back-search / re-anchor when a later
+   line scores far better at an earlier unused window.
