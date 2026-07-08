@@ -43,13 +43,19 @@ function charLcsLen(a: string, b: string): number {
 
 /** Near-identical after ad-lib stripping (final-chorus "、oh" tails etc.). */
 const REPEAT_LINE_SIMILARITY = 0.85
+// Short JA lines differing by one kana score deceptively high (きらきらひ vs
+// きらきらほ → 0.80; 7 chars → 0.857), so fuzzy matching needs enough signal —
+// same guard idea as the >=10-char gate in lineAligner's substring similarity.
+const REPEAT_FUZZY_MIN_CHARS = 8
 function linesSimilar(a: string, b: string): boolean {
   if (a === b) return true
   if (!a || !b) return false
+  if (a.length < REPEAT_FUZZY_MIN_CHARS || b.length < REPEAT_FUZZY_MIN_CHARS) return false
   return charLcsLen(a, b) / Math.max(a.length, b.length) >= REPEAT_LINE_SIMILARITY
 }
 
-/** Find consecutive line runs (1–6 rows) that repeat verbatim in the sheet. */
+/** Find consecutive line runs (1–6 rows) that repeat in the sheet — verbatim,
+ * or near-identical (>=0.85 char similarity) after ad-lib stripping. */
 export function findRepeatedStanzas(lineTexts: readonly string[]): RepeatedStanza[] {
   const maxLen = Math.min(6, lineTexts.length)
   const stripped = lineTexts.map((t) => strippedForRepeat(t))

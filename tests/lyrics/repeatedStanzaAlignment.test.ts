@@ -107,4 +107,10 @@ describe('findRepeatedStanzas — fuzzy variants', () => {
     const stanzas = findRepeatedStanzas(sheet)
     expect(stanzas.find((s) => s.occurrences.includes(0) && s.occurrences.includes(2))).toBeDefined()
   })
+
+  it('requires exact match for short lines (one-kana JA variants stay distinct)', () => {
+    const sheet = ['きらきらひ', 'verse line one here', 'きらきらほ', 'verse line two here']
+    const stanzas = findRepeatedStanzas(sheet)
+    expect(stanzas.find((s) => s.occurrences.includes(0) && s.occurrences.includes(2))).toBeUndefined()
+  })
 })
