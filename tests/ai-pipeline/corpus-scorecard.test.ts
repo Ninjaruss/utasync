@@ -67,7 +67,13 @@ describe('audit corpus — alignment non-regression', () => {
       const refined = refineAlignmentWithPhrases(sheetRows, words, song.lang)
 
       const base = baseline[song.name]
-      if (!base) return
+      if (!base) {
+        // New corpus songs have no row until the baseline is re-snapshotted
+        // (audit-corpus.mjs --write-baseline). Warn so drift is visible; a
+        // strict coverage assertion lands with the snapshot.
+        console.warn(`corpus-scorecard: no baseline row for ${song.name} — skipping`)
+        return
+      }
 
       const quality = refined.lineAlignmentQuality ?? []
       const needsReview = quality.filter((q) => q === 'needs_review').length
@@ -106,7 +112,9 @@ describe('audit corpus — alignment non-regression', () => {
       for (const [key, val] of boundaryChecks) {
         const baselineVal = base[key]
         if (typeof baselineVal === 'number') {
-          expect(val, `${song.name} ${key} regressed`).toBeLessThanOrEqual(baselineVal)
+          expect(val, `${song.name} ${key} regressed: ${val} > ${baselineVal}`).toBeLessThanOrEqual(
+            baselineVal,
+          )
         }
       }
     })
