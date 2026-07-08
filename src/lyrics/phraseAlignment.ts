@@ -1725,6 +1725,25 @@ export function refineAlignmentWithPhrases(
     if (isInterjectionLyricLine(lineTexts[i])) lineAlignmentQuality[i] = 'approximate'
   }
 
+  // Partial-anchor upgrade (class B, findings §rows 9/11): a needs_review line
+  // whose reliable matched span is small but REAL — several verbatim chars at
+  // minimum coverage, time-consistent with the assigned window, and flanked by
+  // lines that themselves aren't in review — is placed correctly even though
+  // its matched fraction sits below the classifier floor. Review can't improve
+  // it, so it reads approximate.
+  const upgradeSpans = computeLineMatchedSpans(lineTexts, transcriptWords)
+  for (let i = 0; i < tunedLines.length; i++) {
+    if (lineAlignmentQuality[i] !== 'needs_review') continue
+    const s = upgradeSpans[i]
+    if (!s || s.matchedChars < 4) continue
+    if (s.matchedChars / Math.max(1, s.totalChars) < 0.3) continue
+    if (s.firstTime < tunedLines[i].startTime - 0.5) continue
+    if (s.lastEndTime > tunedLines[i].endTime + 0.5) continue
+    const prevOk = i === 0 || lineAlignmentQuality[i - 1] !== 'needs_review'
+    const nextOk = i === tunedLines.length - 1 || lineAlignmentQuality[i + 1] !== 'needs_review'
+    if (prevOk && nextOk) lineAlignmentQuality[i] = 'approximate'
+  }
+
   const syncedPhrases = syncPhrasesFromValidatedLines(phrases, tunedLines)
 
   return {

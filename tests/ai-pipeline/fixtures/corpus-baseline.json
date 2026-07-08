@@ -110,7 +110,7 @@
   "stranger-than-heaven-word": {
     "lines": "59/59",
     "mode": "content",
-    "align_needs_review": 22,
+    "align_needs_review": 20,
     "align_monotonicity": 0,
     "align_zero_dur": 0,
     "align_long_dur": 1,
@@ -137,7 +137,7 @@
   "stranger-than-heaven-segment": {
     "lines": "59/59",
     "mode": "content",
-    "align_needs_review": 16,
+    "align_needs_review": 14,
     "align_monotonicity": 0,
     "align_zero_dur": 0,
     "align_long_dur": 0,
