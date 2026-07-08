@@ -5,6 +5,21 @@
       "line": "この手が離れても",
       "surface": "離れ",
       "sung": "はなれ"
+    },
+    {
+      "line": "何処かでまた会えるように",
+      "surface": "何処",
+      "sung": "どこ"
+    },
+    {
+      "line": "象ったような不幸があなたを襲うなら",
+      "surface": "象っ",
+      "sung": "かたどっ"
+    },
+    {
+      "line": "今と向き合って変わっていく",
+      "surface": "向き合っ",
+      "sung": "むきあっ"
     }
   ],
   "akfg-firsttake-word": [
@@ -72,6 +87,11 @@
       "line": "空のご機嫌なんか知らない",
       "surface": "空",
       "sung": "そら"
+    },
+    {
+      "line": "めまいの螺旋だ",
+      "surface": "螺旋",
+      "sung": "らせん"
     }
   ],
   "guitar-loneliness-segment": [

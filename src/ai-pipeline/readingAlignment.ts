@@ -138,6 +138,23 @@ function trailingOkurigana(surface: string): string {
   return comparableKana(tail)
 }
 
+/** Levenshtein distance, early-exited at `cap + 1` (spans here are ≤ ~10 kana). */
+function editDistanceCapped(a: string, b: string, cap: number): number {
+  if (Math.abs(a.length - b.length) > cap) return cap + 1
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]
+    let rowMin = i
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+      if (cur[j] < rowMin) rowMin = cur[j]
+    }
+    if (rowMin > cap) return cap + 1
+    prev = cur
+  }
+  return prev[b.length]
+}
+
 export function resolveLineReadings(tokens: Token[], windowText: string): ReadingDecision[] {
   const decisions: ReadingDecision[] = tokens.map(() => ({ kind: 'skip' as ReadingDecisionKind }))
   const { a: A, owner } = buildExpectedKana(tokens)
@@ -205,6 +222,13 @@ export function resolveLineReadings(tokens: Token[], windowText: string): Readin
       // async kanji pass (readingReconciler) can still resolve it from glyphs.
       if (!spanTainted && contextScore >= ADOPT_CONTEXT_FLOOR && confidence >= ADOPT_MIN_CONFIDENCE) {
         decisions[idx] = { kind: 'adopt', audioReading: span, confidence }
+      } else if (!spanTainted && R.length >= 2 && editDistanceCapped(span, R, 1) <= 1) {
+        // The span failed the adopt gates AND sits one edit from the dictionary
+        // reading: that is Whisper mishearing the dictionary reading (空→そら
+        // heard as それ), not evidence of an alternate — verify instead of
+        // flagging "audio differed". Longer readings with small edits already
+        // clear VERIFY_MATCH_RATIO above; this covers the short ones.
+        decisions[idx] = { kind: 'verified', confidence }
       } else {
         decisions[idx] = { kind: 'mismatch', confidence }
       }
