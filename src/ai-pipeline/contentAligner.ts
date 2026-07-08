@@ -60,13 +60,26 @@ const LYRIC_ORTHOGRAPHY_ALIASES: ReadonlyArray<readonly [string, string]> = [
 const INTERJECTION_RE = /^(嗚呼|うーん|うー|あー|…|\.\.\.|\.{2,})/
 const JA_SCRIPT = /[぀-ヿ㐀-鿿]/
 
+// EN vocalization tokens (elongation-tolerant): ahh/ooh/hmm/yeah/hey/ayy/woah/
+// la/na/uh/mm/oh + "alright". A line made ENTIRELY of these (after stripping
+// parenthetical ad-libs and punctuation) has no stable phonetic content for the
+// JA Whisper model to transcribe — treat it like a JA interjection line:
+// interpolated timing, approximate quality, excluded from match metrics.
+const EN_VOCALIZATION_TOKEN = /^(a+h*|o+h*|o+o+h*|h*m+|ye+a*h*|he+y+|a+y+|w+h?o+a+h*|la+|na+|u+h*|alright)$/i
+
 export function isInterjectionLyricLine(text: string): boolean {
   const t = text.trim()
   if (!t) return false
   if (INTERJECTION_RE.test(t)) return true
   const glyphs = t.replace(/[….\s]/g, '')
   // Repeated single mora (ああ) — not real two-kana words like ねこ or そら.
-  return glyphs.length === 2 && glyphs[0] === glyphs[1] && JA_SCRIPT.test(t)
+  if (glyphs.length === 2 && glyphs[0] === glyphs[1] && JA_SCRIPT.test(t)) return true
+  // EN vocalization-only lines ("Ahh, ooh-hmm, yeah-yeah", "(Hey) Oh, alright").
+  const enTokens = t
+    .replace(/[（(][^）)]*[）)]/g, ' ')
+    .split(/[\s,\-–—]+/)
+    .filter(Boolean)
+  return enTokens.length > 0 && enTokens.every((tok) => EN_VOCALIZATION_TOKEN.test(tok))
 }
 
 function applyOrthographyAliases(text: string): string {

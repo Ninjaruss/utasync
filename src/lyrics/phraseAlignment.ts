@@ -662,6 +662,12 @@ function clipSilencePaddedLineTails(
  *     gap), but the interjection starts exactly at a chunk's END rather than
  *     its start — i.e. the chunk is just before interjStart.  Re-assign.
  */
+// Below this span, an interjection line reads as a zero-duration flash rather
+// than a visible lyric — reject a chunk reassignment that would produce one
+// (short Whisper filler tokens like "'ll" near EN-vocalization interjection
+// runs otherwise collapse the line almost to a point).
+const MIN_INTERJECTION_SPAN_S = 0.12
+
 function recoverInterjectionTiming(
   lines: TimedLine[],
   transcriptWords: TranscriptWord[],
@@ -728,6 +734,51 @@ function recoverInterjectionTiming(
     out[i - 1].endTime = absorbed.startTime - 0.05
     out[i].startTime = absorbed.startTime
     out[i].endTime = Math.min(absorbed.endTime, nextStart - 0.05)
+  }
+
+  // A tight run of consecutive interjection/vocalization lines (e.g. 5 EN
+  // ad-lib lines packed into ~2s) can leave individual lines with a
+  // near-zero span once each has snapped to its own short Whisper chunk.
+  // Redistribute the run's total window evenly across its lines so every
+  // line gets at least a visible floor span where the window supports it —
+  // fixing a single line in isolation can't work when its neighbour has
+  // already claimed the room right after it.
+  for (let i = 1; i < out.length; ) {
+    if (!isInterjectionLyricLine(out[i].original || out[i].translation)) {
+      i++
+      continue
+    }
+    let j = i
+    while (
+      j + 1 < out.length
+      && isInterjectionLyricLine(out[j + 1].original || out[j + 1].translation)
+    ) {
+      j++
+    }
+    const runLen = j - i + 1
+    const windowStart = out[i].startTime
+    // Bound the window by where the run's own lines already reached, not by
+    // the following line's startTime — a downstream needs_review line can be
+    // anchored far away and would otherwise donate an unrelated multi-second
+    // gap to this run instead of just enough room for a visible floor span.
+    const naturalEnd = out[j].endTime
+    const nextLineStart = j + 1 < out.length ? out[j + 1].startTime : naturalEnd
+    const windowEnd = Math.min(
+      Math.max(naturalEnd, windowStart + runLen * MIN_INTERJECTION_SPAN_S),
+      nextLineStart,
+    )
+    const windowSpan = windowEnd - windowStart
+    const needsFix = Array.from({ length: runLen }, (_, k) => i + k)
+      .some((idx) => out[idx].endTime - out[idx].startTime < MIN_INTERJECTION_SPAN_S)
+    if (needsFix && windowSpan > 0) {
+      const share = windowSpan / runLen
+      for (let k = 0; k < runLen; k++) {
+        const idx = i + k
+        out[idx].startTime = windowStart + k * share
+        out[idx].endTime = windowStart + (k + 1) * share - (k === runLen - 1 ? 0 : 0.01)
+      }
+    }
+    i = j + 1
   }
 
   return out
@@ -1591,6 +1642,14 @@ export function refineAlignmentWithPhrases(
     if (lineAlignmentQuality[i - 1] === 'good' && lineAlignmentQuality[i + 1] === 'good') {
       lineAlignmentQuality[i] = 'approximate'
     }
+  }
+
+  // Interjection/vocalization lines (JA 嗚呼…, EN "Ahh, ooh-hmm…") have no
+  // phonetic content a JA transcript can anchor; review can't improve them.
+  // They keep interpolated timing and read as approximate, not needs_review.
+  for (let i = 0; i < tunedLines.length; i++) {
+    if (lineAlignmentQuality[i] !== 'needs_review') continue
+    if (isInterjectionLyricLine(lineTexts[i])) lineAlignmentQuality[i] = 'approximate'
   }
 
   const syncedPhrases = syncPhrasesFromValidatedLines(phrases, tunedLines)
