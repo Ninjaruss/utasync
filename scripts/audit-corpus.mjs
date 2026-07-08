@@ -63,7 +63,7 @@ async function main() {
   const { alignLyrics, sanitizeTranscript } = await import(
     pathToFileURL(join(root, 'src/ai-pipeline/aligner.ts')).href
   )
-  const { computeLineMatchedSpans } = await import(
+  const { computeLineMatchedSpans, isInterjectionLyricLine } = await import(
     pathToFileURL(join(root, 'src/ai-pipeline/contentAligner.ts')).href
   )
   const { computeBoundaryMetrics } = await import(
@@ -159,6 +159,10 @@ async function main() {
       align_monotonicity: monotonicity,
       align_zero_dur: zeroDur,
       align_long_dur: longDur,
+      // Interjection/vocalization lines are un-scoreable by design (no phonetic
+      // content for the JA model) — informational string, exempt from the
+      // numeric regression guard like bnd_measured.
+      unscoreable: String(lineTexts.filter((t) => isInterjectionLyricLine(t)).length),
       // checkBaseline() flags any NUMERIC increase as a regression. Defect
       // counts below are numeric so they're guarded; bnd_measured (higher is
       // better) and the gap percentiles (informational distribution, not a
