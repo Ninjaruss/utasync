@@ -84,7 +84,9 @@ describe('morphological word pairing (general rules)', () => {
     const translation = 'No matter how hot it gets I will show you'
     const result = await alignLineTokens(tokens, splitTranslationWords(translation), glossEmbed)
     expect(result[0].alignmentIndices).toEqual([wordIndex(translation, 'matter')])
-    expect(result[1].alignmentIndices).toEqual([wordIndex(translation, 'gets')])
+    // 暑くたって prefers the stem's content gloss (hot, 1.0) over the たって
+    // suffix's function gloss (gets, MORPH_GLOSS_SCORE).
+    expect(result[1].alignmentIndices).toEqual([wordIndex(translation, 'hot')])
     expect(result[4].alignmentIndices).toEqual([wordIndex(translation, 'show')])
   })
 

@@ -34,6 +34,8 @@ export const FUNCTION_WORD_ROMAJI: Record<string, string> = {
   kana: 'wonder',
   darou: 'probably',
   deshou: 'probably',
+  nara: 'if',
+  naraba: 'if',
   yubi: 'finger',
   warae: 'solemn',
 }
@@ -60,6 +62,8 @@ export const FUNCTION_WORD_SURFACE: Record<string, string> = {
   かな: 'kana',
   だろう: 'darou',
   でしょう: 'deshou',
+  なら: 'nara',
+  ならば: 'naraba',
 }
 
 interface MorphRule {

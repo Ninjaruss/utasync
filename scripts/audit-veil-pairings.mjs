@@ -56,6 +56,11 @@ async function main() {
   )
   const { embedTexts } = await import(pathToFileURL(join(root, 'scripts/lib/nodeEmbedder.mjs')).href)
 
+  // The app fetches /jmdict-gloss.json before word pairing; node can't fetch a
+  // root-relative URL, so inject the real artifact to match real-app gloss coverage.
+  const jm = await import(pathToFileURL(join(root, 'src/ai-pipeline/jmdictGloss.ts')).href)
+  jm.setJmdictGlossForTests(JSON.parse(readFileSync(join(root, 'public/jmdict-gloss.json'), 'utf8')))
+
   const cachePath = join(root, '.cache/auto-align-audit/veil.json')
   if (!existsSync(cachePath)) {
     console.error('Run audit-auto-align.mjs veil first to cache transcript')

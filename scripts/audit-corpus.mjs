@@ -99,6 +99,10 @@ async function main() {
   // Optional pairing deps (model download) — only loaded with --pairing.
   let pairingDeps = null
   if (WANT_PAIRING) {
+    // The app fetches /jmdict-gloss.json before word pairing; node can't fetch a
+    // root-relative URL, so inject the real artifact to match real-app gloss coverage.
+    const jm = await import(pathToFileURL(join(root, 'src/ai-pipeline/jmdictGloss.ts')).href)
+    jm.setJmdictGlossForTests(JSON.parse(readFileSync(join(root, 'public/jmdict-gloss.json'), 'utf8')))
     const { alignLinesTokens } = await import(pathToFileURL(join(root, 'src/ai-pipeline/wordAligner.ts')).href)
     const { buildAlignJob } = await import(pathToFileURL(join(root, 'src/lyrics/lineAligner.ts')).href)
     const { isAlignableToken, isParticleToken } = await import(pathToFileURL(join(root, 'src/core/language.ts')).href)

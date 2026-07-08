@@ -19,6 +19,14 @@ describe('inflectionStemCandidates', () => {
   it('does not over-strip to very short fragments', () => {
     expect(inflectionStemCandidates('ai')).toEqual([])
   })
+
+  it('restores nasal-onbin lemma candidates for stems ending in n', () => {
+    // 口をつぐん → tsugun → つぐむ tsugumu; 滲ん → nijin → 滲む nijimu
+    expect(inflectionStemCandidates('tsugun')).toContain('tsugumu')
+    expect(inflectionStemCandidates('nijin')).toContain('nijimu')
+    // 叫ん → saken → 叫ぶ sakebu
+    expect(inflectionStemCandidates('saken')).toContain('sakebu')
+  })
 })
 
 describe('dictKeysMatchingStem', () => {

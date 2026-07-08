@@ -5,6 +5,7 @@ import type { AlignmentSegment } from '../lyrics/lineAligner'
 import { katakanaToHiragana } from '../language/japanese/phonetics'
 import {
   glossMatchesSource,
+  glossMatchStrength,
   kanjiLemmaRomaji,
   KANJI_ROMAJI,
   romajiShareGloss,
@@ -74,8 +75,12 @@ export function tokenGlossText(token: Token): string {
   if (!surface) return surface
   const fn = functionWordRomaji(surface)
   if (fn) return fn
-  const compoundRomaji = kanjiLemmaRomaji(surface)
-  if (compoundRomaji) return compoundRomaji
+  // Curated kanji romaji outranks everything; the JMdict kanji map only fills
+  // in when the token has no reading of its own — its keys can encode a
+  // different entry's reading (離れ→banare from the 親離れ suffix entry,
+  // 愛し→hashi classical) and must not shadow kuromoji's ハナレ/アイシ.
+  const curatedRomaji = KANJI_ROMAJI[surface]
+  if (curatedRomaji) return curatedRomaji
   const surfaceRomaji = SURFACE_ROMAJI[surface]
   if (surfaceRomaji) return surfaceRomaji
   const reading = token.reading?.trim()
@@ -84,11 +89,13 @@ export function tokenGlossText(token: Token): string {
     if (romaji) {
       // Verb stems whose reading romanizes to a pronoun (居→イ→i) must not steal "I".
       if (GLOSS_ONLY_TARGETS.has(romaji) && (token.pos?.startsWith('動詞') ?? false)) {
-        return compoundRomaji ?? `${romaji}ru`
+        return kanjiLemmaRomaji(surface) ?? `${romaji}ru`
       }
       return romaji
     }
   }
+  const compoundRomaji = kanjiLemmaRomaji(surface)
+  if (compoundRomaji) return compoundRomaji
   if (KANA_RE.test(surface)) {
     const romaji = readingToRomaji(surface)
     if (romaji) return romaji
@@ -146,7 +153,12 @@ export function positionHint(sourceIndex: number, targetIndex: number, sourceCou
   return 1 - Math.abs(s - t)
 }
 
-/** Perfect score when romanized source text equals or gloss-matches the English target word. */
+/**
+ * Near-perfect score when romanized source text equals or gloss-matches the
+ * English target word. Lexical gloss matches score 1; suffix-morphology-only
+ * matches score slightly lower (see MORPH_GLOSS_SCORE) so a unit whose stem
+ * has a content gloss prefers it over its inflection's function gloss.
+ */
 export function exactTextMatchScore(
   sourceText: string,
   targetText: string,
@@ -159,8 +171,7 @@ export function exactTextMatchScore(
     return glossMatchesSource({ romaji: s, surface: sourceSurface }, t) ? 1 : 0
   }
   if (s === t) return 1
-  if (glossMatchesSource({ romaji: s, surface: sourceSurface }, t)) return 1
-  return 0
+  return glossMatchStrength({ romaji: s, surface: sourceSurface }, t)
 }
 
 /** Personal-pronoun targets — see exactTextMatchScore. */
@@ -176,10 +187,13 @@ export function pairScore(
   targetIndex: number,
   sourceCount: number,
   targetCount: number,
-  options?: { usePositionBonus?: boolean; sourceSurface?: string },
+  options?: { usePositionBonus?: boolean; sourceSurface?: string; glossOnlySource?: boolean },
 ): number {
   const exact = exactTextMatchScore(sourceText, targetText, options?.sourceSurface)
   if (exact < 1 && GLOSS_ONLY_TARGETS.has(targetText.trim().toLowerCase())) return 0
+  // Pure-auxiliary units (てる/だろう/しまう) may only pair via gloss — their
+  // embedding similarity to leftover EN content words is noise, not signal.
+  if (options?.glossOnlySource) return exact
   const sim = cosineSimilarity(sourceVec, targetVec)
   const base = Math.max(sim, exact)
   if (options?.usePositionBonus === false) return base
@@ -193,7 +207,7 @@ export function buildScoreMatrix(
   targetTexts: string[],
   sourceVecs: number[][],
   targetVecs: number[][],
-  options?: { usePositionBonus?: boolean; sourceSurfaces?: string[] },
+  options?: { usePositionBonus?: boolean; sourceSurfaces?: string[]; sourceGlossOnly?: boolean[] },
 ): number[][] {
   const n = sourceVecs.length
   const m = targetVecs.length
@@ -213,6 +227,7 @@ export function buildScoreMatrix(
         {
           usePositionBonus: options?.usePositionBonus,
           sourceSurface: options?.sourceSurfaces?.[i],
+          glossOnlySource: options?.sourceGlossOnly?.[i],
         },
       )
     }
@@ -475,6 +490,7 @@ export function matchTokens(
   targetVecs: number[][],
   threshold = MATCH_THRESHOLD,
   sourceSurfaces?: string[],
+  sourceGlossOnly?: boolean[],
 ): MatchPair[] {
   const runMatch = (targets: string[], tVecs: number[][]) => {
     const scores = buildScoreMatrix(
@@ -482,7 +498,7 @@ export function matchTokens(
       targets,
       sourceVecs,
       tVecs,
-      { usePositionBonus: false, sourceSurfaces },
+      { usePositionBonus: false, sourceSurfaces, sourceGlossOnly },
     )
     const monotonic = monotonicSequenceMatch(scores, threshold)
     const optimal = optimalOneToOneMatch(scores, threshold)
@@ -524,6 +540,13 @@ export interface AlignmentUnit {
   embedText: string
   /** Romaji key for gloss / exact-match scoring. */
   glossText: string
+  /**
+   * True when no token in the unit is alignable content (pure auxiliary runs
+   * like てる/だろう/しまう). Such units may only pair via gloss/morph match —
+   * raw embedding similarity to leftover EN words is anisotropy noise
+   * (てる→"one" at 0.61) and produces wrong pairings.
+   */
+  glossOnly?: boolean
 }
 
 function isNounToken(token: Token): boolean {
@@ -623,6 +646,13 @@ function isDarouStem(token: Token): boolean {
   return token.surface === 'だろ' && (token.pos?.startsWith('助動詞') ?? false)
 }
 
+function unitGlossOnly(tokens: Token[], start: number, end: number): boolean {
+  for (let k = start; k <= end; k++) {
+    if (isAlignableToken(tokens[k])) return false
+  }
+  return true
+}
+
 function pushMergedUnit(
   units: AlignmentUnit[],
   tokens: Token[],
@@ -642,6 +672,7 @@ function pushMergedUnit(
     tokenIndices: Array.from({ length: end - start + 1 }, (_, k) => start + k),
     embedText: tokenEmbedText(merged),
     glossText: tokenGlossText(merged),
+    glossOnly: unitGlossOnly(tokens, start, end),
   })
 }
 
@@ -815,6 +846,7 @@ export function buildAlignmentUnits(tokens: Token[], alignTokenIndices?: Readonl
         tokenIndices: Array.from({ length: j - start }, (_, k) => start + k),
         embedText: tokenEmbedText(merged),
         glossText: tokenGlossText(merged),
+        glossOnly: unitGlossOnly(normalized, start, j - 1),
       })
       for (let k = start; k < j; k++) consumed.add(k)
       i = j
@@ -846,6 +878,7 @@ export function buildAlignmentUnits(tokens: Token[], alignTokenIndices?: Readonl
           tokenIndices: Array.from({ length: j - start }, (_, k) => start + k),
           embedText: tokenEmbedText(merged),
           glossText: tokenGlossText(merged),
+          glossOnly: unitGlossOnly(normalized, start, j - 1),
         })
         for (let k = start; k < j; k++) consumed.add(k)
         i = j
@@ -874,6 +907,7 @@ export function buildAlignmentUnits(tokens: Token[], alignTokenIndices?: Readonl
         tokenIndices: Array.from({ length: i - start + 1 }, (_, k) => start + k),
         embedText: tokenEmbedText(merged),
         glossText: tokenGlossText(merged),
+        glossOnly: unitGlossOnly(normalized, start, i),
       })
       for (let k = start; k <= i; k++) consumed.add(k)
       i++
@@ -905,6 +939,7 @@ export function buildAlignmentUnits(tokens: Token[], alignTokenIndices?: Readonl
       tokenIndices: indices,
       embedText: tokenEmbedText(merged),
       glossText: tokenGlossText(merged),
+      glossOnly: unitGlossOnly(normalized, start, i),
     })
     for (let k = start; k <= i; k++) consumed.add(k)
     i++
@@ -991,7 +1026,8 @@ function applyUnitMatches(
   targetIndexMap?: number[],
 ): Token[] {
   const sourceSurfaces = units.map((u) => u.embedText)
-  const matches = matchTokens(sourceTexts, targetTexts, sourceVecs, targetVecs, MATCH_THRESHOLD, sourceSurfaces)
+  const sourceGlossOnly = units.map((u) => u.glossOnly === true)
+  const matches = matchTokens(sourceTexts, targetTexts, sourceVecs, targetVecs, MATCH_THRESHOLD, sourceSurfaces, sourceGlossOnly)
   const updated = tokens.map((t) => ({ ...t }))
   for (const m of matches) {
     const unit = units[m.sourceIndex]

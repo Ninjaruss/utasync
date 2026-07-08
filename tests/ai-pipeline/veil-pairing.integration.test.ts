@@ -96,8 +96,9 @@ describe('Veil — word pairing integration', () => {
       {
         original: 'ふと気付く度に増えていた',
         translation: 'they increase every time I notice them',
+        // ふと means "suddenly" — it has no counterpart here and must stay
+        // unpaired (the old every→futo alias was an overfitted wrong gloss).
         pairs: [
-          { surface: 'ふと', english: 'every' },
           { surface: '気付く', english: 'notice' },
           { surface: '増え', english: 'increase' },
         ],

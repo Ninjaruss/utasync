@@ -55,6 +55,16 @@ export function inflectionStemCandidates(romaji: string, maxPasses = 3): string[
     frontier = next
   }
 
+  // Nasal-onbin stems: つぐん/滲ん/叫ん romanize with a final "n" whose lemma
+  // ends in mu/bu/nu (口をつぐん → tsugumu). Restore those lemma candidates.
+  for (const s of [base, ...stems]) {
+    if (!s.endsWith('n') || s.length < 3) continue
+    for (const tail of ['mu', 'bu', 'nu']) {
+      const lemma = s.slice(0, -1) + tail
+      if (!stems.has(lemma)) stems.add(lemma)
+    }
+  }
+
   return [...stems]
 }
 

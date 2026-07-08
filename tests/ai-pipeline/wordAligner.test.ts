@@ -779,3 +779,111 @@ describe('lyricGloss — AKFG vocabulary', () => {
     expect(exactTextMatchScore('korogaru', 'rolling')).toBe(1)
   })
 })
+
+describe('gloss-only auxiliary units', () => {
+  it('marks pure-auxiliary units gloss-only in buildAlignmentUnits', () => {
+    const tokens: Token[] = [
+      tok('遅れ', '動詞', 'オクレ', '自立'),
+      tok('てる', '動詞', 'テル', '非自立'),
+    ]
+    const units = buildAlignmentUnits(tokens)
+    const teru = units.find((u) => u.embedText === 'てる')
+    expect(teru?.glossOnly).toBe(true)
+    const okure = units.find((u) => u.embedText === '遅れ')
+    expect(okure?.glossOnly).toBe(false)
+  })
+
+  it('does not pair standalone てる to a leftover word via embedding (一歩だけ遅れてる)', async () => {
+    const tokens: Token[] = [
+      tok('一', '名詞', 'イチ'),
+      tok('歩', '名詞', 'ホ'),
+      tok('だけ', '助詞', 'ダケ', '副助詞'),
+      tok('遅れ', '動詞', 'オクレ', '自立'),
+      tok('てる', '動詞', 'テル', '非自立'),
+    ]
+    const targetWords = ['Only', 'one', 'step', 'behind']
+    // Mirror the real defect: embedding similarity てる↔"one" is high (0.61
+    // measured with the production model) — must be ignored for aux units.
+    const embed = async (texts: string[]): Promise<number[][]> =>
+      texts.map((t) => {
+        if (t === 'てる' || t === 'one') return [0.95, 0, 0, 0]
+        if (t === '一歩' || t === 'step') return [0, 1, 0, 0]
+        if (t === '遅れ' || t === 'behind') return [0, 0, 1, 0]
+        if (t === 'だけ' || t === 'only') return [0, 0, 0, 1]
+        return [0.1, 0.1, 0.1, 0.1]
+      })
+    const result = await alignLineTokens(tokens, targetWords, embed)
+    expect(result[2].alignmentIndices).toEqual([0]) // だけ -> only (gloss)
+    expect(result[3].alignmentIndices).toEqual([3]) // 遅れ -> behind (gloss)
+    expect(result[4].alignmentIndices).toBeUndefined() // てる must not claim "one"
+  })
+
+  it('still pairs だろう via its gloss (surely) but not via embedding noise', async () => {
+    const tokens: Token[] = [
+      tok('あなた', '名詞', 'アナタ'),
+      tok('だろ', '助動詞', 'ダロ'),
+      tok('う', '助動詞', 'ウ'),
+    ]
+    // だろう→"that" at 0.74 was a measured production wrong pair. With a
+    // "surely" target present the gloss keeps it; with only "that" it must not pair.
+    const embed = async (texts: string[]): Promise<number[][]> =>
+      texts.map((t) => {
+        if (t === 'だろう' || t === 'that') return [0.9, 0, 0]
+        if (t === 'あなた' || t === 'you') return [0, 1, 0]
+        if (t === 'surely') return [0, 0, 1]
+        return [0.05, 0.05, 0.05]
+      })
+    const withSurely = await alignLineTokens(tokens, ['Surely', 'you', 'that'], embed)
+    expect(withSurely[1].alignmentIndices).toEqual([0]) // だろ -> surely via gloss
+    const withoutSurely = await alignLineTokens(tokens, ['you', 'that'], embed)
+    expect(withoutSurely[1].alignmentIndices ?? undefined).not.toEqual([1])
+  })
+})
+
+describe('morph gloss ranks below lexical gloss', () => {
+  it('prefers the stem content gloss over the たって suffix gloss (呪ったって → curse)', async () => {
+    const { setJmdictGlossForTests, resetJmdictGlossCache } = await import(
+      '../../src/ai-pipeline/jmdictGloss'
+    )
+    const { ensureGlossLexicon, MORPH_GLOSS_SCORE } = await import(
+      '../../src/ai-pipeline/lyricGloss'
+    )
+    setJmdictGlossForTests({ v: 1, source: 'test', romaji: { norou: 'curse' }, kanji: {} })
+    await ensureGlossLexicon()
+    try {
+      expect(exactTextMatchScore('norottatte', 'curse', '呪ったって')).toBe(1)
+      expect(exactTextMatchScore('norottatte', 'if', '呪ったって')).toBe(MORPH_GLOSS_SCORE)
+      expect(exactTextMatchScore('norottatte', 'even', '呪ったって')).toBe(MORPH_GLOSS_SCORE)
+    } finally {
+      resetJmdictGlossCache()
+      await ensureGlossLexicon()
+    }
+  })
+})
+
+describe('tokenGlossText JMdict kanji fallback priority', () => {
+  it('prefers the token reading over the JMdict kanji romaji map', async () => {
+    const { setJmdictGlossForTests, resetJmdictGlossCache } = await import(
+      '../../src/ai-pipeline/jmdictGloss'
+    )
+    const { ensureGlossLexicon } = await import('../../src/ai-pipeline/lyricGloss')
+    // JMdict's kanji key for 離れ is the rendaku suffix reading (親離れ →
+    // banare); the token's own kuromoji reading ハナレ must win.
+    setJmdictGlossForTests({
+      v: 1,
+      source: 'test',
+      romaji: {},
+      kanji: { 離れ: 'banare', 愛し: 'hashi' },
+    })
+    await ensureGlossLexicon()
+    try {
+      expect(tokenGlossText(tok('離れ', '動詞', 'ハナレ'))).toBe('hanare')
+      expect(tokenGlossText(tok('愛し', '動詞', 'アイシ'))).toBe('aishi')
+      // Without a reading the JMdict kanji map still fills in.
+      expect(tokenGlossText(tok('離れ', '動詞'))).toBe('banare')
+    } finally {
+      resetJmdictGlossCache()
+      await ensureGlossLexicon()
+    }
+  })
+})

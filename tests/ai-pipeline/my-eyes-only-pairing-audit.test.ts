@@ -106,6 +106,9 @@ describe('My Eyes Only — word pairing audit (gloss-only)', () => {
     console.log('\n=== INVALID INDEX ===\n' + invalid.join('\n'))
 
     expect(invalid).toEqual([])
-    expect(unpaired).toEqual([])
+    // 進んでも has no counterpart in "One step at a time" (ずつ carries "at a
+    // time"); the removed susumu→time gloss was an overfitted wrong pairing,
+    // and unpaired is the correct gloss-only outcome for 進ん.
+    expect(unpaired).toEqual(['一歩ずつ進んでも :: 進ん (susumu)'])
   })
 })

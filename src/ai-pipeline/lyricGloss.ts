@@ -66,7 +66,6 @@ export const ROMAJI_GLOSS: Record<string, string> = {
   suberidasu: 'slipping',
   awate: 'rush',
   oikakeru: 'after',
-  susumu: 'time',
   dou: 'what',
   doushita: 'what',
   koto: 'about',
@@ -93,7 +92,9 @@ export const ROMAJI_GLOSS: Record<string, string> = {
   machi: 'town',
   mada: 'still',
   mae: 'before',
-  mata: 'back',
+  // JMdict's first sense for また is anatomical (groin); "back" pairing (come
+  // back ← また来よう) is preserved via the EN_POETIC_ALIASES back→mata entry.
+  mata: 'again',
   michi: 'road',
   mirai: 'future',
   mizu: 'water',
@@ -152,7 +153,6 @@ export const ROMAJI_GLOSS: Record<string, string> = {
   kotoba: 'words',
   suku: 'save',
   sukue: 'save',
-  sukunai: 'cannot',
   mogaku: 'struggles',
   wakachi: 'share',
   hanare: 'released',
@@ -319,12 +319,10 @@ export const EN_POETIC_ALIASES: Record<string, string> = {
   okay: 'daijoubu',
   dissolving: 'toke',
   melting: 'toke',
-  time: 'susumu',
   what: 'dou',
   up: 'dou',
   your: 'kimi',
   about: 'koto',
-  god: 'dou',
   eliminate: 'nakusu',
   eliminating: 'nakusu',
   somewhere: 'doko',
@@ -375,7 +373,6 @@ export const EN_POETIC_ALIASES: Record<string, string> = {
   reification: 'katado',
   misfortune: 'fukou',
   untouchable: 'furenai',
-  every: 'futo',
 }
 
 /** Additional EN→romaji aliases (multiple romaji may map to the same English word). */
@@ -495,6 +492,21 @@ function glossEqualsTarget(gloss: string | undefined, target: string): boolean {
 
 /** Like `glossMatchesTarget` but accepts merged surface for morphology rules. */
 export function glossMatchesSource(source: GlossSource, targetWord: string): boolean {
+  return glossMatchStrength(source, targetWord) > 0
+}
+
+/**
+ * Morphology-pattern matches score just below lexical gloss matches so a unit
+ * whose stem has a real content gloss prefers it over its suffix's function
+ * gloss (呪ったって → curse, not the たって rule's "if"/"even").
+ */
+export const MORPH_GLOSS_SCORE = 0.97
+
+/**
+ * Gloss match strength: 1 for lemma / alias / inflection-stem matches,
+ * MORPH_GLOSS_SCORE for suffix-morphology-only matches, 0 for no match.
+ */
+export function glossMatchStrength(source: GlossSource, targetWord: string): number {
   buildEnToRomaji()
   const r = source.romaji.trim().toLowerCase()
   const surface = source.surface
@@ -509,16 +521,17 @@ export function glossMatchesSource(source: GlossSource, targetWord: string): boo
     },
   }
 
+  let morphMatched = false
   for (const variant of englishGlossVariants(targetWord)) {
-    if (glossEqualsTarget(lemmaGloss(r, surface), variant)) return true
+    if (glossEqualsTarget(lemmaGloss(r, surface), variant)) return 1
     const aliasRomaji = EN_POETIC_ALIASES[variant]
-    if (aliasRomaji && aliasRomaji === r) return true
+    if (aliasRomaji && aliasRomaji === r) return 1
     const romajiSet = EN_TO_ROMAJI.get(variant)
-    if (romajiSet?.has(r)) return true
-    if (morphGlossMatches(source, variant)) return true
-    if (stemLookupMatchesTarget(r, variant, stemCtx, surface)) return true
+    if (romajiSet?.has(r)) return 1
+    if (stemLookupMatchesTarget(r, variant, stemCtx, surface)) return 1
+    if (morphGlossMatches(source, variant)) morphMatched = true
   }
-  return false
+  return morphMatched ? MORPH_GLOSS_SCORE : 0
 }
 
 /** Romaji keys that share the same English gloss as `romaji`. */
