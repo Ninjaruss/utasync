@@ -3,10 +3,11 @@
   "veil": [
     { "line": "届かないままの景色と", "surface": "届か", "target": "that", "why": "todoku=reach; EN has 'reached'" },
     { "line": "どんなに繕ったって", "surface": "繕っ", "target": "how", "why": "tsukurou=mend/cover up; EN has 'cover'" },
+    { "line": "どんなに繕ったって", "surface": "繕っ", "target": "up", "why": "re-route noise seen after blocking 'how'" },
+    { "line": "その笑みの奥を疑ってしまうだろう", "surface": "奥", "target": "yours", "why": "re-route noise seen after blocking 'still'" },
     { "line": "繕って吐いた言葉が誰かを呪うなら", "surface": "繕っ", "target": "that", "why": "tsukurou=mend/decorate; EN has 'decorated'" },
     { "line": "その笑みの奥を疑ってしまうだろう", "surface": "奥", "target": "still", "why": "oku=depths/behind; EN has 'Behind'" },
     { "line": "熱を持つ夜に変わっていく", "surface": "持つ", "target": "still", "why": "motsu=hold/bear; EN has 'heat-bearing'" },
-    { "line": "熱を持つ夜に変わっていく", "surface": "変わっ", "target": "arrive", "why": "kawaru=change" },
     { "line": "また歩いて行けるように", "surface": "また", "target": "able", "why": "mata=again; 'able' belongs to 行ける" },
     { "line": "何処かでまた会えるように", "surface": "また", "target": "day", "why": "mata=again; EN has 'again'" }
   ]

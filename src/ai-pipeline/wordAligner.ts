@@ -8,6 +8,7 @@ import {
   glossMatchStrength,
   kanjiLemmaRomaji,
   KANJI_ROMAJI,
+  lemmaGloss,
   romajiShareGloss,
   ensureGlossLexicon,
 } from './lyricGloss'
@@ -177,6 +178,65 @@ export function exactTextMatchScore(
 /** Personal-pronoun targets — see exactTextMatchScore. */
 const GLOSS_ONLY_TARGETS = new Set(['i', 'you', 'she', 'he', 'it', 'they', 'we', 'me', 'him', 'her', 'us', 'them'])
 
+/**
+ * Embedding-only pairs contradicted by the source's own known gloss must clear
+ * this higher similarity bar. The embedding noise floor (0.55–0.75) overlaps
+ * genuine cross-lingual pairs, but when the dictionary already says 持つ means
+ * "have", a 0.6x similarity to "still" is anisotropy noise, not evidence.
+ *
+ * The penalty is deliberately narrow — it fires only when the target is a
+ * semantically light word (NOISE_MAGNET_TARGETS) or the source's gloss already
+ * matched a different word in the same line. Poetic paraphrase pairs
+ * (今→present, 見た→saw, 変わらない→unchanging) target content words the gloss
+ * tables can't reach and must stay on the embedding path.
+ */
+export const GLOSS_CONTRADICTION_SIM = 0.8
+
+/**
+ * Semantically light targets that embedding noise gravitates to (measured
+ * production wrong pairs: 届か→that, 繕っ→how, 奥→still, また→able). Same
+ * design as GLOSS_ONLY_TARGETS for pronouns. Deliberately excludes locatives
+ * (here/there) and content-ish words genuine pairs target.
+ */
+const NOISE_MAGNET_TARGETS = new Set([
+  'that', 'this', 'these', 'those', 'each',
+  'how', 'what', 'why', 'when', 'where', 'who', 'whom', 'whose', 'which',
+  'still', 'able', 'even', 'if', 'then', 'than',
+  'up', 'down', 'out', 'off',
+  'yours', 'mine', 'ours', 'theirs', 'hers',
+])
+
+// lemmaGloss walks curated maps + JMdict + stem candidates; memoize the
+// has-a-gloss bit per (romaji, surface) so the contradiction check adds one
+// Map hit per score cell instead of a dictionary walk.
+const knownGlossCache = new Map<string, boolean>()
+
+function sourceHasKnownGloss(sourceText: string, surface?: string): boolean {
+  const key = `${sourceText}\u0000${surface ?? ''}`
+  let known = knownGlossCache.get(key)
+  if (known === undefined) {
+    known = lemmaGloss(sourceText, surface) !== undefined
+    if (!known) {
+      // Bare godan stems the suffix-stripper can't reach: mizen 届か
+      // ("todoka" → todoku) and geminate/onbin 繕っ (romanizes to "tsukuro"
+      // with the っ dropped → tsukurou). Only the a→u and +u restorations —
+      // fabricating further forms would flip gloss-less sources into
+      // penalty scope.
+      const candidates: string[] = []
+      if (/a$/.test(sourceText)) candidates.push(sourceText.slice(0, -1) + 'u')
+      if (/o$/.test(sourceText)) candidates.push(sourceText + 'u')
+      known = candidates.some((c) => lemmaGloss(c, surface) !== undefined)
+    }
+    knownGlossCache.set(key, known)
+  }
+  return known
+}
+
+/** Test hook: the memo must not leak across setJmdictGlossForTests fixtures. */
+export function resetGlossContradictionCacheForTests(): void {
+  knownGlossCache.clear()
+}
+
 /** Combined embedding similarity and exact romaji/gloss match (no position bonus). */
 export function pairScore(
   sourceText: string,
@@ -187,14 +247,34 @@ export function pairScore(
   targetIndex: number,
   sourceCount: number,
   targetCount: number,
-  options?: { usePositionBonus?: boolean; sourceSurface?: string; glossOnlySource?: boolean },
+  options?: {
+    usePositionBonus?: boolean
+    sourceSurface?: string
+    glossOnlySource?: boolean
+    /** Precomputed exactTextMatchScore for this cell (buildScoreMatrix pre-pass). */
+    exact?: number
+    /** True when this source's gloss matched a DIFFERENT target in the line. */
+    glossElsewhereInLine?: boolean
+  },
 ): number {
-  const exact = exactTextMatchScore(sourceText, targetText, options?.sourceSurface)
+  const exact = options?.exact ?? exactTextMatchScore(sourceText, targetText, options?.sourceSurface)
   if (exact < 1 && GLOSS_ONLY_TARGETS.has(targetText.trim().toLowerCase())) return 0
   // Pure-auxiliary units (てる/だろう/しまう) may only pair via gloss — their
   // embedding similarity to leftover EN content words is noise, not signal.
   if (options?.glossOnlySource) return exact
   const sim = cosineSimilarity(sourceVec, targetVec)
+  // Gloss-contradiction penalty: an embedding-only candidate (no gloss/romaji
+  // relation to this target) from a source whose gloss is KNOWN needs strong
+  // similarity when the candidate looks like noise — either a light magnet
+  // word, or the source's gloss counterpart already lives elsewhere in the line.
+  if (
+    exact === 0 &&
+    sim < GLOSS_CONTRADICTION_SIM &&
+    (options?.glossElsewhereInLine || NOISE_MAGNET_TARGETS.has(targetText.trim().toLowerCase())) &&
+    sourceHasKnownGloss(sourceText, options?.sourceSurface)
+  ) {
+    return 0
+  }
   const base = Math.max(sim, exact)
   if (options?.usePositionBonus === false) return base
   const pos = positionHint(sourceIndex, targetIndex, sourceCount, targetCount)
@@ -211,6 +291,21 @@ export function buildScoreMatrix(
 ): number[][] {
   const n = sourceVecs.length
   const m = targetVecs.length
+  // Pre-pass: exact gloss scores per cell (computed once, reused by pairScore)
+  // and whether each source's gloss found a home anywhere in the line — feeds
+  // the gloss-contradiction penalty.
+  const exact: number[][] = []
+  const glossInLine: boolean[] = []
+  for (let i = 0; i < n; i++) {
+    exact[i] = []
+    let matched = false
+    for (let j = 0; j < m; j++) {
+      const e = exactTextMatchScore(sourceTexts[i], targetTexts[j], options?.sourceSurfaces?.[i])
+      exact[i][j] = e
+      if (e > 0) matched = true
+    }
+    glossInLine[i] = matched
+  }
   const scores: number[][] = []
   for (let i = 0; i < n; i++) {
     scores[i] = []
@@ -228,6 +323,8 @@ export function buildScoreMatrix(
           usePositionBonus: options?.usePositionBonus,
           sourceSurface: options?.sourceSurfaces?.[i],
           glossOnlySource: options?.sourceGlossOnly?.[i],
+          exact: exact[i][j],
+          glossElsewhereInLine: glossInLine[i],
         },
       )
     }

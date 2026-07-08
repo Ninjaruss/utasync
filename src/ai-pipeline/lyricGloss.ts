@@ -521,6 +521,13 @@ export function glossMatchStrength(source: GlossSource, targetWord: string): num
     },
   }
 
+  // A romaji that is itself a dictionary key IS a known word — its
+  // "inflection stems" are spurious (また → stem "ma" → JMdict mabi "day"),
+  // so the stem-chain fallback is reserved for genuinely inflected forms.
+  // Gate on the exact-key gloss only: lemmaGloss's own stem inference can
+  // return junk for inflected forms (tadotta → "ta" → rice) that the stem
+  // lookup below still resolves correctly.
+  const isDictionaryKey = dictionaryGlossForKey(r) !== undefined
   let morphMatched = false
   for (const variant of englishGlossVariants(targetWord)) {
     if (glossEqualsTarget(lemmaGloss(r, surface), variant)) return 1
@@ -528,7 +535,7 @@ export function glossMatchStrength(source: GlossSource, targetWord: string): num
     if (aliasRomaji && aliasRomaji === r) return 1
     const romajiSet = EN_TO_ROMAJI.get(variant)
     if (romajiSet?.has(r)) return 1
-    if (stemLookupMatchesTarget(r, variant, stemCtx, surface)) return 1
+    if (!isDictionaryKey && stemLookupMatchesTarget(r, variant, stemCtx, surface)) return 1
     if (morphGlossMatches(source, variant)) morphMatched = true
   }
   return morphMatched ? MORPH_GLOSS_SCORE : 0

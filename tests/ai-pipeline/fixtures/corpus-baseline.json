@@ -22,9 +22,9 @@
     "read_adopt": 0,
     "read_mismatch": 4,
     "read_ruby_wrong": 0,
-    "pair_unpaired": 2,
+    "pair_unpaired": 10,
     "pair_magnet": 0,
-    "pair_wrong": 11
+    "pair_wrong": 0
   },
   "akfg-firsttake-word": {
     "lines": "30/30",
