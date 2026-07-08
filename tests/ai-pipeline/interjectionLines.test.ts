@@ -51,5 +51,18 @@ describe('interjection lines are un-scoreable, not needs_review', () => {
     for (const i of interjRows) {
       expect(quality[i], `row ${i} "${lineTexts[i]}"`).not.toBe('needs_review')
     }
+
+    // The run-aware redistribution contract: every interlude row keeps a
+    // visible span at/above the floor (0.12s minus the 0.01s inter-line gap)
+    // and starts stay strictly monotonic without overlapping the next row.
+    for (const i of interjRows) {
+      const line = refined.lines[i]
+      expect(line.endTime - line.startTime, `row ${i} span`).toBeGreaterThanOrEqual(0.11)
+      const next = refined.lines[i + 1]
+      if (next) {
+        expect(next.startTime, `row ${i} -> ${i + 1} order`).toBeGreaterThanOrEqual(line.startTime)
+        expect(line.endTime, `row ${i} overlap`).toBeLessThanOrEqual(next.startTime + 0.001)
+      }
+    }
   })
 })
