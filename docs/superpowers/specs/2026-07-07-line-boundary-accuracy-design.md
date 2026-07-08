@@ -49,7 +49,7 @@ committed):
 |---|---|---|---|
 | stranger-than-heaven | mixed ja+en | word + segment | `~/Downloads/stranger-than-heaven-theme-song-…mp3` (cached segment transcript exists in `.cache/auto-align-audit/`) |
 | guitar-loneliness | ja | word + segment | `~/Downloads/guitar-loneliness-and-blue-planet-…mp3` |
-| akfg-rocknroll | ja | word + segment | cached transcripts already in `.cache/auto-align-audit/` (`UserRockRoll_*`, `rocknroll_firsttake_segment`); promote whichever pairs with committed lyrics, else run fresh |
+| ~~akfg-rocknroll~~ | — | — | dropped during implementation: all cached `UserRockRoll_*` / `RockRoll` transcripts turned out to be byte-identical to the committed FirstTake fixtures (commit 2e82e1b), adding no coverage |
 
 Existing entries (veil, akfg-firsttake ×2, my-eyes-only) stay unchanged.
 Lyrics fixtures already added:
