@@ -56,6 +56,35 @@ describe('computeBoundaryMetrics', () => {
     expect(m.beyondAudio).toBe(1)
   })
 
+  it('counts a late start when the line begins >0.35s after its first matched char', () => {
+    const lines = [{ startTime: 11, endTime: 13, original: 'x', translation: '' }]
+    const m = computeBoundaryMetrics(lines, [span(10.5, 13)], words)
+    expect(m.lateStart).toBe(1)
+  })
+
+  it('does not count an early (padded) start as lateStart', () => {
+    const lines = [{ startTime: 9, endTime: 12.2, original: 'x', translation: '' }]
+    const m = computeBoundaryMetrics(lines, [span(10, 12)], words)
+    expect(m.lateStart).toBe(0)
+  })
+
+  it('counts a mid-word boundary when a line START falls inside a long word', () => {
+    const lines = [{ startTime: 31, endTime: 34, original: 'x', translation: '' }]
+    const m = computeBoundaryMetrics(lines, [span(31, 33)], words)
+    expect(m.midWord).toBe(1)
+  })
+
+  it('does not count lateEnd when the next span retargets earlier in time', () => {
+    const lines = [
+      { startTime: 20.5, endTime: 21.4, original: 'x', translation: '' },
+      { startTime: 21.3, endTime: 22.5, original: 'y', translation: '' },
+    ]
+    // line0.endTime (21.4) − nextSpan.firstTime (20) = 1.4 > eps, but the next
+    // span starts before line0's own span (20 < 20.4), so the guard skips it.
+    const m = computeBoundaryMetrics(lines, [span(20.4, 21.2), span(20, 22)], words)
+    expect(m.lateEnd).toBe(0)
+  })
+
   it('reports gap percentiles across consecutive measured pairs', () => {
     const lines = [
       { startTime: 10, endTime: 10.5, original: 'a', translation: '' },

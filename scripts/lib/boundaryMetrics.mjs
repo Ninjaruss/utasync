@@ -4,6 +4,7 @@
  * computeLineMatchedSpans over SANITIZED words), words (sanitized transcript).
  * Only well-matched lines are scored; a line whose LCS span no longer overlaps
  * its own window (repeat-stanza retarget) is skipped, not penalized.
+ * Early (padded) line starts are intentionally NOT flagged; only late starts are.
  */
 export const EARLY_END_THRESHOLD_S = 0.35
 export const OVERLAP_EPS_S = 0.05
@@ -24,6 +25,7 @@ export function computeBoundaryMetrics(lines, spans, words, opts = {}) {
   const lastAudio = words.length ? words[words.length - 1].endTime : 0
   let measured = 0
   let earlyEnd = 0
+  let lateStart = 0
   let lateEnd = 0
   let midWord = 0
   let beyondAudio = 0
@@ -37,12 +39,13 @@ export function computeBoundaryMetrics(lines, spans, words, opts = {}) {
     }
     measured++
     if (span.lastEndTime - line.endTime > early) earlyEnd++
+    // Late start: the highlight begins after the singer already began. Early
+    // (padded) starts into a preceding instrumental gap are by design.
+    if (line.startTime - span.firstTime > early) lateStart++
     for (const w of words) {
       if (w.endTime - w.startTime < MID_WORD_MIN_DURATION_S) continue
-      if (
-        line.endTime > w.startTime + MID_WORD_MARGIN_S &&
-        line.endTime < w.endTime - MID_WORD_MARGIN_S
-      ) {
+      const inside = (t) => t > w.startTime + MID_WORD_MARGIN_S && t < w.endTime - MID_WORD_MARGIN_S
+      if (inside(line.startTime) || inside(line.endTime)) {
         midWord++
         break
       }
@@ -59,6 +62,7 @@ export function computeBoundaryMetrics(lines, spans, words, opts = {}) {
   return {
     measured,
     earlyEnd,
+    lateStart,
     lateEnd,
     midWord,
     beyondAudio,
