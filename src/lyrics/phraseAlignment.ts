@@ -313,12 +313,24 @@ function kanaFold(s: string): string {
  * kana is immediately followed by this line's onset — find that adjacent glyph pair
  * within ~2.5 s of the current split and snap both sides to it.  When this line
  * opens on a kanji (no phonetic glyph to match) it anchors on the previous line's
- * last kana alone.  Word-mode only: segment chunks never form the adjacent pair. */
+ * last kana alone.  Word-mode only: segment chunks never form the adjacent pair.
+ *
+ * The chosen glyph pair can be an interior repeat of the same kana rather than the
+ * true boundary, snapping to a transition *inside* a line's own matched span: it
+ * clipped my-eyes-only "I promise for my eyes only" ~0.5 s early and started
+ * veil "温まることない痛みと" ~1.06 s late (D2).  Guard the snap with each line's
+ * own reliably-matched span: never push this line's start past its first sung
+ * glyph, and never pull the previous line's end before its last sung glyph. */
+const GLYPH_SNAP_SPAN_TOL_S = 0.35
 function snapBoundaryToGlyphTransition(
   lines: TimedLine[],
   words: TranscriptWord[],
 ): TimedLine[] {
   const clean = sanitizeTranscript(words)
+  const spans = computeLineMatchedSpans(
+    lines.map((l) => l.original || l.translation),
+    clean,
+  )
   const out = lines.map((l) => ({ ...l }))
   for (let i = 1; i < out.length; i++) {
     const prevLast = kanaFold(normalizeForMatch(out[i - 1].original)).slice(-1)
@@ -337,11 +349,33 @@ function snapBoundaryToGlyphTransition(
         if (best === null || Math.abs(b.startTime - cur) < Math.abs(best - cur)) best = b.startTime
       }
     }
+    // Reject a snap only when it would *introduce* a defect the pre-snap boundary
+    // did not have: it starts this line after its own first sung glyph (when the
+    // current start did not), or ends the previous line before its own last sung
+    // glyph (when the current end did not). This leaves snaps that repair an
+    // already-off boundary untouched. Low-coverage spans are ignored (unreliable).
+    const thisSpan = spans[i]
+    const prevSpan = spans[i - 1]
+    const prevEndCur = out[i - 1].endTime
+    const startsAfterOwnOnset =
+      thisSpan != null
+      && thisSpan.matchedChars / Math.max(1, thisSpan.totalChars) >= 0.5
+      && best !== null
+      && best - thisSpan.firstTime > GLYPH_SNAP_SPAN_TOL_S
+      && cur - thisSpan.firstTime <= GLYPH_SNAP_SPAN_TOL_S
+    const endsBeforeOwnOffset =
+      prevSpan != null
+      && prevSpan.matchedChars / Math.max(1, prevSpan.totalChars) >= 0.5
+      && best !== null
+      && prevSpan.lastEndTime - best > GLYPH_SNAP_SPAN_TOL_S
+      && prevSpan.lastEndTime - prevEndCur <= GLYPH_SNAP_SPAN_TOL_S
     if (
       best !== null
       && Math.abs(best - cur) > 0.3
       && best > out[i - 1].startTime + 0.5
       && best < (out[i + 1]?.startTime ?? Infinity)
+      && !startsAfterOwnOnset
+      && !endsBeforeOwnOffset
     ) {
       out[i - 1].endTime = best
       out[i].startTime = best
