@@ -1,7 +1,7 @@
 import type { Language, TimedLine } from '../core/types'
 import { alignLyrics, lineWeight, sanitizeTranscript, type TranscriptWord } from '../ai-pipeline/aligner'
 import { anchorLineByPartialMatch } from '../ai-pipeline/partialMatchAnchor'
-import { normalizeForMatch, scoreLineAlignment } from '../ai-pipeline/contentAligner'
+import { normalizeForMatch, qualityRank, scoreLineAlignment } from '../ai-pipeline/contentAligner'
 import { isRepetitionOnlyLine } from './lineAligner'
 
 export interface RepeatedStanza {
@@ -197,6 +197,35 @@ function naturalBlockEndTime(
 }
 
 /**
+ * Score a block against local transcript windows: `rank` is the summed per-line
+ * quality rank (higher is better), `review` is the count of needs_review lines
+ * (lower is better). The gate accepts a speculative 2-occurrence re-anchor only
+ * when it strictly REDUCES needs_review lines — a block with none to begin with
+ * (e.g. akfg's second ローリング block, already clean) has nothing to fix, so the
+ * re-anchor is pure boundary risk and is declined.
+ */
+function blockQualityScore(
+  out: TimedLine[],
+  blockStart: number,
+  blockLen: number,
+  clean: TranscriptWord[],
+  sourceLanguage: Language,
+): { rank: number; review: number } {
+  let rank = 0
+  let review = 0
+  for (let k = 0; k < blockLen; k++) {
+    const li = blockStart + k
+    const localWords = clean.filter(
+      (w) => w.endTime > out[li].startTime - 3 && w.startTime < out[li].endTime + 6,
+    )
+    const quality = scoreLineAlignment(out[li].original, localWords, sourceLanguage).quality
+    rank += qualityRank(quality)
+    if (quality === 'needs_review') review++
+  }
+  return { rank, review }
+}
+
+/**
  * Re-anchor later occurrences of repeating stanzas with a forward transcript cursor,
  * partial-substring fallback, and reference timing from the first occurrence.
  */
@@ -214,15 +243,24 @@ export function realignRepeatedStanzaOccurrences(
   const out = lines.map((l) => ({ ...l }))
 
   for (const stanza of stanzas) {
-    // Two-occurrence blocks are often verse pairs with divergent Whisper text on the
-    // second pass (Veil post-chorus). Reserve block re-anchor for 3+ chorus repeats.
-    if (stanza.occurrences.length < 3) continue
+    // Two-occurrence blocks are often verse pairs with divergent Whisper text on
+    // the second pass (Veil post-chorus) — but real 2x choruses exist (stranger
+    // bridge). Instead of skipping wholesale, re-anchor speculatively and keep
+    // the result only when it scores strictly better than the current placement.
+    const gated = stanza.occurrences.length === 2
     const blockLen = stanza.lines.length
     const refStart = stanza.occurrences[0]
     let searchFrom = out[refStart + blockLen - 1].endTime
 
     for (let o = 1; o < stanza.occurrences.length; o++) {
       const blockStart = stanza.occurrences[o]
+      const beforeBlock = gated
+        ? out.slice(blockStart, blockStart + blockLen).map((l) => ({ ...l }))
+        : null
+      const beforeScore = gated
+        ? blockQualityScore(out, blockStart, blockLen, clean, sourceLanguage)
+        : null
+      const searchFromBefore = searchFrom
       const hintStart = out[blockStart].startTime
       const prevEnd = blockStart > 0 ? out[blockStart - 1].endTime : 0
       const nextStart =
@@ -308,6 +346,21 @@ export function realignRepeatedStanzaOccurrences(
       }
 
       enforceBlockMonotonic(out, blockStart, blockLen)
+      if (beforeBlock && beforeScore) {
+        const afterScore = blockQualityScore(out, blockStart, blockLen, clean, sourceLanguage)
+        // Keep only a strictly-better placement: it must FIX at least one
+        // needs_review line and never trade one away, and its summed quality
+        // rank must strictly improve. Otherwise revert (restore lines and the
+        // pre-block search cursor). A block with no needs_review lines to begin
+        // with can never satisfy this, so clean 2x blocks are left untouched.
+        const strictlyBetter =
+          afterScore.review < beforeScore.review && afterScore.rank > beforeScore.rank
+        if (!strictlyBetter) {
+          for (let k = 0; k < blockLen; k++) out[blockStart + k] = beforeBlock[k]
+          searchFrom = Math.max(searchFromBefore, out[blockStart + blockLen - 1].endTime)
+          continue
+        }
+      }
       searchFrom = out[blockStart + blockLen - 1].endTime
     }
   }
