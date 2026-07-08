@@ -113,6 +113,8 @@ async function main() {
     // --- boundary metrics, attributed per pass ---
     const sanitized = sanitizeTranscript(words)
     const spans = computeLineMatchedSpans(lineTexts, sanitized)
+    // refineAlignmentWithPhrases runs alignLyrics internally but doesn't expose
+    // the pass-1 result, so re-run it standalone to attribute metrics per pass.
     const pass1 = alignLyrics(lineTexts, words, sheetRows, song.lang)
     const bnd1 = computeBoundaryMetrics(pass1.lines, spans, sanitized)
     const bnd2 = computeBoundaryMetrics(refined.lines, spans, sanitized)
