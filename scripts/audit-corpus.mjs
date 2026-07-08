@@ -60,6 +60,15 @@ async function main() {
   const { applyReadingCorrections } = await import(
     pathToFileURL(join(root, 'src/language/japanese/readingCorrections.ts')).href
   )
+  const { alignLyrics, sanitizeTranscript } = await import(
+    pathToFileURL(join(root, 'src/ai-pipeline/aligner.ts')).href
+  )
+  const { computeLineMatchedSpans } = await import(
+    pathToFileURL(join(root, 'src/ai-pipeline/contentAligner.ts')).href
+  )
+  const { computeBoundaryMetrics } = await import(
+    pathToFileURL(join(root, 'scripts/lib/boundaryMetrics.mjs')).href
+  )
 
   const tokenizer = await new Promise((resolve, reject) => {
     kuromoji.builder({ dicPath: join(root, 'public/dict') }).build((err, t) => (err ? reject(err) : resolve(t)))
@@ -101,6 +110,13 @@ async function main() {
     const sheetRows = lineTexts.map((original) => ({ original, translation: '', startTime: 0, endTime: 0 }))
     const refined = refineAlignmentWithPhrases(sheetRows, words, song.lang)
 
+    // --- boundary metrics, attributed per pass ---
+    const sanitized = sanitizeTranscript(words)
+    const spans = computeLineMatchedSpans(lineTexts, sanitized)
+    const pass1 = alignLyrics(lineTexts, words, sheetRows, song.lang)
+    const bnd1 = computeBoundaryMetrics(pass1.lines, spans, sanitized)
+    const bnd2 = computeBoundaryMetrics(refined.lines, spans, sanitized)
+
     // --- alignment metrics ---
     const quality = refined.lineAlignmentQuality ?? []
     const needsReview = quality.filter((q) => q === 'needs_review').length
@@ -141,6 +157,21 @@ async function main() {
       align_monotonicity: monotonicity,
       align_zero_dur: zeroDur,
       align_long_dur: longDur,
+      // checkBaseline() flags any NUMERIC increase as a regression. Defect
+      // counts below are numeric so they're guarded; bnd_measured (higher is
+      // better) and the gap percentiles (informational distribution, not a
+      // defect count) are emitted as strings so they're exempt.
+      bnd_measured: String(bnd2.measured),
+      bnd_early_p1: bnd1.earlyEnd,
+      bnd_early_p2: bnd2.earlyEnd,
+      bnd_latestart_p1: bnd1.lateStart,
+      bnd_latestart_p2: bnd2.lateStart,
+      bnd_late_p1: bnd1.lateEnd,
+      bnd_late_p2: bnd2.lateEnd,
+      bnd_midword_p2: bnd2.midWord,
+      bnd_beyond_audio: bnd2.beyondAudio,
+      bnd_gap_p50_p2: `${bnd2.gapP50}s`,
+      bnd_gap_p95_p2: `${bnd2.gapP95}s`,
       read_kanji_tokens: readKanjiTokens,
       read_adopt: adopt,
       read_mismatch: mismatch,
