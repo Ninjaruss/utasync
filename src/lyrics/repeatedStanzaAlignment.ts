@@ -15,10 +15,49 @@ function stanzaKey(lineTexts: readonly string[], start: number, len: number): st
   return lineTexts.slice(start, start + len).map((t) => normalizeForMatch(t)).join('\u0001')
 }
 
+// Ad-libs — "(Ah)", "(Tested my fate)", "（…）" — vary across chorus repeats
+// (stranger-than-heaven final chorus) without changing which occurrence a line
+// belongs to. Strip them before repeat comparison.
+const AD_LIB_RE = /[（(][^）)]*[）)]/g
+function strippedForRepeat(text: string): string {
+  return normalizeForMatch(text.replace(AD_LIB_RE, ' '))
+}
+
+function charLcsLen(a: string, b: string): number {
+  const m = a.length
+  const n = b.length
+  if (!m || !n) return 0
+  let prev = new Uint16Array(n + 1)
+  let row = new Uint16Array(n + 1)
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      row[j] = a[i - 1] === b[j - 1] ? prev[j - 1] + 1 : Math.max(prev[j], row[j - 1])
+    }
+    ;[prev, row] = [row, prev]
+  }
+  return prev[n]
+}
+
+/** Near-identical after ad-lib stripping (final-chorus "、oh" tails etc.). */
+const REPEAT_LINE_SIMILARITY = 0.85
+function linesSimilar(a: string, b: string): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  return charLcsLen(a, b) / Math.max(a.length, b.length) >= REPEAT_LINE_SIMILARITY
+}
+
 /** Find consecutive line runs (1–6 rows) that repeat verbatim in the sheet. */
 export function findRepeatedStanzas(lineTexts: readonly string[]): RepeatedStanza[] {
   const maxLen = Math.min(6, lineTexts.length)
+  const stripped = lineTexts.map((t) => strippedForRepeat(t))
   const byKey = new Map<string, { lines: string[]; occurrences: number[] }>()
+
+  const blocksSimilar = (a: number, b: number, len: number): boolean => {
+    for (let k = 0; k < len; k++) {
+      if (!linesSimilar(stripped[a + k], stripped[b + k])) return false
+    }
+    return true
+  }
 
   for (let len = maxLen; len >= 1; len--) {
     for (let start = 0; start <= lineTexts.length - len; start++) {
@@ -26,10 +65,13 @@ export function findRepeatedStanzas(lineTexts: readonly string[]): RepeatedStanz
       if (byKey.has(key)) continue
       const occ: number[] = []
       for (let i = 0; i <= lineTexts.length - len; i++) {
-        if (stanzaKey(lineTexts, i, len) === key) occ.push(i)
+        if (blocksSimilar(i, start, len)) occ.push(i)
       }
       if (occ.length >= 2) {
-        byKey.set(key, { lines: lineTexts.slice(start, start + len), occurrences: occ })
+        byKey.set(key, {
+          lines: lineTexts.slice(occ[0], occ[0] + len),
+          occurrences: occ,
+        })
       }
     }
   }

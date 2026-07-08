@@ -51,3 +51,42 @@ describe('realignRepeatedStanzaOccurrences', () => {
     expect(out[4].startTime).toBeGreaterThanOrEqual(out[3].endTime - 0.1)
   })
 })
+
+describe('findRepeatedStanzas — fuzzy variants', () => {
+  it('groups a chorus whose repeat differs only by parenthetical ad-libs', () => {
+    const sheet = [
+      'I found a place that I can call home',
+      'Tested my fate, took all my pain and made a weapon',
+      'Stranger than heaven',
+      'bridge line one',
+      'bridge line two',
+      'I found a place that I can call home (Ah)',
+      'Tested my fate (Tested my fate), took all my pain and made a weapon',
+      'Stranger than heaven',
+    ]
+    const stanzas = findRepeatedStanzas(sheet)
+    const chorus = stanzas.find((s) => s.occurrences.includes(0))
+    expect(chorus).toBeDefined()
+    expect(chorus!.occurrences).toEqual([0, 5])
+    expect(chorus!.lines.length).toBe(3)
+  })
+
+  it('does not group genuinely different lines', () => {
+    const sheet = [
+      'I found a place that I can call home',
+      'a completely different lyric line here',
+      'I found a place that I can call home',
+      'nothing like the second line at all',
+    ]
+    const stanzas = findRepeatedStanzas(sheet)
+    // Only the identical single line repeats; the 2-line block must NOT match.
+    for (const s of stanzas) expect(s.lines.length).toBe(1)
+  })
+
+  it('keeps verbatim detection unchanged', () => {
+    const sheet = ['la la la', 'chorus a', 'chorus b', 'verse', 'chorus a', 'chorus b']
+    const stanzas = findRepeatedStanzas(sheet)
+    const block = stanzas.find((s) => s.lines.length === 2)
+    expect(block?.occurrences).toEqual([1, 4])
+  })
+})
