@@ -1,0 +1,89 @@
+{
+  "_comment": "Ground-truth SUNG readings for tricky kanji tokens in the audit corpus, checked by scripts/audit-corpus.mjs (read_ruby_wrong). Each entry: the exact lyric line, the token surface, and the hiragana the singer actually sings — the sung-mode furigana ruby must resolve to it. Covers every reading defect found in the 2026-07 furigana QA plus the known-good adoption.",
+  "veil": [
+    {
+      "line": "この手が離れても",
+      "surface": "離れ",
+      "sung": "はなれ"
+    }
+  ],
+  "akfg-firsttake-word": [
+    {
+      "line": "理由もないのに何だか悲しい",
+      "surface": "理由",
+      "sung": "わけ"
+    },
+    {
+      "line": "そんな僕に術はないよな",
+      "surface": "術",
+      "sung": "すべ"
+    }
+  ],
+  "akfg-firsttake-segment": [
+    {
+      "line": "理由もないのに何だか悲しい",
+      "surface": "理由",
+      "sung": "わけ"
+    },
+    {
+      "line": "そんな僕に術はないよな",
+      "surface": "術",
+      "sung": "すべ"
+    }
+  ],
+  "my-eyes-only": [
+    {
+      "line": "迷い子の粉雪が",
+      "surface": "粉雪",
+      "sung": "こなゆき"
+    },
+    {
+      "line": "一歩ずつ進んでも",
+      "surface": "一",
+      "sung": "いっ"
+    },
+    {
+      "line": "一歩ずつ進んでも",
+      "surface": "歩",
+      "sung": "ぽ"
+    }
+  ],
+  "stranger-than-heaven-word": [
+    {
+      "line": "彷徨う暗い暗い街",
+      "surface": "彷徨",
+      "sung": "さまよ"
+    }
+  ],
+  "stranger-than-heaven-segment": [
+    {
+      "line": "彷徨う暗い暗い街",
+      "surface": "彷徨",
+      "sung": "さまよ"
+    }
+  ],
+  "guitar-loneliness-word": [
+    {
+      "line": "息の音がするのに",
+      "surface": "息",
+      "sung": "いき"
+    },
+    {
+      "line": "空のご機嫌なんか知らない",
+      "surface": "空",
+      "sung": "そら"
+    }
+  ],
+  "guitar-loneliness-segment": [
+    {
+      "line": "息の音がするのに",
+      "surface": "息",
+      "sung": "いき"
+    },
+    {
+      "line": "空のご機嫌なんか知らない",
+      "surface": "空",
+      "sung": "そら"
+    }
+  ]
+}

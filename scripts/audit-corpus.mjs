@@ -60,6 +60,12 @@ async function main() {
   const { applyReadingCorrections } = await import(
     pathToFileURL(join(root, 'src/language/japanese/readingCorrections.ts')).href
   )
+  const { resolveTokenReading } = await import(
+    pathToFileURL(join(root, 'src/lyrics/readingDisplay.ts')).href
+  )
+  const { katakanaToHiragana } = await import(
+    pathToFileURL(join(root, 'src/language/japanese/phonetics.ts')).href
+  )
   const { alignLyrics, sanitizeTranscript } = await import(
     pathToFileURL(join(root, 'src/ai-pipeline/aligner.ts')).href
   )
@@ -102,6 +108,9 @@ async function main() {
   }
 
   const manifest = JSON.parse(readFileSync(join(FIXTURES, 'corpus.json'), 'utf8'))
+  // Ground-truth sung readings for tricky tokens: the sung-mode ruby must
+  // resolve to exactly what the singer sings (see reading-truth.json).
+  const readingTruth = JSON.parse(readFileSync(join(FIXTURES, 'reading-truth.json'), 'utf8'))
   const scorecard = {}
 
   for (const song of manifest.songs) {
@@ -137,6 +146,8 @@ async function main() {
     let adopt = 0
     let mismatch = 0
     let readKanjiTokens = 0
+    let rubyWrong = 0
+    const truthEntries = readingTruth[song.name] ?? []
     for (const line of refined.lines) {
       if (!line.original.trim()) continue
       const tokens = tokenizeJa(line.original)
@@ -145,6 +156,19 @@ async function main() {
         if (/[一-龯]/.test(t.surface)) readKanjiTokens++
         if (t.audioReading) adopt++
         if (t.readingMismatch) mismatch++
+      }
+      for (const truth of truthEntries) {
+        if (truth.line !== line.original) continue
+        for (const t of reconciled) {
+          if (t.surface !== truth.surface) continue
+          // Sung mode must show exactly the sung reading; dictionary mode must
+          // show either the sung reading (high-confidence promotion) or the
+          // token's own dictionary reading — never a third, garbage reading.
+          if (resolveTokenReading(t, 'sung').ruby !== truth.sung) rubyWrong++
+          const dictRuby = resolveTokenReading(t, 'dictionary').ruby
+          const dictKana = t.reading ? katakanaToHiragana(t.reading) : null
+          if (dictRuby !== truth.sung && dictRuby !== dictKana) rubyWrong++
+        }
       }
     }
 
@@ -181,6 +205,7 @@ async function main() {
       read_kanji_tokens: readKanjiTokens,
       read_adopt: adopt,
       read_mismatch: mismatch,
+      read_ruby_wrong: rubyWrong,
       ...(pairing ? { pair_unpaired: pairing.unpaired, pair_magnet: pairing.magnet } : {}),
     }
   }

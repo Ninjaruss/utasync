@@ -114,3 +114,41 @@ describe('resolveLineReadings — adoption', () => {
     expect(d[0].kind).not.toBe('mismatch')
   })
 })
+
+describe('resolveLineReadings — kanji-tainted sung spans', () => {
+  // comparableKana silently drops kanji glyphs from the transcript window, so
+  // when Whisper mis-hears a word and writes it WITH kanji (満たされ for 離れ,
+  // 生き for 息), the kana stream around the span is corrupted: the aligned
+  // span steals neighbouring kana and passes every gate with high confidence.
+  // Spans whose transcript kana abut a dropped kanji must not be adopted.
+
+  it('does not adopt たされ for 離れ when Whisper wrote 満たされても (veil)', () => {
+    const ja = [
+      tok('この', 'コノ'), tok('手', 'テ'), tok('が', 'ガ'),
+      tok('離れ', 'ハナレ'), tok('て', 'テ'), tok('も', 'モ'),
+    ]
+    const d = resolveLineReadings(ja, '変わっていくこの手が満たされても歩いていけ')
+    expect(d[3].kind).not.toBe('adopt')
+    expect(d[3].audioReading).toBeUndefined()
+  })
+
+  it('does not adopt にき for 息 when Whisper wrote こんなに 生きの音 (guitar-loneliness)', () => {
+    const ja = [
+      tok('息', 'イキ'), tok('の', 'ノ'), tok('音', 'オト'),
+      tok('が', 'ガ'), tok('する', 'スル'), tok('のに', 'ノニ'),
+    ]
+    const d = resolveLineReadings(ja, 'に生きの音がするのに変')
+    expect(d[0].kind).not.toBe('adopt')
+    expect(d[0].audioReading).toBeUndefined()
+  })
+
+  it('still adopts a clean-kana alternate when dropped kanji sit away from the span', () => {
+    const ja = [
+      tok('理由', 'リユウ'), tok('も', 'モ'), tok('ない', 'ナイ'),
+      tok('のに', 'ノニ'), tok('悲しい', 'カナシイ'),
+    ]
+    const d = resolveLineReadings(ja, 'わけもないのに悲しい')
+    expect(d[0].kind).toBe('adopt')
+    expect(d[0].audioReading).toBe('わけ')
+  })
+})

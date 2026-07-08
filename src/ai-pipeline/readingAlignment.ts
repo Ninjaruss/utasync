@@ -53,6 +53,33 @@ export function comparableKana(text: string): string {
   return out
 }
 
+/** Glyphs whose removal deletes sung phonetic content from the kana stream
+ * (kanji, latin, digits) — unlike punctuation/whitespace, which carry none. */
+const PHONETIC_GLYPH_RE = /[㐀-鿿A-Za-z0-9]/
+
+/** comparableKana plus a per-kana taint flag: a kana is tainted when it was
+ * adjacent (either side) to a dropped phonetic glyph in the original text.
+ * Around such drops the kana stream is missing sung content, so an aligned
+ * span there is unreliable — it steals neighbouring kana (満たされ→たされ under
+ * 離れ, 生き→にき under 息). */
+export function comparableKanaTainted(text: string): { kana: string; tainted: boolean[] } {
+  const kana: string[] = []
+  const tainted: boolean[] = []
+  let pendingTaint = false
+  for (const ch of katakanaToHiragana(text).normalize('NFKC')) {
+    if (ch === 'ー') continue
+    if (/[ぁ-ん]/.test(ch)) {
+      kana.push(ch)
+      tainted.push(pendingTaint)
+      pendingTaint = false
+    } else if (PHONETIC_GLYPH_RE.test(ch)) {
+      if (tainted.length > 0) tainted[tainted.length - 1] = true
+      pendingTaint = true
+    }
+  }
+  return { kana: kana.join(''), tainted }
+}
+
 /** Build the line's expected kana string `a` (concatenated dictionary readings) plus
  * `owner`, mapping each kana position back to its source token index. Kana-only
  * tokens contribute their own reading; tokens with no usable kana contribute nothing. */
@@ -68,7 +95,7 @@ export function buildExpectedKana(tokens: Token[]): { a: string; owner: number[]
 
 /** Fraction of a token's reading kana that must match to call the dictionary confirmed. */
 const VERIFY_MATCH_RATIO = 0.6
-/** Adoption confidence floor — keep equal to readingReconciler.HIGH_READING_CONFIDENCE. */
+/** Adoption confidence floor — keep equal to readingDisplay.HIGH_READING_CONFIDENCE. */
 const ADOPT_MIN_CONFIDENCE = 0.8
 /** The REST of the line (excluding the candidate token) must align this well before a
  * sung reading is adopted — we only trust an alternate when its context is solidly transcribed. */
@@ -114,7 +141,7 @@ function trailingOkurigana(surface: string): string {
 export function resolveLineReadings(tokens: Token[], windowText: string): ReadingDecision[] {
   const decisions: ReadingDecision[] = tokens.map(() => ({ kind: 'skip' as ReadingDecisionKind }))
   const { a: A, owner } = buildExpectedKana(tokens)
-  const B = comparableKana(windowText)
+  const { kana: B, tainted } = comparableKanaTainted(windowText)
 
   for (let idx = 0; idx < tokens.length; idx++) {
     const token = tokens[idx]
@@ -142,9 +169,13 @@ export function resolveLineReadings(tokens: Token[], windowText: string): Readin
 
     let span = ''
     let tokMatches = 0
+    let spanTainted = false
     for (let k = firstCol; k <= lastCol; k++) {
       const c = cols[k]
-      if (c.b >= 0) span += B[c.b]
+      if (c.b >= 0) {
+        span += B[c.b]
+        if (tainted[c.b]) spanTainted = true
+      }
       if (c.a >= 0 && c.b >= 0 && A[c.a] === B[c.b]) tokMatches++
     }
     const R = comparableKana(token.reading!)
@@ -169,7 +200,10 @@ export function resolveLineReadings(tokens: Token[], windowText: string): Readin
     const okuriganaKept = !okurigana || span.endsWith(okurigana)
     if (bracketed && clean && okuriganaKept && contextScore >= MISMATCH_CONTEXT_FLOOR) {
       const confidence = Math.round((0.5 * contextScore + 0.5) * 100) / 100
-      if (contextScore >= ADOPT_CONTEXT_FLOOR && confidence >= ADOPT_MIN_CONFIDENCE) {
+      // A span whose transcript kana abut a dropped kanji/latin glyph is missing
+      // sung content — never adopt it; leave the softer mismatch flag so the
+      // async kanji pass (readingReconciler) can still resolve it from glyphs.
+      if (!spanTainted && contextScore >= ADOPT_CONTEXT_FLOOR && confidence >= ADOPT_MIN_CONFIDENCE) {
         decisions[idx] = { kind: 'adopt', audioReading: span, confidence }
       } else {
         decisions[idx] = { kind: 'mismatch', confidence }
