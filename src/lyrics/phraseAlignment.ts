@@ -384,6 +384,45 @@ function snapBoundaryToGlyphTransition(
   return out
 }
 
+/** A line end that falls strictly inside a sung transcript word clips that
+ * word's tail out of the highlight/AB-loop. It happens when Whisper mishears
+ * the line's final syllable (veil 届かないままの景色と → …景色を), so the LCS span
+ * ends a char early and no tail-tuner has an anchor to extend to. When the
+ * straddled word cannot belong to the next line (it ends at/before the next
+ * line's start), the whole word is this line's audio — extend the end to the
+ * word's edge. Word-mode scale only: phrase-length segment chunks (> 2.5 s)
+ * are skipped, mirroring the boundary-metric cap, so a merged segment phrase
+ * never drags a line end across its neighbours' text. */
+const MID_WORD_EXTEND_MAX_WORD_S = 2.5
+const MID_WORD_EXTEND_MARGIN_S = 0.1
+function extendLineEndOutOfMidWord(
+  lines: TimedLine[],
+  words: TranscriptWord[],
+): TimedLine[] {
+  const clean = sanitizeTranscript(words)
+  const out = lines.map((l) => ({ ...l }))
+  for (let i = 0; i < out.length; i++) {
+    const line = out[i]
+    const nextStart = out[i + 1]?.startTime ?? Infinity
+    for (const w of clean) {
+      const dur = w.endTime - w.startTime
+      if (dur <= MID_WORD_EXTEND_MARGIN_S * 2 || dur > MID_WORD_EXTEND_MAX_WORD_S) continue
+      if (w.startTime > line.endTime) break
+      const inside =
+        line.endTime > w.startTime + MID_WORD_EXTEND_MARGIN_S
+        && line.endTime < w.endTime - MID_WORD_EXTEND_MARGIN_S
+      if (!inside) continue
+      // Only claim the word when it starts within this line's window and ends
+      // before the next line begins — otherwise ownership is ambiguous.
+      if (w.startTime >= line.startTime && w.endTime <= nextStart + 0.05) {
+        line.endTime = Math.min(w.endTime, nextStart === Infinity ? w.endTime : nextStart)
+      }
+      break
+    }
+  }
+  return out
+}
+
 /** Pull a line's start back to a fresh vocal onset it currently begins after.
  * When Whisper mishears a line's opening (理由→わけ) the LCS can't anchor the first
  * syllable, so the line starts a beat or two into its own audio — bad for looping.
@@ -1528,6 +1567,7 @@ export function refineAlignmentWithPhrases(
   tunedLines = clipSilencePaddedLineTails(tunedLines, words)
   tunedLines = recoverInterjectionTiming(tunedLines, words)
   tunedLines = snapBoundaryToGlyphTransition(tunedLines, words)
+  tunedLines = extendLineEndOutOfMidWord(tunedLines, words)
   tunedLines = backfillLineStartsToVocalOnset(tunedLines, words)
   tunedLines = expandSquashedLineHighlights(tunedLines)
   const quality = recomputeLineQuality(
