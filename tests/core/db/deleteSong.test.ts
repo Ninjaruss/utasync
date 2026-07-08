@@ -10,7 +10,6 @@ function makeSong(id: string): Song {
     artist: 'Artist',
     lyrics: { lines: [], sourceLanguage: 'ja', translationLanguage: 'en', alignmentMode: 'manual' },
     createdAt: new Date(),
-    isTrialSong: false,
   }
 }
 

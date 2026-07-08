@@ -36,7 +36,7 @@ beforeEach(async () => {
     audioStoredPath: 'songs/song1.mp3',
     sources: [{ provider: 'upload', ref: 'song1', hasAudio: true }],
     lyrics: { lines: [{ startTime: 1, endTime: 3, original: 'hello', translation: 'hi' }], sourceLanguage: 'en', translationLanguage: 'en', alignmentMode: 'manual' },
-    syncState: 'synced', createdAt: new Date(), isTrialSong: false,
+    syncState: 'synced', createdAt: new Date(),
   } as never)
   usePlayerStore.setState({ armingAB: null, abLoop: { a: null, b: null, preRoll: 2, loopCount: 3, crossfadeDuration: 0.3 } })
 })

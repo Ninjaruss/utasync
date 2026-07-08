@@ -67,7 +67,6 @@ describe.skipIf(!existsSync(join(VEIL, 'transcript.words.json')))('auto-align e2
         alignmentConfidence: confidence,
       },
       createdAt: new Date(),
-      isTrialSong: false,
     }
     expect(computeSyncState(song)).toBe('synced')
   })

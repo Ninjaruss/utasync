@@ -629,6 +629,68 @@ export function scoreLineAlignment(
   return { coverage, anchorSource, quality: classifyLineQuality(anchorSource, coverage) }
 }
 
+export interface LineMatchedSpan {
+  /** Onset of the line's first reliably matched transcript char. */
+  firstTime: number
+  /** Offset of the line's last reliably matched transcript char. */
+  lastEndTime: number
+  matchedChars: number
+  totalChars: number
+}
+
+/**
+ * Per-line matched transcript span from the same char-LCS alignByContent uses.
+ * Only runs of MIN_RELIABLE_RUN+ consecutive lyric chars matched to consecutive
+ * transcript chars count (same coincidence filter as line anchoring). Null =
+ * no reliable match for that line. Pass sanitized words (sanitizeTranscript)
+ * for parity with the alignment pipeline.
+ *
+ * Unlike collectReliableRunsByLine there is no RUN_CLUSTER_GAP_S split: this
+ * measures the whole-line matched span for audit metrics, so all reliable runs
+ * on a line are merged rather than reduced to the strongest time-cluster.
+ */
+export function computeLineMatchedSpans(
+  lineTexts: string[],
+  words: TranscriptWord[],
+): Array<LineMatchedSpan | null> {
+  const totals = lineTexts.map((t) => normalizeForMatch(t).length)
+  const A = buildLyricChars(lineTexts)
+  const B = buildTransChars(words)
+  const spans: Array<LineMatchedSpan | null> = lineTexts.map(() => null)
+  if (A.length === 0 || B.length === 0) return spans
+  const match = lcsMatchTimes(A, B)
+  let i = 0
+  while (i < A.length) {
+    if (match.matchBIndex[i] < 0) {
+      i++
+      continue
+    }
+    let j = i + 1
+    while (
+      j < A.length &&
+      match.matchBIndex[j] === match.matchBIndex[j - 1] + 1 &&
+      A[j].line === A[j - 1].line
+    ) j++
+    if (j - i >= MIN_RELIABLE_RUN) {
+      for (let k = i; k < j; k++) {
+        const li = A[k].line
+        const s = spans[li] ?? {
+          firstTime: Infinity,
+          lastEndTime: -Infinity,
+          matchedChars: 0,
+          totalChars: totals[li],
+        }
+        s.firstTime = Math.min(s.firstTime, match.matchTime[k])
+        s.lastEndTime = Math.max(s.lastEndTime, match.matchEndTime[k])
+        s.matchedChars++
+        spans[li] = s
+      }
+    }
+    i = j
+  }
+  return spans
+}
+
 export function alignByContent(
   lineTexts: string[],
   words: TranscriptWord[],

@@ -12,7 +12,7 @@ describe('Dexie v2 backfill', () => {
       id: 'leg1', title: 'T', artist: 'A',
       sourceUrl: 'https://youtu.be/abc123',
       lyrics: { lines: [{ startTime: 0, endTime: 3, original: 'a', translation: '' }], sourceLanguage: 'ja', translationLanguage: 'en', alignmentMode: 'manual' },
-      createdAt: new Date(), isTrialSong: false,
+      createdAt: new Date(),
     } as never)
 
     const got = await db.songs.get('leg1')

@@ -5,10 +5,9 @@
 Utasync is an offline-first PWA that turns YouTube links or your own audio files into a bilingual practice player. Paste a link or upload a track, sync the lyrics, and study line by line with readings, translations, and tools built for language learners. Playback and AI processing run in your browser — no account, no backend server, no subscription.
 
 > **🎤 Try it now → [utasync.app](https://utasync.app)**  
-> The official hosted version is a fully offline PWA with one-click model downloads, automatic updates, and zero setup.  
-> Your $9.99 one-time purchase directly supports continued development.
+> The official hosted version is a fully offline PWA with one-click model downloads, automatic updates, and zero setup — free to use.
 
-*Utasync is built and maintained by a solo developer. The one-time purchase funds ongoing improvements and keeps the app private, ad-free, and independent — forever.*
+*Utasync is built and maintained by a solo developer, and stays private, ad-free, and independent. If it helps your studies, you can [support development on Ko-fi](https://ko-fi.com/ninjaruss).*
 
 ## What you can do
 
@@ -79,23 +78,6 @@ AI models (Whisper, text embeddings, optional Demucs) download once on first use
 | **Lite** | WebGPU + 4 GB+ RAM | Whisper + word alignment (no separation) |
 | **Manual** | Any modern browser | Tap-sync and manual tools only |
 
-## Free vs Pro
-
-Utasync is a one-time purchase (via LemonSqueezy) — no subscription.
-
-> **Ready to unlock Pro?** [Buy once, keep forever →](https://utasync.app/pro)
-
-| | Free | Trial (2 songs) | Pro |
-|---|---|---|---|
-| YouTube playback + synced lyrics | ✓ | ✓ | ✓ |
-| Tap-to-sync, readings, line seeking | ✓ | ✓ | ✓ |
-| Local audio, speed control, A/B loop | | ✓ | ✓ |
-| Auto-alignment, vocal separation | | ✓ | ✓ |
-| Word alignment, cloze, export | | ✓ | ✓ |
-| Unlimited songs | | | ✓ |
-
-Trial songs keep Pro features permanently after you claim them.
-
 ## For contributors & self-hosters
 
 If you just want to use the app, visit **[utasync.app](https://utasync.app)** — no build required.  
@@ -120,8 +102,6 @@ Full prerequisites, optional Demucs model setup, build/deploy notes, browser sup
 | `npm run lint` | ESLint |
 | `npm test` | Run unit tests (jsdom) |
 
-> **Self-hosting with payments:** The checkout URL and license verification key in `src/payment/` are placeholders. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for LemonSqueezy setup instructions before deploying your own instance.
-
 ## Tech at a glance
 
 | Layer | Stack |
@@ -135,7 +115,6 @@ Full prerequisites, optional Demucs model setup, build/deploy notes, browser sup
 | English NLP | compromise, CMUdict subset |
 | Lyrics sources | YouTube captions, LRCLIB, LRC/SRT/VTT parsers |
 | PWA | vite-plugin-pwa + Workbox |
-| Licensing | jose (JWT verification), LemonSqueezy |
 | Tests | Vitest, Testing Library |
 
 ## Project layout
@@ -149,7 +128,7 @@ src/
 ├── ai-pipeline/    # Whisper/Demucs workers, aligners, auto-align flow
 ├── language/       # Japanese & English tokenizers, phonetics, grammar, word colors
 ├── cloze/          # Cloze engine and overlay
-├── payment/        # License verification, trial slots, upgrade modal
+├── payment/        # Persisted user settings store
 └── settings/       # Settings sheet and storage management
 ```
 
@@ -157,11 +136,8 @@ Design specs and phase plans live under [`docs/superpowers/`](docs/superpowers/)
 
 ## Support the project
 
-If Utasync helps you learn a language, consider [buying a Pro license](https://utasync.app/pro) for $9.99.  
-That one purchase unlocks unlimited auto-alignments and all future updates — and helps keep the project alive.
+Utasync is free to use. If it helps you learn a language, you can support ongoing development on **[Ko-fi](https://ko-fi.com/ninjaruss)** — it keeps the project private, ad-free, and independent.
 
 ## License
 
 Source code is released under the [MIT License](LICENSE). You may study, fork, and self-host the project freely.
-
-The **Pro license** sold at [utasync.app](https://utasync.app) is a separate product purchase that unlocks premium features in the official app — it is not required to run the code locally for development or personal use.

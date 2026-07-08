@@ -45,7 +45,6 @@ beforeEach(async () => {
     },
     syncState: 'synced',
     createdAt: new Date(),
-    isTrialSong: false,
     audioStoredPath: '/audio/song1',
   } as never)
   usePlayerStore.setState({ volume: 0.6, currentSongId: null, position: 0 })

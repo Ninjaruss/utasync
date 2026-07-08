@@ -64,7 +64,6 @@ const song: Song = {
   },
   syncState: 'unsynced',
   createdAt: new Date(),
-  isTrialSong: false,
 }
 
 beforeEach(async () => {

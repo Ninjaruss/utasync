@@ -14,7 +14,6 @@ export interface BuildSongInput {
   sourceLanguage?: Language
   translationLanguage?: Language
   alignmentMode?: AlignmentMode
-  isTrialSong?: boolean
   albumArtUrl?: string
 }
 
@@ -36,7 +35,6 @@ export function buildSong(input: BuildSongInput): Song {
       alignmentMode: input.alignmentMode ?? 'manual',
     },
     createdAt: new Date(),
-    isTrialSong: input.isTrialSong ?? false,
   }
 }
 
