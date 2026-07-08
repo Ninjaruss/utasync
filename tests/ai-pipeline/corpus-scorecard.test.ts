@@ -51,6 +51,13 @@ const baseline = JSON.parse(readFileSync(join(FIXTURES, 'corpus-baseline.json'),
 >
 
 describe('audit corpus — alignment non-regression', () => {
+  it('baseline has a row for every corpus song', () => {
+    // Without this, a typo'd song name would silently skip that song's
+    // assertions forever (the per-song guard below warns but passes).
+    const missing = manifest.songs.filter((s) => !baseline[s.name]).map((s) => s.name)
+    expect(missing, `re-snapshot with: npx tsx scripts/audit-corpus.mjs --write-baseline`).toEqual([])
+  })
+
   for (const song of manifest.songs) {
     it(`${song.name} does not regress vs baseline`, () => {
       const lineTexts = readFileSync(join(FIXTURES, song.lyrics), 'utf8')

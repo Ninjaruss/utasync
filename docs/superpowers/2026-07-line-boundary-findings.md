@@ -247,3 +247,40 @@ Record correction: the Task 8 report claimed veil `late_p2` 1 → 0 prematurely;
 at 339eeb8 it was still 1. The mid-word-end tail extension (9e1a903) resolved it —
 veil `late_p2` is 0 as of that commit, along with veil/akfg-word/guitar-seg
 `midword_p2` = 0 and stranger-seg `early_p2` = 0.
+
+## Final results (Task 9, baseline locked)
+
+Baseline re-snapshotted over the 8-song corpus at this commit; all `bnd_*`
+counters are now CI-enforced (corpus-scorecard.test.ts asserts every song has
+a baseline row and no numeric counter may increase).
+
+Boundary counters, findings table → final (pass 2):
+
+| song | early | lateStart | late | midWord |
+|---|---|---|---|---|
+| veil | 0→0 | 4→3 | 1→**0** | 0→0 |
+| akfg-firsttake-word | 0→0 | 0→0 | 1→1 | 1→**0** |
+| akfg-firsttake-segment | 1→1 | 0→0 | 0→0 | 8→**2** |
+| my-eyes-only | 2→**0** | 0→0 | 0→0 | 0→0 |
+| stranger-than-heaven-word | 1→1 | 3→2 | 0→0 | 3→2 |
+| stranger-than-heaven-segment | 1→**0** | 2→1 | 0→0 | 8→**2** |
+| guitar-loneliness-word | 0→0 | 1→1 | 1→1 | 5→3 |
+| guitar-loneliness-segment | 2→2 | 4→2 | 1→1 | 14→**0** |
+
+Success-bar reckoning vs the design spec:
+- **Met:** every pass-2-introduced defect class found in the findings (D1, D2,
+  glyph-snap early ends, mid-word ends) is fixed and regression-guarded; no
+  counter anywhere is worse than the findings table; my-eyes-only and veil are
+  fully clean on ends.
+- **Residual, documented:** the remaining nonzero counters are (a) D3
+  projection-stage residuals (guitar L30/L45/L14/L15, veil lateStarts —
+  survive all-tuners-off, need pass-1/projection work), (b) segment-merge
+  chunk artifacts (akfg-seg L25, guitar-seg L6 — two lines share one Whisper
+  chunk; carve-out class C2), and (c) stranger-than-heaven repeat-chorus
+  lines (§5). None are boundary-tuner-fixable without risking the motivating
+  fixes; all are locked in the baseline so they can only improve.
+- **Not met, scoped out:** stranger-than-heaven's unmatched/needs_review rate
+  (27/59) remains ~13× the corpus median. Root cause is repeat-occurrence
+  disambiguation of identical chorus lines (first occurrence matches cleanly),
+  not mixed-language tokenization. Needs dedicated follow-up work in the
+  matching stage.
