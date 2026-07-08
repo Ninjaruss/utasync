@@ -12,6 +12,7 @@
       "name": "akfg-firsttake-word",
       "lang": "ja",
       "lyrics": "akfg/lyrics.ja.txt",
+      "en": "akfg/lyrics.en.txt",
       "transcript": "akfg/transcript.word.json"
     },
     {
@@ -42,6 +43,7 @@
       "name": "guitar-loneliness-word",
       "lang": "ja",
       "lyrics": "guitar-loneliness/lyrics.ja.txt",
+      "en": "guitar-loneliness/lyrics.en.txt",
       "transcript": "guitar-loneliness/transcript.word.json"
     },
     {

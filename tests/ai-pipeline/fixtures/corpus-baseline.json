@@ -49,9 +49,9 @@
     "read_adopt": 1,
     "read_mismatch": 0,
     "read_ruby_wrong": 0,
-    "pair_unpaired": 0,
+    "pair_unpaired": 9,
     "pair_magnet": 0,
-    "pair_wrong": 0
+    "pair_wrong": 6
   },
   "akfg-firsttake-segment": {
     "lines": "30/30",
@@ -184,9 +184,9 @@
     "read_adopt": 0,
     "read_mismatch": 1,
     "read_ruby_wrong": 0,
-    "pair_unpaired": 0,
+    "pair_unpaired": 19,
     "pair_magnet": 0,
-    "pair_wrong": 0
+    "pair_wrong": 7
   },
   "guitar-loneliness-segment": {
     "lines": "47/47",
