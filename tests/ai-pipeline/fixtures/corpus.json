@@ -25,6 +25,30 @@
       "lang": "ja",
       "lyrics": "my-eyes-only.lyrics.txt",
       "transcript": "my-eyes-only.transcript.json"
+    },
+    {
+      "name": "stranger-than-heaven-word",
+      "lang": "ja",
+      "lyrics": "stranger-than-heaven/lyrics.txt",
+      "transcript": "stranger-than-heaven/transcript.word.json"
+    },
+    {
+      "name": "stranger-than-heaven-segment",
+      "lang": "ja",
+      "lyrics": "stranger-than-heaven/lyrics.txt",
+      "transcript": "stranger-than-heaven/transcript.segment.json"
+    },
+    {
+      "name": "guitar-loneliness-word",
+      "lang": "ja",
+      "lyrics": "guitar-loneliness/lyrics.ja.txt",
+      "transcript": "guitar-loneliness/transcript.word.json"
+    },
+    {
+      "name": "guitar-loneliness-segment",
+      "lang": "ja",
+      "lyrics": "guitar-loneliness/lyrics.ja.txt",
+      "transcript": "guitar-loneliness/transcript.segment.json"
     }
   ]
 }

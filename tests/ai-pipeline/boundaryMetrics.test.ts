@@ -10,7 +10,8 @@ const span = (firstTime: number, lastEndTime: number) => ({
 const words = [
   { word: 'あ', startTime: 10, endTime: 10.5 },
   { word: 'い', startTime: 20, endTime: 20.5 },
-  { word: 'ロング', startTime: 30, endTime: 33 },
+  // A plausible sung word/melisma (2s, under MID_WORD_MAX_DURATION_S).
+  { word: 'ロング', startTime: 30, endTime: 32 },
 ]
 
 describe('computeBoundaryMetrics', () => {
@@ -34,6 +35,15 @@ describe('computeBoundaryMetrics', () => {
     const lines = [{ startTime: 29, endTime: 31.5, original: 'x', translation: '' }]
     const m = computeBoundaryMetrics(lines, [span(29, 31.5)], words)
     expect(m.midWord).toBe(1)
+  })
+
+  it('does NOT count mid-word for a phrase-length chunk (segment-mode artifact)', () => {
+    // Segment-mode Whisper collapses whole phrases into one 6s "word"; every line
+    // boundary lands inside it by construction, so it must not be flagged mid-word.
+    const phraseWords = [{ word: 'わけもないのになんだか悲しい', startTime: 30, endTime: 36 }]
+    const lines = [{ startTime: 32, endTime: 34, original: 'x', translation: '' }]
+    const m = computeBoundaryMetrics(lines, [span(30, 36)], phraseWords)
+    expect(m.midWord).toBe(0)
   })
 
   it('skips unmeasurable lines: null span, low coverage, retargeted occurrence', () => {

@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { refineAlignmentWithPhrases } from '../../src/lyrics/phraseAlignment'
+import { alignLyrics, sanitizeTranscript } from '../../src/ai-pipeline/aligner'
+import { computeLineMatchedSpans } from '../../src/ai-pipeline/contentAligner'
+import { computeBoundaryMetrics } from '../../scripts/lib/boundaryMetrics.mjs'
 import type { TimedLine } from '../../src/core/types'
 
 /**
@@ -48,6 +51,13 @@ const baseline = JSON.parse(readFileSync(join(FIXTURES, 'corpus-baseline.json'),
 >
 
 describe('audit corpus — alignment non-regression', () => {
+  it('baseline has a row for every corpus song', () => {
+    // Without this, a typo'd song name would silently skip that song's
+    // assertions forever (the per-song guard below warns but passes).
+    const missing = manifest.songs.filter((s) => !baseline[s.name]).map((s) => s.name)
+    expect(missing, `re-snapshot with: npx tsx scripts/audit-corpus.mjs --write-baseline`).toEqual([])
+  })
+
   for (const song of manifest.songs) {
     it(`${song.name} does not regress vs baseline`, () => {
       const lineTexts = readFileSync(join(FIXTURES, song.lyrics), 'utf8')
@@ -63,6 +73,15 @@ describe('audit corpus — alignment non-regression', () => {
       }))
       const refined = refineAlignmentWithPhrases(sheetRows, words, song.lang)
 
+      const base = baseline[song.name]
+      if (!base) {
+        // New corpus songs have no row until the baseline is re-snapshotted
+        // (audit-corpus.mjs --write-baseline). Warn so drift is visible; a
+        // strict coverage assertion lands with the snapshot.
+        console.warn(`corpus-scorecard: no baseline row for ${song.name} — skipping`)
+        return
+      }
+
       const quality = refined.lineAlignmentQuality ?? []
       const needsReview = quality.filter((q) => q === 'needs_review').length
       let monotonicity = 0
@@ -76,12 +95,35 @@ describe('audit corpus — alignment non-regression', () => {
         if (i > 0 && l.startTime < refined.lines[i - 1].startTime) monotonicity++
       }
 
-      const base = baseline[song.name]
       expect(refined.lines.length).toBe(lineTexts.length)
       expect(needsReview).toBeLessThanOrEqual(base.align_needs_review as number)
       expect(monotonicity).toBeLessThanOrEqual(base.align_monotonicity as number)
       expect(zeroDur).toBeLessThanOrEqual(base.align_zero_dur as number)
       expect(longDur).toBeLessThanOrEqual(base.align_long_dur as number)
+
+      const sanitized = sanitizeTranscript(words)
+      const spans = computeLineMatchedSpans(lineTexts, sanitized)
+      const pass1 = alignLyrics(lineTexts, words, sheetRows, song.lang)
+      const bnd1 = computeBoundaryMetrics(pass1.lines, spans, sanitized)
+      const bnd2 = computeBoundaryMetrics(refined.lines, spans, sanitized)
+      const boundaryChecks = [
+        ['bnd_early_p1', bnd1.earlyEnd],
+        ['bnd_early_p2', bnd2.earlyEnd],
+        ['bnd_latestart_p1', bnd1.lateStart],
+        ['bnd_latestart_p2', bnd2.lateStart],
+        ['bnd_late_p1', bnd1.lateEnd],
+        ['bnd_late_p2', bnd2.lateEnd],
+        ['bnd_midword_p2', bnd2.midWord],
+        ['bnd_beyond_audio', bnd2.beyondAudio],
+      ] as const
+      for (const [key, val] of boundaryChecks) {
+        const baselineVal = base[key]
+        if (typeof baselineVal === 'number') {
+          expect(val, `${song.name} ${key} regressed: ${val} > ${baselineVal}`).toBeLessThanOrEqual(
+            baselineVal,
+          )
+        }
+      }
     })
   }
 })

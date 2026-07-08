@@ -1,6 +1,7 @@
 import type { Language, LineAlignmentQuality, LyricsData, SungPhrase, TimedLine } from '../core/types'
 import { alignLyrics, lineWeight, sanitizeTranscript, subdivideTranscriptWord, type TranscriptWord } from '../ai-pipeline/aligner'
 import {
+  computeLineMatchedSpans,
   isInterjectionLyricLine,
   normalizeForMatch,
   qualityRank,
@@ -312,12 +313,24 @@ function kanaFold(s: string): string {
  * kana is immediately followed by this line's onset — find that adjacent glyph pair
  * within ~2.5 s of the current split and snap both sides to it.  When this line
  * opens on a kanji (no phonetic glyph to match) it anchors on the previous line's
- * last kana alone.  Word-mode only: segment chunks never form the adjacent pair. */
+ * last kana alone.  Word-mode only: segment chunks never form the adjacent pair.
+ *
+ * The chosen glyph pair can be an interior repeat of the same kana rather than the
+ * true boundary, snapping to a transition *inside* a line's own matched span: it
+ * clipped my-eyes-only "I promise for my eyes only" ~0.5 s early and started
+ * veil "温まることない痛みと" ~1.06 s late (D2).  Guard the snap with each line's
+ * own reliably-matched span: never push this line's start past its first sung
+ * glyph, and never pull the previous line's end before its last sung glyph. */
+const GLYPH_SNAP_SPAN_TOL_S = 0.35
 function snapBoundaryToGlyphTransition(
   lines: TimedLine[],
   words: TranscriptWord[],
 ): TimedLine[] {
   const clean = sanitizeTranscript(words)
+  const spans = computeLineMatchedSpans(
+    lines.map((l) => l.original || l.translation),
+    clean,
+  )
   const out = lines.map((l) => ({ ...l }))
   for (let i = 1; i < out.length; i++) {
     const prevLast = kanaFold(normalizeForMatch(out[i - 1].original)).slice(-1)
@@ -336,14 +349,75 @@ function snapBoundaryToGlyphTransition(
         if (best === null || Math.abs(b.startTime - cur) < Math.abs(best - cur)) best = b.startTime
       }
     }
+    // Reject a snap only when it would *introduce* a defect the pre-snap boundary
+    // did not have: it starts this line after its own first sung glyph (when the
+    // current start did not), or ends the previous line before its own last sung
+    // glyph (when the current end did not). This leaves snaps that repair an
+    // already-off boundary untouched. Low-coverage spans are ignored (unreliable).
+    const thisSpan = spans[i]
+    const prevSpan = spans[i - 1]
+    const prevEndCur = out[i - 1].endTime
+    const startsAfterOwnOnset =
+      thisSpan != null
+      && thisSpan.matchedChars / Math.max(1, thisSpan.totalChars) >= 0.5
+      && best !== null
+      && best - thisSpan.firstTime > GLYPH_SNAP_SPAN_TOL_S
+      && cur - thisSpan.firstTime <= GLYPH_SNAP_SPAN_TOL_S
+    const endsBeforeOwnOffset =
+      prevSpan != null
+      && prevSpan.matchedChars / Math.max(1, prevSpan.totalChars) >= 0.5
+      && best !== null
+      && prevSpan.lastEndTime - best > GLYPH_SNAP_SPAN_TOL_S
+      && prevSpan.lastEndTime - prevEndCur <= GLYPH_SNAP_SPAN_TOL_S
     if (
       best !== null
       && Math.abs(best - cur) > 0.3
       && best > out[i - 1].startTime + 0.5
       && best < (out[i + 1]?.startTime ?? Infinity)
+      && !startsAfterOwnOnset
+      && !endsBeforeOwnOffset
     ) {
       out[i - 1].endTime = best
       out[i].startTime = best
+    }
+  }
+  return out
+}
+
+/** A line end that falls strictly inside a sung transcript word clips that
+ * word's tail out of the highlight/AB-loop. It happens when Whisper mishears
+ * the line's final syllable (veil 届かないままの景色と → …景色を), so the LCS span
+ * ends a char early and no tail-tuner has an anchor to extend to. When the
+ * straddled word cannot belong to the next line (it ends at/before the next
+ * line's start), the whole word is this line's audio — extend the end to the
+ * word's edge. Word-mode scale only: phrase-length segment chunks (> 2.5 s)
+ * are skipped, mirroring the boundary-metric cap, so a merged segment phrase
+ * never drags a line end across its neighbours' text. */
+const MID_WORD_EXTEND_MAX_WORD_S = 2.5
+const MID_WORD_EXTEND_MARGIN_S = 0.1
+function extendLineEndOutOfMidWord(
+  lines: TimedLine[],
+  words: TranscriptWord[],
+): TimedLine[] {
+  const clean = sanitizeTranscript(words)
+  const out = lines.map((l) => ({ ...l }))
+  for (let i = 0; i < out.length; i++) {
+    const line = out[i]
+    const nextStart = out[i + 1]?.startTime ?? Infinity
+    for (const w of clean) {
+      const dur = w.endTime - w.startTime
+      if (dur <= MID_WORD_EXTEND_MARGIN_S * 2 || dur > MID_WORD_EXTEND_MAX_WORD_S) continue
+      if (w.startTime > line.endTime) break
+      const inside =
+        line.endTime > w.startTime + MID_WORD_EXTEND_MARGIN_S
+        && line.endTime < w.endTime - MID_WORD_EXTEND_MARGIN_S
+      if (!inside) continue
+      // Only claim the word when it starts within this line's window and ends
+      // before the next line begins — otherwise ownership is ambiguous.
+      if (w.startTime >= line.startTime && w.endTime <= nextStart + 0.05) {
+        line.endTime = Math.min(w.endTime, nextStart === Infinity ? w.endTime : nextStart)
+      }
+      break
     }
   }
   return out
@@ -437,9 +511,61 @@ function realignMergedLineGroups(
       sourceLanguage,
       anchorSources,
     )
+    // Each member line has its own reliable matched span within the window. The
+    // group redistribution recomputes timings from a group-level LCS window and
+    // can push a member's boundary out to the group envelope, overshooting the
+    // member's true onset/offset (guitar-loneliness-segment L4/L7 lateStart,
+    // L30 earlyEnd). Respect the member's own span: only accept a redistributed
+    // boundary when it does not sit further from that span than the pre-realign
+    // timing already did (beyond a small tolerance).
+    const memberSpans = computeLineMatchedSpans(texts, windowWords)
+    const RESPECT_TOL_S = 0.35
+    // A member span needs enough matched coverage before it can pull a boundary
+    // *earlier* (toward an onset the LCS may have mis-anchored to a later repeat);
+    // a 2-of-5-char coincidence (a repetition line spuriously matching a
+    // neighbour's audio) is not trustworthy for that.
+    const MIN_RESPECT_COVERAGE = 0.5
     for (let k = 0; k < group.length; k++) {
-      out[lo + k].startTime = refined.lines[k].startTime
-      out[lo + k].endTime = refined.lines[k].endTime
+      const span = memberSpans[k]
+      const cov = span && span.totalChars > 0 ? span.matchedChars / span.totalChars : 0
+      const reliable = span != null && cov >= MIN_RESPECT_COVERAGE
+      const priorStart = out[lo + k].startTime
+      const priorEnd = out[lo + k].endTime
+      let nextStart = refined.lines[k].startTime
+      let nextEnd = refined.lines[k].endTime
+      if (span && reliable) {
+        // A redistributed start later than the member's own first sung glyph is a
+        // lateStart; revert to the (validated) prior start when it tracked the
+        // span more closely.
+        if (
+          nextStart - span.firstTime > RESPECT_TOL_S
+          && nextStart - span.firstTime > priorStart - span.firstTime
+        ) {
+          nextStart = priorStart
+        }
+        // A redistributed end earlier than the member's own last sung glyph is an
+        // earlyEnd; revert to the prior end when it tracked the span more closely.
+        if (
+          span.lastEndTime - nextEnd > RESPECT_TOL_S
+          && span.lastEndTime - nextEnd > span.lastEndTime - priorEnd
+        ) {
+          nextEnd = priorEnd
+        }
+      } else {
+        // No reliable own span in the group window: the group-level LCS can
+        // re-anchor this member to a *later repeat* of the same phrase and shove
+        // its boundary well off its validated position, then monotonicity
+        // cascades that shift onto the following well-matched lines
+        // (guitar-loneliness-segment: L3 27.0→33.1 and L6 38.2→43.1 over-shift,
+        // dragging L4/L7 lateStart and clipping L30's tail via an early-dragged
+        // L31). A low-confidence re-anchor is less trustworthy than the validated
+        // timing, so keep the validated boundary whenever the redistribution
+        // moved it more than the tolerance.
+        if (Math.abs(nextStart - priorStart) > RESPECT_TOL_S) nextStart = priorStart
+        if (Math.abs(nextEnd - priorEnd) > RESPECT_TOL_S) nextEnd = priorEnd
+      }
+      out[lo + k].startTime = nextStart
+      out[lo + k].endTime = nextEnd
     }
   }
 
@@ -1441,6 +1567,7 @@ export function refineAlignmentWithPhrases(
   tunedLines = clipSilencePaddedLineTails(tunedLines, words)
   tunedLines = recoverInterjectionTiming(tunedLines, words)
   tunedLines = snapBoundaryToGlyphTransition(tunedLines, words)
+  tunedLines = extendLineEndOutOfMidWord(tunedLines, words)
   tunedLines = backfillLineStartsToVocalOnset(tunedLines, words)
   tunedLines = expandSquashedLineHighlights(tunedLines)
   const quality = recomputeLineQuality(
