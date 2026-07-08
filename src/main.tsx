@@ -5,14 +5,17 @@ import App from './App'
 import { requestPersistence } from './core/storage/quota'
 import { purgeStaleCoepCaches } from './core/pwa/purgeStaleCoepCaches'
 import { ToastProvider } from './core/ui/Toast'
+import { ErrorBoundary } from './core/ui/ErrorBoundary'
 
 requestPersistence()
 void purgeStaleCoepCaches()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ToastProvider>
-      <App />
-    </ToastProvider>
+    <ErrorBoundary>
+      <ToastProvider>
+        <App />
+      </ToastProvider>
+    </ErrorBoundary>
   </React.StrictMode>
 )

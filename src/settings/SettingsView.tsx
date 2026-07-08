@@ -7,8 +7,9 @@ import { deleteOrphanedAudio, findOrphanedAudioIds } from '../core/storage/clean
 import { clearAiModelCache } from '../core/storage/modelCache'
 import { exportLRC, downloadFile } from '../lyrics/exporter'
 import { useSettingsStore } from '../payment/SettingsStore'
+import { useAbLoopPlaylistStore } from '../player/abLoopPlaylistStore'
 import { LegalLinks } from '../core/ui/LegalLinks'
-import { LEGAL_LAST_UPDATED } from '../core/legal'
+import { LEGAL_LAST_UPDATED, KOFI_URL } from '../core/legal'
 import { getDeviceTier, canUseVocalSeparation } from '../ai-pipeline/capability'
 import { refreshDemucsModelAvailability } from '../ai-pipeline/demucsSeparator'
 import type { Language, Song } from '../core/types'
@@ -31,7 +32,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
   const [cacheMessage, setCacheMessage] = useState<string | null>(null)
   const [clearingCache, setClearingCache] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  const { isPro, trialSongsClaimed, setLicense, clearLicense, defaultSongLanguage, setDefaultSongLanguage, vocalSeparationEnabled, setVocalSeparationEnabled, readingMode, setReadingMode } = useSettingsStore()
+  const { defaultSongLanguage, setDefaultSongLanguage, vocalSeparationEnabled, setVocalSeparationEnabled, readingMode, setReadingMode } = useSettingsStore()
 
   const refreshStorage = async (library: Song[]) => {
     setStorage(await estimateStorageBreakdown())
@@ -54,6 +55,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
     setConfirmDeleteId(null)
     try {
       const { audioDeleteFailed } = await removeSong(song)
+      useAbLoopPlaylistStore.getState().clearPlaylist(song.id)
       const next = songs.filter((s) => s.id !== song.id)
       if (audioDeleteFailed) {
         toast('Song removed, but the audio file could not be deleted. Use "Clean up orphaned audio" below to reclaim space.', 'warning')
@@ -92,19 +94,21 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
         <button onClick={onClose} className="min-h-11 min-w-11 flex items-center justify-center text-white/40 hover:text-white text-xl touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]" aria-label="Close settings">✕</button>
       </div>
 
-      <div className="bg-cinnabar-900 rounded-xl p-4 space-y-1">
-        <p className="text-sm font-medium">License</p>
-        {isPro
-          ? <p className="text-green-400 text-sm">✓ Pro — lifetime access</p>
-          : <p className="text-white/50 text-sm">{trialSongsClaimed}/2 trial songs used</p>}
-        {import.meta.env.DEV && (
-          <button
-            onClick={() => isPro ? clearLicense() : setLicense('dev')}
-            className="mt-2 text-xs px-3 py-1 rounded-full border border-yellow-500/50 text-yellow-300 hover:bg-yellow-500/10"
-          >
-            🛠 Dev: {isPro ? 'Disable' : 'Enable'} Pro
-          </button>
-        )}
+      <div className="bg-cinnabar-900 rounded-xl p-4 space-y-3">
+        <div className="space-y-1">
+          <p className="text-sm font-medium">Support Utasync</p>
+          <p className="text-xs text-white/45 text-pretty">
+            Utasync is free and runs entirely on your device. If it helps your studies, you can support ongoing development.
+          </p>
+        </div>
+        <a
+          href={KOFI_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full min-h-11 rounded-lg bg-cinnabar-accent hover:bg-cinnabar-accent/90 text-white text-sm font-medium flex items-center justify-center gap-2 touch-manipulation transition-[background-color,transform] duration-150 ease-out active:scale-[0.98]"
+        >
+          ☕ Support on Ko-fi
+        </a>
       </div>
 
       <div className="bg-cinnabar-900 rounded-xl p-4 space-y-2">

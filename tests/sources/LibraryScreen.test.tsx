@@ -7,8 +7,8 @@ import { LibraryScreen } from '../../src/sources/LibraryScreen'
 beforeEach(async () => {
   await db.songs.clear()
   await db.songs.bulkPut([
-    { id: '1', title: 'Synced Song', artist: 'A', syncState: 'synced', sources: [], lyrics: { lines: [{ startTime: 1, endTime: 2, original: 'a', translation: '' }], sourceLanguage: 'ja', translationLanguage: 'en', alignmentMode: 'manual' }, createdAt: new Date(1), isTrialSong: false },
-    { id: '2', title: 'Unsynced Song', artist: 'B', syncState: 'needs-sync', sources: [], lyrics: { lines: [{ startTime: 0, endTime: 0, original: 'b', translation: '' }], sourceLanguage: 'ja', translationLanguage: 'en', alignmentMode: 'manual' }, createdAt: new Date(2), isTrialSong: false },
+    { id: '1', title: 'Synced Song', artist: 'A', syncState: 'synced', sources: [], lyrics: { lines: [{ startTime: 1, endTime: 2, original: 'a', translation: '' }], sourceLanguage: 'ja', translationLanguage: 'en', alignmentMode: 'manual' }, createdAt: new Date(1) },
+    { id: '2', title: 'Unsynced Song', artist: 'B', syncState: 'needs-sync', sources: [], lyrics: { lines: [{ startTime: 0, endTime: 0, original: 'b', translation: '' }], sourceLanguage: 'ja', translationLanguage: 'en', alignmentMode: 'manual' }, createdAt: new Date(2) },
   ] as never)
 })
 

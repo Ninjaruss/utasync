@@ -45,7 +45,7 @@ beforeEach(async () => {
       lines: [{ startTime: 1, endTime: 3, original: '君', translation: 'you' }],
       sourceLanguage: 'ja', translationLanguage: 'en', alignmentMode: 'manual',
     },
-    syncState: 'synced', createdAt: new Date(), isTrialSong: false,
+    syncState: 'synced', createdAt: new Date(),
   } as never)
 })
 
@@ -74,7 +74,7 @@ describe('PlayerView word alignment', () => {
         sourceLanguage: 'ja', translationLanguage: 'en', alignmentMode: 'manual',
         enrichmentVersion: LYRICS_ENRICHMENT_VERSION,
       },
-      syncState: 'synced', createdAt: new Date(), isTrialSong: false,
+      syncState: 'synced', createdAt: new Date(),
     } as never)
 
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
@@ -94,7 +94,7 @@ describe('PlayerView word alignment', () => {
         sourceLanguage: 'ja', translationLanguage: 'en', alignmentMode: 'manual',
         enrichmentVersion: 1,
       },
-      syncState: 'synced', createdAt: new Date(), isTrialSong: false,
+      syncState: 'synced', createdAt: new Date(),
     } as never)
 
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
@@ -123,7 +123,7 @@ describe('PlayerView word alignment', () => {
         sourceLanguage: 'en', translationLanguage: 'en', alignmentMode: 'manual',
         enrichmentVersion: 1,
       },
-      syncState: 'synced', createdAt: new Date(), isTrialSong: false,
+      syncState: 'synced', createdAt: new Date(),
     } as never)
 
     render(<PlayerView songId="no-trans" onBack={vi.fn()} />)

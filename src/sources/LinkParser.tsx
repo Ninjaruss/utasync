@@ -417,10 +417,6 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
 
         {error && <p className="text-red-400 text-sm text-center shrink-0">{error}</p>}
       </div>
-
-      {!embedded && (
-        <p className="text-white/20 text-xs text-center">2 free full song trials included</p>
-      )}
     </div>
   )
 }

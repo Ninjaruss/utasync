@@ -60,7 +60,6 @@ beforeEach(async () => {
     },
     syncState: 'unsynced',
     createdAt: new Date(),
-    isTrialSong: false,
   } as never)
 })
 

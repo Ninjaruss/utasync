@@ -6,7 +6,7 @@ function baseSong(over: Partial<Song> = {}): Song {
   return {
     id: 's1', title: 'T', artist: 'A',
     lyrics: { lines: [], sourceLanguage: 'ja', translationLanguage: 'en', alignmentMode: 'manual' },
-    createdAt: new Date(), isTrialSong: false,
+    createdAt: new Date(),
     ...over,
   }
 }

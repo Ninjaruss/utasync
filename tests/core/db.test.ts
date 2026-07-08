@@ -13,7 +13,6 @@ const mockSong: Song = {
     alignmentMode: 'manual',
   },
   createdAt: new Date(),
-  isTrialSong: false,
 }
 
 beforeEach(async () => {

@@ -144,7 +144,6 @@ export interface Song {
   alignment?: WordAlignment[]
   stats?: PracticeStats
   createdAt: Date
-  isTrialSong: boolean
   // Phase 1: unified source model (additive; derived from sourceUrl/audioStoredPath when absent)
   sources?: SourceRef[]
   activeProvider?: ProviderType
@@ -153,10 +152,6 @@ export interface Song {
 }
 
 export interface UserSettings {
-  proLicense: string | null
-  isPro: boolean
-  trialSongsClaimed: number
-  deviceFingerprint: string
   theme: 'light' | 'dark'
   defaultSpeed: number
   clozeDifficulty: ClozeDifficulty

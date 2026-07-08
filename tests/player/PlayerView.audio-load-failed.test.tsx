@@ -22,7 +22,7 @@ beforeEach(async () => {
     audioStoredPath: 'songs/song1.mp3',
     sources: [{ provider: 'upload', ref: 'song1', hasAudio: true }],
     lyrics: { lines: [{ startTime: 1, endTime: 3, original: 'hello', translation: '' }], sourceLanguage: 'en', translationLanguage: 'en', alignmentMode: 'manual' },
-    syncState: 'synced', createdAt: new Date(), isTrialSong: false,
+    syncState: 'synced', createdAt: new Date(),
   } as never)
 })
 

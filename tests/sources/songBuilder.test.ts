@@ -7,7 +7,6 @@ describe('buildSong', () => {
     const song = buildSong({ title: 'T', artist: 'A', lines: [] })
     expect(song.title).toBe('T')
     expect(song.artist).toBe('A')
-    expect(song.isTrialSong).toBe(false)
     expect(song.lyrics.alignmentMode).toBe('manual')
     expect(song.lyrics.sourceLanguage).toBe('ja')
     expect(song.lyrics.translationLanguage).toBe('en')

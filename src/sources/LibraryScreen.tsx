@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { db } from '../core/db/schema'
 import { deleteSong } from '../core/db/deleteSong'
+import { useAbLoopPlaylistStore } from '../player/abLoopPlaylistStore'
 import { computeSyncState } from '../core/db/migrations'
 import { ConfirmDialog } from '../core/ui/ConfirmDialog'
 import { useToast } from '../core/ui/Toast'
@@ -25,6 +26,7 @@ export function LibraryScreen({ onOpen, onAdd, onSettings }: Props) {
     setPendingDelete(null)
     try {
       const { audioDeleteFailed } = await deleteSong(song)
+      useAbLoopPlaylistStore.getState().clearPlaylist(song.id)
       setSongs((prev) => prev.filter((s) => s.id !== song.id))
       if (audioDeleteFailed) {
         toast('Song removed, but the audio file could not be deleted. Open Settings → Storage to reclaim space.', 'warning')

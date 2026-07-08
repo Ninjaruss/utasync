@@ -18,7 +18,7 @@ beforeEach(async () => {
     id: 'song1', title: 'T', artist: 'A',
     sources: [{ provider: 'youtube', ref: 'abc', hasAudio: true }],
     lyrics: { lines: [{ startTime: 1, endTime: 3, original: 'hello', translation: 'hi' }], sourceLanguage: 'en', translationLanguage: 'en', alignmentMode: 'manual' },
-    syncState: 'synced', createdAt: new Date(), isTrialSong: false,
+    syncState: 'synced', createdAt: new Date(),
   } as never)
 })
 
