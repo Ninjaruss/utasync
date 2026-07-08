@@ -21,7 +21,10 @@
     "read_kanji_tokens": 119,
     "read_adopt": 0,
     "read_mismatch": 4,
-    "read_ruby_wrong": 0
+    "read_ruby_wrong": 0,
+    "pair_unpaired": 2,
+    "pair_magnet": 0,
+    "pair_wrong": 11
   },
   "akfg-firsttake-word": {
     "lines": "30/30",
@@ -45,7 +48,10 @@
     "read_kanji_tokens": 87,
     "read_adopt": 1,
     "read_mismatch": 0,
-    "read_ruby_wrong": 0
+    "read_ruby_wrong": 0,
+    "pair_unpaired": 0,
+    "pair_magnet": 0,
+    "pair_wrong": 0
   },
   "akfg-firsttake-segment": {
     "lines": "30/30",
@@ -69,7 +75,10 @@
     "read_kanji_tokens": 87,
     "read_adopt": 1,
     "read_mismatch": 0,
-    "read_ruby_wrong": 0
+    "read_ruby_wrong": 0,
+    "pair_unpaired": 0,
+    "pair_magnet": 0,
+    "pair_wrong": 0
   },
   "my-eyes-only": {
     "lines": "40/40",
@@ -93,7 +102,10 @@
     "read_kanji_tokens": 42,
     "read_adopt": 0,
     "read_mismatch": 1,
-    "read_ruby_wrong": 0
+    "read_ruby_wrong": 0,
+    "pair_unpaired": 0,
+    "pair_magnet": 0,
+    "pair_wrong": 0
   },
   "stranger-than-heaven-word": {
     "lines": "59/59",
@@ -117,7 +129,10 @@
     "read_kanji_tokens": 47,
     "read_adopt": 0,
     "read_mismatch": 1,
-    "read_ruby_wrong": 0
+    "read_ruby_wrong": 0,
+    "pair_unpaired": 0,
+    "pair_magnet": 0,
+    "pair_wrong": 0
   },
   "stranger-than-heaven-segment": {
     "lines": "59/59",
@@ -141,7 +156,10 @@
     "read_kanji_tokens": 47,
     "read_adopt": 0,
     "read_mismatch": 0,
-    "read_ruby_wrong": 0
+    "read_ruby_wrong": 0,
+    "pair_unpaired": 0,
+    "pair_magnet": 0,
+    "pair_wrong": 0
   },
   "guitar-loneliness-word": {
     "lines": "47/47",
@@ -165,7 +183,10 @@
     "read_kanji_tokens": 96,
     "read_adopt": 0,
     "read_mismatch": 2,
-    "read_ruby_wrong": 0
+    "read_ruby_wrong": 0,
+    "pair_unpaired": 0,
+    "pair_magnet": 0,
+    "pair_wrong": 0
   },
   "guitar-loneliness-segment": {
     "lines": "47/47",
@@ -189,6 +210,9 @@
     "read_kanji_tokens": 96,
     "read_adopt": 0,
     "read_mismatch": 1,
-    "read_ruby_wrong": 0
+    "read_ruby_wrong": 0,
+    "pair_unpaired": 0,
+    "pair_magnet": 0,
+    "pair_wrong": 0
   }
 }
