@@ -644,6 +644,10 @@ export interface LineMatchedSpan {
  * transcript chars count (same coincidence filter as line anchoring). Null =
  * no reliable match for that line. Pass sanitized words (sanitizeTranscript)
  * for parity with the alignment pipeline.
+ *
+ * Unlike collectReliableRunsByLine there is no RUN_CLUSTER_GAP_S split: this
+ * measures the whole-line matched span for audit metrics, so all reliable runs
+ * on a line are merged rather than reduced to the strongest time-cluster.
  */
 export function computeLineMatchedSpans(
   lineTexts: string[],

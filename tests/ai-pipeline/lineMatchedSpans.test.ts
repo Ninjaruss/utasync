@@ -29,6 +29,21 @@ describe('computeLineMatchedSpans', () => {
     expect(spans[1]).toBeNull()
   })
 
+  it('merges two separate reliable runs on one line into a single whole-line span', () => {
+    // 手のひら (unmatched noise word between) splits the line's matches into two
+    // runs; the span must cover both, not just the strongest cluster.
+    const split = [
+      { word: 'こんにちは', startTime: 10, endTime: 12 },
+      { word: '手のひら', startTime: 30, endTime: 31 },
+      { word: 'さようなら', startTime: 50, endTime: 52 },
+    ]
+    const spans = computeLineMatchedSpans(['こんにちはさようなら'], split)
+    expect(spans[0]).not.toBeNull()
+    expect(spans[0]!.firstTime).toBeCloseTo(10, 5)
+    expect(spans[0]!.lastEndTime).toBeCloseTo(52, 5)
+    expect(spans[0]!.matchedChars).toBe(10)
+  })
+
   it('returns all nulls on empty transcript', () => {
     expect(computeLineMatchedSpans(['こんにちは'], [])).toEqual([null])
   })
