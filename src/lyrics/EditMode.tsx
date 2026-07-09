@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { TimedLine, Language, LineAlignmentQuality } from '../core/types'
-import { stampStart, setText, addLine, deleteLine } from './lineOps'
+import { stampTimes, setText, addLine, deleteLine } from './lineOps'
 import { SecondLanguagePanel } from './SecondLanguagePanel'
 import { TimestampPopover } from './TimestampPopover'
 import {
@@ -80,8 +80,10 @@ interface RowProps {
   seek?: (time: number) => void
   onScrubStart?: () => void
   onScrubEnd?: () => void
-  onCommitTime: (t: number) => void
+  onCommitTimes: (patch: { start: number; end: number | null }) => void
   onClosePopover: () => void
+  /** Where an auto end lands for this line (next line's start). */
+  autoEnd: number
   alignmentQuality?: LineAlignmentQuality
   showAlignmentQuality?: boolean
 }
@@ -90,7 +92,7 @@ interface RowProps {
 /** One lyric row. Holds local draft text so typing doesn't push a change on every keystroke — committed only on blur, same discipline the old expand-into-panel editor used. */
 function Row({
   line, index, timed, editing, deleteArmed, playheadActive, onStartEdit, onStopEdit, onCommitText, onAdd,
-  onArmDelete, onConfirmDelete, onOpenPopover, popoverOpen, playhead, seek, onScrubStart, onScrubEnd, onCommitTime, onClosePopover,
+  onArmDelete, onConfirmDelete, onOpenPopover, popoverOpen, playhead, seek, onScrubStart, onScrubEnd, onCommitTimes, onClosePopover, autoEnd,
   alignmentQuality, showAlignmentQuality,
 }: RowProps) {
   const [original, setOriginal] = useState(line.original)
@@ -185,9 +187,10 @@ function Row({
 
       {popoverOpen && (
         <TimestampPopover
-          time={line.startTime}
+          line={line}
+          autoEnd={autoEnd}
           playhead={playhead}
-          onCommit={onCommitTime}
+          onCommit={onCommitTimes}
           onClose={onClosePopover}
           onScrub={seek}
           onScrubStart={onScrubStart}
@@ -415,8 +418,9 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             seek={seek}
             onScrubStart={onScrubStart}
           onScrubEnd={onScrubEnd}
-          onCommitTime={(t) => applyChange(stampStart(lines, i, t))}
+          onCommitTimes={(patch) => applyChange(stampTimes(lines, i, patch))}
           onClosePopover={closePopoverAfterCommit}
+          autoEnd={lines[i + 1]?.startTime ?? Infinity}
           alignmentQuality={lineAlignmentQuality?.[i]}
           showAlignmentQuality={showAlignmentQuality}
         />
