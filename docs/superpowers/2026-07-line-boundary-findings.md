@@ -540,3 +540,23 @@ forced-JA decoding compounding Whisper's mishearing (per C3), not purely a sung-
 discrepancy. The sheet-vs-sung gap genuinely remains for parts of the bridge (Class-A
 carve-outs, unchanged by this round), but the aligner now degrades gracefully around it —
 no more pileups, no more multi-line time-absorption — instead of visibly breaking.
+
+### Post-review addendum (2026-07-10)
+
+The whole-branch review surfaced one Important interaction defect, fixed in `1bb48a7`:
+`redistributeDegenerateRuns` judged "anchored" purely by lexical score, so a
+phonetically-recovered line (lexically needs_review by definition) inside a still-degenerate
+run was re-timed off its evidenced audio while the stale `recovered` mask still upgraded it
+to `approximate`. Fix: recovered lines are passed to redistribution as an `anchoredMask`
+(run boundaries), the phonetic quality upgrade is invalidated for any line redistribution
+moved, and phonetic recovery is now gated on `content`-mode alignment — in `proportional`
+fallback the entire layout is interpolation, so pinning a single line to a phonetic hit
+only distorts the uniform scale around it (observed as a real regression on the
+word-autolang fixture before the gate).
+
+Known residual edges (all currently unreachable on real fixtures, candidates for a future
+hardening pass): (1) redistribution's greedy packing can still leave a sub-min sliver in a
+disproportionately tiny trailing activity region; (2) the phonetic tuner's
+`enforceLineMonotonicity` can clip a recovered line's end when the *next* line's stale
+interpolated start sits inside the anchor span (it pulls back the previous line's stale
+end but doesn't push the next line's start).
