@@ -78,6 +78,9 @@ async function main() {
   const { computeBoundaryMetrics } = await import(
     pathToFileURL(join(root, 'scripts/lib/boundaryMetrics.mjs')).href
   )
+  const { minLineDuration } = await import(
+    pathToFileURL(join(root, 'src/lyrics/lineDegeneracy.ts')).href
+  )
 
   const tokenizer = await new Promise((resolve, reject) => {
     kuromoji.builder({ dicPath: join(root, 'public/dict') }).build((err, t) => (err ? reject(err) : resolve(t)))
@@ -148,12 +151,17 @@ async function main() {
     let monotonicity = 0
     let zeroDur = 0
     let longDur = 0
+    let pileup = 0
+    let compressed = 0
     for (let i = 0; i < refined.lines.length; i++) {
       const l = refined.lines[i]
       const dur = l.endTime - l.startTime
+      const text = l.original || l.translation
       if (dur <= 0.1) zeroDur++
       if (dur > 18) longDur++
       if (i > 0 && l.startTime < refined.lines[i - 1].startTime) monotonicity++
+      if (i > 0 && l.startTime - refined.lines[i - 1].startTime < 0.4) pileup++
+      if (dur > 0 && dur < minLineDuration(text) * 0.55) compressed++
     }
 
     // --- reading metrics ---
@@ -200,6 +208,8 @@ async function main() {
       align_monotonicity: monotonicity,
       align_zero_dur: zeroDur,
       align_long_dur: longDur,
+      align_pileup: pileup,
+      align_compressed: compressed,
       // Interjection/vocalization lines are un-scoreable by design (no phonetic
       // content for the JA model) — informational string, exempt from the
       // numeric regression guard like bnd_measured.

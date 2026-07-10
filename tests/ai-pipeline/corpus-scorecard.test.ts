@@ -6,6 +6,7 @@ import { refineAlignmentWithPhrases } from '../../src/lyrics/phraseAlignment'
 import { alignLyrics, sanitizeTranscript } from '../../src/ai-pipeline/aligner'
 import { computeLineMatchedSpans } from '../../src/ai-pipeline/contentAligner'
 import { computeBoundaryMetrics } from '../../scripts/lib/boundaryMetrics.mjs'
+import { minLineDuration } from '../../src/lyrics/lineDegeneracy'
 import type { TimedLine } from '../../src/core/types'
 
 /**
@@ -89,12 +90,17 @@ describe('audit corpus — alignment non-regression', () => {
       let monotonicity = 0
       let zeroDur = 0
       let longDur = 0
+      let pileup = 0
+      let compressed = 0
       for (let i = 0; i < refined.lines.length; i++) {
         const l = refined.lines[i]
         const dur = l.endTime - l.startTime
+        const text = l.original || l.translation
         if (dur <= 0.1) zeroDur++
         if (dur > 18) longDur++
         if (i > 0 && l.startTime < refined.lines[i - 1].startTime) monotonicity++
+        if (i > 0 && l.startTime - refined.lines[i - 1].startTime < 0.4) pileup++
+        if (dur > 0 && dur < minLineDuration(text) * 0.55) compressed++
       }
 
       expect(refined.lines.length).toBe(lineTexts.length)
@@ -102,6 +108,8 @@ describe('audit corpus — alignment non-regression', () => {
       expect(monotonicity).toBeLessThanOrEqual(base.align_monotonicity as number)
       expect(zeroDur).toBeLessThanOrEqual(base.align_zero_dur as number)
       expect(longDur).toBeLessThanOrEqual(base.align_long_dur as number)
+      expect(pileup).toBeLessThanOrEqual(base.align_pileup as number)
+      expect(compressed).toBeLessThanOrEqual(base.align_compressed as number)
 
       const sanitized = sanitizeTranscript(words)
       const spans = computeLineMatchedSpans(lineTexts, sanitized)
