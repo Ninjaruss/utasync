@@ -40,6 +40,18 @@
       "transcript": "stranger-than-heaven/transcript.segment.json"
     },
     {
+      "name": "stranger-than-heaven-word-autolang",
+      "lang": "ja",
+      "lyrics": "stranger-than-heaven/lyrics.txt",
+      "transcript": "stranger-than-heaven/transcript.word.autolang.json"
+    },
+    {
+      "name": "stranger-than-heaven-segment-autolang",
+      "lang": "ja",
+      "lyrics": "stranger-than-heaven/lyrics.txt",
+      "transcript": "stranger-than-heaven/transcript.segment.autolang.json"
+    },
+    {
       "name": "guitar-loneliness-word",
       "lang": "ja",
       "lyrics": "guitar-loneliness/lyrics.ja.txt",

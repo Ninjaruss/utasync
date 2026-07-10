@@ -388,3 +388,175 @@ and refusing to flag lines the transcript simply does not contain.
    ("Followed by the echoes" family) advances the monotonic search past their
    true position. Needs a projection-stage back-search / re-anchor when a later
    line scores far better at an earlier unused window.
+
+## 2026-07-09 — messy-audio robustness round
+
+Follow-up to the Class-B list above (branch `accuracy-round-2`, commits
+`fb723ff..HEAD`; plan `docs/superpowers/plans/2026-07-09-robust-alignment-messy-audio.md`,
+spec `docs/superpowers/specs/2026-07-09-robust-alignment-messy-audio-design.md`). Five
+work streams; two shipped, one shipped-but-inert-on-this-corpus, one reverted, one
+experiment lost. All numbers below are diffed directly against the pre-round baseline
+(`git show 49908af:tests/ai-pipeline/fixtures/corpus-baseline.json`, the plan-doc commit
+at the branch root) and the current scorecard/`--check-baseline` run.
+
+### C1 — degenerate-run redistribution (SHIPPED)
+
+`src/lyrics/lineDegeneracy.ts` (expected-duration + activity-region helpers) +
+`src/lyrics/redistributeDegenerateRuns.ts`, wired as the **last** timing tuner in
+`refineAlignmentWithPhrases` (commits b9e7a0c, 647671b, 30d0206, 571323d, 56cbdb9).
+Detects three degeneracy shapes in a run of consecutive lines:
+
+- **pileups** — consecutive line starts <0.4s apart
+- **compressions** — line duration < `minLineDuration * 0.55`
+- **absorptions** — line duration > `max(18s, 2.5x expected)`
+
+and re-times the run by packing it across transcript activity regions (gaps >4s are
+excluded as real instrumental breaks) via single-pass greedy region packing, carrying
+unspent budget forward so a run never strands a final sliver (56cbdb9). Also upgrades a
+line from `needs_review` to `approximate` when its re-timed span overlaps real matched
+words, and clamps each line to its own activity region so redistribution can never let a
+line's rendered span swallow a real gap (bug found and fixed while proving the
+stranger-than-heaven 39s-absorption fixture, per 571323d's commit message).
+
+**Measured (stranger-than-heaven, pre-round baseline @ 647671b → current):**
+
+| metric | word | segment |
+|---|---|---|
+| `align_needs_review` | 20 → **3** | 14 → **3** |
+| `align_pileup` | 12 → **2** | 15 → **4** |
+| `align_compressed` | 23 → **20** | 25 → 25 (unchanged) |
+| `align_long_dur` | 1 → **0** | 0 → 0 (unchanged) |
+| `bnd_measured` | 20 → 20 (unchanged) | 14 → 14 (unchanged) |
+
+The `align_long_dur` 1→0 is the 39s-absorbed line collapsing back to a normal duration.
+The two new metrics (`align_pileup`, `align_compressed`) are now part of the
+baseline-guard set in `corpus-baseline.json` / `corpus-scorecard.test.ts`, so neither can
+silently regress. All 7 other corpus entries are untouched by this change (byte-identical
+on every numeric counter).
+
+**Residual carve-out:** a sub-`minLineDuration` sliver is still possible when a run's
+remainder lands in a disproportionately tiny *trailing* activity region — the packer is
+single-pass and greedy in one direction, so it can't borrow room from an earlier region
+once it's moved past it. Mitigated downstream by `expandSquashedLineHighlights`; revisit
+only if this is observed on a real (non-fixture) song.
+
+### C2a — dual-vocalist stream keep (REVERTED — no measurable gain)
+
+Commits b02d0c7 (keep + re-sort) then 0c54817 (revert). `sanitizeTranscript` was
+dropping any transcript word whose start time rewound relative to the previous word —
+which discarded an entire interleaved second-vocalist word stream when present. b02d0c7
+loosened the drop to only rewinds beyond a 3s tolerance, keeping smaller rewinds. Measured
+regression on stranger-than-heaven-word: `align_needs_review` 3→4, `align_compressed`
+20→25, `bnd_midword_p2` 2→3 — the naive keep hurt because the kept second-vocalist words
+are duplicate coverage of lines already matched, which inflates the char-stream weighting
+used by the phrase matcher.
+
+A dedup refinement was then implemented and measured (not shipped): keep a rewound word
+only if its span doesn't overlap an already-kept word's span (i.e., only genuine
+gap-fillers survive). Measured against pre-Task-5 (56cbdb9) across the **whole corpus**:
+the dedup drops all 46 duplicate rewinds + 37 large chunk-merge artifacts and keeps
+exactly 1 gap-filling word corpus-wide — output is byte-identical to pre-Task-5 on every
+song's every counter. Verdict: every dual-vocal overlap in the available corpus is a
+doubling, not a genuine gap-filler; there's no proven payoff for the added complexity, so
+0c54817 reverted to keep `sanitizeTranscript` simple. The validated dedup approach (span-
+overlap keep/drop rule) is preserved in commit 0c54817's message if a fixture with a real
+gap-filling multi-vocalist stream ever appears.
+
+### C2b — phonetic anchor recovery (SHIPPED, inert on stranger)
+
+`src/ai-pipeline/phoneticEn.ts` (consonant-skeleton similarity; digraphs are skeletonized
+per-token, fixed in b4a3d9a, to avoid false matches across word boundaries; similarity
+threshold 0.70) + `recoverLatinLinesByPhoneticAnchor` tuner in `phraseAlignment.ts`
+(9b7ee4e), wired before redistribution in the tuner chain, with an ownership guard: only
+skip recovery when the *previous* line has a real lexical span that would be compressed
+below `minLineDuration * 0.55` by the recovery; a no-span neighbor never blocks (guard
+fix in 8a95b09 — the initial guard over-blocked whenever the previous line lacked a span
+at all).
+
+Proven correct end-to-end by synthetic integration tests covering positive recovery, the
+threshold-gate negative case, and both guard branches
+(`tests/ai-pipeline/phoneticRecovery.integration.test.ts`).
+
+On the real stranger-than-heaven fixture it is **inert**: the one real candidate line —
+row 21, "Followed by the echoes where the black light dims" (misheard by Whisper as
+"Trouble when the angels were the lamp light dims", similarity 0.703, matched window
+100.08–102.02s) — remains blocked by the pre-existing class-B mis-anchoring of row 20
+("Stranger than heaven", placed at 100.10–101.80s vs its true matched span 97.98–99.82s,
+per the Class-B follow-up list above). The upstream mis-anchor claims row 21's rightful
+window before phonetic recovery ever gets a chance to act on it. Fixing that class-B
+repeat-occurrence defect would unblock this recovery. The corpus baseline is unchanged by
+C2b (expected and deliberate — this is a targeted, currently-dormant capability, not a
+metric-moving fix).
+
+### C3 — mixed-language auto-detect transcription (EXPERIMENT LOST — Task 10 skipped)
+
+Commits a912eb7 (experiment + verdict), 034caab (retry with the language key omitted
+instead of passed as `null`, per the design spec's literal wording). The garbled EN
+sections in stranger-than-heaven were confirmed rooted in forced single-language (JA)
+Whisper decoding — but per-chunk auto-detect via `@xenova/transformers` turns out to be
+broken at the library level, not merely a quality tradeoff. With `chunk_length_s: 30`,
+`stride_length_s: 5`, an auto/omitted language produces a deterministic, severely
+truncated transcript: word mode covers only 40.0–88.2s of the 231s song (123 chunks vs
+557 for forced-JA covering 0–231s); segment mode covers only 43–83.7s (18 chunks, last
+chunk has a null end timestamp, vs 63 chunks covering the full song for forced-JA). The
+two commits are byte-identical transcripts — explicit `null` vs omitting the key entirely
+made no difference, ruling out a null-vs-undefined config bug; the truncation is a
+long-form chunking defect in this version of the library when combined with per-chunk
+auto language detection.
+
+**Measured (through the improved aligner, forced-JA → autolang):**
+
+| metric | word mode | segment mode |
+|---|---|---|
+| `align_needs_review` | 3 → 7 | 3 → 1 |
+| `align_pileup` | 2 → 9 | 4 → 10 |
+| `align_compressed` | 20 → 59 | 25 → 59 |
+| `bnd_measured` | 20 → 1 | 14 → 0 |
+
+`bnd_measured` collapsing to ~1 line means the aligner falls back from `content` mode to
+`proportional` mode for both autolang rows (almost no transcript text left to anchor
+against), which is why `align_compressed` blows out to near-total. **Verdict: LOSES.**
+Task 10 (wiring auto-detect into the app) was skipped per this result. The autolang
+fixtures are kept in the corpus as evidence (`stranger-than-heaven-word/segment-autolang`
+rows in the scorecard, both `mode: proportional`) rather than deleted. Future paths if
+revisited: upgrade or replace `@xenova/transformers`, or do manual audio windowing with
+an explicit per-window forced language instead of relying on the library's auto-detect.
+
+### Where stranger-than-heaven stands now (word mode)
+
+Current scorecard row: `align_needs_review=3, align_pileup=2, align_compressed=20,
+align_long_dur=0, unscoreable=5, bnd_measured=20`. Segment mode:
+`align_needs_review=3, align_pileup=4, align_compressed=25, align_long_dur=0,
+unscoreable=5, bnd_measured=14`.
+
+Net movement this round: `needs_review` 20→3 (word) / 14→3 (segment), `pileup` 12→2 /
+15→4, `long_dur` 1→0 (both modes) — the six-line 153.88–154.18s bridge pileup and the 39s
+absorbed line documented in the repeat-chorus-matching section above are both gone, fixed
+by the C1 redistribution pass rather than by any matching-stage change.
+
+This refines rather than overturns the earlier "alternate take" theory from the
+repeat-chorus-matching section: a meaningful share of the EN "garble" turns out to be
+forced-JA decoding compounding Whisper's mishearing (per C3), not purely a sung-vs-sheet
+discrepancy. The sheet-vs-sung gap genuinely remains for parts of the bridge (Class-A
+carve-outs, unchanged by this round), but the aligner now degrades gracefully around it —
+no more pileups, no more multi-line time-absorption — instead of visibly breaking.
+
+### Post-review addendum (2026-07-10)
+
+The whole-branch review surfaced one Important interaction defect, fixed in `1bb48a7`:
+`redistributeDegenerateRuns` judged "anchored" purely by lexical score, so a
+phonetically-recovered line (lexically needs_review by definition) inside a still-degenerate
+run was re-timed off its evidenced audio while the stale `recovered` mask still upgraded it
+to `approximate`. Fix: recovered lines are passed to redistribution as an `anchoredMask`
+(run boundaries), the phonetic quality upgrade is invalidated for any line redistribution
+moved, and phonetic recovery is now gated on `content`-mode alignment — in `proportional`
+fallback the entire layout is interpolation, so pinning a single line to a phonetic hit
+only distorts the uniform scale around it (observed as a real regression on the
+word-autolang fixture before the gate).
+
+Known residual edges (all currently unreachable on real fixtures, candidates for a future
+hardening pass): (1) redistribution's greedy packing can still leave a sub-min sliver in a
+disproportionately tiny trailing activity region; (2) the phonetic tuner's
+`enforceLineMonotonicity` can clip a recovered line's end when the *next* line's stale
+interpolated start sits inside the anchor span (it pulls back the previous line's stale
+end but doesn't push the next line's start).
