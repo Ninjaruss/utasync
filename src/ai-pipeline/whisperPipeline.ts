@@ -1,17 +1,6 @@
-import {
-  env,
-  AutomaticSpeechRecognitionPipeline,
-  AutoProcessor,
-  AutoTokenizer,
-  WhisperForConditionalGeneration,
-} from '@xenova/transformers'
-import { clearWhisperModelCache, purgeCorruptModelCaches } from '../core/storage/modelCache'
+import { pipeline, env, type AutomaticSpeechRecognitionPipeline } from '@huggingface/transformers'
 import { friendlyModelLoadError, withNetworkRetry } from './networkErrors'
-import { HF_HOSTS, prefetchWhisperModelFiles } from './modelPrefetch'
-
-/** Keep whisper model classes in the worker bundle (avoids over-aggressive tree-shaking). */
-const WHISPER_MODEL_CLASS = WhisperForConditionalGeneration
-void WHISPER_MODEL_CLASS
+import type { InferenceBackend } from './inferenceBackend'
 
 function onnxWasmBaseUrl(): string {
   const origin = typeof self !== 'undefined' && 'location' in self ? self.location.origin : ''
@@ -39,10 +28,6 @@ function preferredWasmThreadCount(): number {
 export function configureWhisperEnv(): void {
   env.allowLocalModels = false
   env.useBrowserCache = true
-  // Reset to the primary host each fresh load — prefetch may have pinned a
-  // mirror host on a prior attempt (see below), which must not leak into an
-  // unrelated load (e.g. a different model/tab) where the primary may work fine.
-  env.remoteHost = HF_HOSTS[0]
   const wasm = env.backends?.onnx?.wasm
   if (wasm) {
     // Already inside a dedicated worker — avoid nested ORT proxy workers and
@@ -61,74 +46,43 @@ type ProgressCallback = (progress: {
 }) => void
 
 /**
- * Load Whisper ASR without the generic pipeline's CTC fallback (which surfaces a
- * misleading "Unsupported model type: whisper" when SpeechSeq2Seq fails).
+ * Load Whisper ASR via transformers.js v3's `pipeline()`, which handles model
+ * download/caching/construction internally (replacing the old v2 manual
+ * tokenizer/processor/model + mirror-host prefetch machinery). Falls back from
+ * WebGPU to WASM once if the WebGPU pipeline fails to construct (some drivers
+ * fail at construction time rather than at inference time).
  */
 export async function loadWhisperAsrPipeline(
   modelId: string,
+  backend: InferenceBackend,
   progress_callback?: ProgressCallback,
 ): Promise<AutomaticSpeechRecognitionPipeline> {
   configureWhisperEnv()
 
-  const postInit = (step: string) => {
-    progress_callback?.({ status: 'initializing', file: step, name: modelId })
-  }
+  const build = (device: 'webgpu' | 'wasm', dtype: 'fp16' | 'q8') =>
+    withNetworkRetry(
+      () =>
+        pipeline<'automatic-speech-recognition'>('automatic-speech-recognition', modelId, {
+          device,
+          dtype,
+          progress_callback: (p: { status?: string; progress?: number; file?: string }) =>
+            progress_callback?.({ ...p, name: modelId }),
+        }),
+      3,
+      1500,
+    )
 
   try {
-    // `from_pretrained` below always reads from `env.remoteHost` — if the primary
-    // host failed and prefetch fell back to a mirror, point the loader at the same
-    // host so it hits the cache entries we just wrote instead of re-downloading
-    // (and failing again) against the unreachable primary host.
-    const { host } = await prefetchWhisperModelFiles(modelId, (p) => {
-      progress_callback?.({
-        status: 'progress',
-        file: p.file,
-        progress: 100,
-        name: modelId,
-      })
-      progress_callback?.({
-        status: 'download',
-        file: p.file,
-        progress: p.aggregateProgress,
-        name: modelId,
-      })
-    })
-    env.remoteHost = host
+    return await build(backend.device, backend.dtype)
   } catch (err) {
-    throw friendlyModelLoadError(err)
-  }
-
-  // Files are in transformers-cache — load without progress_callback so hub.js uses
-  // response.arrayBuffer() on cache hits instead of the fragile streaming reader.
-  const options = { quantized: true }
-
-  const retryLoad = <T>(label: string, load: () => Promise<T>): Promise<T> =>
-    withNetworkRetry(load, 3, 1500, async (attempt) => {
-      if (attempt >= 2) {
-        console.warn(`Retrying Whisper ${label} after load failure (attempt ${attempt})`)
-        progress_callback?.({ status: 'retrying', file: label, name: modelId })
-        await purgeCorruptModelCaches()
-        await clearWhisperModelCache(modelId)
-        const { host } = await prefetchWhisperModelFiles(modelId)
-        env.remoteHost = host
+    // WebGPU can fail to construct on some drivers — fall back to WASM once.
+    if (backend.device === 'webgpu') {
+      try {
+        return await build('wasm', 'q8')
+      } catch (err2) {
+        throw friendlyModelLoadError(err2)
       }
-    })
-
-  try {
-    postInit('tokenizer')
-    const tokenizer = await retryLoad('tokenizer', () => AutoTokenizer.from_pretrained(modelId, options))
-    postInit('processor')
-    const processor = await retryLoad('processor', () => AutoProcessor.from_pretrained(modelId, options))
-    postInit('speech model')
-    const model = await retryLoad('model', () => WhisperForConditionalGeneration.from_pretrained(modelId, options))
-
-    return new AutomaticSpeechRecognitionPipeline({
-      task: 'automatic-speech-recognition',
-      tokenizer,
-      processor,
-      model,
-    })
-  } catch (err) {
+    }
     throw friendlyModelLoadError(err)
   }
 }
