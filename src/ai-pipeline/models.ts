@@ -1,18 +1,23 @@
 import type { DeviceTier } from '../core/types'
+import { canUseHighAccuracy } from './inferenceBackend'
 
-/** Auto-align speech model — word-timestamp quality matters more than download size. */
-export const WHISPER_MODEL_FULL = 'Xenova/whisper-small'
+/** Default speech model — WebGPU-capable (has fp16 weights), multilingual.
+ * Word-timestamp quality matters more than download size. */
+export const WHISPER_MODEL_SMALL = 'Xenova/whisper-small'
 
-/** Same model on lite tier: whisper-tiny regressed line timing (fc423db). */
-export const WHISPER_MODEL_LITE = WHISPER_MODEL_FULL
+/** High-accuracy opt-in speech model (~1.5GB); full tier + WebGPU only. */
+export const WHISPER_MODEL_MEDIUM = 'Xenova/whisper-medium'
 
-export function getWhisperModel(_tier: DeviceTier): string {
-  return WHISPER_MODEL_FULL
+/** Model for the tier, upgraded to medium only when high accuracy is requested
+ * AND the tier can run it. */
+export function getWhisperModel(tier: DeviceTier, highAccuracy = false): string {
+  if (highAccuracy && canUseHighAccuracy(tier)) return WHISPER_MODEL_MEDIUM
+  return WHISPER_MODEL_SMALL
 }
 
 /** Shown in auto-align loading copy for the tier's speech model. */
-export function getWhisperDownloadHint(_tier: DeviceTier): string {
-  return WHISPER_DOWNLOAD_HINT
+export function getWhisperDownloadHint(tier: DeviceTier, highAccuracy = false): string {
+  return highAccuracy && canUseHighAccuracy(tier) ? WHISPER_DOWNLOAD_HINT_MEDIUM : WHISPER_DOWNLOAD_HINT
 }
 
 /** Multilingual sentence embeddings for word-pair coloring and semantic line attach. */
@@ -27,5 +32,6 @@ export function getEmbedModel(_tier: DeviceTier): string {
   return EMBED_MODEL
 }
 
-/** Rough download size shown in AutoAlignFlow loading copy. */
+/** Rough download sizes shown in AutoAlignFlow loading copy. */
 export const WHISPER_DOWNLOAD_HINT = '~240MB'
+export const WHISPER_DOWNLOAD_HINT_MEDIUM = '~1.5GB'
