@@ -15,6 +15,11 @@ describe('phoneticSkeletonEn', () => {
   it('returns 0 for non-Latin input', () => {
     expect(phoneticSimilarityEn('ただただ荒れていく時代に', 'stranger')).toBe(0)
   })
+  it('does not let digraph rules fire across a word boundary', () => {
+    // "dip" + "herald" naively joined would form "...p|h..." and ph->f.
+    // Skeletonizing per-word must give the concatenation of each word's skeleton.
+    expect(phoneticSkeletonEn('dip herald')).toBe(phoneticSkeletonEn('dip') + phoneticSkeletonEn('herald'))
+  })
 })
 
 describe('findPhoneticAnchorEn', () => {

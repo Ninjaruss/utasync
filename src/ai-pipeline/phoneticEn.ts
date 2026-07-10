@@ -5,16 +5,9 @@ export const PHONETIC_ANCHOR_MIN_SIMILARITY = 0.7
 
 const VOICED_TO_UNVOICED: Record<string, string> = { b: 'p', d: 't', g: 'k', v: 'f', z: 's', j: 'c' }
 
-/**
- * Collapse an English phrase to a consonant skeleton so mishearings of the
- * same sung phrase land near each other: Whisper hears vowels and voicing
- * unreliably in sung audio, but the consonant frame usually survives
- * ("Strange in the heaven" / "Stranger than heaven").
- */
-export function phoneticSkeletonEn(text: string): string {
-  let s = text.toLowerCase().replace(/[^a-z]+/g, '')
-  if (!s) return ''
-  s = s
+/** Skeletonize a single already-lowercased, letters-only token. */
+function skeletonizeToken(token: string): string {
+  let s = token
     .replace(/ph/g, 'f')
     .replace(/wh/g, 'w')
     .replace(/ck/g, 'k')
@@ -33,6 +26,24 @@ export function phoneticSkeletonEn(text: string): string {
   s = s.replace(/[aeiouwhy]+/g, '')
   s = s.replace(/(.)\1+/g, '$1') // dedupe repeats
   return s
+}
+
+/**
+ * Collapse an English phrase to a consonant skeleton so mishearings of the
+ * same sung phrase land near each other: Whisper hears vowels and voicing
+ * unreliably in sung audio, but the consonant frame usually survives
+ * ("Strange in the heaven" / "Stranger than heaven").
+ *
+ * Each word is skeletonized independently, then the results are concatenated,
+ * so the digraph rules (ph/wh/ck/qu) can never fire across an original word
+ * boundary. Otherwise a phrase would skeletonize differently depending on how
+ * its words were tokenized — e.g. a lyric line vs. a joined transcript span
+ * where adjacent tokens form a spurious seam ("...di|p"+"h|erald..." -> ph).
+ */
+export function phoneticSkeletonEn(text: string): string {
+  const tokens = text.toLowerCase().match(/[a-z]+/g)
+  if (!tokens) return ''
+  return tokens.map(skeletonizeToken).join('')
 }
 
 function lcsLength(a: string, b: string): number {
@@ -80,6 +91,8 @@ export function findPhoneticAnchorEn(
 ): PhoneticAnchor | null {
   const lineWords = lineText.match(/[A-Za-z']+/g) ?? []
   if (lineWords.length < 3) return null
+  // Requires the whole word inside the window; callers are expected to pad the
+  // window slightly (Task 7 does) so a boundary word isn't silently dropped.
   const cand = words.filter(
     (w) => w.startTime >= windowStart && w.endTime <= windowEnd && /[a-z]/i.test(w.word),
   )
@@ -95,7 +108,7 @@ export function findPhoneticAnchorEn(
         if (span[k].startTime - span[k - 1].endTime > MAX_INTERNAL_GAP_S) { broken = true; break }
       }
       if (broken) continue
-      const similarity = phoneticSimilarityEn(lineText, span.map((w) => w.word).join(''))
+      const similarity = phoneticSimilarityEn(lineText, span.map((w) => w.word).join(' '))
       if (similarity >= PHONETIC_ANCHOR_MIN_SIMILARITY && (!best || similarity > best.similarity)) {
         best = { startTime: span[0].startTime, endTime: span[span.length - 1].endTime, similarity }
       }
