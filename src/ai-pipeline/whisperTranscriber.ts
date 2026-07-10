@@ -205,6 +205,7 @@ export async function transcribeAudio(
         cleanup()
         worker = null
         loaded = null
+        loadedModel = null
         reject(new Error(String(e.data.payload)))
       }
     }
@@ -215,6 +216,7 @@ export async function transcribeAudio(
       cleanup()
       worker = null
       loaded = null
+      loadedModel = null
       reject(new Error(e.message || 'Speech recognition failed unexpectedly. Please try again.'))
     }
 
