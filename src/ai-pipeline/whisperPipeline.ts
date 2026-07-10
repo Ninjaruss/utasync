@@ -1,4 +1,5 @@
 import { pipeline, env, type AutomaticSpeechRecognitionPipeline } from '@huggingface/transformers'
+import { clearWhisperModelCache, purgeCorruptModelCaches } from '../core/storage/modelCache'
 import { friendlyModelLoadError, withNetworkRetry } from './networkErrors'
 import type { InferenceBackend } from './inferenceBackend'
 
@@ -80,9 +81,28 @@ export async function loadWhisperAsrPipeline(
       try {
         return await build('wasm', 'q8')
       } catch (err2) {
-        throw friendlyModelLoadError(err2)
+        throw await purgeThenFriendly(err2, modelId)
       }
     }
-    throw friendlyModelLoadError(err)
+    throw await purgeThenFriendly(err, modelId)
   }
+}
+
+/**
+ * A load that fails after the in-function retries (and WebGPU→WASM fallback) are
+ * exhausted is usually a truncated/corrupt Cache Storage entry — v3's cache layer
+ * does a bare `cache.match()` with no size/integrity check, so a mid-write abort
+ * (likely for the ~1.5GB medium model) becomes a permanent "cache hit" that loops
+ * the same failure. Purge the model's cache here (only on exhaustion, never on a
+ * transient blip, to avoid nuking a fine partial download) so the user's next
+ * "Try again" re-downloads clean — which is what `friendlyModelLoadError` promises.
+ */
+async function purgeThenFriendly(err: unknown, modelId: string): Promise<Error> {
+  try {
+    await purgeCorruptModelCaches()
+    await clearWhisperModelCache(modelId)
+  } catch {
+    // best effort — cache may be unavailable (private mode / iframe)
+  }
+  return friendlyModelLoadError(err)
 }
