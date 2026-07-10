@@ -17,7 +17,11 @@ self.onmessage = async (e: MessageEvent) => {
 
   try {
     if (type === 'load') {
-      const model = (payload as { model?: string } | undefined)?.model ?? getWhisperModel('lite')
+      const { model, device, dtype } = (payload as {
+        model?: string
+        device?: 'webgpu' | 'wasm'
+        dtype?: 'fp16' | 'q8'
+      } | undefined) ?? {}
       const tracker = new ModelLoadProgressTracker()
       let initHintTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -38,13 +42,17 @@ self.onmessage = async (e: MessageEvent) => {
 
       postLoadProgress({ status: 'initiate', phase: 'download' })
 
-      asr = await loadWhisperAsrPipeline(model, (raw) => {
-        if (raw.status === 'download' || raw.status === 'progress') clearInitHint()
-        if (raw.status === 'initializing') clearInitHint()
-        const update = tracker.ingest(raw)
-        postLoadProgress(update)
-        if (raw.status === 'done') scheduleInitHint()
-      })
+      asr = await loadWhisperAsrPipeline(
+        model ?? getWhisperModel('lite'),
+        { device: device ?? 'wasm', dtype: dtype ?? 'q8' },
+        (raw) => {
+          if (raw.status === 'download' || raw.status === 'progress') clearInitHint()
+          if (raw.status === 'initializing') clearInitHint()
+          const update = tracker.ingest(raw)
+          postLoadProgress(update)
+          if (raw.status === 'done') scheduleInitHint()
+        },
+      )
 
       clearInitHint()
       self.postMessage({ type: 'loaded' })

@@ -1,4 +1,5 @@
 import { getDeviceTier } from './capability'
+import { resolveInferenceBackend } from './inferenceBackend'
 import { getWhisperModel } from './models'
 import { runWhenIdle } from '../core/idle'
 import type { ModelLoadPhase } from './modelLoadProgress'
@@ -82,7 +83,7 @@ function broadcastLoadProgress(p: LoadProgress): void {
   loadProgressListeners.forEach((fn) => fn(p))
 }
 
-function ensureLoaded(onProgress?: (p: LoadProgress) => void): Promise<void> {
+function ensureLoaded(onProgress?: (p: LoadProgress) => void, highAccuracy = false): Promise<void> {
   if (onProgress) loadProgressListeners.add(onProgress)
 
   if (!loaded) {
@@ -105,7 +106,13 @@ function ensureLoaded(onProgress?: (p: LoadProgress) => void): Promise<void> {
         }
       }
       w.addEventListener('message', onMessage)
-      w.postMessage({ type: 'load', payload: { model: getWhisperModel(getDeviceTier()) } })
+      const tier = getDeviceTier()
+      const backend = resolveInferenceBackend(tier)
+      const model = getWhisperModel(tier, highAccuracy)
+      w.postMessage({
+        type: 'load',
+        payload: { model, device: backend.device, dtype: backend.dtype },
+      })
     })
   }
 
@@ -132,9 +139,11 @@ export async function transcribeAudio(
     timestampMode?: 'word' | 'segment'
     /** Abort if transcription exceeds this many ms (default: max(5 min, 20× audio length)). */
     timeoutMs?: number
+    /** Use the larger, more accurate model when the device tier supports it. */
+    highAccuracy?: boolean
   },
 ): Promise<WhisperTranscript> {
-  await ensureLoaded(options?.onLoadProgress)
+  await ensureLoaded(options?.onLoadProgress, options?.highAccuracy ?? false)
   options?.onModelLoaded?.()
 
   const durationSec = audioData.length / sampleRate
