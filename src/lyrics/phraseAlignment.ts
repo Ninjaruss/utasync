@@ -575,8 +575,8 @@ function recoverLatinLinesByPhoneticAnchor(
     if (scoreLineAlignment(text, windowWords, sourceLanguage).quality === 'good') continue
     const anchor = findPhoneticAnchorEn(text, clean, Math.max(0, prevEnd - 2), Math.min(lastTime, nextStart + 2))
     if (!anchor) continue
-    const prevSpanEnd = i > 0 ? spans[i - 1]?.lastEndTime ?? -Infinity : -Infinity
-    if (anchor.startTime < prevSpanEnd - 0.05) continue
+    const prevSpan = i > 0 ? spans[i - 1] : undefined
+    if (prevSpan && anchor.startTime < prevSpan.lastEndTime - 0.05) continue
     const nextSpanStart = i + 1 < out.length ? spans[i + 1]?.firstTime ?? Infinity : Infinity
     if (anchor.endTime > nextSpanStart + 0.05) continue
     // The previous line's currently-assigned end may overrun its own matched
@@ -586,9 +586,15 @@ function recoverLatinLinesByPhoneticAnchor(
     // if that leaves the previous line above the compression floor; if the
     // previous line's own start is itself too late to make room, skip this
     // recovery rather than trade one degenerate line for another.
-    if (i > 0 && out[i - 1].endTime > anchor.startTime) {
+    //
+    // Only applies when the previous line HAS a reliable matched span: a line
+    // with no lexical span has no evidence-based ownership claim to the
+    // disputed region (it's itself unanchored — a run of consecutive misheard
+    // lines is the tuner's main case), so it must not block this recovery; the
+    // downstream redistribution pass re-times it.
+    if (prevSpan && out[i - 1].endTime > anchor.startTime) {
       const prevText = out[i - 1].original || out[i - 1].translation
-      const prevTarget = Math.max(prevSpanEnd, out[i - 1].startTime + 0.3)
+      const prevTarget = Math.max(prevSpan.lastEndTime, out[i - 1].startTime + 0.3)
       const prevDur = Math.min(prevTarget, anchor.startTime) - out[i - 1].startTime
       if (prevDur < minLineDuration(prevText) * 0.55) continue
       out[i - 1].endTime = prevTarget

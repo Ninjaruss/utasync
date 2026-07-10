@@ -78,4 +78,67 @@ describe('phonetic anchor recovery (integration)', () => {
     expect(line.startTime).toBeLessThan(19.0)
     expect(refined.lineAlignmentQuality[1]).toBe('needs_review')
   })
+
+  // Ownership guard — protects a legitimately-anchored previous line. The
+  // previous line matches the transcript verbatim (a real 'good' lexical span),
+  // and the misheard English line's phonetic anchor overlaps that span, so
+  // recovering onto it would pull the previous line's end back and compress it
+  // below its floor. The guard must decline the recovery.
+  it('does NOT recover when doing so would compress a previous line with a real matched span', () => {
+    const lyrics = ['君の声が聞こえる', '夜の街を歩く', 'Broken city lights', '朝が来る']
+    const words: W[] = [
+      ...jaWords('君の声が聞こえる', 10.0), // ends ~12.8
+      ...jaWords('夜の街を歩く', 18.0), // 18.0-20.1 verbatim -> 'good', ~2.1s span
+      // misheard "Broken city lights" -> "Prakkun zaydee loyss" starting INSIDE
+      // the previous line's span (19.0), so recovery there would compress it.
+      ...enWords([
+        ['Prakkun', 19.0, 19.6],
+        ['zaydee', 19.6, 20.2],
+        ['loyss', 20.2, 21.0],
+      ]),
+      ...jaWords('朝が来る', 25.0),
+    ]
+
+    const refined = refine(lyrics, words)
+    // Previous line keeps its full matched span (not clipped to a sliver).
+    const prev = refined.lines[1]
+    expect(prev.startTime).toBeCloseTo(18.0, 1)
+    expect(prev.endTime - prev.startTime).toBeGreaterThan(1.5)
+    // English line was NOT re-anchored onto 19-21; it stays flagged.
+    const line = refined.lines[2]
+    expect(line.startTime).toBeGreaterThan(20.5)
+    expect(refined.lineAlignmentQuality[2]).toBe('needs_review')
+  })
+
+  // Ownership guard — must NOT over-block. When the previous line has NO
+  // reliable lexical span (here it is untranscribed — no matching words), it has
+  // no evidence-based claim to the disputed region and must not block this
+  // recovery. (Pre-fix, the -Infinity span fallback made the compression check
+  // unconditionally skip recovery here — the reviewer's reproduced bug.) The
+  // downstream redistribution pass re-times the unanchored previous line.
+  it('recovers even when the previous line lacks a lexical span (guard does not over-block)', () => {
+    const lyrics = ['君の声が聞こえる', 'Silent gap nothing here', 'Broken city lights', '夜が明ける前に']
+    const words: W[] = [
+      ...jaWords('君の声が聞こえる', 10.0), // ends ~12.8
+      // NO words for "Silent gap nothing here" — it is untranscribed, so it has
+      // no reliable lexical matched span.
+      // misheard "Broken city lights" -> "Prakkun zaydee loyss" in a clean gap.
+      ...enWords([
+        ['Prakkun', 20.0, 20.6],
+        ['zaydee', 20.6, 21.2],
+        ['loyss', 21.2, 22.0],
+      ]),
+      ...jaWords('夜が明ける前に', 25.0),
+    ]
+
+    const refined = refine(lyrics, words)
+    const line = refined.lines[2]
+    // The English line is recovered onto its phonetic span despite the
+    // spanless previous line.
+    expect(line.startTime).toBeGreaterThan(19.5)
+    expect(line.startTime).toBeLessThan(20.5)
+    expect(line.endTime).toBeGreaterThan(21.5)
+    expect(line.endTime).toBeLessThan(22.5)
+    expect(refined.lineAlignmentQuality[2]).not.toBe('needs_review')
+  })
 })
