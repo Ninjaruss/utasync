@@ -34,6 +34,10 @@ export interface LoadProgress {
 // Worker is intentionally long-lived while in use; released after idle timeout.
 let worker: Worker | null = null
 let loaded: Promise<void> | null = null
+// Model id the current `loaded` promise loaded (or is loading). Lets ensureLoaded
+// detect a highAccuracy request that needs a different model than the warm worker
+// already has, so it can reset + reload instead of silently reusing the small model.
+let loadedModel: string | null = null
 let idleReleaseTimer: ReturnType<typeof setTimeout> | null = null
 const loadProgressListeners = new Set<(p: LoadProgress) => void>()
 // Tracks the reject callback of any in-flight transcribeAudio promise so that
@@ -63,6 +67,7 @@ function scheduleWorkerRelease(): void {
     worker?.terminate()
     worker = null
     loaded = null
+    loadedModel = null
     idleReleaseTimer = null
   }, WORKER_IDLE_RELEASE_MS)
 }
@@ -76,6 +81,7 @@ export function resetWhisperTranscriber(): void {
   worker?.terminate()
   worker = null
   loaded = null
+  loadedModel = null
   loadProgressListeners.clear()
 }
 
@@ -86,6 +92,17 @@ function broadcastLoadProgress(p: LoadProgress): void {
 function ensureLoaded(onProgress?: (p: LoadProgress) => void, highAccuracy = false): Promise<void> {
   if (onProgress) loadProgressListeners.add(onProgress)
 
+  const tier = getDeviceTier()
+  const model = getWhisperModel(tier, highAccuracy)
+
+  // A warm worker may have loaded a different model (e.g. preloadWhisper() warmed
+  // the small model, then a highAccuracy=true request comes in needing medium).
+  // Reusing `loaded` here would silently keep transcribing on the wrong model, so
+  // tear down and reload whenever the requested model doesn't match the loaded one.
+  if (loaded && loadedModel !== model) {
+    resetWhisperTranscriber()
+  }
+
   if (!loaded) {
     loaded = new Promise((resolve, reject) => {
       const w = getWorker()
@@ -95,20 +112,20 @@ function ensureLoaded(onProgress?: (p: LoadProgress) => void, highAccuracy = fal
         } else if (e.data.type === 'loaded') {
           w.removeEventListener('message', onMessage)
           loadProgressListeners.clear()
+          loadedModel = model
           resolve()
         } else if (e.data.type === 'error') {
           w.removeEventListener('message', onMessage)
           w.terminate()
           worker = null
           loaded = null
+          loadedModel = null
           loadProgressListeners.clear()
           reject(new Error(String(e.data.payload)))
         }
       }
       w.addEventListener('message', onMessage)
-      const tier = getDeviceTier()
       const backend = resolveInferenceBackend(tier)
-      const model = getWhisperModel(tier, highAccuracy)
       w.postMessage({
         type: 'load',
         payload: { model, device: backend.device, dtype: backend.dtype },
