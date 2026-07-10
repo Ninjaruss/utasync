@@ -41,9 +41,8 @@ export async function transcribeAudio(audioData, sampleRate, options = {}) {
   const timestampMode = options.timestampMode ?? 'word'
   const useWordTimestamps = timestampMode !== 'segment'
   const lang = options.language ?? 'japanese'
-  return asr(resampled, {
+  const asrOpts = {
     return_timestamps: useWordTimestamps ? 'word' : true,
-    language: lang === 'auto' ? null : lang,
     task: 'transcribe',
     chunk_length_s: CHUNK_LENGTH_S,
     stride_length_s: STRIDE_LENGTH_S,
@@ -51,5 +50,10 @@ export async function transcribeAudio(audioData, sampleRate, options = {}) {
       doneChunks++
       options.onProgress?.(Math.min(100, Math.round((doneChunks / totalChunks) * 100)))
     },
-  })
+  }
+  // For auto-detect, OMIT the language key entirely: @xenova/transformers
+  // treats an explicit `language: null` differently from an absent key in its
+  // generation-config merge, which can break long-form chunk merging.
+  if (lang !== 'auto') asrOpts.language = lang
+  return asr(resampled, asrOpts)
 }
