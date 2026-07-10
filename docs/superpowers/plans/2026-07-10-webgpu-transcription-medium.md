@@ -13,7 +13,7 @@
 ## Key facts pinned from v3 docs (context7 /huggingface/transformers.js)
 - `pipeline("automatic-speech-recognition", modelId, { device, dtype, progress_callback })` — the manual `AutoTokenizer`/`AutoProcessor`/`WhisperForConditionalGeneration` construction in the current `whisperPipeline.ts` is no longer required; the pipeline handles it.
 - `dtype` values: `'fp32'` (WebGPU default), `'fp16'`, `'q8'` (WASM default), `'q4'`. The legacy `quantized: true` boolean is replaced by `dtype`.
-- WebGPU Whisper models are published under `onnx-community/` (e.g. `onnx-community/whisper-tiny.en`). The exact medium multilingual repo id is resolved by the Task 1 spike.
+- **Model ids (resolved by the Task 1 spike + HF probe): `Xenova/whisper-small` (default) and `Xenova/whisper-medium` (high-accuracy).** BOTH carry `onnx/encoder_model_fp16.onnx` weights → both run on WebGPU with `dtype: 'fp16'`. NOTE: `Xenova/whisper-medium` does **not** exist (HF 401 = nonexistent repo); do not use it. `Xenova/whisper-small` exists with fp16 as an alternative default, but staying in the `Xenova/*` family (already used by the app) is the lower-risk choice and is what this plan uses.
 - `env.allowLocalModels`, `env.allowRemoteModels`, `env.useBrowserCache`, `env.backends.onnx.wasm.wasmPaths`, `env.backends.onnx.wasm.numThreads` all exist in v3.
 
 ## File map
@@ -48,7 +48,7 @@ Expected: installs without peer-dep errors. Note the exact resolved version.
 
 - [ ] **Step 2: Node spike — resolve medium repo id + dtype, confirm output shape**
 
-Write a scratch Node script that loads whisper-medium via v3 and transcribes a short slice of the stranger MP3 (`~/Downloads/stranger-than-heaven-theme-song-128-ytshorts.savetube.me.mp3`, first ~30s), trying repo ids in order until one loads: `onnx-community/whisper-medium`, then `onnx-community/whisper-medium.en` (English-only — only if multilingual unavailable), then `Xenova/whisper-medium`. Use `import { pipeline } from '@huggingface/transformers'` and `pipeline('automatic-speech-recognition', id, { dtype: 'q8' })` (Node has no WebGPU; this only confirms the repo id resolves + output shape). Decode audio with the existing `scripts/lib/nodeAudio.mjs`. Print: which repo id loaded, and `JSON.stringify(output).slice(0,300)` to confirm the `{ text, chunks: [{ text, timestamp:[s,e] }] }` shape matches what `slimWhisperTranscript` expects.
+Write a scratch Node script that loads whisper-medium via v3 and transcribes a short slice of the stranger MP3 (`~/Downloads/stranger-than-heaven-theme-song-128-ytshorts.savetube.me.mp3`, first ~30s), trying repo ids in order until one loads: `Xenova/whisper-medium`, then `Xenova/whisper-medium.en` (English-only — only if multilingual unavailable), then `Xenova/whisper-medium`. Use `import { pipeline } from '@huggingface/transformers'` and `pipeline('automatic-speech-recognition', id, { dtype: 'q8' })` (Node has no WebGPU; this only confirms the repo id resolves + output shape). Decode audio with the existing `scripts/lib/nodeAudio.mjs`. Print: which repo id loaded, and `JSON.stringify(output).slice(0,300)` to confirm the `{ text, chunks: [{ text, timestamp:[s,e] }] }` shape matches what `slimWhisperTranscript` expects.
 
 Run: `npx tsx /private/tmp/.../scratchpad/v3-spike.mjs`
 Expected: one repo id loads; output has `text` + `chunks` with two-element numeric timestamps. Record the working repo id in `.claude/spike-notes.md`.
@@ -180,13 +180,13 @@ import { getWhisperModel, WHISPER_MODEL_MEDIUM } from '../../src/ai-pipeline/mod
 
 describe('getWhisperModel high-accuracy', () => {
   it('returns the small model by default', () => {
-    expect(getWhisperModel('full')).toBe('onnx-community/whisper-small')
+    expect(getWhisperModel('full')).toBe('Xenova/whisper-small')
   })
   it('returns the medium model when highAccuracy is requested on full tier', () => {
     expect(getWhisperModel('full', true)).toBe(WHISPER_MODEL_MEDIUM)
   })
   it('ignores highAccuracy off full tier (small only)', () => {
-    expect(getWhisperModel('lite', true)).toBe('onnx-community/whisper-small')
+    expect(getWhisperModel('lite', true)).toBe('Xenova/whisper-small')
   })
 })
 ```
@@ -205,9 +205,9 @@ import type { DeviceTier } from '../core/types'
 import { canUseHighAccuracy } from './inferenceBackend'
 
 /** Default speech model — v3/WebGPU-compatible small (multilingual). */
-export const WHISPER_MODEL_SMALL = 'onnx-community/whisper-small'
+export const WHISPER_MODEL_SMALL = 'Xenova/whisper-small'
 /** High-accuracy opt-in speech model (~1.5GB); full tier + WebGPU only. */
-export const WHISPER_MODEL_MEDIUM = 'onnx-community/whisper-medium'
+export const WHISPER_MODEL_MEDIUM = 'Xenova/whisper-medium'
 
 /** Model for the tier, upgraded to medium only when high accuracy is requested
  * AND the tier can run it. */
@@ -329,10 +329,10 @@ import { pipeline } from '@huggingface/transformers'
 
 describe('loadWhisperAsrPipeline', () => {
   it('passes device + dtype to the v3 pipeline', async () => {
-    await loadWhisperAsrPipeline('onnx-community/whisper-small', { device: 'webgpu', dtype: 'fp16' })
+    await loadWhisperAsrPipeline('Xenova/whisper-small', { device: 'webgpu', dtype: 'fp16' })
     expect(pipeline).toHaveBeenCalledWith(
       'automatic-speech-recognition',
-      'onnx-community/whisper-small',
+      'Xenova/whisper-small',
       expect.objectContaining({ device: 'webgpu', dtype: 'fp16' }),
     )
   })
