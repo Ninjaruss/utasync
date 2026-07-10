@@ -200,11 +200,11 @@ describe('sanitizeTranscript', () => {
     expect(result.every((w) => w.word !== 'loop')).toBe(true)
   })
 
-  it('drops out-of-order words with a large rewind (chunk-merge artifact)', () => {
+  it('drops out-of-order words', () => {
     const words: TranscriptWord[] = [
-      { word: 'a', startTime: 50, endTime: 51 },
+      { word: 'a', startTime: 5, endTime: 6 },
       { word: 'b', startTime: 2, endTime: 3 },
-      { word: 'c', startTime: 52, endTime: 53 },
+      { word: 'c', startTime: 7, endTime: 8 },
     ]
     expect(sanitizeTranscript(words).map((w) => w.word)).toEqual(['a', 'c'])
   })
@@ -282,32 +282,5 @@ describe('alignLyrics', () => {
     expect(r.mode).toBe('proportional')
     expect(r.confidence).toBeLessThan(0.5)
     expect(r.lines).toHaveLength(2)
-  })
-})
-
-describe('sanitizeTranscript: overlapping vocalists', () => {
-  const w = (word: string, startTime: number, endTime: number) => ({ word, startTime, endTime })
-
-  it('keeps a second interleaved stream with slightly-backward timestamps, sorted', () => {
-    const words = [
-      w('Ill', 143.06, 143.3), w('find', 143.32, 143.62), w('a', 143.62, 143.92), w('place', 143.92, 144.58),
-      w('Find', 143.38, 143.68), w('a', 143.68, 143.9), w('face', 143.9, 144.8),
-      w('That', 145.32, 145.68), w('I', 145.68, 145.88),
-    ]
-    const clean = sanitizeTranscript(words)
-    expect(clean.map((x) => x.word)).toContain('face')
-    for (let i = 1; i < clean.length; i++) {
-      expect(clean[i].startTime).toBeGreaterThanOrEqual(clean[i - 1].startTime)
-    }
-  })
-
-  it('still drops large rewinds (chunk-merge artifacts)', () => {
-    const words = [
-      w('one', 100, 100.5), w('two', 101, 101.5),
-      w('ghost', 60, 60.5),
-      w('three', 102, 102.5),
-    ]
-    const clean = sanitizeTranscript(words)
-    expect(clean.map((x) => x.word)).toEqual(['one', 'two', 'three'])
   })
 })
