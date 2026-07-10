@@ -39,8 +39,8 @@ const PHRASE_LOOKBACK_AFTER_CURSOR_S = 10
 const PHRASE_MIN_VOCAL_S = 1.5
 
 /** Local transcript window when scoring a line's alignment quality. */
-const LINE_VALIDATE_WINDOW_LEAD_S = 6
-const LINE_VALIDATE_WINDOW_TAIL_S = 8
+export const LINE_VALIDATE_WINDOW_LEAD_S = 6
+export const LINE_VALIDATE_WINDOW_TAIL_S = 8
 /** Wider search when the first pass flags a line for retry. */
 const LINE_RETRY_EXPAND_LEAD_S = 14
 const LINE_RETRY_EXPAND_TAIL_S = 16
@@ -1309,7 +1309,7 @@ export function alignPhrasesToTranscript(
   return phrases.map((p, i) => byIndex.get(i) ?? p)
 }
 
-function transcriptWindowForLine(
+export function transcriptWindowForLine(
   clean: readonly TranscriptWord[],
   line: TimedLine,
   prevEnd: number,
