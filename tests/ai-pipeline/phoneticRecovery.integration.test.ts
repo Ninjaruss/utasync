@@ -117,9 +117,19 @@ describe('phonetic anchor recovery (integration)', () => {
   // unconditionally skip recovery here — the reviewer's reproduced bug.) The
   // downstream redistribution pass re-times the unanchored previous line.
   it('recovers even when the previous line lacks a lexical span (guard does not over-block)', () => {
-    const lyrics = ['君の声が聞こえる', 'Silent gap nothing here', 'Broken city lights', '夜が明ける前に']
+    // Enough verbatim JA material to stay in content mode (the tuner is gated
+    // off in the proportional fallback).
+    const lyrics = [
+      '君の声が聞こえる',
+      '遠くの空を見上げて',
+      'Silent gap nothing here',
+      'Broken city lights',
+      '夜が明ける前に',
+      '静かに歩いて行こう',
+    ]
     const words: W[] = [
       ...jaWords('君の声が聞こえる', 10.0), // ends ~12.8
+      ...jaWords('遠くの空を見上げて', 13.5), // ends ~16.7
       // NO words for "Silent gap nothing here" — it is untranscribed, so it has
       // no reliable lexical matched span.
       // misheard "Broken city lights" -> "Prakkun zaydee loyss" in a clean gap.
@@ -129,16 +139,80 @@ describe('phonetic anchor recovery (integration)', () => {
         ['loyss', 21.2, 22.0],
       ]),
       ...jaWords('夜が明ける前に', 25.0),
+      ...jaWords('静かに歩いて行こう', 28.5),
     ]
 
     const refined = refine(lyrics, words)
-    const line = refined.lines[2]
+    const line = refined.lines[3]
     // The English line is recovered onto its phonetic span despite the
     // spanless previous line.
     expect(line.startTime).toBeGreaterThan(19.5)
     expect(line.startTime).toBeLessThan(20.5)
     expect(line.endTime).toBeGreaterThan(21.5)
     expect(line.endTime).toBeLessThan(22.5)
-    expect(refined.lineAlignmentQuality[2]).not.toBe('needs_review')
+    expect(refined.lineAlignmentQuality[3]).not.toBe('needs_review')
+  })
+
+  // Redistribution interaction — a recovered line is lexically needs_review,
+  // so redistributeDegenerateRuns would see it as unanchored; when its
+  // neighbouring run is degenerate (garbled lines piled into a tiny window),
+  // the whole run gets re-timed and the phonetic anchor is destroyed (line
+  // dragged off its evidenced audio). The recovered mask is passed to
+  // redistribution as anchors so runs break AROUND recovered lines.
+  it('a recovered line anchors the redistribution run instead of being re-timed by it', () => {
+    // Enough verbatim JA material to stay in content mode (the tuner is gated
+    // off in the proportional fallback).
+    const lyrics = [
+      '君の声が聞こえる',
+      '遠くの空を見上げて',
+      '風の音が響いてる',
+      '街の灯りが揺れている',
+      'Endless whispers in the void',
+      'Shadows crawling on the wall',
+      'Voices echo in the hall',
+      'Whispers fading into night',
+      'Broken city lights', // misheard @ 23-25 -> phonetic recovery
+      '夜が明ける前に',
+      '静かに歩いて行こう',
+      '朝の光が差し込んで',
+      '新しい一日が始まる',
+    ]
+    const words: W[] = [
+      ...jaWords('君の声が聞こえる', 2.0),
+      ...jaWords('遠くの空を見上げて', 5.0),
+      ...jaWords('風の音が響いてる', 8.5),
+      ...jaWords('街の灯りが揺れている', 11.5), // ends ~15.0
+      ...enWords([
+        // Garble for the four unmatched lines (degenerate run), 16-18.5:
+        ['mumble', 16.0, 16.5],
+        ['garble', 16.5, 17.0],
+        ['hums', 17.0, 17.4],
+        ['drone', 17.4, 17.8],
+        ['buzz', 17.8, 18.1],
+        ['whirr', 18.1, 18.5],
+        // misheard "Broken city lights" -> "Prakkun zaydee loyss":
+        ['Prakkun', 23.0, 23.6],
+        ['zaydee', 23.6, 24.2],
+        ['loyss', 24.2, 25.0],
+      ]),
+      ...jaWords('夜が明ける前に', 26.0),
+      ...jaWords('静かに歩いて行こう', 29.5),
+      ...jaWords('朝の光が差し込んで', 33.0),
+      ...jaWords('新しい一日が始まる', 36.5),
+    ]
+
+    const refined = refine(lyrics, words)
+    const line = refined.lines[8]
+    // Without the anchor mask, redistribution re-times the degenerate run
+    // [4..8] across ALL its activity — packing garbled lines onto the 23-25
+    // anchor audio and squeezing this line to a 0.16s sliver at 24.84-25.00
+    // (yet still upgrading it via the stale mask, the second defect). With
+    // the mask, the line stays pinned on its phonetic span and the garbled
+    // run packs into the 16-18.5 region instead.
+    expect(line.startTime).toBeGreaterThan(22.5)
+    expect(line.startTime).toBeLessThan(23.3)
+    expect(line.endTime).toBeGreaterThan(24.7)
+    expect(line.endTime).toBeLessThan(25.3)
+    expect(refined.lineAlignmentQuality[8]).not.toBe('needs_review')
   })
 })

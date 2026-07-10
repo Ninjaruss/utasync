@@ -536,8 +536,11 @@ function backfillLateStartsToMatchedSpan(
  * their consonant frame. For each still-unanchored Latin line, search the
  * window between its neighbours for the best phonetic-skeleton match and
  * re-time onto it. Threshold-gated (>= PHONETIC_ANCHOR_MIN_SIMILARITY) so
- * clean songs are untouched. Returns the re-timed lines plus a recovered mask
- * (used later to upgrade quality to at most 'approximate').
+ * clean songs are untouched. Returns the re-timed lines plus a recovered mask,
+ * used later to (a) upgrade quality to at most 'approximate' and (b) mark the
+ * recovered lines as anchors for redistributeDegenerateRuns — they are
+ * lexically needs_review by definition, so without the mask redistribution
+ * would treat them as unanchored and re-time them off their evidence.
  *
  * Ownership guard: a recovered anchor must never crowd out the previous
  * line's own reliably-matched span (computeLineMatchedSpans), even when that
@@ -1771,9 +1774,18 @@ export function refineAlignmentWithPhrases(
   tunedLines = extendLineEndOutOfMidWord(tunedLines, words)
   tunedLines = backfillLineStartsToVocalOnset(tunedLines, words)
   tunedLines = backfillLateStartsToMatchedSpan(tunedLines, words)
-  const phonetic = recoverLatinLinesByPhoneticAnchor(tunedLines, words, sourceLanguage)
+  // Phonetic recovery presumes the lexical aligner mostly worked (content
+  // mode) and only THIS line was misheard. In the proportional fallback the
+  // whole layout is interpolation — pinning one line to a phonetic hit there
+  // just distorts the uniform scale around it.
+  const phonetic = pass1.mode === 'content'
+    ? recoverLatinLinesByPhoneticAnchor(tunedLines, words, sourceLanguage)
+    : { lines: tunedLines, recovered: tunedLines.map(() => false) }
   tunedLines = phonetic.lines
-  const redist = redistributeDegenerateRuns(tunedLines, words, sourceLanguage)
+  // Recovered lines are lexically needs_review (misheard by definition), so
+  // redistribution would treat them as unanchored and re-time them off their
+  // evidence — pass them as anchors so runs break around them instead.
+  const redist = redistributeDegenerateRuns(tunedLines, words, sourceLanguage, phonetic.recovered)
   tunedLines = redist.lines
   tunedLines = expandSquashedLineHighlights(tunedLines)
   const quality = recomputeLineQuality(
@@ -1835,9 +1847,13 @@ export function refineAlignmentWithPhrases(
   }
 
   // Phonetically-recovered lines sit on real (misheard) audio — approximate.
+  // Guard: a recovered line that redistribution nonetheless moved is no longer
+  // on its evidence, so it must not inherit the upgrade (the recovered mask is
+  // passed to redistribution as anchors, so this should never fire — kept so a
+  // future change can't silently reopen the mislabel channel).
   for (let i = 0; i < tunedLines.length; i++) {
     if (lineAlignmentQuality[i] !== 'needs_review') continue
-    if (phonetic.recovered[i]) lineAlignmentQuality[i] = 'approximate'
+    if (phonetic.recovered[i] && !redist.redistributed[i]) lineAlignmentQuality[i] = 'approximate'
   }
 
   const syncedPhrases = syncPhrasesFromValidatedLines(phrases, tunedLines)

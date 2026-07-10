@@ -57,11 +57,17 @@ function runIsDegenerate(
  * neighbours, proportional to each line's expected sung duration; instrumental
  * gaps (>4s without words) are never claimed. Anchored ('good') lines are
  * never moved.
+ *
+ * `anchoredMask[i] === true` marks a line as anchored regardless of its
+ * lexical score — used for phonetically-recovered lines, which are lexically
+ * needs_review by definition (Whisper misheard them) but sit on evidence-backed
+ * placement that redistribution must work around, not over.
  */
 export function redistributeDegenerateRuns(
   linesIn: TimedLine[],
   words: TranscriptWord[],
   sourceLanguage: Language,
+  anchoredMask?: boolean[],
 ): RedistributionResult {
   const lines = linesIn.map((l) => ({ ...l }))
   const redistributed = lines.map(() => false)
@@ -71,6 +77,7 @@ export function redistributeDegenerateRuns(
   const lastTime = clean[clean.length - 1].endTime
 
   const anchored = lines.map((l, i) => {
+    if (anchoredMask?.[i]) return true
     const text = lineTextOf(l)
     if (!text.trim()) return true // blank rows are never redistributed
     const prevEnd = i > 0 ? lines[i - 1].endTime : 0
