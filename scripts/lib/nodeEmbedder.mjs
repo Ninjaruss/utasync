@@ -4,7 +4,7 @@
  * from Node. The app's textEmbedder.ts requires a browser Worker, which isn't
  * available outside the browser — this mirrors its embed logic without it.
  */
-import { pipeline, env } from '@xenova/transformers'
+import { pipeline, env } from '@huggingface/transformers'
 
 env.allowLocalModels = false
 env.useBrowserCache = false
@@ -16,7 +16,7 @@ let extractorPromise = null
 
 function getExtractor() {
   if (!extractorPromise) {
-    extractorPromise = pipeline('feature-extraction', EMBED_MODEL)
+    extractorPromise = pipeline('feature-extraction', EMBED_MODEL, { dtype: 'q8' })
   }
   return extractorPromise
 }

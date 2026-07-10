@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import { pipeline, env } from '@xenova/transformers'
+import { pipeline, env } from '@huggingface/transformers'
 
 env.allowLocalModels = false
 env.useBrowserCache = true
@@ -11,13 +11,22 @@ self.onmessage = async (e: MessageEvent) => {
   const { type, payload } = e.data
 
   if (type === 'load') {
-    const model = (payload as { model?: string } | undefined)?.model ?? 'Xenova/paraphrase-multilingual-MiniLM-L12-v2'
+    const { model = 'Xenova/paraphrase-multilingual-MiniLM-L12-v2', device = 'wasm' } =
+      (payload as { model?: string; device?: 'webgpu' | 'wasm' } | undefined) ?? {}
     self.postMessage({ type: 'progress', payload: { status: 'loading', progress: 0 } })
+    const progress_callback = (p: { status?: string; progress?: number }) =>
+      self.postMessage({ type: 'progress', payload: p })
     try {
-      extractor = await pipeline('feature-extraction', model, {
-        progress_callback: (p: { status?: string; progress?: number }) =>
-          self.postMessage({ type: 'progress', payload: p }),
-      })
+      try {
+        extractor = await pipeline('feature-extraction', model, { device, progress_callback })
+      } catch (err) {
+        if (device === 'webgpu') {
+          console.warn('[textEmbed.worker] WebGPU pipeline failed, retrying with wasm', err)
+          extractor = await pipeline('feature-extraction', model, { device: 'wasm', progress_callback })
+        } else {
+          throw err
+        }
+      }
       self.postMessage({ type: 'loaded' })
     } catch (err) {
       self.postMessage({ type: 'error', payload: err instanceof Error ? err.message : 'Model load failed' })
