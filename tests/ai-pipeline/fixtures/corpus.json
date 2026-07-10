@@ -52,6 +52,18 @@
       "transcript": "stranger-than-heaven/transcript.segment.autolang.json"
     },
     {
+      "name": "stranger-than-heaven-word-medium",
+      "lang": "ja",
+      "lyrics": "stranger-than-heaven/lyrics.txt",
+      "transcript": "stranger-than-heaven/transcript.word.medium.json"
+    },
+    {
+      "name": "stranger-than-heaven-segment-medium",
+      "lang": "ja",
+      "lyrics": "stranger-than-heaven/lyrics.txt",
+      "transcript": "stranger-than-heaven/transcript.segment.medium.json"
+    },
+    {
       "name": "guitar-loneliness-word",
       "lang": "ja",
       "lyrics": "guitar-loneliness/lyrics.ja.txt",

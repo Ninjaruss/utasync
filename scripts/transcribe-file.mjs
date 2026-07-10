@@ -3,7 +3,7 @@
  *
  * Usage:
  *   npx tsx scripts/transcribe-file.mjs <audio.mp3> [--language auto|japanese|english] \
- *     [--mode word|segment] [--out path.json]
+ *     [--mode word|segment] [--model <id>] [--out path.json]
  *
  * Output: { chunks: [{ text, timestamp: [start, end] }] } — the fixture format
  * accepted by scripts/audit-corpus.mjs and the tests' loadWords helpers.
@@ -36,11 +36,12 @@ function normalizeChunks(result) {
 async function main() {
   const input = process.argv[2]
   if (!input || input.startsWith('--')) {
-    console.error('Usage: npx tsx scripts/transcribe-file.mjs <audio.mp3> [--language auto|japanese|english] [--mode word|segment] [--out path.json]')
+    console.error('Usage: npx tsx scripts/transcribe-file.mjs <audio.mp3> [--language auto|japanese|english] [--mode word|segment] [--model <id>] [--out path.json]')
     process.exit(1)
   }
   const language = argValue('--language', 'japanese')
   const mode = argValue('--mode', 'word')
+  const model = argValue('--model', 'Xenova/whisper-small')
   const out = argValue('--out', `${input}.${mode}.${language}.json`)
 
   const { decodeMp3ToMono } = await import(pathToFileURL(join(root, 'scripts/lib/nodeAudio.mjs')).href)
@@ -48,10 +49,11 @@ async function main() {
 
   console.log(`decoding ${input}...`)
   const { data, sampleRate } = await decodeMp3ToMono(input)
-  console.log(`transcribing (${mode} timestamps, language=${language})...`)
+  console.log(`transcribing (${mode} timestamps, language=${language}, model=${model})...`)
   const result = await transcribeAudio(data, sampleRate, {
     language,
     timestampMode: mode,
+    model,
     onProgress: (p) => process.stdout.write(`\r  ${p}%`),
   })
   process.stdout.write('\n')

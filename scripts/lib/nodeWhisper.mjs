@@ -12,13 +12,13 @@ const WHISPER_MODEL = 'Xenova/whisper-small'
 const CHUNK_LENGTH_S = 30
 const STRIDE_LENGTH_S = 5
 
-let asrPromise = null
+const asrPromises = new Map()
 
-function getAsr() {
-  if (!asrPromise) {
-    asrPromise = pipeline('automatic-speech-recognition', WHISPER_MODEL, { quantized: true })
+function getAsr(modelId) {
+  if (!asrPromises.has(modelId)) {
+    asrPromises.set(modelId, pipeline('automatic-speech-recognition', modelId, { quantized: true }))
   }
-  return asrPromise
+  return asrPromises.get(modelId)
 }
 
 function resampleTo16k(data, fromRate) {
@@ -31,7 +31,8 @@ function resampleTo16k(data, fromRate) {
 
 /** Same shape as src/ai-pipeline/whisperTranscriber.ts transcribeAudio. */
 export async function transcribeAudio(audioData, sampleRate, options = {}) {
-  const asr = await getAsr()
+  const modelId = options.model ?? WHISPER_MODEL
+  const asr = await getAsr(modelId)
   const resampled = resampleTo16k(audioData, sampleRate)
   const totalChunks = Math.max(
     1,
