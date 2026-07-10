@@ -41,6 +41,18 @@ function virtualToReal(regions: ActivityRegion[], t: number): number {
   return regions[regions.length - 1]?.end ?? 0
 }
 
+/** Index of the region a virtual position falls within (clamped to the last
+ * region if the position lands exactly on the total capacity). */
+function virtualRegionIndex(regions: ActivityRegion[], t: number): number {
+  let acc = 0
+  for (let ri = 0; ri < regions.length; ri++) {
+    const d = regions[ri].end - regions[ri].start
+    if (t <= acc + d) return ri
+    acc += d
+  }
+  return regions.length - 1
+}
+
 function runIsDegenerate(
   lines: TimedLine[],
   from: number,
@@ -146,7 +158,17 @@ function redistributeRun(
   for (let k = from; k <= to; k++) {
     const dur = weights[k - from] * scale
     const start = virtualToReal(regions, virt)
-    const end = virtualToReal(regions, Math.min(capacity, virt + dur))
+    const startRegion = virtualRegionIndex(regions, virt)
+    let end = virtualToReal(regions, Math.min(capacity, virt + dur))
+    // A line's rendered span must never straddle an instrumental gap between
+    // activity regions — that would make it "claim" dead air as its own
+    // duration. If the allocation crosses into a later region, clamp this
+    // line's end to the end of its own region; the unused virtual budget
+    // simply isn't spent (the run may finish early rather than overrun).
+    const endRegion = virtualRegionIndex(regions, Math.min(capacity, virt + dur))
+    if (endRegion !== startRegion) {
+      end = regions[startRegion].end
+    }
     lines[k].startTime = start
     lines[k].endTime = Math.max(end, start)
     virt = Math.min(capacity, virt + dur)

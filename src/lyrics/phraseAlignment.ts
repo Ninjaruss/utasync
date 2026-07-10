@@ -13,6 +13,7 @@ import { anchorLineByPartialMatch } from '../ai-pipeline/partialMatchAnchor'
 import { realignRepeatedStanzaOccurrences, realignRepeatedRepetitionOnlyLines } from './repeatedStanzaAlignment'
 import { findMergedLineGroups, mergedGroupNeedsRealign } from '../ai-pipeline/alignTimestampMode'
 import { isRepetitionOnlyLine } from './lineAligner'
+import { redistributeDegenerateRuns } from './redistributeDegenerateRuns'
 
 const REPETITION_REF_MIN_SPAN_S = 1.4
 
@@ -1693,6 +1694,8 @@ export function refineAlignmentWithPhrases(
   tunedLines = extendLineEndOutOfMidWord(tunedLines, words)
   tunedLines = backfillLineStartsToVocalOnset(tunedLines, words)
   tunedLines = backfillLateStartsToMatchedSpan(tunedLines, words)
+  const redist = redistributeDegenerateRuns(tunedLines, words, sourceLanguage)
+  tunedLines = redist.lines
   tunedLines = expandSquashedLineHighlights(tunedLines)
   const quality = recomputeLineQuality(
     tunedLines,
@@ -1742,6 +1745,14 @@ export function refineAlignmentWithPhrases(
     const prevOk = i === 0 || lineAlignmentQuality[i - 1] !== 'needs_review'
     const nextOk = i === tunedLines.length - 1 || lineAlignmentQuality[i + 1] !== 'needs_review'
     if (prevOk && nextOk) lineAlignmentQuality[i] = 'approximate'
+  }
+
+  // Redistributed lines that landed on transcript activity have plausible,
+  // evidence-adjacent timing; review can't do better than the redistribution
+  // already did, so they read approximate. Off-activity placements stay flagged.
+  for (let i = 0; i < tunedLines.length; i++) {
+    if (lineAlignmentQuality[i] !== 'needs_review') continue
+    if (redist.redistributed[i] && redist.onActivity[i]) lineAlignmentQuality[i] = 'approximate'
   }
 
   const syncedPhrases = syncPhrasesFromValidatedLines(phrases, tunedLines)
