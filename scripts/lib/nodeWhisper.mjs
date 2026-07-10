@@ -3,7 +3,7 @@
  * src/ai-pipeline/whisper.worker.ts, for running real-model auto-align audits
  * from Node (no browser Worker available here).
  */
-import { pipeline, env } from '@xenova/transformers'
+import { pipeline, env } from '@huggingface/transformers'
 
 env.allowLocalModels = false
 env.useBrowserCache = false
@@ -16,7 +16,7 @@ const asrPromises = new Map()
 
 function getAsr(modelId) {
   if (!asrPromises.has(modelId)) {
-    asrPromises.set(modelId, pipeline('automatic-speech-recognition', modelId, { quantized: true }))
+    asrPromises.set(modelId, pipeline('automatic-speech-recognition', modelId, { dtype: 'q8' }))
   }
   return asrPromises.get(modelId)
 }
