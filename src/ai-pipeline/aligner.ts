@@ -32,6 +32,10 @@ const SUBDIVIDE_TRANSCRIPT_MAX_DURATION_S = 28
 // one slot — a few real consecutive repeats ("la la la") lose a little weight,
 // but a phantom loop no longer fills the gap and shoves later lines off.
 const MAX_REPEATS_KEPT = 1
+// A second vocalist singing over the first produces an interleaved word stream
+// whose timestamps rewind by a phrase (~1-3s). Those are real lyrics — keep
+// them and sort at the end. Rewinds beyond this are chunk-merge artifacts.
+const BACKWARD_TOLERANCE_S = 3
 // Segment-mode Whisper tags a short sung tail across the following instrumental
 // (e.g. AKFG First Take "明日を♪" stamped 228–262s). Clip to a glyph budget so
 // the onset is kept without dropping the whole chunk (>28s) or smearing chars.
@@ -64,7 +68,7 @@ export function subdivideTranscriptWord(w: TranscriptWord): TranscriptWord[] {
 
 function pushSanitizedWord(kept: TranscriptWord[], w: TranscriptWord): void {
   const prev = kept[kept.length - 1]
-  if (prev && w.startTime < prev.startTime) return
+  if (prev && w.startTime < prev.startTime - BACKWARD_TOLERANCE_S) return
   kept.push(w)
 }
 
@@ -90,7 +94,9 @@ function clipImplausibleSegmentEnd(w: TranscriptWord, nextStart?: number): Trans
  * timestamps that sit inside the gap. Left in, they inflate word counts and drag
  * lyric-line timings off. This drops the three classes of garbage we see:
  *   1. words with non-finite, zero/negative, or implausibly long durations,
- *   2. words whose timestamps run backwards (out-of-order artifacts),
+ *   2. words whose timestamps rewind by more than BACKWARD_TOLERANCE_S
+ *      (chunk-merge artifacts); smaller rewinds are kept as a second,
+ *      interleaved vocalist and the result is sorted into one stream,
  *   3. long runs of the same repeated token (silence loops).
  */
 export function sanitizeTranscript(words: TranscriptWord[]): TranscriptWord[] {
@@ -117,9 +123,10 @@ export function sanitizeTranscript(words: TranscriptWord[]): TranscriptWord[] {
       continue
     }
 
-    // Timestamps must not go backwards relative to the last word we kept.
+    // Large rewinds are chunk-merge artifacts; small ones are an overlapping
+    // second vocalist and are kept (sorted below).
     const prev = kept[kept.length - 1]
-    if (prev && w.startTime < prev.startTime) continue
+    if (prev && w.startTime < prev.startTime - BACKWARD_TOLERANCE_S) continue
 
     const token = normalizeToken(w.word)
     if (token && token === runToken) {
@@ -133,6 +140,9 @@ export function sanitizeTranscript(words: TranscriptWord[]): TranscriptWord[] {
     pushSanitizedWord(kept, w)
   }
 
+  // Restore global time order so downstream LCS/window logic sees one
+  // monotonic stream even when two vocalists interleave.
+  kept.sort((a, b) => a.startTime - b.startTime)
   return kept
 }
 
