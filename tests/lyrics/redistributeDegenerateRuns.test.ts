@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { redistributeDegenerateRuns } from '../../src/lyrics/redistributeDegenerateRuns'
+import { minLineDuration } from '../../src/lyrics/lineDegeneracy'
 import type { TimedLine } from '../../src/core/types'
 
 const line = (original: string, startTime: number, endTime: number): TimedLine => ({
@@ -92,6 +93,54 @@ describe('redistributeDegenerateRuns', () => {
     expect(res.onActivity.slice(1, 3)).toEqual([false, false])
     expect(res.lines[2].startTime).toBeGreaterThan(res.lines[1].startTime + 0.4)
     expect(res.lines[2].endTime).toBeLessThanOrEqual(30)
+  })
+
+  it('never strands a line below its minLineDuration when regions have room for the run', () => {
+    // Two activity regions separated by an instrumental gap: region0=[16,20]
+    // (4s) and region1=[36,56] (20s), total capacity 24s. A three-line run
+    // with expected shares ~[0.8, 4.4, 12] (total 17.2) fits comfortably. The
+    // middle line's weighted share is larger than the room left in region0
+    // after the first line, so it crosses the region boundary. It must not be
+    // clamped to a sub-minLineDuration sliver at the region edge — the unspent
+    // budget has to carry forward, not evaporate.
+    const before = 'the quick brown fox jumps over the lazy dog again'
+    const after = 'every good boy deserves fudge and cake at the party'
+    const region0 = 'alpha bravo charlie delta echo foxtrot golf hotel'
+    const region1 =
+      'india juliet kilo lima mike november oscar papa quebec romeo sierra ' +
+      'tango uniform victor whiskey xray yankee zulu oneword twoword threeword ' +
+      'fourword fiveword sixword'
+    const words = [
+      ...anchorWords(before, 10, 14),
+      ...anchorWords(region0, 16, 20),
+      ...anchorWords(region1, 36, 56),
+      ...anchorWords(after, 58, 62),
+    ]
+    const l1 = 'aa bb cc dd ee ff gg'
+    const l2 = 'mmnn oopp qqrr sstt uuvv wwxx yyzz aabb ccdd eeff gghh'
+    const l3 = 'pp '.repeat(40).trim()
+    const lines = [
+      line(before, 10, 14),
+      line(l1, 14, 14.2),
+      line(l2, 14.2, 14.4),
+      line(l3, 14.4, 14.6),
+      line(after, 58, 62),
+    ]
+    const res = redistributeDegenerateRuns(lines, words, 'ja')
+    // The anchors are untouched; the three middle lines are redistributed.
+    expect(res.redistributed).toEqual([false, true, true, true, false])
+    // Capacity (24s) >= total expected (~17.2s): no redistributed line may be
+    // squeezed below its own minLineDuration.
+    for (let i = 1; i <= 3; i++) {
+      const dur = res.lines[i].endTime - res.lines[i].startTime
+      expect(dur, `line ${i} "${res.lines[i].original.slice(0, 12)}" duration`).toBeGreaterThanOrEqual(
+        minLineDuration(res.lines[i].original),
+      )
+    }
+    // Monotonic and none straddles the gap (each stays inside one region).
+    for (let i = 2; i <= 3; i++) {
+      expect(res.lines[i].startTime).toBeGreaterThanOrEqual(res.lines[i - 1].startTime)
+    }
   })
 
   it('returns input untouched when the transcript is empty', () => {

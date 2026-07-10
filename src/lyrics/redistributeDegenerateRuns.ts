@@ -30,29 +30,6 @@ function lineTextOf(l: TimedLine): string {
   return l.original || l.translation
 }
 
-/** Map a position on the concatenated-activity virtual timeline to real time. */
-function virtualToReal(regions: ActivityRegion[], t: number): number {
-  let acc = 0
-  for (const r of regions) {
-    const d = r.end - r.start
-    if (t <= acc + d) return r.start + (t - acc)
-    acc += d
-  }
-  return regions[regions.length - 1]?.end ?? 0
-}
-
-/** Index of the region a virtual position falls within (clamped to the last
- * region if the position lands exactly on the total capacity). */
-function virtualRegionIndex(regions: ActivityRegion[], t: number): number {
-  let acc = 0
-  for (let ri = 0; ri < regions.length; ri++) {
-    const d = regions[ri].end - regions[ri].start
-    if (t <= acc + d) return ri
-    acc += d
-  }
-  return regions.length - 1
-}
-
 function runIsDegenerate(
   lines: TimedLine[],
   from: number,
@@ -154,24 +131,29 @@ function redistributeRun(
 
   const capacity = regions.reduce((a, r) => a + (r.end - r.start), 0)
   const scale = Math.min(MAX_STRETCH, capacity / totalExpected)
-  let virt = 0
+
+  // Pack lines into the activity regions, keeping each line wholly inside one
+  // region so it never straddles (and thus "claims") an instrumental gap. A
+  // line takes its scaled expected duration; if that doesn't fit in the room
+  // left in the current region, we advance to the next region rather than
+  // clamp the line to a sub-minLineDuration sliver at the boundary. The unspent
+  // tail of a region is simply left as an unclaimed rest. Only when a line
+  // cannot fit even at the start of a fresh region (its share exceeds a whole
+  // region) do we clamp it to that region's end — a genuine capacity limit.
+  let ri = 0
+  let cursor = regions[0].start
   for (let k = from; k <= to; k++) {
     const dur = weights[k - from] * scale
-    const start = virtualToReal(regions, virt)
-    const startRegion = virtualRegionIndex(regions, virt)
-    let end = virtualToReal(regions, Math.min(capacity, virt + dur))
-    // A line's rendered span must never straddle an instrumental gap between
-    // activity regions — that would make it "claim" dead air as its own
-    // duration. If the allocation crosses into a later region, clamp this
-    // line's end to the end of its own region; the unused virtual budget
-    // simply isn't spent (the run may finish early rather than overrun).
-    const endRegion = virtualRegionIndex(regions, Math.min(capacity, virt + dur))
-    if (endRegion !== startRegion) {
-      end = regions[startRegion].end
+    // Advance to a region with room for this line (or the last region).
+    while (ri < regions.length - 1 && regions[ri].end - cursor < dur) {
+      ri++
+      cursor = regions[ri].start
     }
+    const start = cursor
+    const end = Math.min(regions[ri].end, cursor + dur)
     lines[k].startTime = start
     lines[k].endTime = Math.max(end, start)
-    virt = Math.min(capacity, virt + dur)
+    cursor = lines[k].endTime
     redistributed[k] = true
     onActivity[k] = clean.some((w) => w.startTime < lines[k].endTime && w.endTime > lines[k].startTime)
   }
