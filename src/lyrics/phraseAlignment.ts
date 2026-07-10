@@ -14,6 +14,8 @@ import { realignRepeatedStanzaOccurrences, realignRepeatedRepetitionOnlyLines } 
 import { findMergedLineGroups, mergedGroupNeedsRealign } from '../ai-pipeline/alignTimestampMode'
 import { isRepetitionOnlyLine } from './lineAligner'
 import { redistributeDegenerateRuns } from './redistributeDegenerateRuns'
+import { findPhoneticAnchorEn } from '../ai-pipeline/phoneticEn'
+import { minLineDuration } from './lineDegeneracy'
 
 const REPETITION_REF_MIN_SPAN_S = 1.4
 
@@ -528,6 +530,75 @@ function backfillLateStartsToMatchedSpan(
     if (i > 0 && out[i - 1].endTime > boundary) out[i - 1].endTime = boundary
   }
   return out
+}
+
+/** Latin-script lines Whisper misheard fail the lexical LCS but usually keep
+ * their consonant frame. For each still-unanchored Latin line, search the
+ * window between its neighbours for the best phonetic-skeleton match and
+ * re-time onto it. Threshold-gated (>= PHONETIC_ANCHOR_MIN_SIMILARITY) so
+ * clean songs are untouched. Returns the re-timed lines plus a recovered mask
+ * (used later to upgrade quality to at most 'approximate').
+ *
+ * Ownership guard: a recovered anchor must never crowd out the previous
+ * line's own reliably-matched span (computeLineMatchedSpans), even when that
+ * line's currently-assigned timing sits elsewhere (e.g. itself mis-anchored)
+ * — otherwise enforceLineMonotonicity would clip the previous line down to a
+ * sliver to make room. If pulling the previous line back to its own span would
+ * still compress it below the floor (its own start is itself too late), skip
+ * this recovery rather than trade one degenerate line for another; the later
+ * redistribution pass still spreads the skipped line across its run. */
+function recoverLatinLinesByPhoneticAnchor(
+  lines: TimedLine[],
+  words: TranscriptWord[],
+  sourceLanguage: Language,
+): { lines: TimedLine[]; recovered: boolean[] } {
+  const out = lines.map((l) => ({ ...l }))
+  const recovered = out.map(() => false)
+  const clean = sanitizeTranscript(words)
+  if (clean.length === 0) return { lines: out, recovered }
+  const lastTime = clean[clean.length - 1].endTime
+  const spans = computeLineMatchedSpans(
+    out.map((l) => l.original || l.translation),
+    clean,
+  )
+
+  for (let i = 0; i < out.length; i++) {
+    const text = out[i].original || out[i].translation
+    if (!text.trim()) continue
+    if (/[぀-ヿ㐀-鿿]/.test(text)) continue // JA lines: lexical matching owns these
+    const prevEnd = i > 0 ? out[i - 1].endTime : 0
+    const nextStart = i + 1 < out.length ? out[i + 1].startTime : lastTime
+    const windowWords = transcriptWindowForLine(
+      clean, out[i], prevEnd, nextStart, lastTime,
+      LINE_VALIDATE_WINDOW_LEAD_S, LINE_VALIDATE_WINDOW_TAIL_S,
+    )
+    if (scoreLineAlignment(text, windowWords, sourceLanguage).quality === 'good') continue
+    const anchor = findPhoneticAnchorEn(text, clean, Math.max(0, prevEnd - 2), Math.min(lastTime, nextStart + 2))
+    if (!anchor) continue
+    const prevSpanEnd = i > 0 ? spans[i - 1]?.lastEndTime ?? -Infinity : -Infinity
+    if (anchor.startTime < prevSpanEnd - 0.05) continue
+    const nextSpanStart = i + 1 < out.length ? spans[i + 1]?.firstTime ?? Infinity : Infinity
+    if (anchor.endTime > nextSpanStart + 0.05) continue
+    // The previous line's currently-assigned end may overrun its own matched
+    // span (itself mis-anchored) into the space this anchor now claims —
+    // enforceLineMonotonicity would otherwise clip the previous line to a
+    // sliver to make room. Pull it back to its own evidence instead, but only
+    // if that leaves the previous line above the compression floor; if the
+    // previous line's own start is itself too late to make room, skip this
+    // recovery rather than trade one degenerate line for another.
+    if (i > 0 && out[i - 1].endTime > anchor.startTime) {
+      const prevText = out[i - 1].original || out[i - 1].translation
+      const prevTarget = Math.max(prevSpanEnd, out[i - 1].startTime + 0.3)
+      const prevDur = Math.min(prevTarget, anchor.startTime) - out[i - 1].startTime
+      if (prevDur < minLineDuration(prevText) * 0.55) continue
+      out[i - 1].endTime = prevTarget
+    }
+    out[i].startTime = anchor.startTime
+    out[i].endTime = anchor.endTime
+    recovered[i] = true
+  }
+  enforceLineMonotonicity(out)
+  return { lines: out, recovered }
 }
 
 function realignMergedLineGroups(
@@ -1694,6 +1765,8 @@ export function refineAlignmentWithPhrases(
   tunedLines = extendLineEndOutOfMidWord(tunedLines, words)
   tunedLines = backfillLineStartsToVocalOnset(tunedLines, words)
   tunedLines = backfillLateStartsToMatchedSpan(tunedLines, words)
+  const phonetic = recoverLatinLinesByPhoneticAnchor(tunedLines, words, sourceLanguage)
+  tunedLines = phonetic.lines
   const redist = redistributeDegenerateRuns(tunedLines, words, sourceLanguage)
   tunedLines = redist.lines
   tunedLines = expandSquashedLineHighlights(tunedLines)
@@ -1753,6 +1826,12 @@ export function refineAlignmentWithPhrases(
   for (let i = 0; i < tunedLines.length; i++) {
     if (lineAlignmentQuality[i] !== 'needs_review') continue
     if (redist.redistributed[i] && redist.onActivity[i]) lineAlignmentQuality[i] = 'approximate'
+  }
+
+  // Phonetically-recovered lines sit on real (misheard) audio — approximate.
+  for (let i = 0; i < tunedLines.length; i++) {
+    if (lineAlignmentQuality[i] !== 'needs_review') continue
+    if (phonetic.recovered[i]) lineAlignmentQuality[i] = 'approximate'
   }
 
   const syncedPhrases = syncPhrasesFromValidatedLines(phrases, tunedLines)
