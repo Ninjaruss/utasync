@@ -163,6 +163,8 @@ export interface UserSettings {
   vocalSeparationEnabled: boolean
   /** Whether detected sung readings are promoted into furigana ruby (D3). */
   readingMode: ReadingMode
+  /** Tap a lyric word to open the built-in dictionary popover. Off lets desktop Yomitan users avoid double popups. */
+  tapLookupEnabled: boolean
 }
 
 export interface ABLoop {

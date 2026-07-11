@@ -6,6 +6,7 @@ interface SettingsState extends UserSettings {
   setDefaultSongLanguage: (lang: Language) => void
   setVocalSeparationEnabled: (enabled: boolean) => void
   setReadingMode: (mode: ReadingMode) => void
+  setTapLookupEnabled: (enabled: boolean) => void
 }
 
 export function getDefaultSongLanguage(): Language {
@@ -21,9 +22,11 @@ export const useSettingsStore = create<SettingsState>()(
       defaultSongLanguage: 'ja',
       vocalSeparationEnabled: false,
       readingMode: 'dictionary',
+      tapLookupEnabled: true,
       setDefaultSongLanguage: (defaultSongLanguage) => set({ defaultSongLanguage }),
       setVocalSeparationEnabled: (vocalSeparationEnabled) => set({ vocalSeparationEnabled }),
       setReadingMode: (readingMode) => set({ readingMode }),
+      setTapLookupEnabled: (tapLookupEnabled) => set({ tapLookupEnabled }),
     }),
     { name: 'utasync-settings' }
   )
