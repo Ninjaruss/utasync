@@ -29,6 +29,8 @@ export interface Token {
   pos?: string
   /** kuromoji pos_detail_1 (e.g. 非自立 for dependent verb stems). */
   posDetail1?: string
+  /** Kuromoji dictionary (lemma) form when it differs from the surface (泣い → 泣く). */
+  baseForm?: string
   startIndex: number
   endIndex: number
   alignmentIndices?: number[]
