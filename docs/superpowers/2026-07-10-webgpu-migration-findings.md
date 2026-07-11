@@ -146,3 +146,35 @@ transcript and align once (needs language-region detection) — avoids the
 monolingual-layout problem because the merged transcript has content for every
 line. The shipped whisper-medium high-accuracy mode remains the working lever for
 mixed songs; the 160–198s region stays unrecovered.
+
+## CRITICAL bug found + fixed via real-app validation on user's Mac (2026-07-10)
+
+Driving the app's actual auto-align (not an isolated `pipeline()` call) surfaced a
+real shipped bug the earlier checks missed:
+
+> Speech model could not start (no available backend found. ERR: [webgpu]
+> TypeError: error loading dynamically imported module:
+> /onnx-wasm/ort-wasm-simd-threaded.jsep.mjs)
+
+Root cause: the WebGPU onnxruntime backend dynamically imports
+`ort-wasm-simd-threaded.jsep.mjs`, but `serveOnnxWasmFile` (dev/preview) and
+`generateBundle` (production) in `vite.config.ts` filtered to `.wasm` ONLY — the
+`.mjs` glue module was served/emitted nowhere. So WebGPU failed to initialize and
+the app couldn't transcribe. (My isolated `pipeline()` tests missed this because
+they used the CDN default wasmPaths, which serves every jsep file.)
+
+Fix (`3fbdc93`): serve `.mjs` as `text/javascript` in dev/preview, and emit
+`ort-wasm*.{wasm,mjs}` in the production bundle. Validated end-to-end: the app's
+real `transcribeAudio` now loads whisper-small on WebGPU (~2.5s inference on the
+JFK clip, correct output, NO WASM fallback), and `dist/onnx-wasm/` contains both
+the `.wasm` and `.jsep.mjs`.
+
+**Lesson:** the deferred "real-device" validation was essential and found TWO real
+bugs the corpus/Node/isolated-browser checks could not — the medium fp16→q4
+decoder garble AND this jsep `.mjs` serving gap. Both are user-facing (broken
+transcription) and both are now fixed on this branch.
+
+**Still to confirm by the user:** a full-song auto-align with "High accuracy" on
+(medium-q4) end-to-end in the real app — the small-model WebGPU path is now
+validated; medium-q4 uses the same (now-fixed) backend loading, so it should work,
+but the 1.5GB download + full-song run wasn't completed in-session.
