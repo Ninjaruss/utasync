@@ -92,3 +92,39 @@ If medium OOMs on real WebGPU hardware, the dtype can drop from fp16 to q4
   nulling `worker` (pre-existing, unlike the other teardown paths).
 - HF-CDN hosting for medium: self-hosting on GitHub releases (the Demucs pattern)
   remains the documented fallback if HF reliability becomes an issue.
+
+## Two-pass bilingual transcription — PAUSED (Approach A dead-end)
+
+Spec/plan: docs/superpowers/specs/2026-07-10-two-pass-bilingual-transcription-design.md
+and .../plans/2026-07-10-two-pass-bilingual-transcription.md.
+
+The idea: for mixed JA/EN songs, transcribe twice (forced Japanese + forced
+English) and merge per lyric line by language, to recover English sections that
+forced-JA decoding garbles (STRANGER THAN HEAVEN's rap + the 160–198s region).
+
+**Approach A (align twice, select per line) empirically REGRESSES the corpus and
+was paused.** The premise — that each forced-language pass aligns its own
+language well — is false. The aligner aligns the WHOLE bilingual sheet against
+ONE monolingual transcript; the ~50% of lines in the other language have zero
+matches, which collapses the aligner's confidence and wrecks the entire pass's
+layout, not just the other-language lines. Measured (stranger word two-pass merge
+vs single-pass forced-JA): `bnd_measured` 20→4, `align_pileup` 2→24,
+`align_compressed` 20→38. The diagnostic showed the forced-EN pass crushing 15
+consecutive English lines into a ~2s window (117.6–119.5s), so picking English
+lines out of that garbage produced the pileups.
+
+**What was kept** (dormant, for a future retry): `isMixedLanguageSheet`
+(whisperLanguage.ts), exported `enforceLineMonotonicity`, the sound per-line
+`mergeBilingualAlignments` unit (src/lyrics/bilingualMerge.ts + tests — the merge
+logic is fine; it was fed two broken alignments), the committed forced-EN stranger
+fixture, and `mpg123-decoder` as a saved devDep. The audit-script two-pass wiring
+and corpus row were reverted (no regression locked in; baseline unchanged).
+
+**If revisited**, the two viable redesigns are: (A′) align each language's
+SUB-sheet separately against its transcript then interleave — but the forced-EN
+transcript hallucinates English over the JA verses, so the EN sub-sheet may still
+mis-match; or (B) splice forced-EN words into the EN time-regions of a single
+transcript and align once (needs language-region detection) — avoids the
+monolingual-layout problem because the merged transcript has content for every
+line. The shipped whisper-medium high-accuracy mode remains the working lever for
+mixed songs; the 160–198s region stays unrecovered.
