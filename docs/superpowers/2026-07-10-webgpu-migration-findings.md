@@ -61,21 +61,39 @@ an opt-in whisper-medium "High accuracy (slower)" transcription mode.
   bundle from `@huggingface/transformers`'s nested `onnxruntime-web/dist/`
   (`ort.bundle.min.mjs`) instead of v2's `ort-web.min.js`.
 
-## IMPORTANT — deferred validation (user's real device)
+## On-device WebGPU validation — DONE (Apple Metal-3, 2026-07-10)
 
-WebGPU is **not available in the CI/preview environment** (`navigator.gpu`
-undefined), so the actual whisper-medium-on-WebGPU run could not be exercised
-here. Verified here: `npm run build`, full test suite, corpus baseline, and that
-the app boots with zero console/server errors on the WASM path (the high-accuracy
-toggle correctly hides on this non-WebGPU env). **Still to validate on a real
-WebGPU device:**
-1. whisper-small on WebGPU (default path) transcribes and is faster than WASM.
-2. The "High accuracy (slower)" toggle appears (full tier), downloads the ~1.5GB
-   medium model, and transcribes on WebGPU without OOM.
-3. The measured accuracy win (stranger-than-heaven line coverage 14→31) holds
-   end-to-end in the app.
-If medium OOMs on real WebGPU hardware, the dtype can drop from fp16 to q4
-(`inferenceBackend.ts`), or the feature degrades to small-on-WebGPU only.
+Initially deferred (early in the session the preview browser reported no
+`navigator.gpu`), but WebGPU later became available in the preview (real Apple
+Metal-3 adapter via `requestAdapter()`), so the on-device path WAS validated by
+loading the models through `@huggingface/transformers` in the preview and
+transcribing the JFK sample clip (~11s):
+
+- **whisper-small / fp16 / WebGPU — PERFECT.** Transcribed the clip verbatim;
+  inference **3.5s** for 11s audio (~0.3× realtime). The default-path WebGPU
+  speed win is confirmed correct and fast.
+- **whisper-medium / fp16 / WebGPU — BROKEN (fixed).** Loaded without OOM
+  (~1.5GB, single load) but the output was truncated/garbled ("and so my fellow
+  America and" then early-stop) and slow (**~45s**/11s-clip). This is fp16
+  numerical instability in the larger decoder. **Fix (commit after this doc):
+  medium uses `dtype: 'q4'` on WebGPU** via `whisperDtype()` in
+  `inferenceBackend.ts`.
+- **whisper-medium / q4 / WebGPU — CORRECT + faster.** Decoded the clip verbatim
+  and inference was **~14s** (~3× faster than fp16). q4 wins on every axis
+  (correctness, speed, download size), so it is the shipped medium-on-WebGPU
+  dtype.
+
+Caution observed: two medium WebGPU sessions loaded concurrently OOM'd the GPU
+(test artifact — the app loads sequentially and releases, but don't run medium +
+embedder + Demucs on WebGPU simultaneously).
+
+**Still to confirm on the user's own hardware** (different GPU/VRAM than the
+validated Apple Metal): that medium-q4 loads without OOM on their device, and
+that the stranger-than-heaven accuracy win (line coverage 14→31) holds end-to-end
+through the app's real auto-align flow (validated here only on the JFK clip, not
+a full song). Medium inference at ~1.3× realtime (q4) extrapolates to ~5 min for
+a 231s song — acceptable for an opt-in mode. If q4 ever OOMs on lower-VRAM
+hardware, the ladder is q4 → small-on-WebGPU only.
 
 ## Deferred follow-ups (documented, not blocking)
 
