@@ -27,13 +27,16 @@ export function planWindows(totalSamples: number, sampleRate: number): AudioWind
   }
   const last = windows[windows.length - 1]
   if (windows.length > 1 && last.endS - last.startS < MIN_TAIL_S) {
-    // The sliver is too short to stand alone. Replace it AND the window
-    // before it with a single full-length window ending at the audio end
-    // (the sliver's short span is already covered by this wider window).
+    // The sliver is too short to stand alone. Replace it with a full-length
+    // window ending at the audio end, and drop any preceding windows made
+    // redundant by it — but never break coverage: only pop a window if the
+    // coverage before it still reaches the merged window's start.
     windows.pop()
-    const prev = windows.pop()
-    const newStart = prev ? Math.max(prev.startS + 1, totalS - WINDOW_S) : Math.max(0, totalS - WINDOW_S)
-    windows.push({ startS: newStart, endS: totalS })
+    const start = Math.max(0, totalS - WINDOW_S)
+    while (windows.length >= 2 && windows[windows.length - 2].endS >= start) {
+      windows.pop()
+    }
+    windows.push({ startS: start, endS: totalS })
   }
   return windows
 }

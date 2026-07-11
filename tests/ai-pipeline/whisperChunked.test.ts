@@ -32,6 +32,19 @@ describe('planWindows', () => {
   it('empty audio → no windows', () => {
     expect(planWindows(0, SR)).toEqual([])
   })
+  it('property: full coverage, <=30s windows, no gaps, no slivers for every duration 31..300s', () => {
+    for (let s = 31; s <= 300; s++) {
+      const w = planWindows(s * SR, SR)
+      expect(w.length).toBeGreaterThan(0)
+      expect(w[0].startS).toBe(0)
+      expect(w[w.length - 1].endS).toBeCloseTo(s, 6)
+      for (let i = 0; i < w.length; i++) {
+        expect(w[i].endS - w[i].startS).toBeLessThanOrEqual(30 + 1e-9)
+        if (i > 0) expect(w[i].startS).toBeLessThanOrEqual(w[i - 1].endS - 1e-9) // overlap/touch, no gap
+        if (w.length > 1) expect(w[i].endS - w[i].startS).toBeGreaterThanOrEqual(8 - 1e-9)
+      }
+    }
+  })
 })
 
 describe('stitchChunkedResults', () => {
