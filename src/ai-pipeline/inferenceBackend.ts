@@ -16,15 +16,21 @@ export function resolveInferenceBackend(tier: DeviceTier): InferenceBackend {
   return { device: 'wasm', dtype: 'q8' }
 }
 
-/** Whisper dtype override. whisper-medium in fp16 on WebGPU produces garbled,
- * truncated output — validated on Apple Metal: the larger decoder is numerically
- * unstable in fp16 (JFK clip decoded to "and so my fellow America and" then
- * stopped). q4 decodes it correctly AND ~3x faster (14s vs 45s on the same clip),
- * so high-accuracy (medium) uses q4 on WebGPU. whisper-small stays fp16 (validated
- * correct + fast); the WASM fallback stays q8. */
-export function whisperDtype(backend: InferenceBackend, highAccuracy: boolean): Dtype {
-  if (backend.device === 'webgpu' && highAccuracy) return 'q4'
-  return backend.dtype
+/** Whisper transcription runs on WASM, NOT WebGPU — regardless of tier.
+ *
+ * The onnxruntime WebGPU backend cannot produce correct long-form (>30s) Whisper
+ * timestamps: for multi-chunk audio, word mode collapses to a single garbage
+ * "word" (validated on Apple Metal: a 60s clip → 1 chunk `[29.98, 69.98]` vs
+ * WASM's 186 correct per-word timestamps), and segment mode truncates the span.
+ * Without usable timestamps the aligner has nothing to place lines against, so
+ * every line lands at ~0. WASM produces correct timestamps (the pre-migration
+ * behavior). The WebGPU win is kept for the embedder (short texts, no timestamps).
+ *
+ * TODO(follow-up): to reclaim WebGPU transcription speed, window the audio into
+ * <=30s chunks (single-chunk WebGPU word timestamps DO work) and stitch with
+ * offsets. Until then, correctness > speed. */
+export function whisperBackend(): InferenceBackend {
+  return { device: 'wasm', dtype: 'q8' }
 }
 
 /** whisper-medium high-accuracy mode: full tier only (WebGPU + >=6GB RAM), matching
