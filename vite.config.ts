@@ -22,7 +22,10 @@ function serveOnnxWasmFile(
   next: Connect.NextFunction,
 ) {
   const url = req.url?.split('?')[0]
-  if (!url?.startsWith('/onnx-wasm/') || !url.endsWith('.wasm')) {
+  // Serve the ORT wasm binary AND its jsep glue module: the WebGPU backend
+  // dynamically imports `ort-wasm-simd-threaded.jsep.mjs`, so serving only .wasm
+  // breaks WebGPU with "error loading dynamically imported module".
+  if (!url?.startsWith('/onnx-wasm/') || !(url.endsWith('.wasm') || url.endsWith('.mjs'))) {
     next()
     return
   }
@@ -33,12 +36,19 @@ function serveOnnxWasmFile(
   }
   try {
     const data = readFileSync(join(ORT_WASM_DIR, name))
-    res.setHeader('Content-Type', 'application/wasm')
+    res.setHeader('Content-Type', name.endsWith('.mjs') ? 'text/javascript' : 'application/wasm')
     res.setHeader('Content-Length', String(data.length))
     res.end(data)
   } catch {
     next()
   }
+}
+
+/** ORT runtime files that must be served from /onnx-wasm/: the wasm binary and
+ * the jsep glue module the WebGPU backend imports. Excludes the node-only
+ * transformers.node.*.mjs bundles that also live in the dist dir. */
+function isOrtRuntimeAsset(name: string): boolean {
+  return name.startsWith('ort-wasm') && (name.endsWith('.wasm') || name.endsWith('.mjs'))
 }
 
 /** Serve ONNX Runtime WASM from @huggingface/transformers locally (avoids CDN stream drops). */
@@ -52,7 +62,7 @@ const serveOnnxWasm: Plugin = {
   },
   generateBundle() {
     for (const name of readdirSync(ORT_WASM_DIR)) {
-      if (!name.endsWith('.wasm')) continue
+      if (!isOrtRuntimeAsset(name)) continue
       this.emitFile({
         type: 'asset',
         fileName: `onnx-wasm/${name}`,
