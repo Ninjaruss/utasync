@@ -285,7 +285,7 @@ function rebalanceEntwinedRunPair(
   return { entwinedEnd, runStart, runEnd }
 }
 
-function enforceLineMonotonicity(out: TimedLine[]): void {
+export function enforceLineMonotonicity(out: TimedLine[]): void {
   for (let i = 1; i < out.length; i++) {
     if (out[i].startTime < out[i - 1].startTime) out[i].startTime = out[i - 1].startTime
   }
