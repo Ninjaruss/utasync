@@ -178,3 +178,43 @@ transcription) and both are now fixed on this branch.
 (medium-q4) end-to-end in the real app — the small-model WebGPU path is now
 validated; medium-q4 uses the same (now-fixed) backend loading, so it should work,
 but the 1.5GB download + full-song run wasn't completed in-session.
+
+## CRITICAL: Whisper reverted to WASM — WebGPU long-form timestamps are broken (2026-07-11)
+
+Real-app auto-align on the user's Mac produced **all-zero line timestamps** (aligner
+"couldn't set proper timestamps"), even though transcription completed. Systematic
+debugging (three refuted hypotheses, then reproduced) found the root cause:
+
+**The onnxruntime WebGPU backend cannot produce correct long-form (>30s) Whisper
+timestamps.** Validated on Apple Metal with a 60s clip:
+- WASM / word: **186 correct per-word timestamps**, full 0–60s span.
+- WebGPU / word: **1 garbage "word"** `[29.98, 69.98]` (collapsed).
+- WebGPU / segment: 12 chunks but span truncated to 43s of 60 (last chunk null-end).
+
+Word-level timestamps require cross-attention DTW that the WebGPU EP doesn't support
+across the chunked long-form algorithm, so multi-chunk audio collapses to one useless
+word — the aligner then has nothing to place lines against and every line lands at ~0.
+The earlier "small on WebGPU works" validation was an 11s **single-chunk** clip, the
+one case that works; every real song (>30s) was broken.
+
+**Fix (`fdf276d`):** `whisperBackend()` forces Whisper transcription to WASM (correct
+timestamps — the pre-migration behavior), replacing the WebGPU `resolveInferenceBackend`
++ `whisperDtype` path. The **embedder keeps WebGPU** (short texts, no timestamps).
+Validated end-to-end: the app's real `transcribeAudio` now returns 186 word timestamps
+over the full 60s and alignment yields non-zero line times.
+
+**Implications:**
+- The "WebGPU speed win for Whisper" is walked back — Whisper never actually worked on
+  WebGPU for real songs. The v3 migration's real wins remain: v3 upgrade, embedder on
+  WebGPU, and the WASM path is correct.
+- The medium **q4-on-WebGPU** finding above is now moot for shipping (Whisper is WASM);
+  q8 is used. medium high-accuracy still works on WASM (~2.5min segment, per the Node
+  headroom runs), so the toggle stays.
+- **Follow-up:** to reclaim WebGPU transcription speed, window audio into ≤30s chunks
+  (single-chunk WebGPU word timestamps DO work) and stitch with offsets. Tracked in a
+  TODO on `whisperBackend()`.
+
+**Lesson reinforced:** on-device real-app validation found THREE user-facing bugs the
+corpus/Node/isolated-browser checks could not (medium fp16→q4 garble, jsep .mjs serving
+gap, and this WebGPU long-form timestamp collapse). Isolated `pipeline()` tests on short
+clips gave false confidence; only driving the real multi-chunk pipeline exposed it.
