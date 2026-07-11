@@ -14,7 +14,7 @@ describe('lookupWord', () => {
     setJmdictGlossForTests({
       v: 1,
       source: 'test',
-      romaji: { kawasu: 'to dodge; to evade', toriwake: 'especially; above all' },
+      romaji: { kawasu: 'to dodge; to evade', toriwake: 'especially; above all', haato: 'heart' },
       kanji: { '躱す': 'kawasu' },
     })
   })
@@ -46,6 +46,16 @@ describe('lookupWord', () => {
     const result = await lookupWord(tok({ surface: 'とりわけ', reading: 'トリワケ', pos: '副詞' }))
     expect(result!.glosses).toEqual(['especially', 'above all'])
     expect(result!.reading).toBe('とりわけ')
+  })
+
+  it('resolves katakana loanwords with long-vowel marks', async () => {
+    const result = await lookupWord(tok({ surface: 'ハート', reading: 'ハート', pos: '名詞' }))
+    expect(result!.glosses).toEqual(['heart'])
+  })
+
+  it('falls back to a kana-only surface when the token has no reading', async () => {
+    const result = await lookupWord(tok({ surface: 'とりわけ', pos: '副詞' }))
+    expect(result!.glosses).toEqual(['especially', 'above all'])
   })
 
   it('converts katakana readings to hiragana', async () => {

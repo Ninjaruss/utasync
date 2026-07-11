@@ -7,7 +7,7 @@ import type { Token } from '../../core/types'
 export interface WordLookupResult {
   /** Dictionary form when known, else the surface. */
   headword: string
-  /** Hiragana reading, when the tokenizer supplied one. */
+  /** Hiragana reading — from the tokenizer, or the surface itself when kana-only. */
   reading: string | null
   pos: string | null
   /** Empty when no dictionary entry was found — the popup still shows the reading. */
@@ -17,6 +17,8 @@ export interface WordLookupResult {
 }
 
 const HAS_JA_CHAR = /[぀-ヿ一-鿿々]/
+/** Hiragana/katakana plus the long-vowel mark — surfaces safe to romanize directly. */
+const KANA_ONLY = /^[ぁ-ゖァ-ヺー]+$/
 
 export function jishoSearchUrl(headword: string): string {
   return `https://jisho.org/search/${encodeURIComponent(headword)}`
@@ -36,11 +38,17 @@ export async function lookupWord(token: Token): Promise<WordLookupResult | null>
   await prepareJmdictStemIndex()
 
   const headword = token.baseForm ?? token.surface
-  const reading = token.reading ? katakanaToHiragana(token.reading) : null
+  // Kuromoji supplies no reading for unknown words (slang); when the surface is
+  // pure kana it IS the reading (same fallback as readingDisplay).
+  const kana = token.reading ?? (KANA_ONLY.test(token.surface) ? token.surface : undefined)
+  const reading = kana ? katakanaToHiragana(kana) : null
+  // Romanize the ORIGINAL kana, not the hiragana conversion: wanakana resolves
+  // the long-vowel mark ー into doubled vowels for katakana (スーパー → "suupaa",
+  // matching JMdict keys) but emits literal hyphens for hiragana ("su-pa-").
   const romaji =
     kanjiLemmaRomaji(headword) ??
     kanjiLemmaRomaji(token.surface) ??
-    (reading ? kanaToRomaji(reading).toLowerCase() : undefined)
+    (kana ? kanaToRomaji(kana).toLowerCase() : undefined)
   const gloss = romaji ? lemmaGloss(romaji, headword) : undefined
 
   return {
