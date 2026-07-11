@@ -6,11 +6,14 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import type { Connect, Plugin, PreviewServer, ViteDevServer } from 'vite'
 
-// @xenova/transformers is tested against onnxruntime-web 1.14.0, but this repo
-// also depends on onnxruntime-web 1.26 for demucs. npm hoists 1.26, which breaks
-// Whisper model loading with a misleading "Unsupported model type: whisper".
+// @huggingface/transformers bundles its own onnxruntime-web build (currently
+// 1.22.0-dev), distinct from the onnxruntime-web 1.26 this repo also depends on
+// for demucs. npm keeps @huggingface/transformers' copy nested, so we serve its
+// wasm straight out of its own dist/ dir rather than the hoisted top-level one —
+// mixing versions breaks Whisper model loading with a misleading "Unsupported
+// model type: whisper".
 const ORT_WASM_DIR = fileURLToPath(
-  new URL('node_modules/@xenova/transformers/dist/', import.meta.url),
+  new URL('node_modules/@huggingface/transformers/dist/', import.meta.url),
 )
 
 function serveOnnxWasmFile(
@@ -38,7 +41,7 @@ function serveOnnxWasmFile(
   }
 }
 
-/** Serve ONNX Runtime WASM from @xenova/transformers locally (avoids CDN stream drops). */
+/** Serve ONNX Runtime WASM from @huggingface/transformers locally (avoids CDN stream drops). */
 const serveOnnxWasm: Plugin = {
   name: 'serve-onnx-wasm',
   configureServer(server: ViteDevServer) {
@@ -61,7 +64,7 @@ const serveOnnxWasm: Plugin = {
 
 const ORT_FOR_TRANSFORMERS = fileURLToPath(
   new URL(
-    'node_modules/@xenova/transformers/node_modules/onnxruntime-web/dist/ort-web.min.js',
+    'node_modules/@huggingface/transformers/node_modules/onnxruntime-web/dist/ort.bundle.min.mjs',
     import.meta.url,
   ),
 )
@@ -70,7 +73,7 @@ function usesTransformersOnnx(importer: string | undefined): boolean {
   if (!importer) return false
   const path = importer.replace(/\\/g, '/')
   return (
-    path.includes('@xenova/transformers')
+    path.includes('@huggingface/transformers')
     || path.includes('/ai-pipeline/whisper')
     || path.includes('/ai-pipeline/whisperPipeline')
   )
@@ -299,7 +302,7 @@ export default defineConfig({
     // aren't reachable from the initial module graph. Without pre-declaring
     // them, Vite discovers them at runtime when auto-align starts, re-optimizes,
     // and forces a full page reload. Pre-bundling them up front avoids that.
-    include: ['@xenova/transformers'],
+    include: ['@huggingface/transformers'],
     esbuildOptions: {
       alias: {
         'onnxruntime-web': ORT_FOR_TRANSFORMERS,

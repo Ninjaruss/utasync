@@ -52,7 +52,7 @@ export async function transcribeAudio(audioData, sampleRate, options = {}) {
       options.onProgress?.(Math.min(100, Math.round((doneChunks / totalChunks) * 100)))
     },
   }
-  // For auto-detect, OMIT the language key entirely: @xenova/transformers
+  // For auto-detect, OMIT the language key entirely: transformers.js
   // treats an explicit `language: null` differently from an absent key in its
   // generation-config merge, which can break long-form chunk merging.
   if (lang !== 'auto') asrOpts.language = lang
