@@ -10,6 +10,28 @@ export function stampStart(lines: TimedLine[], i: number, time: number): TimedLi
 }
 
 /**
+ * Set a line's start and/or end anchor in one commit. `end: null` clears the
+ * explicit end back to auto (endTime === startTime — the line then runs until
+ * the next line starts, per `lineEffectiveEnd`). An explicit end never
+ * precedes the start: it's clamped, collapsing to auto at the boundary.
+ */
+export function stampTimes(
+  lines: TimedLine[],
+  i: number,
+  patch: { start?: number; end?: number | null },
+): TimedLine[] {
+  const cur = lines[i]
+  const start = patch.start !== undefined ? Math.max(0, patch.start) : cur.startTime
+  const hadExplicitEnd = cur.endTime > cur.startTime
+  const end =
+    patch.end === null ? start
+    : patch.end !== undefined ? Math.max(start, patch.end)
+    : hadExplicitEnd ? Math.max(start, cur.endTime)
+    : start
+  return replaceAt(lines, i, { ...cur, startTime: start, endTime: end })
+}
+
+/**
  * Apply original/translation text changes and drop derived enrichment that would
  * be stale (readings, tokens, word-pair indices, grammar annotations).
  */

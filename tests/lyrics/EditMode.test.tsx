@@ -32,16 +32,26 @@ describe('EditMode', () => {
     const { onChangeLines } = renderEditMode()
     fireEvent.click(screen.getByRole('button', { name: /edit timestamp for line 2/i }))
     expect(onChangeLines).not.toHaveBeenCalled()
-    expect(screen.getByLabelText('Scrub timestamp')).toBeTruthy()
+    expect(screen.getByLabelText('Scrub start timestamp')).toBeTruthy()
   })
 
   it('committing the popover stamps the chosen time', () => {
     const { onChangeLines } = renderEditMode()
     fireEvent.click(screen.getByRole('button', { name: /edit timestamp for line 2/i }))
-    fireEvent.change(screen.getByLabelText('Scrub timestamp'), { target: { value: '9' } })
+    fireEvent.change(screen.getByLabelText('Scrub start timestamp'), { target: { value: '9' } })
     fireEvent.click(screen.getByText('Done'))
     const next = onChangeLines.mock.calls[0][0] as TimedLine[]
     expect(next[1].startTime).toBe(9)
+  })
+
+  it('committing an end anchor from the popover stamps endTime', () => {
+    const { onChangeLines } = renderEditMode()
+    fireEvent.click(screen.getByRole('button', { name: /edit timestamp for line 1/i }))
+    fireEvent.click(screen.getByRole('tab', { name: 'End' }))
+    fireEvent.change(screen.getByLabelText('Scrub end timestamp'), { target: { value: '3.5' } })
+    fireEvent.click(screen.getByText('Done'))
+    const next = onChangeLines.mock.calls[0][0] as TimedLine[]
+    expect(next[0]).toMatchObject({ startTime: 0, endTime: 3.5 })
   })
 
   it('dismissing the popover does not stamp and reverts the preview position', () => {
@@ -49,14 +59,14 @@ describe('EditMode', () => {
     const onScrubEnd = vi.fn()
     const { onChangeLines } = renderEditMode({ seek, onScrubStart: vi.fn(), onScrubEnd, playhead: () => 4 })
     fireEvent.click(screen.getByRole('button', { name: /edit timestamp for line 2/i }))
-    fireEvent.change(screen.getByLabelText('Scrub timestamp'), { target: { value: '9' } })
+    fireEvent.change(screen.getByLabelText('Scrub start timestamp'), { target: { value: '9' } })
     expect(seek).toHaveBeenCalledWith(9)
     const list = screen.getByLabelText('Lyric lines')
     fireEvent.click(list)
     expect(onChangeLines).not.toHaveBeenCalled()
     expect(seek).toHaveBeenLastCalledWith(4)
     expect(onScrubEnd).toHaveBeenCalled()
-    expect(screen.queryByLabelText('Scrub timestamp')).toBeNull()
+    expect(screen.queryByLabelText('Scrub start timestamp')).toBeNull()
   })
 
   it('tapping another lyric cancels an open timestamp preview', () => {
@@ -64,11 +74,11 @@ describe('EditMode', () => {
     const onScrubEnd = vi.fn()
     renderEditMode({ seek, onScrubStart: vi.fn(), onScrubEnd, playhead: () => 4 })
     fireEvent.click(screen.getByRole('button', { name: /edit timestamp for line 2/i }))
-    fireEvent.change(screen.getByLabelText('Scrub timestamp'), { target: { value: '9' } })
+    fireEvent.change(screen.getByLabelText('Scrub start timestamp'), { target: { value: '9' } })
     fireEvent.click(screen.getByText('a'))
     expect(seek).toHaveBeenCalledWith(4)
     expect(onScrubEnd).toHaveBeenCalled()
-    expect(screen.queryByLabelText('Scrub timestamp')).toBeNull()
+    expect(screen.queryByLabelText('Scrub start timestamp')).toBeNull()
     expect(screen.getByLabelText('Original text')).toBeTruthy()
   })
 
