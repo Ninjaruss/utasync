@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { canUseVocalSeparation, getDeviceTier } from './capability'
+import { canUseHighAccuracy } from './inferenceBackend'
 import { getWhisperDownloadHint } from './models'
 import { decodeAudioFileToMono } from '../core/audio/decodeToMono'
 import { getAudioFile } from '../core/opfs/audio'
@@ -84,7 +85,6 @@ function loadTaskProgress(p: LoadProgress | null, phase: 'download' | 'init'): n
 
 export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, accurateReadings: accurateReadingsInitial = false }: Props) {
   const tier = getDeviceTier()
-  const downloadHint = getWhisperDownloadHint(tier)
   const vocalSeparationDefault = useSettingsStore((s) => s.vocalSeparationEnabled)
   const setVocalSeparationEnabled = useSettingsStore((s) => s.setVocalSeparationEnabled)
   const [vocalSeparation, setVocalSeparation] = useState(vocalSeparationDefault)
@@ -93,6 +93,9 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
   // D2: opt into the slower word-level Whisper pass for more reliable readings on
   // long songs (short songs already use word mode; lite tier always uses segment).
   const [accurateReadings, setAccurateReadings] = useState(accurateReadingsInitial)
+  // D8: opt into whisper-medium (full tier only) for more accurate transcription
+  // at the cost of a larger download and slower inference.
+  const [highAccuracy, setHighAccuracy] = useState(false)
   const [stage, setStage] = useState<Stage>(() =>
     autoStart && tier !== 'manual' ? 'preparing' : 'idle',
   )
@@ -108,6 +111,10 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
   const cancelledRef = useRef(false)
 
   const vocalSeparationSupported = canUseVocalSeparation(tier)
+  const highAccuracySupported = canUseHighAccuracy(tier)
+  // Reflect the selected model so the download-progress copy shows ~1.5GB during
+  // a high-accuracy (medium) download, not the small model's ~240MB.
+  const downloadHint = getWhisperDownloadHint(tier, highAccuracy && highAccuracySupported)
 
   useEffect(() => {
     if (!vocalSeparationSupported) return
@@ -175,11 +182,17 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
       setLoadDetail('Checking cached model files…')
 
       const durationSec = audioData.length / sampleRate
-      const timestampMode = preferredWhisperTimestampMode(tier, durationSec, { accurateReadings })
+      const useHighAccuracy = highAccuracy && highAccuracySupported
+      // High-accuracy (whisper-medium) forces segment mode — its word-timestamp mode
+      // has a repetition-loop hallucination pathology that segment mode avoids.
+      const timestampMode = useHighAccuracy
+        ? 'segment'
+        : preferredWhisperTimestampMode(tier, durationSec, { accurateReadings })
 
       let sawDownload = false
       const transcriptResult = await transcribeAudio(audioData, sampleRate, {
         language: song.lyrics.sourceLanguage,
+        highAccuracy: useHighAccuracy,
         timestampMode,
         onLoadProgress: (p) => {
           setLastLoadProgress(p)
@@ -403,6 +416,24 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
               <span className="font-medium text-white">Word-level timestamps (slower)</span>
               {' — '}
               More reliable furigana and readings on long songs. Timing accuracy varies by song.
+            </span>
+          </label>
+        )}
+
+        {highAccuracySupported && stage === 'idle' && !autoStart && (
+          <label className="flex items-start gap-3 rounded-xl bg-cinnabar-900/80 p-3 cursor-pointer touch-manipulation">
+            <input
+              type="checkbox"
+              className="mt-1 accent-cinnabar-accent"
+              checked={highAccuracy}
+              onChange={(e) => setHighAccuracy(e.target.checked)}
+            />
+            <span className="text-sm text-white/80 text-pretty">
+              <span className="font-medium text-white">High accuracy (slower)</span>
+              {' · '}
+              {getWhisperDownloadHint(tier, true)}
+              {' — '}
+              Uses a larger speech model for more accurate transcription.
             </span>
           </label>
         )}

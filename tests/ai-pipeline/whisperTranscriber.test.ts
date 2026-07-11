@@ -1,10 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { resetWhisperTranscriber } from '../../src/ai-pipeline/whisperTranscriber'
 
+// Full tier so canUseHighAccuracy(tier) is true and highAccuracy=true actually
+// resolves to the medium model (see src/ai-pipeline/inferenceBackend.ts).
+vi.mock('../../src/ai-pipeline/capability', () => ({
+  getDeviceTier: () => 'full',
+}))
+
 class MockWorker {
   static instances: MockWorker[] = []
   onmessage: ((e: MessageEvent) => void) | null = null
   private listeners = new Set<(e: MessageEvent) => void>()
+  loadPayloads: { model: string; device: string; dtype: string }[] = []
 
   constructor() {
     MockWorker.instances.push(this)
@@ -20,8 +27,9 @@ class MockWorker {
 
   postMessage(data: unknown) {
     queueMicrotask(() => {
-      const msg = data as { type?: string }
+      const msg = data as { type?: string; payload?: { model: string; device: string; dtype: string } }
       if (msg.type === 'load') {
+        if (msg.payload) this.loadPayloads.push(msg.payload)
         this.emit({ type: 'load-progress', payload: { status: 'progress', file: 'a.onnx', progress: 50, aggregateProgress: 50, phase: 'download' } })
         this.emit({ type: 'load-progress', payload: { status: 'initializing', phase: 'init' } })
         this.emit({ type: 'loaded' })
@@ -62,5 +70,24 @@ describe('whisperTranscriber load progress', () => {
     await pending.catch(() => {})
     expect(events).toContain('download')
     expect(events).toContain('init')
+  })
+
+  it('reloads with the medium model when a highAccuracy request follows a warm small-model worker', async () => {
+    const { transcribeAudio } = await import('../../src/ai-pipeline/whisperTranscriber')
+
+    // Warm the worker with the small (default) model first, e.g. via preloadWhisper().
+    await transcribeAudio(new Float32Array(8), 16000)
+    expect(MockWorker.instances).toHaveLength(1)
+    expect(MockWorker.instances[0]?.loadPayloads).toEqual([
+      expect.objectContaining({ model: 'Xenova/whisper-small' }),
+    ])
+
+    // A later highAccuracy=true request must not silently reuse the warm small-model
+    // worker — it should reset and post a fresh load for the medium model.
+    await transcribeAudio(new Float32Array(8), 16000, { highAccuracy: true })
+    expect(MockWorker.instances).toHaveLength(2)
+    expect(MockWorker.instances[1]?.loadPayloads).toEqual([
+      expect.objectContaining({ model: 'Xenova/whisper-medium' }),
+    ])
   })
 })

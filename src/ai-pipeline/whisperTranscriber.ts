@@ -1,4 +1,5 @@
 import { getDeviceTier } from './capability'
+import { resolveInferenceBackend } from './inferenceBackend'
 import { getWhisperModel } from './models'
 import { runWhenIdle } from '../core/idle'
 import type { ModelLoadPhase } from './modelLoadProgress'
@@ -33,6 +34,10 @@ export interface LoadProgress {
 // Worker is intentionally long-lived while in use; released after idle timeout.
 let worker: Worker | null = null
 let loaded: Promise<void> | null = null
+// Model id the current `loaded` promise loaded (or is loading). Lets ensureLoaded
+// detect a highAccuracy request that needs a different model than the warm worker
+// already has, so it can reset + reload instead of silently reusing the small model.
+let loadedModel: string | null = null
 let idleReleaseTimer: ReturnType<typeof setTimeout> | null = null
 const loadProgressListeners = new Set<(p: LoadProgress) => void>()
 // Tracks the reject callback of any in-flight transcribeAudio promise so that
@@ -62,6 +67,7 @@ function scheduleWorkerRelease(): void {
     worker?.terminate()
     worker = null
     loaded = null
+    loadedModel = null
     idleReleaseTimer = null
   }, WORKER_IDLE_RELEASE_MS)
 }
@@ -75,6 +81,7 @@ export function resetWhisperTranscriber(): void {
   worker?.terminate()
   worker = null
   loaded = null
+  loadedModel = null
   loadProgressListeners.clear()
 }
 
@@ -82,8 +89,19 @@ function broadcastLoadProgress(p: LoadProgress): void {
   loadProgressListeners.forEach((fn) => fn(p))
 }
 
-function ensureLoaded(onProgress?: (p: LoadProgress) => void): Promise<void> {
+function ensureLoaded(onProgress?: (p: LoadProgress) => void, highAccuracy = false): Promise<void> {
   if (onProgress) loadProgressListeners.add(onProgress)
+
+  const tier = getDeviceTier()
+  const model = getWhisperModel(tier, highAccuracy)
+
+  // A warm worker may have loaded a different model (e.g. preloadWhisper() warmed
+  // the small model, then a highAccuracy=true request comes in needing medium).
+  // Reusing `loaded` here would silently keep transcribing on the wrong model, so
+  // tear down and reload whenever the requested model doesn't match the loaded one.
+  if (loaded && loadedModel !== model) {
+    resetWhisperTranscriber()
+  }
 
   if (!loaded) {
     loaded = new Promise((resolve, reject) => {
@@ -94,18 +112,24 @@ function ensureLoaded(onProgress?: (p: LoadProgress) => void): Promise<void> {
         } else if (e.data.type === 'loaded') {
           w.removeEventListener('message', onMessage)
           loadProgressListeners.clear()
+          loadedModel = model
           resolve()
         } else if (e.data.type === 'error') {
           w.removeEventListener('message', onMessage)
           w.terminate()
           worker = null
           loaded = null
+          loadedModel = null
           loadProgressListeners.clear()
           reject(new Error(String(e.data.payload)))
         }
       }
       w.addEventListener('message', onMessage)
-      w.postMessage({ type: 'load', payload: { model: getWhisperModel(getDeviceTier()) } })
+      const backend = resolveInferenceBackend(tier)
+      w.postMessage({
+        type: 'load',
+        payload: { model, device: backend.device, dtype: backend.dtype },
+      })
     })
   }
 
@@ -132,9 +156,11 @@ export async function transcribeAudio(
     timestampMode?: 'word' | 'segment'
     /** Abort if transcription exceeds this many ms (default: max(5 min, 20× audio length)). */
     timeoutMs?: number
+    /** Use the larger, more accurate model when the device tier supports it. */
+    highAccuracy?: boolean
   },
 ): Promise<WhisperTranscript> {
-  await ensureLoaded(options?.onLoadProgress)
+  await ensureLoaded(options?.onLoadProgress, options?.highAccuracy ?? false)
   options?.onModelLoaded?.()
 
   const durationSec = audioData.length / sampleRate
@@ -179,6 +205,7 @@ export async function transcribeAudio(
         cleanup()
         worker = null
         loaded = null
+        loadedModel = null
         reject(new Error(String(e.data.payload)))
       }
     }
@@ -189,6 +216,7 @@ export async function transcribeAudio(
       cleanup()
       worker = null
       loaded = null
+      loadedModel = null
       reject(new Error(e.message || 'Speech recognition failed unexpectedly. Please try again.'))
     }
 

@@ -3,23 +3,37 @@ import {
   getWhisperModel,
   getWhisperDownloadHint,
   getEmbedModel,
-  WHISPER_MODEL_FULL,
-  WHISPER_MODEL_LITE,
+  WHISPER_MODEL_SMALL,
+  WHISPER_MODEL_MEDIUM,
   WHISPER_DOWNLOAD_HINT,
   EMBED_MODEL,
 } from '../../src/ai-pipeline/models'
 
 describe('getWhisperModel', () => {
   it('uses whisper-small on full tier', () => {
-    expect(getWhisperModel('full')).toBe(WHISPER_MODEL_FULL)
+    expect(getWhisperModel('full')).toBe(WHISPER_MODEL_SMALL)
     expect(getWhisperModel('full')).toBe('Xenova/whisper-small')
   })
   it('uses whisper-small on lite tier (same as full — tiny regressed timing)', () => {
-    expect(getWhisperModel('lite')).toBe(WHISPER_MODEL_LITE)
+    expect(getWhisperModel('lite')).toBe(WHISPER_MODEL_SMALL)
     expect(getWhisperModel('lite')).toBe('Xenova/whisper-small')
   })
   it('uses whisper-small on manual tier (fallback if ever invoked)', () => {
-    expect(getWhisperModel('manual')).toBe(WHISPER_MODEL_FULL)
+    expect(getWhisperModel('manual')).toBe(WHISPER_MODEL_SMALL)
+  })
+})
+
+describe('getWhisperModel high-accuracy', () => {
+  it('returns the small model by default', () => {
+    expect(getWhisperModel('full')).toBe('Xenova/whisper-small')
+  })
+  it('returns the medium model when highAccuracy is requested on full tier', () => {
+    expect(getWhisperModel('full', true)).toBe(WHISPER_MODEL_MEDIUM)
+    expect(WHISPER_MODEL_MEDIUM).toBe('Xenova/whisper-medium')
+  })
+  it('ignores highAccuracy off full tier (small only)', () => {
+    expect(getWhisperModel('lite', true)).toBe('Xenova/whisper-small')
+    expect(getWhisperModel('manual', true)).toBe('Xenova/whisper-small')
   })
 })
 

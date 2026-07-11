@@ -3,7 +3,7 @@
  * src/ai-pipeline/whisper.worker.ts, for running real-model auto-align audits
  * from Node (no browser Worker available here).
  */
-import { pipeline, env } from '@xenova/transformers'
+import { pipeline, env } from '@huggingface/transformers'
 
 env.allowLocalModels = false
 env.useBrowserCache = false
@@ -12,13 +12,13 @@ const WHISPER_MODEL = 'Xenova/whisper-small'
 const CHUNK_LENGTH_S = 30
 const STRIDE_LENGTH_S = 5
 
-let asrPromise = null
+const asrPromises = new Map()
 
-function getAsr() {
-  if (!asrPromise) {
-    asrPromise = pipeline('automatic-speech-recognition', WHISPER_MODEL, { quantized: true })
+function getAsr(modelId) {
+  if (!asrPromises.has(modelId)) {
+    asrPromises.set(modelId, pipeline('automatic-speech-recognition', modelId, { dtype: 'q8' }))
   }
-  return asrPromise
+  return asrPromises.get(modelId)
 }
 
 function resampleTo16k(data, fromRate) {
@@ -31,7 +31,8 @@ function resampleTo16k(data, fromRate) {
 
 /** Same shape as src/ai-pipeline/whisperTranscriber.ts transcribeAudio. */
 export async function transcribeAudio(audioData, sampleRate, options = {}) {
-  const asr = await getAsr()
+  const modelId = options.model ?? WHISPER_MODEL
+  const asr = await getAsr(modelId)
   const resampled = resampleTo16k(audioData, sampleRate)
   const totalChunks = Math.max(
     1,
@@ -51,7 +52,7 @@ export async function transcribeAudio(audioData, sampleRate, options = {}) {
       options.onProgress?.(Math.min(100, Math.round((doneChunks / totalChunks) * 100)))
     },
   }
-  // For auto-detect, OMIT the language key entirely: @xenova/transformers
+  // For auto-detect, OMIT the language key entirely: transformers.js
   // treats an explicit `language: null` differently from an absent key in its
   // generation-config merge, which can break long-form chunk merging.
   if (lang !== 'auto') asrOpts.language = lang

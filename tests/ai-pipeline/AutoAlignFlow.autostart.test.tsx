@@ -5,8 +5,10 @@ import { AutoAlignFlow } from '../../src/ai-pipeline/AutoAlignFlow'
 import type { Song } from '../../src/core/types'
 import { db } from '../../src/core/db/schema'
 
+const deviceTier = vi.hoisted(() => ({ current: 'lite' as 'lite' | 'full' | 'manual' }))
+
 vi.mock('../../src/ai-pipeline/capability', () => ({
-  getDeviceTier: () => 'lite',
+  getDeviceTier: () => deviceTier.current,
   canUseVocalSeparation: () => false,
 }))
 
@@ -69,6 +71,7 @@ const song: Song = {
 beforeEach(async () => {
   await db.songs.clear()
   transcribeAudio.mockClear()
+  deviceTier.current = 'lite'
 })
 
 describe('AutoAlignFlow autoStart', () => {
@@ -110,5 +113,33 @@ describe('AutoAlignFlow autoStart', () => {
 
     expect(onComplete).not.toHaveBeenCalled()
     expect(await db.songs.get(song.id)).toBeUndefined()
+  })
+})
+
+describe('AutoAlignFlow high accuracy toggle', () => {
+  it('renders the toggle on full tier and forces highAccuracy + segment mode when enabled', async () => {
+    deviceTier.current = 'full'
+    const onComplete = vi.fn()
+    render(<AutoAlignFlow song={song} onComplete={onComplete} onClose={vi.fn()} />)
+
+    const toggle = screen.getByRole('checkbox', { name: /high accuracy/i })
+    fireEvent.click(toggle)
+
+    fireEvent.click(screen.getByRole('button', { name: /start auto-align/i }))
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalled())
+    expect(transcribeAudio).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ highAccuracy: true, timestampMode: 'segment' }),
+    )
+  })
+
+  it('does not render the toggle or enable highAccuracy on manual tier', async () => {
+    deviceTier.current = 'manual'
+    const onComplete = vi.fn()
+    render(<AutoAlignFlow song={song} onComplete={onComplete} onClose={vi.fn()} />)
+
+    expect(screen.queryByRole('checkbox', { name: /high accuracy/i })).toBeNull()
   })
 })

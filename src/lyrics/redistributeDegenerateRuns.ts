@@ -6,7 +6,7 @@ import {
   LINE_VALIDATE_WINDOW_LEAD_S,
   LINE_VALIDATE_WINDOW_TAIL_S,
 } from './phraseAlignment'
-import { expectedLineDuration, minLineDuration, findActivityRegions, type ActivityRegion } from './lineDegeneracy'
+import { expectedLineDuration, minLineDuration, findActivityRegions } from './lineDegeneracy'
 
 /** Consecutive starts closer than this are a pileup. */
 const PILEUP_GAP_S = 0.4

@@ -1,5 +1,6 @@
 import { getDeviceTier } from './capability'
 import { embedCacheKey } from './embedTextUtils'
+import { resolveInferenceBackend } from './inferenceBackend'
 import { getEmbedModel } from './models'
 import { runWhenIdle } from '../core/idle'
 
@@ -84,7 +85,11 @@ function ensureLoaded(): Promise<void> {
         else if (e.data.type === 'error') { w.removeEventListener('message', onMessage); reject(new Error(e.data.payload)) }
       }
       w.addEventListener('message', onMessage)
-      w.postMessage({ type: 'load', payload: { model: getEmbedModel(getDeviceTier()) } })
+      const tier = getDeviceTier()
+      w.postMessage({
+        type: 'load',
+        payload: { model: getEmbedModel(tier), device: resolveInferenceBackend(tier).device },
+      })
     })
     // A failed load must not wedge every future call behind the same
     // rejected promise — drop the broken worker so the next embedTexts()
