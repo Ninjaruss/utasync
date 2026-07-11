@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-11-tap-word-lookup-design.md`
 
-**Branch note:** Create/confirm a feature branch before starting (current work sits on `accuracy-round-2`).
+**Branch note:** Work on the `tap-word-lookup` branch (already created off `main`).
 
 ---
 
@@ -230,12 +230,18 @@ describe('lookupWord', () => {
     expect(result!.pos).toBe('名詞')
   })
 
-  it('degrades to an empty gloss list when the JMdict fetch fails', async () => {
+  it('degrades gracefully when the JMdict fetch fails', async () => {
     resetJmdictGlossCache()
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')))
     const result = await lookupWord(tok({ surface: '躱す', reading: 'カワス', pos: '動詞' }))
     expect(result).not.toBeNull()
     expect(result!.reading).toBe('かわす')
+    expect(result!.dictionaryAvailable).toBe(false)
+  })
+
+  it('reports the dictionary as available when the gloss map is loaded', async () => {
+    const result = await lookupWord(tok({ surface: '骨頂', reading: 'コッチョウ', pos: '名詞' }))
+    expect(result!.dictionaryAvailable).toBe(true)
   })
 })
 
@@ -259,7 +265,7 @@ Create `src/language/japanese/wordLookup.ts`:
 import { toRomaji as kanaToRomaji } from 'wanakana'
 import { katakanaToHiragana } from './phonetics'
 import { kanjiLemmaRomaji, lemmaGloss } from '../../ai-pipeline/lyricGloss'
-import { prepareJmdictStemIndex } from '../../ai-pipeline/jmdictGloss'
+import { jmdictGlossLoaded, prepareJmdictStemIndex } from '../../ai-pipeline/jmdictGloss'
 import type { Token } from '../../core/types'
 
 export interface WordLookupResult {
@@ -270,6 +276,8 @@ export interface WordLookupResult {
   pos: string | null
   /** Empty when no dictionary entry was found — the popup still shows the reading. */
   glosses: string[]
+  /** False when the JMdict gloss map failed to load (offline) — the popup says "definitions unavailable" instead of "no definition found". */
+  dictionaryAvailable: boolean
 }
 
 const HAS_JA_CHAR = /[぀-ヿ一-鿿々]/
@@ -304,6 +312,7 @@ export async function lookupWord(token: Token): Promise<WordLookupResult | null>
     reading,
     pos: token.pos ?? null,
     glosses: gloss ? gloss.split(/\s*;\s*/).filter(Boolean) : [],
+    dictionaryAvailable: jmdictGlossLoaded(),
   }
 }
 ```
@@ -458,7 +467,7 @@ describe('WordLookupPopover', () => {
   })
 
   it('shows headword, reading, and glosses once resolved', async () => {
-    lookupWord.mockResolvedValue({ headword: '躱す', reading: 'かわす', pos: '動詞', glosses: ['to dodge', 'to evade'] })
+    lookupWord.mockResolvedValue({ headword: '躱す', reading: 'かわす', pos: '動詞', glosses: ['to dodge', 'to evade'], dictionaryAvailable: true })
     render(<WordLookupPopover token={token} anchorRect={null} onClose={() => {}} />)
     await waitFor(() => expect(screen.getByText('to dodge; to evade')).toBeTruthy())
     expect(screen.getByText('躱す')).toBeTruthy()
@@ -466,20 +475,26 @@ describe('WordLookupPopover', () => {
   })
 
   it('links to jisho.org for the headword', async () => {
-    lookupWord.mockResolvedValue({ headword: '躱す', reading: 'かわす', pos: '動詞', glosses: [] })
+    lookupWord.mockResolvedValue({ headword: '躱す', reading: 'かわす', pos: '動詞', glosses: [], dictionaryAvailable: true })
     render(<WordLookupPopover token={token} anchorRect={null} onClose={() => {}} />)
     await waitFor(() => expect(screen.getByRole('link')).toBeTruthy())
     expect(screen.getByRole('link').getAttribute('href')).toBe(`https://jisho.org/search/${encodeURIComponent('躱す')}`)
   })
 
   it('shows a fallback message when no gloss exists', async () => {
-    lookupWord.mockResolvedValue({ headword: '骨頂', reading: 'こっちょう', pos: '名詞', glosses: [] })
+    lookupWord.mockResolvedValue({ headword: '骨頂', reading: 'こっちょう', pos: '名詞', glosses: [], dictionaryAvailable: true })
     render(<WordLookupPopover token={token} anchorRect={null} onClose={() => {}} />)
     await waitFor(() => expect(screen.getByText('No definition found.')).toBeTruthy())
   })
 
+  it('says definitions are unavailable when the dictionary failed to load', async () => {
+    lookupWord.mockResolvedValue({ headword: '躱す', reading: 'かわす', pos: '動詞', glosses: [], dictionaryAvailable: false })
+    render(<WordLookupPopover token={token} anchorRect={null} onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Definitions unavailable.')).toBeTruthy())
+  })
+
   it('closes on pointerdown outside, not inside', async () => {
-    lookupWord.mockResolvedValue({ headword: '躱す', reading: 'かわす', pos: '動詞', glosses: ['to dodge'] })
+    lookupWord.mockResolvedValue({ headword: '躱す', reading: 'かわす', pos: '動詞', glosses: ['to dodge'], dictionaryAvailable: true })
     const onClose = vi.fn()
     render(<WordLookupPopover token={token} anchorRect={null} onClose={onClose} />)
     await waitFor(() => expect(screen.getByText('to dodge')).toBeTruthy())
@@ -585,8 +600,10 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
         <p className="text-xs text-white/40">Looking up…</p>
       ) : glosses.length > 0 ? (
         <p className="text-sm text-white/80 text-pretty">{glosses.join('; ')}</p>
-      ) : (
+      ) : result.dictionaryAvailable ? (
         <p className="text-xs text-white/40">No definition found.</p>
+      ) : (
+        <p className="text-xs text-white/40">Definitions unavailable.</p>
       )}
       <a
         href={jishoSearchUrl(headword)}
@@ -632,7 +649,7 @@ vi.mock('../../src/language/japanese/wordLookup', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/language/japanese/wordLookup')>()
   return {
     ...actual,
-    lookupWord: vi.fn().mockResolvedValue({ headword: '躱す', reading: 'かわす', pos: '動詞', glosses: ['to dodge'] }),
+    lookupWord: vi.fn().mockResolvedValue({ headword: '躱す', reading: 'かわす', pos: '動詞', glosses: ['to dodge'], dictionaryAvailable: true }),
   }
 })
 ```
