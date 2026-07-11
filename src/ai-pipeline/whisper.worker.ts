@@ -20,7 +20,7 @@ self.onmessage = async (e: MessageEvent) => {
       const { model, device, dtype } = (payload as {
         model?: string
         device?: 'webgpu' | 'wasm'
-        dtype?: 'fp16' | 'q8'
+        dtype?: 'fp16' | 'q8' | 'q4'
       } | undefined) ?? {}
       const tracker = new ModelLoadProgressTracker()
       let initHintTimer: ReturnType<typeof setTimeout> | null = null

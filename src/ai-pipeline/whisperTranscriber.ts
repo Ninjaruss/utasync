@@ -1,5 +1,5 @@
 import { getDeviceTier } from './capability'
-import { resolveInferenceBackend } from './inferenceBackend'
+import { resolveInferenceBackend, whisperDtype } from './inferenceBackend'
 import { getWhisperModel } from './models'
 import { runWhenIdle } from '../core/idle'
 import type { ModelLoadPhase } from './modelLoadProgress'
@@ -128,7 +128,7 @@ function ensureLoaded(onProgress?: (p: LoadProgress) => void, highAccuracy = fal
       const backend = resolveInferenceBackend(tier)
       w.postMessage({
         type: 'load',
-        payload: { model, device: backend.device, dtype: backend.dtype },
+        payload: { model, device: backend.device, dtype: whisperDtype(backend, highAccuracy) },
       })
     })
   }

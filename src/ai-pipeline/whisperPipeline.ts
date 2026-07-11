@@ -1,7 +1,7 @@
 import { pipeline, env, type AutomaticSpeechRecognitionPipeline } from '@huggingface/transformers'
 import { clearWhisperModelCache, purgeCorruptModelCaches } from '../core/storage/modelCache'
 import { friendlyModelLoadError, withNetworkRetry } from './networkErrors'
-import type { InferenceBackend } from './inferenceBackend'
+import type { Dtype, InferenceBackend } from './inferenceBackend'
 
 function onnxWasmBaseUrl(): string {
   const origin = typeof self !== 'undefined' && 'location' in self ? self.location.origin : ''
@@ -60,7 +60,7 @@ export async function loadWhisperAsrPipeline(
 ): Promise<AutomaticSpeechRecognitionPipeline> {
   configureWhisperEnv()
 
-  const build = (device: 'webgpu' | 'wasm', dtype: 'fp16' | 'q8') =>
+  const build = (device: 'webgpu' | 'wasm', dtype: Dtype) =>
     withNetworkRetry(
       () =>
         pipeline<'automatic-speech-recognition'>('automatic-speech-recognition', modelId, {
