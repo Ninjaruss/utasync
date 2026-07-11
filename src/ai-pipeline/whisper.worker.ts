@@ -4,9 +4,11 @@ import { MODEL_INIT_HINT, ModelLoadProgressTracker, type ModelLoadProgress } fro
 import { loadWhisperAsrPipeline } from './whisperPipeline'
 import { whisperLanguageFor } from './whisperLanguage'
 import { slimWhisperTranscript } from './whisperTranscript'
+import { planWindows, stitchChunkedResults, type WindowResult } from './whisperChunked'
 import type { Language } from '../core/types'
 
 let asr: Awaited<ReturnType<typeof loadWhisperAsrPipeline>> | null = null
+let requestedDevice: 'webgpu' | 'wasm' = 'wasm'
 
 function postLoadProgress(payload: ModelLoadProgress | Record<string, unknown>) {
   self.postMessage({ type: 'load-progress', payload })
@@ -39,6 +41,8 @@ self.onmessage = async (e: MessageEvent) => {
           initHintTimer = null
         }
       }
+
+      requestedDevice = device ?? 'wasm'
 
       postLoadProgress({ status: 'initiate', phase: 'download' })
 
@@ -73,33 +77,60 @@ self.onmessage = async (e: MessageEvent) => {
       const CHUNK_LENGTH_S = 30
       const STRIDE_LENGTH_S = 5
 
-      const jumpSamples = (CHUNK_LENGTH_S - 2 * STRIDE_LENGTH_S) * 16000
-      const totalChunks = Math.max(1, Math.ceil(resampled.length / jumpSamples))
-      let doneChunks = 0
-      let mergeNotified = false
-
-      const notifyMerging = () => {
-        if (mergeNotified) return
-        mergeNotified = true
-        self.postMessage({ type: 'progress', payload: { status: 'merging' } })
-      }
-
       const useWordTimestamps = timestampMode !== 'segment'
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = await (asr as any)(resampled, {
-        return_timestamps: useWordTimestamps ? 'word' : true,
-        language: whisperLanguageFor(language),
-        task: 'transcribe',
-        chunk_length_s: CHUNK_LENGTH_S,
-        stride_length_s: STRIDE_LENGTH_S,
-        chunk_callback: () => {
-          doneChunks++
-          const progress = Math.min(90, Math.round((doneChunks / totalChunks) * 90))
+      let result: { text: string; chunks: { text: string; timestamp: [number, number | null] }[] }
+
+      if (requestedDevice === 'webgpu') {
+        // Manual windowing: transformers.js's internal long-form merge is broken
+        // on WebGPU (60s -> 1 garbage word); single-window (<=30s) calls are
+        // correct. Each window is one single-chunk call; stitch with offsets.
+        const windows = planWindows(resampled.length, 16000)
+        const perWindow: WindowResult[] = []
+        for (let wi = 0; wi < windows.length; wi++) {
+          const { startS, endS } = windows[wi]
+          const slice = resampled.subarray(Math.floor(startS * 16000), Math.floor(endS * 16000))
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const out = await (asr as any)(slice, {
+            return_timestamps: useWordTimestamps ? 'word' : true,
+            language: whisperLanguageFor(language),
+            task: 'transcribe',
+            chunk_length_s: CHUNK_LENGTH_S,
+          })
+          perWindow.push({ offsetS: startS, windowEndS: endS, chunks: out.chunks ?? [] })
+          const progress = Math.min(90, Math.round(((wi + 1) / windows.length) * 90))
           self.postMessage({ type: 'progress', payload: { status: 'transcribing', progress } })
-          if (doneChunks >= totalChunks) notifyMerging()
-        },
-      })
+        }
+        self.postMessage({ type: 'progress', payload: { status: 'merging' } })
+        result = stitchChunkedResults(perWindow)
+      } else {
+        // WASM: transformers.js's internal long-form algorithm works — unchanged path.
+        const jumpSamples = (CHUNK_LENGTH_S - 2 * STRIDE_LENGTH_S) * 16000
+        const totalChunks = Math.max(1, Math.ceil(resampled.length / jumpSamples))
+        let doneChunks = 0
+        let mergeNotified = false
+
+        const notifyMerging = () => {
+          if (mergeNotified) return
+          mergeNotified = true
+          self.postMessage({ type: 'progress', payload: { status: 'merging' } })
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        result = await (asr as any)(resampled, {
+          return_timestamps: useWordTimestamps ? 'word' : true,
+          language: whisperLanguageFor(language),
+          task: 'transcribe',
+          chunk_length_s: CHUNK_LENGTH_S,
+          stride_length_s: STRIDE_LENGTH_S,
+          chunk_callback: () => {
+            doneChunks++
+            const progress = Math.min(90, Math.round((doneChunks / totalChunks) * 90))
+            self.postMessage({ type: 'progress', payload: { status: 'transcribing', progress } })
+            if (doneChunks >= totalChunks) notifyMerging()
+          },
+        })
+      }
 
       // Packaging a large word-level transcript can take minutes on phones — never
       // report 100% until the slim payload is ready to send (100% implied done).
