@@ -218,3 +218,28 @@ over the full 60s and alignment yields non-zero line times.
 corpus/Node/isolated-browser checks could not (medium fp16→q4 garble, jsep .mjs serving
 gap, and this WebGPU long-form timestamp collapse). Isolated `pipeline()` tests on short
 clips gave false confidence; only driving the real multi-chunk pipeline exposed it.
+
+## Chunked WebGPU transcription — BUILT, GATE FAILED, stays dormant (2026-07-11)
+
+Attempted to reclaim WebGPU transcription speed via manual windowing: split audio
+into 30s/5s-overlap windows (each a single-chunk call, where an 11s probe had
+shown correct WebGPU word timestamps), stitch with offsets + midpoint dedup.
+Shipped as a pure module (`src/ai-pipeline/whisperChunked.ts`, 9 unit tests incl.
+a 270-duration coverage property test that caught a real dropped-audio bug in the
+tail-merge rule) plus a dormant worker branch (`whisper.worker.ts`, taken only
+when the requested device is webgpu).
+
+**Validation gate on the real `transcribeAudio` path (60s clip): FAIL.**
+- Word count 81 vs WASM's 186 (needed >=158).
+- Timestamp span 70s on a 60s clip — a 10s window returned a word at t=20s
+  INSIDE it, i.e. WebGPU word timestamps are unreliable even within single
+  sub-30s windows, not just in the long-form merge. The earlier 11s single-chunk
+  "works" probe was the lucky case.
+- Speed ~50s vs WASM ~60-75s (~1.3x, needed >=2x).
+
+Per the plan's FAIL path: `whisperBackend()` stays WASM (q8), the windowed path
+stays dormant (tested, harmless), and the code comment on `whisperBackend` now
+records the failure. Re-run the gate only on a newer onnxruntime/transformers.js.
+Conclusion: WebGPU is simply not viable for Whisper timestamp extraction on the
+current stack — WASM is correct and fast enough (small ~1min, medium ~2.5min per
+song, segment mode).
