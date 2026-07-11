@@ -55,7 +55,15 @@ export function mergeBilingualAlignments(
   enforceLineMonotonicity(lines)
   let finalLines = lines
   if (wordsForActivity && wordsForActivity.length) {
-    finalLines = redistributeDegenerateRuns(lines, sanitizeTranscript(wordsForActivity), sourceLanguage).lines
+    // Protect lines we successfully anchored in either pass; only redistribute
+    // the needs_review runs (unanchored in BOTH passes) so a good selection
+    // can't be re-timed onto the other language's audio (which would also leave
+    // a stale 'good' label on a moved line). Mirrors how refineAlignmentWithPhrases
+    // passes `phonetic.recovered` as the anchoredMask (true = treat as anchored).
+    const anchoredMask = lineAlignmentQuality.map((q) => q !== 'needs_review')
+    finalLines = redistributeDegenerateRuns(
+      lines, sanitizeTranscript(wordsForActivity), sourceLanguage, anchoredMask,
+    ).lines
   }
 
   const phrases = mergePhrases(alignJ.phrases, alignE.phrases, chosen, finalLines)
@@ -64,11 +72,23 @@ export function mergeBilingualAlignments(
     ...alignJ,
     lines: finalLines,
     phrases,
-    anchorSources: anchorSources as RefinedAlignment['anchorSources'],
-    lineAlignmentQuality: lineAlignmentQuality as RefinedAlignment['lineAlignmentQuality'],
+    anchorSources,
+    lineAlignmentQuality,
   }
 }
 
+/**
+ * Combine the two passes' phrase lists by majority vote: each phrase is kept
+ * from whichever pass its source lines were mostly selected from, then re-synced
+ * to the merged line times.
+ *
+ * Correct for the default SHEET layout, where phrases are 1:1 with lines — every
+ * line is covered by exactly one phrase and the vote is unambiguous. LIMITATION:
+ * in the sung (multi-line) layout J and E can group the same passage into
+ * DIFFERENT line-spans, so majority-vote selection may leave gaps or overlaps in
+ * coverage. Reconciling divergent multi-line phrase groupings across passes is a
+ * follow-up; not handled here.
+ */
 function mergePhrases(
   phrasesJ: SungPhrase[],
   phrasesE: SungPhrase[],
