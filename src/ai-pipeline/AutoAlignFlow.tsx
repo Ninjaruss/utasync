@@ -85,7 +85,6 @@ function loadTaskProgress(p: LoadProgress | null, phase: 'download' | 'init'): n
 
 export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, accurateReadings: accurateReadingsInitial = false }: Props) {
   const tier = getDeviceTier()
-  const downloadHint = getWhisperDownloadHint(tier)
   const vocalSeparationDefault = useSettingsStore((s) => s.vocalSeparationEnabled)
   const setVocalSeparationEnabled = useSettingsStore((s) => s.setVocalSeparationEnabled)
   const [vocalSeparation, setVocalSeparation] = useState(vocalSeparationDefault)
@@ -113,6 +112,9 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
 
   const vocalSeparationSupported = canUseVocalSeparation(tier)
   const highAccuracySupported = canUseHighAccuracy(tier)
+  // Reflect the selected model so the download-progress copy shows ~1.5GB during
+  // a high-accuracy (medium) download, not the small model's ~240MB.
+  const downloadHint = getWhisperDownloadHint(tier, highAccuracy && highAccuracySupported)
 
   useEffect(() => {
     if (!vocalSeparationSupported) return
