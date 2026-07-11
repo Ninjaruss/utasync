@@ -57,7 +57,7 @@ Desktop users can hover-scan Utasync lyrics with the Yomitan browser extension (
 
 ### Error handling
 
-- `jmdict-gloss.json` fetch failure (already handled as `null` in `jmdictGloss.ts`): popup shows reading/POS with a "definitions unavailable" note and the jisho.org link.
+- `jmdict-gloss.json` fetch failure (already handled as `null` in `jmdictGloss.ts`): popup degrades to reading/POS with the same "no definition found" note and the jisho.org link as any entry-less word.
 - Lookup is async; show the popover immediately with the surface/reading and fill glosses when resolved (the gloss map load is one-time).
 
 ### Testing
