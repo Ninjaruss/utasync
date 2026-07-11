@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolveInferenceBackend, canUseHighAccuracy } from '../../src/ai-pipeline/inferenceBackend'
+import { resolveInferenceBackend, canUseHighAccuracy, whisperBackend } from '../../src/ai-pipeline/inferenceBackend'
 
 describe('resolveInferenceBackend', () => {
   it('uses webgpu + fp16 on full tier', () => {
@@ -10,6 +10,12 @@ describe('resolveInferenceBackend', () => {
   })
   it('falls back to wasm + q8 on manual (no WebGPU) tier', () => {
     expect(resolveInferenceBackend('manual')).toEqual({ device: 'wasm', dtype: 'q8' })
+  })
+})
+
+describe('whisperBackend', () => {
+  it('always runs Whisper on WASM (WebGPU produces broken long-form timestamps)', () => {
+    expect(whisperBackend()).toEqual({ device: 'wasm', dtype: 'q8' })
   })
 })
 

@@ -1,5 +1,5 @@
 import { getDeviceTier } from './capability'
-import { resolveInferenceBackend } from './inferenceBackend'
+import { whisperBackend } from './inferenceBackend'
 import { getWhisperModel } from './models'
 import { runWhenIdle } from '../core/idle'
 import type { ModelLoadPhase } from './modelLoadProgress'
@@ -125,7 +125,9 @@ function ensureLoaded(onProgress?: (p: LoadProgress) => void, highAccuracy = fal
         }
       }
       w.addEventListener('message', onMessage)
-      const backend = resolveInferenceBackend(tier)
+      // Whisper runs on WASM: WebGPU produces broken long-form timestamps (see
+      // whisperBackend). The embedder still uses WebGPU via resolveInferenceBackend.
+      const backend = whisperBackend()
       w.postMessage({
         type: 'load',
         payload: { model, device: backend.device, dtype: backend.dtype },
