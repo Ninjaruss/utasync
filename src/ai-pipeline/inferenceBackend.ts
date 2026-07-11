@@ -26,9 +26,14 @@ export function resolveInferenceBackend(tier: DeviceTier): InferenceBackend {
  * every line lands at ~0. WASM produces correct timestamps (the pre-migration
  * behavior). The WebGPU win is kept for the embedder (short texts, no timestamps).
  *
- * TODO(follow-up): to reclaim WebGPU transcription speed, window the audio into
- * <=30s chunks (single-chunk WebGPU word timestamps DO work) and stitch with
- * offsets. Until then, correctness > speed. */
+ * ATTEMPTED (2026-07-11) and rejected: manual <=30s windowing + stitch
+ * (whisperChunked.ts, wired dormant in whisper.worker.ts) FAILED its validation
+ * gate — WebGPU word timestamps are unreliable even within single sub-30s
+ * windows (a 10s window returned a word at t=20s; 81 words vs WASM's 186 on the
+ * same 60s clip) and the speed win was only ~1.3x, not the required 2x. The
+ * windowed path stays dormant; do not flip this to webgpu without re-running the
+ * gate in docs/superpowers/plans/2026-07-11-chunked-webgpu-whisper.md on a newer
+ * onnxruntime/transformers.js. */
 export function whisperBackend(): InferenceBackend {
   return { device: 'wasm', dtype: 'q8' }
 }
