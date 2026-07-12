@@ -1,9 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { LyricDisplay } from '../../src/lyrics/LyricDisplay'
 import { useLyricsStore } from '../../src/lyrics/LyricsStore'
 import { useSettingsStore } from '../../src/payment/SettingsStore'
 import type { TimedLine } from '../../src/core/types'
+
+vi.mock('../../src/language/japanese/wordLookup', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/language/japanese/wordLookup')>()
+  return {
+    ...actual,
+    lookupWord: vi.fn().mockResolvedValue({ headword: '躱す', reading: 'かわす', pos: '動詞', glosses: ['to dodge'], dictionaryAvailable: true }),
+  }
+})
 
 const setStore = (lines: TimedLine[], patch: Partial<ReturnType<typeof useLyricsStore.getState>> = {}) => {
   useLyricsStore.setState({ lines, activeLine: 0, ...patch })
@@ -337,5 +345,35 @@ describe('A-B loop region highlight', () => {
     expect(highlighted.length).toBe(2)
     expect(highlighted[0]?.textContent).toMatch(/seg-a/)
     expect(highlighted[1]?.textContent).toMatch(/seg-b/)
+  })
+})
+
+describe('tap-to-look-up wiring', () => {
+  const tokenLine: TimedLine = {
+    original: '躱し', startTime: 0, endTime: 2, translation: '',
+    tokens: [{ surface: '躱し', reading: 'カワシ', pos: '動詞', baseForm: '躱す', startIndex: 0, endIndex: 2 }],
+  }
+
+  beforeEach(() => {
+    useLyricsStore.setState({ lines: [tokenLine], activeLine: 0, furiganaMode: 'none', showTranslation: false, lyricsLayout: 'stacked' })
+    useSettingsStore.setState({ tapLookupEnabled: true, readingMode: 'dictionary' })
+  })
+
+  it('opens the popover on token tap without seeking the line', async () => {
+    const onLineClick = vi.fn()
+    render(<LyricDisplay onLineClick={onLineClick} />)
+    fireEvent.click(screen.getByText('躱し'))
+    expect(onLineClick).not.toHaveBeenCalled()
+    expect(await screen.findByRole('dialog')).toBeTruthy()
+    expect(await screen.findByText('to dodge')).toBeTruthy()
+  })
+
+  it('does not intercept taps when the setting is off', () => {
+    useSettingsStore.setState({ tapLookupEnabled: false })
+    const onLineClick = vi.fn()
+    render(<LyricDisplay onLineClick={onLineClick} />)
+    fireEvent.click(screen.getByText('躱し'))
+    expect(onLineClick).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })
