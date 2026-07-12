@@ -9,6 +9,7 @@ import type { ABLoop, ABLoopPlaylistEntry } from '../core/types'
 import { isABLoopActive, lyricLoopHighlight, type LyricLoopHighlight } from '../player/abLoopUtils'
 import { lyricRowLoopRegion, lyricRowPlayheadActive, lyricRowPlaylistCurrent, lyricRowPlaylistRegion } from '../core/ui/toolbarClasses'
 import { WordLookupPopover } from './WordLookupPopover'
+import { hasJapanese } from '../language/japanese/wordLookup'
 
 const lyricTextTransition =
   'transition-[color,font-size,font-weight,text-shadow] duration-300 ease-out'
@@ -84,6 +85,7 @@ function ColoredTokens({
             onMouseEnter={() => onHover({ source: i })}
             onMouseLeave={() => onHover(null)}
             onClick={onWordTap ? (e) => {
+              if (!hasJapanese(token.surface)) return
               e.stopPropagation()
               onWordTap({ token, rect: e.currentTarget.getBoundingClientRect() })
             } : undefined}
@@ -126,7 +128,7 @@ function PrimaryText({ line, isActive, furiganaMode, readingMode, colored, hover
   const sizeClass = isActive ? 'text-xl sm:text-2xl font-semibold text-white' : 'text-base font-normal text-white/45 group-hover:text-white/75'
   const lineHoverClass = 'group-hover:underline decoration-white/30 underline-offset-4'
   const showFurigana = furiganaMode === 'furigana'
-  const useTokenRender = line.tokens && line.tokens.length > 0 && (colored || showFurigana || !!onWordTap)
+  const useTokenRender = line.tokens && line.tokens.length > 0 && (colored || showFurigana || (!!onWordTap && hasJapanese(line.original)))
 
   if (showFurigana && line.furigana && !useTokenRender) {
     return (

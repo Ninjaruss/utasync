@@ -17,6 +17,11 @@ export interface WordLookupResult {
 }
 
 const HAS_JA_CHAR = /[぀-ヿ一-鿿々]/
+
+/** True when the text contains hiragana, katakana, or kanji. */
+export function hasJapanese(text: string): boolean {
+  return HAS_JA_CHAR.test(text)
+}
 /** Hiragana/katakana plus the long-vowel mark — surfaces safe to romanize directly. */
 const KANA_ONLY = /^[ぁ-ゖァ-ヺー]+$/
 
@@ -31,7 +36,7 @@ export function jishoSearchUrl(headword: string): string {
  * characters (punctuation, latin interjections).
  */
 export async function lookupWord(token: Token): Promise<WordLookupResult | null> {
-  if (!HAS_JA_CHAR.test(token.surface)) return null
+  if (!hasJapanese(token.surface)) return null
 
   // Loads the JMdict map + stem index once; resolves (with curated-only
   // coverage) even when the fetch fails.

@@ -368,6 +368,45 @@ describe('tap-to-look-up wiring', () => {
     expect(await screen.findByText('to dodge')).toBeTruthy()
   })
 
+  it('keeps plain rendering and line seek for English token-bearing lines', () => {
+    useLyricsStore.setState({
+      lines: [{
+        original: 'Hello world', startTime: 0, endTime: 2, translation: '',
+        tokens: [
+          { surface: 'Hello', startIndex: 0, endIndex: 5 },
+          { surface: 'world', startIndex: 6, endIndex: 11 },
+        ],
+      }],
+      activeLine: 0,
+      furiganaMode: 'none',
+      showTranslation: false,
+    })
+    const onLineClick = vi.fn()
+    render(<LyricDisplay onLineClick={onLineClick} />)
+    const lineText = screen.getByText('Hello world')
+    fireEvent.click(lineText)
+    expect(onLineClick).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('seeks the line instead of opening a popover for punctuation tokens', () => {
+    useLyricsStore.setState({
+      lines: [{
+        original: '躱し、', startTime: 0, endTime: 2, translation: '',
+        tokens: [
+          { surface: '躱し', reading: 'カワシ', pos: '動詞', baseForm: '躱す', startIndex: 0, endIndex: 2 },
+          { surface: '、', pos: '記号', startIndex: 2, endIndex: 3 },
+        ],
+      }],
+      activeLine: 0,
+    })
+    const onLineClick = vi.fn()
+    render(<LyricDisplay onLineClick={onLineClick} />)
+    fireEvent.click(screen.getByText('、'))
+    expect(onLineClick).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
   it('does not intercept taps when the setting is off', () => {
     useSettingsStore.setState({ tapLookupEnabled: false })
     const onLineClick = vi.fn()
