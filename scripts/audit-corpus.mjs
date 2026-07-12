@@ -60,6 +60,16 @@ async function main() {
   const { reconcileTokenReadings } = await import(
     pathToFileURL(join(root, 'src/ai-pipeline/readingReconciler.ts')).href
   )
+  // The app lazily fetches /jmdict-readings.json before reconciling; node can't
+  // fetch a root-relative URL, so inject the real artifact when present so the
+  // scorecard matches real-app JMdict-confirmed reading adoption.
+  {
+    const readingsPath = join(root, 'public/jmdict-readings.json')
+    if (existsSync(readingsPath)) {
+      const jr = await import(pathToFileURL(join(root, 'src/language/japanese/jmdictReadings.ts')).href)
+      jr.setJmdictReadingsForTests(JSON.parse(readFileSync(readingsPath, 'utf8')))
+    }
+  }
   const { applyReadingCorrections } = await import(
     pathToFileURL(join(root, 'src/language/japanese/readingCorrections.ts')).href
   )

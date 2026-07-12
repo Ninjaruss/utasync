@@ -1,6 +1,7 @@
 import type { TimedLine, TimedTranscriptWord, Token } from '../core/types'
 import { katakanaToHiragana } from '../language/japanese/phonetics'
 import { tokenizeJapanese } from '../language/japanese/tokenizer'
+import { getJmdictReadingValidator, loadJmdictReadings } from '../language/japanese/jmdictReadings'
 import { normalizeForMatch } from './contentAligner'
 import { resolveLineReadings, comparableKana } from './readingAlignment'
 
@@ -197,7 +198,9 @@ export function reconcileTokenReadings(
   if (windowWords.length === 0) return tokens
   const windowText = windowWords.map((w) => w.word).join('')
 
-  const decisions = resolveLineReadings(tokens, windowText)
+  // JMdict inventory validator when loaded (async callers await the load first;
+  // sync callers use it opportunistically) — confirms sung alternates like 角→かど.
+  const decisions = resolveLineReadings(tokens, windowText, getJmdictReadingValidator())
   return tokens.map((token, i) => {
     const d = decisions[i]
     switch (d.kind) {
@@ -230,6 +233,9 @@ export async function reconcileTokenReadingsAsync(
   line: TimedLine,
   transcriptWords: TimedTranscriptWord[],
 ): Promise<Token[]> {
+  // Ensure the JMdict reading inventory is available to the sync pass (no-op
+  // when already cached; resolves null offline — validation is opportunistic).
+  await loadJmdictReadings()
   const base = reconcileTokenReadings(tokens, line, transcriptWords)
   const windowWords = wordsInLineWindow(transcriptWords, line)
   if (windowWords.length === 0) return base
