@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Token } from '../core/types'
 import { lookupWord, jishoSearchUrl, type WordLookupResult } from '../language/japanese/wordLookup'
+import { useSettingsStore } from '../payment/SettingsStore'
 
 interface Props {
   token: Token
@@ -25,11 +26,14 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
   const result: WordLookupResult | null | 'loading' =
     resolved && resolved.token === token ? resolved.result : 'loading'
 
+  // Same reading-mode the ruby uses, so the popover reading matches the lyrics.
+  const readingMode = useSettingsStore((s) => s.readingMode)
+
   useEffect(() => {
     let cancelled = false
-    void lookupWord(token).then((r) => { if (!cancelled) setResolved({ token, result: r }) })
+    void lookupWord(token, readingMode).then((r) => { if (!cancelled) setResolved({ token, result: r }) })
     return () => { cancelled = true }
-  }, [token])
+  }, [token, readingMode])
 
   useEffect(() => {
     const onPointerDown = (e: PointerEvent) => {
@@ -52,7 +56,7 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
   const loading = result === 'loading'
   const headword = loading ? token.surface : result.headword
   const reading = loading ? null : result.reading
-  const pos = loading ? null : result.pos
+  const pos = loading ? null : result.posLabel ?? result.pos
   const glosses = loading ? [] : result.glosses
 
   const narrow = window.innerWidth < 640
@@ -85,6 +89,9 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
         <span lang="ja" className="font-jp text-lg font-semibold text-white">{headword}</span>
         {reading && reading !== headword && (
           <span lang="ja" className="font-jp text-sm text-cinnabar-accent/90">{reading}</span>
+        )}
+        {!loading && result.dictionaryReading && (
+          <span lang="ja" className="font-jp text-xs text-white/40">dictionary: {result.dictionaryReading}</span>
         )}
         {pos && <span className="text-[10px] text-white/40">{pos}</span>}
       </div>

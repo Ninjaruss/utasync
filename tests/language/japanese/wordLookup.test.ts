@@ -115,3 +115,54 @@ describe('lookupWord — JMdict reading fallback', () => {
     }
   })
 })
+
+describe('lookupWord — grammar tokens (particles, auxiliaries)', () => {
+  it('never glosses a particle from kana homophones (は is not 端 "edge")', async () => {
+    const result = await lookupWord(tok({ surface: 'は', reading: 'ハ', pos: '助詞', posDetail1: '係助詞' }))
+    expect(result!.glosses.join(' ')).toMatch(/topic/)
+    expect(result!.posLabel).toBe('particle')
+  })
+
+  it('glosses auxiliaries by function (た is past tense, not 田 "rice")', async () => {
+    const result = await lookupWord(tok({ surface: 'た', reading: 'タ', pos: '助動詞', baseForm: 'た' }))
+    expect(result!.glosses.join(' ')).toMatch(/past/)
+    expect(result!.posLabel).toBe('auxiliary')
+  })
+
+  it('shows no gloss (rather than a homophone) for uncurated grammar tokens', async () => {
+    setJmdictGlossForTests({ v: 1, source: 'test', romaji: { nya: 'meow' }, kanji: {} })
+    const result = await lookupWord(tok({ surface: 'にゃ', reading: 'ニャ', pos: '助詞' }))
+    expect(result!.glosses).toEqual([])
+  })
+
+  it('labels content-word POS in English', async () => {
+    const result = await lookupWord(tok({ surface: '躱す', reading: 'カワス', pos: '動詞' }))
+    expect(result!.posLabel).toBe('verb')
+  })
+})
+
+describe('lookupWord — sung-reading coherence with the ruby', () => {
+  // The popover must show the SAME reading the lyric ruby displays: a promoted
+  // sung alternate (術→すべ ruby) tapping to じゅつ reads as a wrong popover.
+  const sungTok = () => tok({
+    surface: '術', reading: 'ジュツ', audioReading: 'スベ', readingConfidence: 0.9, pos: '名詞',
+  })
+
+  it('prefers a high-confidence sung reading, keeping the dictionary reading as secondary', async () => {
+    const result = await lookupWord(sungTok())
+    expect(result!.reading).toBe('すべ')
+    expect(result!.dictionaryReading).toBe('じゅつ')
+  })
+
+  it('always promotes the sung reading in sung mode', async () => {
+    const low = tok({ surface: '術', reading: 'ジュツ', audioReading: 'スベ', readingConfidence: 0.4, pos: '名詞' })
+    expect((await lookupWord(low, 'sung'))!.reading).toBe('すべ')
+    expect((await lookupWord(low, 'dictionary'))!.reading).toBe('じゅつ')
+  })
+
+  it('reports no secondary reading when nothing was adopted', async () => {
+    const result = await lookupWord(tok({ surface: '躱す', reading: 'カワス', pos: '動詞' }))
+    expect(result!.reading).toBe('かわす')
+    expect(result!.dictionaryReading).toBeNull()
+  })
+})

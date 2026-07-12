@@ -24,6 +24,21 @@ describe('WordLookupPopover', () => {
     expect(screen.getByText('かわす')).toBeTruthy()
   })
 
+  it('shows the English POS label, not the raw kuromoji tag', async () => {
+    lookupWord.mockResolvedValue({ headword: 'は', reading: 'は', pos: '助詞', posLabel: 'particle', glosses: ['topic marker'], dictionaryAvailable: true })
+    render(<WordLookupPopover token={token} anchorRect={null} onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText('topic marker')).toBeTruthy())
+    expect(screen.getByText('particle')).toBeTruthy()
+    expect(screen.queryByText('助詞')).toBeNull()
+  })
+
+  it('shows a promoted sung reading first with the dictionary reading as secondary', async () => {
+    lookupWord.mockResolvedValue({ headword: '術', reading: 'すべ', dictionaryReading: 'じゅつ', pos: '名詞', posLabel: 'noun', glosses: ['way'], dictionaryAvailable: true })
+    render(<WordLookupPopover token={token} anchorRect={null} onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText('すべ')).toBeTruthy())
+    expect(screen.getByText(/dictionary: じゅつ/)).toBeTruthy()
+  })
+
   it('links to jisho.org for the headword', async () => {
     lookupWord.mockResolvedValue({ headword: '躱す', reading: 'かわす', pos: '動詞', glosses: [], dictionaryAvailable: true })
     render(<WordLookupPopover token={token} anchorRect={null} onClose={() => {}} />)
