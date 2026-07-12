@@ -91,3 +91,27 @@ describe('jishoSearchUrl', () => {
     expect(jishoSearchUrl('躱す')).toBe(`https://jisho.org/search/${encodeURIComponent('躱す')}`)
   })
 })
+
+describe('lookupWord — JMdict reading fallback', () => {
+  it('uses the common JMdict reading when kuromoji has none for a kanji word', async () => {
+    const { setJmdictReadingsForTests, resetJmdictReadingsCache } = await import('../../../src/language/japanese/jmdictReadings')
+    setJmdictReadingsForTests({ v: 1, source: 'test', readings: { 躱す: 'かわす' } })
+    try {
+      const result = await lookupWord(tok({ surface: '躱す', pos: '動詞' }))
+      expect(result!.reading).toBe('かわす')
+    } finally {
+      resetJmdictReadingsCache()
+    }
+  })
+
+  it('prefers the kuromoji reading over the JMdict fallback', async () => {
+    const { setJmdictReadingsForTests, resetJmdictReadingsCache } = await import('../../../src/language/japanese/jmdictReadings')
+    setJmdictReadingsForTests({ v: 1, source: 'test', readings: { 躱す: 'ちがう' } })
+    try {
+      const result = await lookupWord(tok({ surface: '躱す', reading: 'カワス', pos: '動詞' }))
+      expect(result!.reading).toBe('かわす')
+    } finally {
+      resetJmdictReadingsCache()
+    }
+  })
+})
