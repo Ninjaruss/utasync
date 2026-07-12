@@ -10,6 +10,7 @@ interface Props {
 }
 
 const CARD_WIDTH = 288 // w-72, for clamping the anchored position on-screen
+const CARD_EST_HEIGHT = 160 // rough card height, for deciding when to flip above the word
 
 /**
  * Compact tap-to-look-up dictionary card. Anchored under the tapped word on
@@ -35,6 +36,13 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [onClose])
 
+  // A null lookup (punctuation-only token) renders nothing, so ask the parent
+  // to unmount us — otherwise its state stays set and the outside-tap listener
+  // can never fire (ref is null).
+  useEffect(() => {
+    if (result === null) onClose()
+  }, [result, onClose])
+
   // Nothing to show for punctuation-only tokens.
   if (result === null) return null
 
@@ -46,10 +54,15 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
 
   const narrow = window.innerWidth < 640
   const anchored = !narrow && anchorRect !== null
+  // Flip above the word when the card would spill past the bottom edge. Using
+  // `bottom:` for the flipped case avoids needing the real card height.
+  const fitsBelow = anchorRect !== null && anchorRect.bottom + 8 + CARD_EST_HEIGHT <= window.innerHeight
   const style = anchored
     ? {
         left: Math.max(8, Math.min(anchorRect.left, window.innerWidth - CARD_WIDTH - 8)),
-        top: anchorRect.bottom + 8,
+        ...(fitsBelow
+          ? { top: anchorRect.bottom + 8 }
+          : { bottom: window.innerHeight - anchorRect.top + 8 }),
       }
     : undefined
 

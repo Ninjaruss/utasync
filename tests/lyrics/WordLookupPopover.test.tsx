@@ -59,4 +59,33 @@ describe('WordLookupPopover', () => {
     const { container } = render(<WordLookupPopover token={token} anchorRect={null} onClose={() => {}} />)
     await waitFor(() => expect(container.firstChild).toBeNull())
   })
+
+  it('anchors below the tapped word when it fits', async () => {
+    lookupWord.mockResolvedValue({ headword: '躱す', reading: 'かわす', pos: '動詞', glosses: ['to dodge'], dictionaryAvailable: true })
+    const anchorRect = { left: 100, top: 100, bottom: 120, right: 120 } as DOMRect
+    render(<WordLookupPopover token={token} anchorRect={anchorRect} onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
+    const dialog = screen.getByRole('dialog') as HTMLElement
+    expect(dialog.style.top).toBe('128px')
+    expect(dialog.style.left).toBe('100px')
+  })
+
+  it('clamps the anchored position inside the right viewport edge', async () => {
+    lookupWord.mockResolvedValue({ headword: '躱す', reading: 'かわす', pos: '動詞', glosses: ['to dodge'], dictionaryAvailable: true })
+    const anchorRect = { left: 1000, top: 100, bottom: 120, right: 1020 } as DOMRect
+    render(<WordLookupPopover token={token} anchorRect={anchorRect} onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
+    const dialog = screen.getByRole('dialog') as HTMLElement
+    expect(dialog.style.left).toBe('728px') // 1024 - 288 - 8
+  })
+
+  it('flips above the word when the card would not fit below', async () => {
+    lookupWord.mockResolvedValue({ headword: '躱す', reading: 'かわす', pos: '動詞', glosses: ['to dodge'], dictionaryAvailable: true })
+    const anchorRect = { left: 100, top: 700, bottom: 720, right: 120 } as DOMRect
+    render(<WordLookupPopover token={token} anchorRect={anchorRect} onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
+    const dialog = screen.getByRole('dialog') as HTMLElement
+    expect(dialog.style.bottom).toBe('76px') // 768 - 700 + 8
+    expect(dialog.style.top).toBe('')
+  })
 })
