@@ -19,12 +19,15 @@ const CARD_EST_HEIGHT = 160 // rough card height, for deciding when to flip abov
  */
 export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null)
-  const [result, setResult] = useState<WordLookupResult | null | 'loading'>('loading')
+  // Keyed by token so a new tap derives back to the loading state without a
+  // synchronous setState inside the effect.
+  const [resolved, setResolved] = useState<{ token: Token; result: WordLookupResult | null } | null>(null)
+  const result: WordLookupResult | null | 'loading' =
+    resolved && resolved.token === token ? resolved.result : 'loading'
 
   useEffect(() => {
     let cancelled = false
-    setResult('loading')
-    void lookupWord(token).then((r) => { if (!cancelled) setResult(r) })
+    void lookupWord(token).then((r) => { if (!cancelled) setResolved({ token, result: r }) })
     return () => { cancelled = true }
   }, [token])
 
