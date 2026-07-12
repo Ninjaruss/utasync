@@ -14,8 +14,12 @@ export interface JmdictGlossData {
 
 let data: JmdictGlossData | null = null
 let loadPromise: Promise<JmdictGlossData | null> | null = null
+let lastLoadFailureAt = 0
 let prefixIndexBuilt = false
 let prefixIndexPromise: Promise<void> | null = null
+
+// Offline word taps would otherwise re-fetch the multi-MB JSON on every lookup.
+const LOAD_RETRY_BACKOFF_MS = 60_000
 
 const prefixIndex = new Map<string, string[]>()
 
@@ -46,6 +50,9 @@ async function buildPrefixIndex(): Promise<void> {
 
 function ensurePrefixIndex(): Promise<void> {
   if (prefixIndexBuilt) return Promise.resolve()
+  // Don't cache a build attempt until the gloss data has actually loaded,
+  // or a failed load would pin a no-op promise for the rest of the session.
+  if (!data) return Promise.resolve()
   if (!prefixIndexPromise) prefixIndexPromise = buildPrefixIndex()
   return prefixIndexPromise
 }
@@ -54,6 +61,9 @@ function ensurePrefixIndex(): Promise<void> {
 export function loadJmdictGloss(): Promise<JmdictGlossData | null> {
   if (data) return Promise.resolve(data)
   if (loadPromise) return loadPromise
+  if (lastLoadFailureAt && Date.now() - lastLoadFailureAt < LOAD_RETRY_BACKOFF_MS) {
+    return Promise.resolve(null)
+  }
 
   loadPromise = (async () => {
     try {
@@ -66,9 +76,12 @@ export function loadJmdictGloss(): Promise<JmdictGlossData | null> {
         romaji: parsed.romaji ?? {},
         kanji: parsed.kanji ?? {},
       }
+      lastLoadFailureAt = 0
       return data
     } catch {
       loadPromise = null
+      prefixIndexPromise = null
+      lastLoadFailureAt = Date.now()
       return null
     }
   })()
@@ -122,6 +135,7 @@ export function jmdictLemmaKeysForStem(stem: string): string[] {
 export function resetJmdictGlossCache(): void {
   data = null
   loadPromise = null
+  lastLoadFailureAt = 0
   prefixIndexBuilt = false
   prefixIndexPromise = null
   prefixIndex.clear()
