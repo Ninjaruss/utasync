@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import * as ort from 'onnxruntime-web'
+import { describeWorkerError } from './workerError'
 import { DEMUCS_MODEL_URL } from './demucsModelUrl'
 import { hannWindow, stft, istft } from './fft'
 
@@ -44,7 +45,7 @@ self.onmessage = async (e: MessageEvent) => {
     } catch (err) {
       self.postMessage({
         type: 'error',
-        payload: err instanceof Error ? err.message : 'Failed to load vocal separation model',
+        payload: describeWorkerError(err, 'Failed to load vocal separation model'),
       })
     }
     return
@@ -161,7 +162,7 @@ self.onmessage = async (e: MessageEvent) => {
     } catch (err) {
       self.postMessage({
         type: 'error',
-        payload: err instanceof Error ? err.message : 'Vocal separation failed',
+        payload: describeWorkerError(err, 'Vocal separation failed'),
       })
     }
   }

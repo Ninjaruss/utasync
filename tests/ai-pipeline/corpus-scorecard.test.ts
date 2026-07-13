@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { refineAlignmentWithPhrases } from '../../src/lyrics/phraseAlignment'
+import { refineMixedLanguageAlignment } from '../../src/ai-pipeline/mixedLanguageAlign'
 import { alignLyrics, sanitizeTranscript } from '../../src/ai-pipeline/aligner'
 import { computeLineMatchedSpans } from '../../src/ai-pipeline/contentAligner'
 import { computeBoundaryMetrics } from '../../scripts/lib/boundaryMetrics.mjs'
@@ -23,9 +24,11 @@ const FIXTURES = join(here, 'fixtures')
 
 interface CorpusSong {
   name: string
-  lang: 'ja' | 'en'
+  lang: 'ja' | 'en' | 'mixed'
   lyrics: string
   transcript: string
+  /** Present on mixed two-pass rows: the EN-forced transcript (see audit-corpus.mjs). */
+  transcriptEn?: string
 }
 
 function loadTranscriptWords(path: string) {
@@ -67,14 +70,24 @@ describe('audit corpus — alignment non-regression', () => {
         .split('\n')
         .map((l) => l.trim())
         .filter(Boolean)
-      const words = loadTranscriptWords(join(FIXTURES, song.transcript))
+      let words = loadTranscriptWords(join(FIXTURES, song.transcript))
       const sheetRows: TimedLine[] = lineTexts.map((original) => ({
         original,
         translation: '',
         startTime: 0,
         endTime: 0,
       }))
-      const refined = refineAlignmentWithPhrases(sheetRows, words, song.lang)
+      // Mirror audit-corpus.mjs: a row with an EN-forced transcript audits the
+      // mixed two-pass path and scores against the merged transcript.
+      let refined
+      if (song.transcriptEn) {
+        const enWords = loadTranscriptWords(join(FIXTURES, song.transcriptEn))
+        const mixed = refineMixedLanguageAlignment(sheetRows, words, enWords)
+        refined = mixed.refined
+        words = mixed.transcriptWords
+      } else {
+        refined = refineAlignmentWithPhrases(sheetRows, words, song.lang)
+      }
 
       const base = baseline[song.name]
       if (!base) {

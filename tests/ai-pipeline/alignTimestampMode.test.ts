@@ -38,17 +38,21 @@ describe('preferredWhisperTimestampMode', () => {
     expect(preferredWhisperTimestampMode('full', 300, { accurateReadings: true })).toBe('word')
   })
 
-  it('still uses segment on lite tier even with accurate readings (word merge stalls on phones)', () => {
-    expect(preferredWhisperTimestampMode('lite', 120, { accurateReadings: true })).toBe('segment')
+  it('honors the accurate-readings opt-in on lite tier (default stays segment)', () => {
+    expect(preferredWhisperTimestampMode('lite', 120, { accurateReadings: true })).toBe('word')
+    expect(preferredWhisperTimestampMode('lite', 300, { accurateReadings: true })).toBe('word')
   })
 })
 
 describe('accurateReadingsAvailable', () => {
-  it('is offered only on full tier for long songs (short songs already use word mode)', () => {
+  it('is offered on full tier for long songs (short songs already use word mode)', () => {
     expect(accurateReadingsAvailable('full', 300)).toBe(true)
     expect(accurateReadingsAvailable('full', 120)).toBe(false)
-    expect(accurateReadingsAvailable('lite', 300)).toBe(false)
     expect(accurateReadingsAvailable('manual', 300)).toBe(false)
+  })
+  it('is offered on lite tier for any duration (lite defaults to segment)', () => {
+    expect(accurateReadingsAvailable('lite', 120)).toBe(true)
+    expect(accurateReadingsAvailable('lite', 300)).toBe(true)
   })
 })
 
@@ -56,7 +60,8 @@ describe('accurateReadingsEstimate', () => {
   it('gives a time estimate only when the slower pass would actually run', () => {
     expect(accurateReadingsEstimate('full', 300)).toBe('~3–8 min')
     expect(accurateReadingsEstimate('full', 120)).toBeNull()
-    expect(accurateReadingsEstimate('lite', 300)).toBeNull()
+    expect(accurateReadingsEstimate('lite', 300)).toBe('~3–8 min')
+    expect(accurateReadingsEstimate('manual', 300)).toBeNull()
   })
 })
 
@@ -83,8 +88,11 @@ describe('suggestsWordLevelAlignment', () => {
     expect(suggestsWordLevelAlignment(merged, mergedWords, 'full')).toBe(true)
   })
 
-  it('does not suggest on lite/manual tiers (word mode is not viable there)', () => {
-    expect(suggestsWordLevelAlignment(merged, mergedWords, 'lite')).toBe(false)
+  it('suggests on lite tier too (the word-mode opt-in is honored there)', () => {
+    expect(suggestsWordLevelAlignment(merged, mergedWords, 'lite')).toBe(true)
+  })
+
+  it('does not suggest on manual tier (auto-align unavailable)', () => {
     expect(suggestsWordLevelAlignment(merged, mergedWords, 'manual')).toBe(false)
   })
 

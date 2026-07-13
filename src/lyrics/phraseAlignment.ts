@@ -1,5 +1,5 @@
 import type { AlignmentLanguage, LineAlignmentQuality, LyricsData, SungPhrase, TimedLine } from '../core/types'
-import { alignLyrics, lineWeight, sanitizeTranscript, subdivideTranscriptWord, type TranscriptWord } from '../ai-pipeline/aligner'
+import { alignLyrics, lineWeight, sanitizeTranscript, subdivideTranscriptWord, type AlignLyricsOptions, type TranscriptWord } from '../ai-pipeline/aligner'
 import {
   computeLineMatchedSpans,
   isInterjectionLyricLine,
@@ -1624,7 +1624,7 @@ export function validateAndRetryLineTimings(
   return { lines: out, anchorSources, lineAlignmentQuality, retryCount }
 }
 
-function syncPhrasesFromValidatedLines(
+export function syncPhrasesFromValidatedLines(
   phrases: SungPhrase[],
   validatedLines: TimedLine[],
 ): SungPhrase[] {
@@ -1740,10 +1740,11 @@ export function refineAlignmentWithPhrases(
   words: TranscriptWord[],
   sourceLanguage: AlignmentLanguage,
   _lyricsBase?: Pick<LyricsData, 'translationLanguage' | 'alignmentMode'>,
+  options?: AlignLyricsOptions,
 ): RefinedAlignment {
   const transcriptWords = sanitizeTranscript(words)
   const lineTexts = sheetRows.map((l) => l.original || l.translation)
-  const pass1 = alignLyrics(lineTexts, words, sheetRows, sourceLanguage)
+  const pass1 = alignLyrics(lineTexts, words, sheetRows, sourceLanguage, options)
   const { phrases: draft, report } = derivePhrases(pass1.lines, transcriptWords, pass1.anchorSources)
   const phrases = finalizePhraseTimings(
     alignPhrasesToTranscript(draft, words, sourceLanguage),

@@ -7,22 +7,27 @@ export interface TimestampModeOptions {
 
 /** Word-level timestamps verify readings and refine phrase boundaries, but the
  * merge can stall for minutes on phones / long songs — so the default falls back
- * to segment timestamps there. The user can opt back into word mode for accuracy. */
+ * to segment timestamps there. The user can opt back into word mode for accuracy:
+ * the opt-in is honored on lite tier too (a lite device is often just a browser
+ * without deviceMemory, not a phone), so lite users aren't permanently locked to
+ * the coarser segment boundaries. */
 export function preferredWhisperTimestampMode(
   tier: DeviceTier,
   durationSec: number,
   options?: TimestampModeOptions,
 ): 'word' | 'segment' {
+  if (options?.accurateReadings && tier !== 'manual') return 'word'
   if (tier === 'lite') return 'segment'
-  if (options?.accurateReadings) return 'word'
   if (durationSec > 180) return 'segment'
   return 'word'
 }
 
-/** Whether the "Accurate readings (slower)" opt-in is worth surfacing: only on full
- * tier for long songs, where the default would otherwise drop to segment mode. */
+/** Whether the "Accurate readings (slower)" opt-in is worth surfacing: whenever the
+ * default would otherwise use segment mode — full tier on long songs, lite tier on
+ * any song (lite defaults to segment across the board). */
 export function accurateReadingsAvailable(tier: DeviceTier, durationSec: number): boolean {
-  return tier === 'full' && durationSec > 180
+  if (tier === 'full') return durationSec > 180
+  return tier === 'lite'
 }
 
 /** Rough extra-time estimate for the word-level pass, shown next to the opt-in.
@@ -103,12 +108,13 @@ export function countMergedTranscriptSegments(
 
 /** Whether to suggest re-running with the slower word-level pass: the segment
  * transcript grouped multiple lines into shared chunks (so per-line timing is
- * approximate) and the device can actually run word mode (full tier only). */
+ * approximate) and the device can actually run word mode (full or lite tier —
+ * the opt-in is honored on lite too). */
 export function suggestsWordLevelAlignment(
   lines: TimedLine[],
   transcriptWords: TimedTranscriptWord[] | undefined,
   tier: DeviceTier,
 ): boolean {
-  if (tier !== 'full' || !transcriptWords?.length) return false
+  if (tier === 'manual' || !transcriptWords?.length) return false
   return countMergedTranscriptSegments(lines, transcriptWords) >= MERGED_SEGMENT_SUGGEST_THRESHOLD
 }

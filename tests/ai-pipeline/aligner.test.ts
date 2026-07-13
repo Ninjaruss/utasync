@@ -249,6 +249,42 @@ describe('sanitizeTranscript', () => {
     expect(result[0].endTime).toBeLessThan(232)
     expect(result[0].endTime - result[0].startTime).toBeLessThanOrEqual(10)
   })
+
+  it('drops pure noise-marker chunks ("[Music]", "(音楽)") that would otherwise match lyrics', () => {
+    const words: TranscriptWord[] = [
+      { word: ' [Music]', startTime: 0, endTime: 4.5 },
+      { word: '(音楽)', startTime: 5, endTime: 8 },
+      { word: '[MUSIC PLAYING]', startTime: 9, endTime: 12 },
+      { word: '青空に', startTime: 13, endTime: 14 },
+    ]
+    expect(sanitizeTranscript(words).map((w) => w.word)).toEqual(['青空に'])
+  })
+
+  it('strips markers from mixed chunks without dropping the lyric text', () => {
+    const words: TranscriptWord[] = [{ word: 'Stranger than heaven ♪', startTime: 157, endTime: 160 }]
+    expect(sanitizeTranscript(words)[0].word).toBe('Stranger than heaven')
+  })
+
+  it('clips a "[Music]"-led chunk to its sung tail instead of smearing lyrics across the intro', () => {
+    // Real defect (stranger-than-heaven EN pass): "[Music] You know I could take
+    // you somewhere" stamped 0–26s while the vocal sits at the chunk's end.
+    const words: TranscriptWord[] = [
+      { word: ' [Music] You know I could take you somewhere', startTime: 0, endTime: 26 },
+    ]
+    const slots = sanitizeTranscript(words)
+    // The clipped chunk still exceeds 10s, so it subdivides into char slots —
+    // all of them confined to the sung tail, none smeared into the intro.
+    expect(slots.map((w) => w.word).join('')).toBe('youknowicouldtakeyousomewhere')
+    expect(slots[0].startTime).toBeGreaterThan(5)
+    expect(slots[slots.length - 1].endTime).toBe(26)
+  })
+
+  it('does not treat a ♪-decorated sung chunk as an instrumental lead-in', () => {
+    const words: TranscriptWord[] = [{ word: '(♪~)夜はく take yourself away', startTime: 142, endTime: 145.2 }]
+    const [w] = sanitizeTranscript(words)
+    expect(w.startTime).toBe(142)
+    expect(w.endTime).toBe(145.2)
+  })
 })
 
 describe('lineWeight', () => {

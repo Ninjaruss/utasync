@@ -6,7 +6,8 @@ import { decodeAudioFileToMono } from '../core/audio/decodeToMono'
 import { getAudioFile } from '../core/opfs/audio'
 import type { Song } from '../core/types'
 import { sanitizeTranscript, LOW_CONFIDENCE_WARN_THRESHOLD, type TranscriptWord } from './aligner'
-import { refineAlignmentWithPhrases, sheetRowsForAlignment, applyRefinedAlignment } from '../lyrics/phraseAlignment'
+import { refineAlignmentWithPhrases, sheetRowsForAlignment, applyRefinedAlignment, type RefinedAlignment } from '../lyrics/phraseAlignment'
+import { refineMixedLanguageAlignment } from './mixedLanguageAlign'
 import { db } from '../core/db/schema'
 import { computeSyncState } from '../core/db/migrations'
 import { ProcessProgress } from '../core/ui/ProcessProgress'
@@ -14,6 +15,7 @@ import { ConfirmDialog } from '../core/ui/ConfirmDialog'
 import { alignSteps, alignStepIndex, type AlignStage } from './alignProgress'
 import { preferredWhisperTimestampMode } from './alignTimestampMode'
 import { detectSheetLanguage } from './whisperLanguage'
+import { isRecoverableTranscriptionError } from './workerError'
 import { resetWhisperTranscriber, transcribeAudio, type LoadProgress, type TranscribeProgressStatus } from './whisperTranscriber'
 import { isDemucsModelAvailable, refreshDemucsModelAvailability, separateVocals } from './demucsSeparator'
 import { useSettingsStore } from '../payment/SettingsStore'
@@ -200,11 +202,15 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
       )
 
       let sawDownload = false
-      const transcriptResult = await transcribeAudio(audioData, sampleRate, {
-        language: alignmentLanguage,
+      let modelAnnounced = false
+      const transcribeOptions = (
+        language: typeof alignmentLanguage,
+        scaleProgress: (pct: number) => number,
+      ) => ({
+        language,
         highAccuracy: useHighAccuracy,
         timestampMode,
-        onLoadProgress: (p) => {
+        onLoadProgress: (p: LoadProgress) => {
           setLastLoadProgress(p)
           if (p.phase === 'init' || p.status === 'initializing') {
             setLoadPhase('init')
@@ -220,6 +226,8 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           if (typeof pct === 'number') setProgress(pct)
         },
         onModelLoaded: () => {
+          if (modelAnnounced) return // second mixed-language pass reuses the warm model
+          modelAnnounced = true
           if (!sawDownload) setLoadDetail(null)
           setLoadPhase('download')
           setStage('transcribing')
@@ -227,7 +235,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           setTranscribePhase('transcribing')
           setProgress(0)
         },
-        onTranscribeProgress: ({ progress: pct, status }) => {
+        onTranscribeProgress: ({ progress: pct, status }: { progress: number; status: TranscribeProgressStatus }) => {
           if (status === 'merging' || status === 'finalizing') {
             setTranscribeMerging(true)
             setTranscribePhase(status)
@@ -235,31 +243,89 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           }
           setTranscribeMerging(false)
           setTranscribePhase('transcribing')
-          setProgress(pct)
+          setProgress(scaleProgress(pct))
         },
       })
+      // Runtime fallback ladder: a WASM crash (usually OOM) or a stalled merge on
+      // the heavier configurations downgrades and retries instead of failing the
+      // whole flow — word timestamps fall back to segment, whisper-medium falls
+      // back to whisper-small. Downgrades stick for the rest of this run (the
+      // second mixed-language pass must not re-attempt what just crashed).
+      let effectiveTimestampMode = timestampMode
+      let effectiveHighAccuracy = useHighAccuracy
+      const transcribeWithFallback = async (
+        language: typeof alignmentLanguage,
+        scaleProgress: (pct: number) => number,
+      ) => {
+        const run = () =>
+          transcribeAudio(audioData, sampleRate, {
+            ...transcribeOptions(language, scaleProgress),
+            timestampMode: effectiveTimestampMode,
+            highAccuracy: effectiveHighAccuracy,
+          })
+        try {
+          return await run()
+        } catch (e) {
+          if (cancelledRef.current || !isRecoverableTranscriptionError(e)) throw e
+          if (effectiveTimestampMode === 'word') {
+            effectiveTimestampMode = 'segment'
+            setLoadDetail('Word-level pass failed (likely out of memory) — retrying with segment timestamps…')
+          } else if (effectiveHighAccuracy) {
+            effectiveHighAccuracy = false
+            setLoadDetail('High-accuracy model failed — retrying with the standard model…')
+          } else {
+            throw e
+          }
+          setProgress(0)
+          return await run()
+        }
+      }
+      const toWords = (t: { chunks?: { text?: string; timestamp?: [number, number] }[] }): TranscriptWord[] =>
+        (t.chunks ?? []).flatMap((c) => {
+          const [start, end] = c.timestamp ?? []
+          const word = c.text?.trim()
+          if (!word || !Number.isFinite(start) || !Number.isFinite(end)) return []
+          return [{ word, startTime: start as number, endTime: end as number }]
+        })
 
-      if (cancelledRef.current) return
+      let refined: RefinedAlignment
+      let transcriptWords: TranscriptWord[]
+      if (alignmentLanguage === 'mixed') {
+        // Code-switching sheet: per-chunk language auto-detect garbles whichever
+        // language loses each 30s window and collapses content-match confidence
+        // to the proportional fallback. Transcribe twice with a forced language
+        // instead and merge per line by alignment quality.
+        const jaTranscript = await transcribeWithFallback('ja', (p) => p / 2)
+        if (cancelledRef.current) return
+        const enTranscript = await transcribeWithFallback('en', (p) => 50 + p / 2)
+        if (cancelledRef.current) return
 
-      setTranscribeMerging(false)
-      setTranscribePhase('transcribing')
-      setStage('aligning')
-      setProgress(0)
-      await yieldToMainThread()
-      const words: TranscriptWord[] = (transcriptResult.chunks ?? []).flatMap((c) => {
-        const [start, end] = c.timestamp ?? []
-        const word = c.text?.trim()
-        if (!word || !Number.isFinite(start) || !Number.isFinite(end)) return []
-        return [{ word, startTime: start, endTime: end }]
-      })
-      const transcriptWords = sanitizeTranscript(words)
+        setTranscribeMerging(false)
+        setTranscribePhase('transcribing')
+        setStage('aligning')
+        setProgress(0)
+        await yieldToMainThread()
+        const mixed = refineMixedLanguageAlignment(sheetRows, toWords(jaTranscript), toWords(enTranscript))
+        refined = mixed.refined
+        transcriptWords = mixed.transcriptWords
+      } else {
+        const transcriptResult = await transcribeWithFallback(alignmentLanguage, (p) => p)
+        if (cancelledRef.current) return
 
-      const refined = refineAlignmentWithPhrases(
-        sheetRows,
-        words,
-        alignmentLanguage,
-        song.lyrics,
-      )
+        setTranscribeMerging(false)
+        setTranscribePhase('transcribing')
+        setStage('aligning')
+        setProgress(0)
+        await yieldToMainThread()
+        const words = toWords(transcriptResult)
+        transcriptWords = sanitizeTranscript(words)
+        refined = refineAlignmentWithPhrases(
+          sheetRows,
+          words,
+          alignmentLanguage,
+          song.lyrics,
+        )
+      }
       const updated: Song = {
         ...song,
         lyrics: applyRefinedAlignment(

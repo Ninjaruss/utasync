@@ -3,6 +3,7 @@ import { getWhisperModel } from './models'
 import { MODEL_INIT_HINT, ModelLoadProgressTracker, type ModelLoadProgress } from './modelLoadProgress'
 import { loadWhisperAsrPipeline } from './whisperPipeline'
 import { whisperLanguageFor } from './whisperLanguage'
+import { describeWorkerError } from './workerError'
 import { slimWhisperTranscript } from './whisperTranscript'
 import { planWindows, stitchChunkedResults, type WindowResult } from './whisperChunked'
 import type { AlignmentLanguage } from '../core/types'
@@ -139,10 +140,7 @@ self.onmessage = async (e: MessageEvent) => {
       self.postMessage({ type: 'result', payload: slim })
     }
   } catch (err) {
-    self.postMessage({
-      type: 'error',
-      payload: err instanceof Error ? err.message : String(err),
-    })
+    self.postMessage({ type: 'error', payload: describeWorkerError(err) })
   }
 }
 

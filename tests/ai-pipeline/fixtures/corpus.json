@@ -64,6 +64,20 @@
       "transcript": "stranger-than-heaven/transcript.segment.medium.json"
     },
     {
+      "name": "stranger-than-heaven-mixed-segment",
+      "lang": "mixed",
+      "lyrics": "stranger-than-heaven/lyrics.txt",
+      "transcript": "stranger-than-heaven/transcript.segment.json",
+      "transcriptEn": "stranger-than-heaven/transcript.segment.forced-en.json"
+    },
+    {
+      "name": "stranger-than-heaven-mixed-word",
+      "lang": "mixed",
+      "lyrics": "stranger-than-heaven/lyrics.txt",
+      "transcript": "stranger-than-heaven/transcript.word.json",
+      "transcriptEn": "stranger-than-heaven/transcript.word.forced-en.json"
+    },
+    {
       "name": "guitar-loneliness-word",
       "lang": "ja",
       "lyrics": "guitar-loneliness/lyrics.ja.txt",

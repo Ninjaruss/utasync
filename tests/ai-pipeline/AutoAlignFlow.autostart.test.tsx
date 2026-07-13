@@ -31,6 +31,8 @@ vi.stubGlobal('AudioContext', MockAudioContext)
 
 const transcribeAudio = vi.fn(async (_audio: Float32Array, _rate: number, opts?: {
   onModelLoaded?: () => void
+  timestampMode?: 'word' | 'segment'
+  highAccuracy?: boolean
 }) => {
   opts?.onModelLoaded?.()
   return { chunks: [{ text: 'hello', timestamp: [0, 1] as [number, number] }] }
@@ -113,6 +115,40 @@ describe('AutoAlignFlow autoStart', () => {
 
     expect(onComplete).not.toHaveBeenCalled()
     expect(await db.songs.get(song.id)).toBeUndefined()
+  })
+
+  it('falls back from word to segment timestamps when the WASM worker crashes (OOM)', async () => {
+    deviceTier.current = 'full' // short song on full tier defaults to word mode
+    transcribeAudio.mockImplementationOnce(async (_audio, _rate, opts) => {
+      opts?.onModelLoaded?.()
+      expect(opts?.timestampMode).toBe('word')
+      // What whisperTranscriber rejects with after describeWorkerError translation.
+      throw new Error('The on-device speech model crashed (WASM error 1261431424) — this usually means the browser ran out of memory.')
+    })
+
+    const onComplete = vi.fn()
+    render(<AutoAlignFlow song={song} autoStart onComplete={onComplete} onClose={vi.fn()} />)
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalled())
+    expect(transcribeAudio).toHaveBeenCalledTimes(2)
+    expect(transcribeAudio.mock.calls[1][2]?.timestampMode).toBe('segment')
+    const saved = await db.songs.get(song.id)
+    expect(saved?.syncState).toBe('synced')
+  })
+
+  it('does not retry after a user cancellation', async () => {
+    deviceTier.current = 'full'
+    transcribeAudio.mockImplementationOnce(async (_audio, _rate, opts) => {
+      opts?.onModelLoaded?.()
+      throw new Error('Transcription cancelled')
+    })
+
+    const onComplete = vi.fn()
+    render(<AutoAlignFlow song={song} autoStart onComplete={onComplete} onClose={vi.fn()} />)
+
+    await waitFor(() => expect(screen.getByText(/transcription cancelled/i)).toBeTruthy())
+    expect(transcribeAudio).toHaveBeenCalledTimes(1)
+    expect(onComplete).not.toHaveBeenCalled()
   })
 })
 
