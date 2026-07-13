@@ -108,10 +108,11 @@ register is empty.
 **Flake register:** none. No test failed on the first full run, so no reruns were
 required and no persistent failures exist.
 
-**Skips:** 1 file / 2 tests skipped. These correspond to the project's known
-self-skipping guard tests that require locally-cached, non-committed audio
-transcripts (e.g. `tests/ai-pipeline/user-downloads-audit.test.ts`, which uses
-`.skip`/`skipIf` guards similar to the AKFG ground-truth suites) — consistent
-with the existing pattern documented for `scripts/audit-corpus.mjs` guards. This
-run did not enumerate the skipped test names individually beyond the vitest
-summary counts (`1 skipped` file, `2 skipped` tests).
+**Skips:** 1 file / 2 tests skipped. Per `--reporter=verbose`, the skips are
+`tests/ai-pipeline/akfg-mp3.align.integration.test.ts` (gated by
+`describe.skipIf(!process.env.RUN_AKFG_MP3 || !existsSync(WAV))`) and
+`tests/sources/lrclib.live.test.ts` (gated by
+`describe.skipIf(!LIVE)` where `LIVE = process.env.RUN_LRCLIB_LIVE === '1'`).
+Both are opt-in, env-var-gated suites (heavy local audio run / live network
+calls), not cache-presence skips; neither env var was set for this baseline
+run.
