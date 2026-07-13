@@ -1,4 +1,4 @@
-import kuromoji, { type Tokenizer } from 'kuromoji'
+import kuromoji, { type Token as KuromojiToken, type Tokenizer } from 'kuromoji'
 import type { Token } from '../../core/types'
 import { applyReadingCorrections } from './readingCorrections'
 
@@ -14,12 +14,10 @@ function getTokenizer(): Promise<Tokenizer> {
   })
 }
 
-export async function tokenizeJapanese(text: string): Promise<Token[]> {
-  const tokenizer = await getTokenizer()
-  const raw = tokenizer.tokenize(text)
-
+/** Pure kuromoji→Token mapping, exported for tests (the real dictionary cannot load in node). */
+export function mapKuromojiTokens(raw: KuromojiToken[]): Token[] {
   let index = 0
-  const tokens = raw.map((t): Token => {
+  return raw.map((t): Token => {
     const startIndex = index
     index += t.surface_form.length
     return {
@@ -27,9 +25,14 @@ export async function tokenizeJapanese(text: string): Promise<Token[]> {
       reading: t.reading,
       pos: t.pos,
       posDetail1: t.pos_detail_1 && t.pos_detail_1 !== '*' ? t.pos_detail_1 : undefined,
+      baseForm: t.basic_form && t.basic_form !== '*' && t.basic_form !== t.surface_form ? t.basic_form : undefined,
       startIndex,
       endIndex: index,
     }
   })
-  return applyReadingCorrections(tokens)
+}
+
+export async function tokenizeJapanese(text: string): Promise<Token[]> {
+  const tokenizer = await getTokenizer()
+  return applyReadingCorrections(mapKuromojiTokens(tokenizer.tokenize(text)))
 }

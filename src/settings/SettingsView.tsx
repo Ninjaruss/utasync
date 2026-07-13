@@ -32,7 +32,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
   const [cacheMessage, setCacheMessage] = useState<string | null>(null)
   const [clearingCache, setClearingCache] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  const { defaultSongLanguage, setDefaultSongLanguage, vocalSeparationEnabled, setVocalSeparationEnabled, readingMode, setReadingMode } = useSettingsStore()
+  const { defaultSongLanguage, setDefaultSongLanguage, vocalSeparationEnabled, setVocalSeparationEnabled, readingMode, setReadingMode, tapLookupEnabled, setTapLookupEnabled } = useSettingsStore()
 
   const refreshStorage = async (library: Song[]) => {
     setStorage(await estimateStorageBreakdown())
@@ -177,6 +177,27 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
           ].join(' ')}
         >
           {readingMode === 'sung' ? 'Show sung readings in furigana' : 'Show dictionary readings in furigana'}
+        </button>
+      </div>
+
+      <div className="bg-cinnabar-900 rounded-xl p-4 space-y-2">
+        <p className="text-sm font-medium">Word lookup</p>
+        <p className="text-xs text-white/45 text-pretty">
+          Tap a word in the lyrics to see its reading and meaning. Turn this off if you use a dictionary extension like Yomitan.
+        </p>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={tapLookupEnabled}
+          onClick={() => setTapLookupEnabled(!tapLookupEnabled)}
+          className={[
+            'w-full min-h-11 rounded-lg text-sm font-medium touch-manipulation transition-[color,background-color] duration-150 ease-out text-left px-4',
+            tapLookupEnabled
+              ? 'bg-cinnabar-accent text-white'
+              : 'bg-cinnabar-800 text-white/50 hover:text-white/80',
+          ].join(' ')}
+        >
+          {tapLookupEnabled ? 'Tap to look up words: On' : 'Tap to look up words: Off'}
         </button>
       </div>
 
