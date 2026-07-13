@@ -90,5 +90,21 @@ Candidate areas, to be confirmed/refuted by data before touching code:
   - Caveat: stranger LRC is a 237s edit vs our 233.6s audio; mid-song residual
     clusters (+8s around lines 20-33) may be version drift, not aligner error.
     Guitar (exact version) findings are trustworthy.
-- Next: Defect B order-aware pull; Defect C repeat check; Phase 4 truth
-  metrics in CI; live re-validation with vocal separation after the rate fix.
+- 2026-07-13 later — Defects B & C FIXED:
+  - B: dropped the container-starts-before-prev-span rejection in
+    `backfillLateStartsToMatchedSpan` (the boundary clamp to prevSpanEnd is
+    the real ownership guard); guitar #27/#44 recovered.
+  - C was NOT a repeat misassignment: Whisper emits COLLAPSED chunks (a whole
+    line stamped into 0.2-0.4s at the utterance's end; guitar #18-19 stamped
+    95.0-95.4 vs sung from ~89.7). New `expandCollapsedSegment` in
+    sanitizeTranscript expands sub-0.06s/glyph chunks backward at 0.2s/glyph,
+    bounded by the previous chunk's end.
+  - Truth error after B+C: stranger segment two-pass (the app's real config
+    for this song) p50 2.03s→0.73s, >1s lines 35→25; guitar segment p90
+    5.32s→2.92s. Corpus re-baselined (+1-count transcript-relative wiggles).
+  - Remaining (documented, unfixed): stranger intro #0-2 (marker-chunk
+    bounding), interlude #40-42 / rap-block residuals (possibly LRC version
+    drift — needs exact-version truth to confirm), guitar #20 (one 4.1s chunk
+    carrying three lines' text — under-segmented evidence).
+- Next: Phase 4 truth metrics in CI scorecard; live re-validation with vocal
+  separation ON; consider exact-version LRC sources for stranger.

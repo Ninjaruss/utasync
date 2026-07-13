@@ -108,6 +108,29 @@ function pushSanitizedWord(kept: TranscriptWord[], w: TranscriptWord): void {
   kept.push(w)
 }
 
+// A whole lyric line stamped into a fraction of a second is a collapsed
+// segment chunk (Whisper squeezes the phrase to its utterance END when the
+// preceding audio confused it). Below this pace the START is untrustworthy;
+// the end roughly marks where the phrase finished.
+const COLLAPSED_SEC_PER_GLYPH = 0.06
+/** Typical sung pace used to reconstruct a collapsed chunk's extent. */
+const EXPAND_SEC_PER_GLYPH = 0.2
+const COLLAPSED_MIN_GLYPHS = 6
+
+/** Expand a collapsed segment chunk backward to a plausible sung span —
+ * bounded by the previous chunk's end so it never claims earlier audio.
+ * Mirror image of clipImplausibleSegmentEnd (ground-truth audit: guitar
+ * lines 18-19 were stamped 95.0-95.4 while actually sung from ~89.7). */
+function expandCollapsedSegment(w: TranscriptWord, prevEnd: number): TranscriptWord {
+  const glyphs = [...normalizeForMatch(w.word)].length
+  if (glyphs < COLLAPSED_MIN_GLYPHS) return w
+  const duration = w.endTime - w.startTime
+  if (duration / glyphs >= COLLAPSED_SEC_PER_GLYPH) return w
+  const start = Math.max(prevEnd + 0.05, w.endTime - glyphs * EXPAND_SEC_PER_GLYPH)
+  if (start >= w.startTime) return w
+  return { ...w, startTime: start }
+}
+
 /** Clip Japanese segment overstamps; leave Latin-only loops for the drop rule.
  * `nextStart` is the following raw chunk's onset (if any). A long segment that is
  * plausibly paced (≤ SLOW_SING_MAX_SEC_PER_GLYPH) is slow singing, not an
@@ -149,6 +172,8 @@ export function sanitizeTranscript(words: TranscriptWord[]): TranscriptWord[] {
     if (!normalizeForMatch(stripped.text)) continue
     let cleaned: TranscriptWord = { ...raw, word: stripped.text }
     if (stripped.leadingMarker) cleaned = clipMarkerLeadIn(cleaned)
+    const prevKeptEnd = kept.length ? kept[kept.length - 1].endTime : 0
+    cleaned = expandCollapsedSegment(cleaned, prevKeptEnd)
     const nextRawStart = words[wi + 1]?.startTime
     const w = clipImplausibleSegmentEnd(cleaned, nextRawStart)
     const duration = w.endTime - w.startTime

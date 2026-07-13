@@ -511,7 +511,11 @@ function backfillLateStartsToMatchedSpan(
     // boundary on (and the reading pass depends on these windows).
     const container = clean.find((w) => w.startTime <= span.firstTime && w.endTime > span.firstTime)
     if (!container || container.endTime - container.startTime > LATESTART_MAX_CONTAINER_S) continue
-    if (container.startTime < prevSpanEnd - 0.05) continue
+    // A container that starts before the previous line's matched span is fine:
+    // the boundary below is clamped to prevSpanEnd, which is the actual
+    // ownership guard. Rejecting outright here left 2-5s late clusters in
+    // place whenever consecutive lines matched inside one shared chunk
+    // (ground-truth audit, guitar-loneliness #27/#29/#44).
     const target = container.startTime
     // Pass-2 lines abut, so a late start means the previous line's end
     // overshoots into this line's audio — move the shared boundary, never
