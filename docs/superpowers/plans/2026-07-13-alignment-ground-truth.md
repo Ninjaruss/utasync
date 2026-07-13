@@ -106,5 +106,9 @@ Candidate areas, to be confirmed/refuted by data before touching code:
     bounding), interlude #40-42 / rap-block residuals (possibly LRC version
     drift — needs exact-version truth to confirm), guitar #20 (one 4.1s chunk
     carrying three lines' text — under-segmented evidence).
-- Next: Phase 4 truth metrics in CI scorecard; live re-validation with vocal
-  separation ON; consider exact-version LRC sources for stranger.
+- 2026-07-13 Phase 4 DONE: `tests/ai-pipeline/lrc-truth.test.ts` locks truth
+  error (p50/p90/>1s) in CI for guitar word+segment and the stranger segment
+  two-pass; shared helpers extracted to `scripts/lib/lrcTruth.mjs`.
+- Remaining: live re-validation with vocal separation ON; exact-version LRC
+  source for stranger (removes the version-drift caveat); stranger intro
+  marker-chunk bounding; guitar #20 under-segmented chunk.
