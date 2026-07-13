@@ -116,3 +116,134 @@ required and no persistent failures exist.
 Both are opt-in, env-var-gated suites (heavy local audio run / live network
 calls), not cache-presence skips; neither env var was set for this baseline
 run.
+
+## 5. Option-coverage matrix (Task 2)
+
+Verified against the actual `tests/ai-pipeline/fixtures/corpus.json` (14 rows) and
+the real option surface in `src/ai-pipeline/alignTimestampMode.ts`,
+`src/ai-pipeline/capability.ts`, `src/ai-pipeline/models.ts`,
+`src/ai-pipeline/inferenceBackend.ts`, and the toggles wired in
+`src/ai-pipeline/AutoAlignFlow.tsx`.
+
+### User-facing option surface (from AutoAlignFlow.tsx)
+
+Three independent toggles a user can actually set, plus one sheet-derived axis
+that isn't a toggle at all:
+
+1. **`accurateReadings`** ("Accurate readings (slower)" checkbox) — forces
+   word-level Whisper timestamps via `preferredWhisperTimestampMode`. Surfaced
+   whenever the default would otherwise be segment mode (`accurateReadingsAvailable`
+   in `alignTimestampMode.ts`: full tier on songs >180s, or any lite-tier song).
+2. **`highAccuracy`** ("High accuracy" checkbox, full tier only) — swaps
+   `Xenova/whisper-small` for `Xenova/whisper-medium` via `getWhisperModel` /
+   `canUseHighAccuracy` (`models.ts`, `inferenceBackend.ts`). Gated on
+   `highAccuracySupported = canUseHighAccuracy(tier)`, i.e. full tier only.
+3. **`vocalSeparation`** (Demucs preprocessing toggle, full tier only, default
+   from `useSettingsStore`) — an audio-domain preprocessing step, not a
+   transcript/alignment-domain option.
+4. **Sheet language** (`ja` / `en` / `mixed`) — not a toggle; auto-detected from
+   the pasted lyric sheet by `detectSheetLanguage` (`whisperLanguage.ts`) from
+   script composition. `mixed` sheets get `whisperLanguageFor` → `undefined`
+   (Whisper auto-detects per 30s chunk) and route through the two-pass
+   `refineMixedLanguageAlignment`.
+
+Device tier (`lite` / `full` / `manual`, from `capability.ts`) is not itself a
+user toggle — it's inferred from `navigator.gpu` / `deviceMemory` — but it gates
+which of the above toggles are even shown, and shifts the *default* timestamp
+mode. The corpus scorecard is tier-agnostic (`corpus-scorecard.test.ts` calls
+`refineAlignmentWithPhrases` directly, never `getDeviceTier`), so tier-dependent
+*default* selection is not exercised by this instrument at all — only the
+resulting word/segment transcript shapes are.
+
+### Matrix (verified against corpus.json)
+
+| Axis | Covered by | Verified |
+|---|---|---|
+| word-timestamp mode (`accurateReadings`) | `akfg-firsttake-word`, `stranger-than-heaven-word`, `guitar-loneliness-word` | yes |
+| segment mode (lite-tier / long-song default) | `akfg-firsttake-segment`, `stranger-than-heaven-segment`, `guitar-loneliness-segment` | yes |
+| high-accuracy medium tier (`highAccuracy`) | `stranger-than-heaven-word-medium`, `stranger-than-heaven-segment-medium` | yes |
+| Whisper per-chunk auto-detect robustness | `stranger-than-heaven-word-autolang`, `stranger-than-heaven-segment-autolang` | yes — see note below |
+| mixed-language two-pass (`lang: "mixed"` + `transcriptEn`) | `stranger-than-heaven-mixed-word`, `stranger-than-heaven-mixed-segment` | yes |
+| Japanese default (`lang: "ja"`) | `veil`, `akfg-firsttake-word/segment`, `my-eyes-only`, `guitar-loneliness-word/segment` | yes |
+| English-only sheet (`lang: "en"`) | none | **gap — no corpus row has `lang: "en"`** |
+| vocal separation (Demucs) toggle | none | **not coverable by this instrument — audio-domain, not transcript-domain** |
+| readings truth | `fixtures/reading-truth.json` (8 song keys: veil, akfg-firsttake-word/segment, my-eyes-only, stranger-than-heaven-word/segment, guitar-loneliness-word/segment) | yes, partial — autolang/medium/mixed row variants share the base song's reading truth implicitly via `audit-corpus.mjs`, no separate keys |
+| pairing truth | `fixtures/pairing-truth.json` (3 song keys only: veil, akfg-firsttake-word, guitar-loneliness-word) + per-song pairing audits `tests/ai-pipeline/my-eyes-only-pairing-audit.test.ts`, `tests/ai-pipeline/veil-pairing.integration.test.ts`, `tests/ai-pipeline/corpus-pairing.test.ts` | yes, narrower than the draft implied — pairing-truth.json does NOT include stranger-than-heaven or my-eyes-only or any `*-segment` row |
+
+Note on "auto language detect": there is no separate user-facing "auto-detect
+language" toggle. `whisperLanguageFor` always forces a language unless the sheet
+is `mixed` (in which case it's `undefined` and Whisper auto-detects per chunk —
+that path is exercised by the `mixed-*` rows). The `*-autolang` corpus rows are
+named for a different thing: they hold transcripts as if Whisper's own per-chunk
+auto-detection had been used on a nominally single-language (`ja`) song, testing
+alignment robustness against the resulting language-flapping artifacts (visible
+in the baseline table as `mode: proportional` instead of `content` — the
+content-match path degrades and the aligner falls back to proportional
+placement). This is a robustness regression test, not a coverage row for a real
+menu option.
+
+### Step 2 — missing transcript coverage check
+
+Compared every committed transcript-shaped file under `tests/ai-pipeline/fixtures/`
+against every `transcript` / `transcriptEn` path referenced in `corpus.json`:
+
+```
+find . -iname "*transcript*" -o -iname "*.words.json"   # 14 files
+grep -oE '"[a-zA-Z0-9_./-]+\.json"' corpus.json          # 14 references, exact same set
+```
+
+**Result: no gap.** Every committed transcript file (`akfg/transcript.{segment,word}.json`,
+`guitar-loneliness/transcript.{segment,word}.json`, `my-eyes-only.transcript.json`,
+`veil/transcript.words.json`, and all 8 `stranger-than-heaven/transcript.*.json`
+variants) is already referenced by a corpus.json row. **No corpus rows were added**
+— there was nothing cheap left to close; `tests/ai-pipeline/fixtures/corpus.json`
+was not modified.
+
+(`akfg-user-ja.txt` at the fixtures root is not a transcript — it's a plain lyric
+ground-truth file used only by the AKFG ground-truth tests, not by the corpus
+scorecard.)
+
+### Recorded gaps
+
+1. **English-only song** — no corpus row has `lang: "en"`. Every song is `ja` or
+   `mixed`; the English branch of `whisperLanguageFor` / `detectSheetLanguage`
+   (`return 'en'` when only Latin script is present) is exercised by no fixture.
+   Proposed follow-up: add a fully English lyric sheet + Whisper transcript pair
+   as a new corpus song (not cheap — requires sourcing/transcribing new audio,
+   so deferred out of this task's "cheap" scope).
+2. **Vocal separation (Demucs) toggle** — not coverable by the corpus scorecard
+   at all, since the instrument starts from a pre-existing transcript JSON, not
+   raw audio. Demucs preprocessing happens upstream of transcription. No
+   fixture-based fix is possible; would need an audio-level integration test
+   instead.
+3. **`pairing-truth.json` is narrower than the draft's matrix implied** — it has
+   truth rows for only 3 of the 14 corpus songs (`veil`, `akfg-firsttake-word`,
+   `guitar-loneliness-word`). `stranger-than-heaven` (all 8 variants) and
+   `my-eyes-only` have no pairing-truth entries; `my-eyes-only`'s pairing
+   coverage instead comes from the separate
+   `my-eyes-only-pairing-audit.test.ts`, and no `*-segment` row has dedicated
+   pairing truth at all (segment rows show `pair_unpaired`/`pair_magnet`/`pair_wrong`
+   all-zero in the Task 1 scorecard table, which reflects the pairing pass simply
+   not running meaningfully on segment-shaped transcripts, not verified-zero
+   accuracy).
+4. **Device-tier default selection is untested by the corpus scorecard** — the
+   scorecard calls the alignment functions directly and never exercises
+   `getDeviceTier`/`preferredWhisperTimestampMode`'s tier-based defaulting; only
+   `alignTimestampMode.ts`'s own unit tests (if any) would cover that logic.
+   Not investigated further here — flagged as a boundary of this instrument's
+   scope, not a corpus gap.
+
+### Guard-test result
+
+No corpus.json changes were made, so `corpus-baseline.json` did not need
+updating and Task 5's re-baseline is unaffected by this task.
+
+```
+npx vitest run tests/ai-pipeline/corpus-scorecard.test.ts --exclude "**/.claude/**"
+
+ Test Files  1 passed (1)
+      Tests  15 passed (15)
+```
+
+All 14 per-song non-regression tests plus the "baseline has a row for every
+corpus song" guard pass cleanly.
