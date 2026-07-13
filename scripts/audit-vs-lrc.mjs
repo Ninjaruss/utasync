@@ -102,7 +102,8 @@ const SONGS = [
     configs: [
       { label: 'word ja-only', transcript: 'stranger-than-heaven/transcript.word.json' },
       { label: 'segment ja-only', transcript: 'stranger-than-heaven/transcript.segment.json' },
-      { label: 'word mixed 2-pass', transcript: 'stranger-than-heaven/transcript.word.json', transcriptEn: 'stranger-than-heaven/transcript.word.forced-en.json' },
+      // The app's EN-forced pass always transcribes at segment granularity, so word mode pairs a word JA transcript with the segment EN one.
+      { label: 'word mixed 2-pass', transcript: 'stranger-than-heaven/transcript.word.json', transcriptEn: 'stranger-than-heaven/transcript.segment.forced-en.json' },
       { label: 'segment mixed 2-pass', transcript: 'stranger-than-heaven/transcript.segment.json', transcriptEn: 'stranger-than-heaven/transcript.segment.forced-en.json' },
       { label: 'segment medium ja-only', transcript: 'stranger-than-heaven/transcript.segment.medium.json' },
     ],
