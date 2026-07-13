@@ -1,4 +1,4 @@
-import type { Language, TimedLine } from '../core/types'
+import type { AlignmentLanguage, TimedLine } from '../core/types'
 import { alignLyrics, lineWeight, sanitizeTranscript, type TranscriptWord } from '../ai-pipeline/aligner'
 import { anchorLineByPartialMatch } from '../ai-pipeline/partialMatchAnchor'
 import { normalizeForMatch, qualityRank, scoreLineAlignment } from '../ai-pipeline/contentAligner'
@@ -121,7 +121,7 @@ function applyReferenceStanzaTiming(
   blockLen: number,
   blockStartTime: number,
   blockEndTime: number,
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
 ): void {
   const refLines = out.slice(refStart, refStart + blockLen)
   const refDur = Math.max(0.5, refLines[blockLen - 1].endTime - refLines[0].startTime)
@@ -215,7 +215,7 @@ function blockQualityScore(
   blockStart: number,
   blockLen: number,
   clean: TranscriptWord[],
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
 ): { rank: number; review: number } {
   let rank = 0
   let review = 0
@@ -239,7 +239,7 @@ export function realignRepeatedStanzaOccurrences(
   lines: TimedLine[],
   words: TranscriptWord[],
   lineTexts: readonly string[],
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
 ): TimedLine[] {
   const stanzas = findRepeatedStanzas(lineTexts)
   if (!stanzas.length) return lines
@@ -415,7 +415,7 @@ export function realignRepeatedRepetitionOnlyLines(
   lines: TimedLine[],
   words: TranscriptWord[],
   lineTexts: readonly string[],
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
 ): TimedLine[] {
   const clean = sanitizeTranscript(words)
   const out = lines.map((l) => ({ ...l }))
@@ -498,7 +498,7 @@ export function repairRepetitionPairAt(
   repetitionIdx: number,
   words: readonly TranscriptWord[],
   lineTexts: readonly string[],
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
   options?: { preservePrevStart?: boolean },
 ): boolean {
   if (repetitionIdx <= 0 || repetitionIdx >= out.length) return false

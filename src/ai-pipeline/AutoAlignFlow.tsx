@@ -13,6 +13,7 @@ import { ProcessProgress } from '../core/ui/ProcessProgress'
 import { ConfirmDialog } from '../core/ui/ConfirmDialog'
 import { alignSteps, alignStepIndex, type AlignStage } from './alignProgress'
 import { preferredWhisperTimestampMode } from './alignTimestampMode'
+import { detectSheetLanguage } from './whisperLanguage'
 import { resetWhisperTranscriber, transcribeAudio, type LoadProgress, type TranscribeProgressStatus } from './whisperTranscriber'
 import { isDemucsModelAvailable, refreshDemucsModelAvailability, separateVocals } from './demucsSeparator'
 import { useSettingsStore } from '../payment/SettingsStore'
@@ -189,9 +190,18 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         ? 'segment'
         : preferredWhisperTimestampMode(tier, durationSec, { accurateReadings })
 
+      // Detect the alignment language from the sheet itself: the stored song
+      // language defaults to 'ja', which would force Japanese transcription
+      // onto English or mixed-language lyrics.
+      const sheetRows = sheetRowsForAlignment(song.lyrics)
+      const alignmentLanguage = detectSheetLanguage(
+        sheetRows.map((r) => r.original || r.translation),
+        song.lyrics.sourceLanguage,
+      )
+
       let sawDownload = false
       const transcriptResult = await transcribeAudio(audioData, sampleRate, {
-        language: song.lyrics.sourceLanguage,
+        language: alignmentLanguage,
         highAccuracy: useHighAccuracy,
         timestampMode,
         onLoadProgress: (p) => {
@@ -244,11 +254,10 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
       })
       const transcriptWords = sanitizeTranscript(words)
 
-      const sheetRows = sheetRowsForAlignment(song.lyrics)
       const refined = refineAlignmentWithPhrases(
         sheetRows,
         words,
-        song.lyrics.sourceLanguage,
+        alignmentLanguage,
         song.lyrics,
       )
       const updated: Song = {

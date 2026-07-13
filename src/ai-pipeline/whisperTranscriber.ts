@@ -3,7 +3,7 @@ import { whisperBackend } from './inferenceBackend'
 import { getWhisperModel } from './models'
 import { runWhenIdle } from '../core/idle'
 import type { ModelLoadPhase } from './modelLoadProgress'
-import type { Language } from '../core/types'
+import type { AlignmentLanguage } from '../core/types'
 
 export interface TranscriptChunk {
   text: string
@@ -150,7 +150,7 @@ export async function transcribeAudio(
   audioData: Float32Array,
   sampleRate: number,
   options?: {
-    language?: Language
+    language?: AlignmentLanguage
     onLoadProgress?: (p: LoadProgress) => void
     onModelLoaded?: () => void
     onTranscribeProgress?: (p: TranscribeProgress) => void

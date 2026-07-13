@@ -1,4 +1,4 @@
-import type { Language, TimedLine } from '../core/types'
+import type { AlignmentLanguage, TimedLine } from '../core/types'
 import { alignByContent, normalizeForMatch } from './contentAligner'
 
 export interface TranscriptWord {
@@ -152,7 +152,16 @@ function latinWordCount(text: string): number {
 // "You always make me so happy 青空に溶けて") is weighted by its Japanese only:
 // the Latin there is a translation that isn't in the audio. A PURELY Latin line
 // is treated as sung English and weighted by its word count.
-export function lineWeight(text: string, sourceLanguage: Language): number {
+//
+// On a 'mixed' (code-switching) sheet, however, a line carrying both scripts
+// usually sings both — the Latin is lyric, not translation — so both are
+// counted.
+export function lineWeight(text: string, sourceLanguage: AlignmentLanguage): number {
+  if (sourceLanguage === 'mixed') {
+    const both = countMatches(text, JA_CHARS) + latinWordCount(text)
+    if (both > 0) return both
+    return text.replace(/\s+/g, '').length
+  }
   if (sourceLanguage === 'ja') {
     const ja = countMatches(text, JA_CHARS)
     if (ja > 0) return ja
@@ -180,7 +189,7 @@ export function alignTranscriptToLines(
   lineTexts: string[],
   words: TranscriptWord[],
   existingLines?: TimedLine[],
-  sourceLanguage: Language = 'ja'
+  sourceLanguage: AlignmentLanguage = 'ja'
 ): TimedLine[] {
   const lineCount = lineTexts.length
 
@@ -284,7 +293,7 @@ export function alignLyrics(
   lineTexts: string[],
   words: TranscriptWord[],
   existingLines?: TimedLine[],
-  sourceLanguage: Language = 'ja',
+  sourceLanguage: AlignmentLanguage = 'ja',
 ): AlignResult {
   const clean = sanitizeTranscript(words)
   const content = alignByContent(lineTexts, clean, existingLines, sourceLanguage)

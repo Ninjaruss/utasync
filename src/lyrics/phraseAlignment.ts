@@ -1,4 +1,4 @@
-import type { Language, LineAlignmentQuality, LyricsData, SungPhrase, TimedLine } from '../core/types'
+import type { AlignmentLanguage, LineAlignmentQuality, LyricsData, SungPhrase, TimedLine } from '../core/types'
 import { alignLyrics, lineWeight, sanitizeTranscript, subdivideTranscriptWord, type TranscriptWord } from '../ai-pipeline/aligner'
 import {
   computeLineMatchedSpans,
@@ -21,7 +21,7 @@ const REPETITION_REF_MIN_SPAN_S = 1.4
 
 /** Bump when auto-align timing logic changes — triggers one-time re-refine from the
  * persisted Whisper transcript on song open (no re-transcription). */
-export const ALIGNMENT_PIPELINE_VERSION = 18
+export const ALIGNMENT_PIPELINE_VERSION = 19
 
 const ENTWINED_ROLLING_RE = /心絡まって.*ローリング/
 const RUN_LINE_RE = /凍てつく(?:世界|地面).*走り出した/
@@ -553,7 +553,7 @@ function backfillLateStartsToMatchedSpan(
 function recoverLatinLinesByPhoneticAnchor(
   lines: TimedLine[],
   words: TranscriptWord[],
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
 ): { lines: TimedLine[]; recovered: boolean[] } {
   const out = lines.map((l) => ({ ...l }))
   const recovered = out.map(() => false)
@@ -613,7 +613,7 @@ function recoverLatinLinesByPhoneticAnchor(
 function realignMergedLineGroups(
   lines: TimedLine[],
   rawWords: TranscriptWord[],
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
 ): TimedLine[] {
   const groups = findMergedLineGroups(lines, rawWords)
   if (!groups.length) return lines
@@ -725,7 +725,7 @@ function realignMergedLineGroups(
 function extendUndershotLinesWithPartialMatch(
   lines: TimedLine[],
   words: TranscriptWord[],
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
 ): TimedLine[] {
   const clean = sanitizeTranscript(words)
   const lastTime = clean.at(-1)?.endTime ?? 0
@@ -1261,7 +1261,7 @@ export function applyRefinedAlignment(lyrics: LyricsData, refined: RefinedAlignm
 export function alignPhrasesToTranscript(
   phrases: SungPhrase[],
   words: TranscriptWord[],
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
 ): SungPhrase[] {
   if (phrases.length === 0) return []
   const clean = sanitizeTranscript(words)
@@ -1411,7 +1411,7 @@ function retryLineInWindows(
   prevEnd: number,
   nextStart: number,
   lastTime: number,
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
 ): { startTime: number; endTime: number; score: ReturnType<typeof scoreLineAlignment> } | null {
   const windows = [
     transcriptWindowForLine(clean, line, prevEnd, nextStart, lastTime, LINE_VALIDATE_WINDOW_LEAD_S, LINE_VALIDATE_WINDOW_TAIL_S),
@@ -1484,7 +1484,7 @@ function expandSquashedLineHighlights(lines: TimedLine[]): TimedLine[] {
 function recomputeLineQuality(
   lines: TimedLine[],
   words: TranscriptWord[],
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
   anchorSourcesIn?: LineAnchorSource[],
 ): Pick<LineValidationResult, 'anchorSources' | 'lineAlignmentQuality'> {
   const clean = sanitizeTranscript(words)
@@ -1529,7 +1529,7 @@ function minSungSpan(lineText: string): number {
 export function validateAndRetryLineTimings(
   lines: TimedLine[],
   words: TranscriptWord[],
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
   anchorSourcesIn?: LineAnchorSource[],
 ): LineValidationResult {
   const clean = sanitizeTranscript(words)
@@ -1650,7 +1650,7 @@ function syncPhrasesFromValidatedLines(
 function projectMergedPhrase(
   lines: TimedLine[],
   phrase: SungPhrase,
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
   out: TimedLine[],
 ): void {
   const src = phrase.sourceLineIndices
@@ -1676,7 +1676,7 @@ function projectMergedPhrase(
 export function projectPhraseTimingToLines(
   lines: TimedLine[],
   phrases: SungPhrase[],
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
 ): TimedLine[] {
   const out = lines.map((l) => ({ ...l }))
 
@@ -1738,7 +1738,7 @@ export interface RefinedAlignment {
 export function refineAlignmentWithPhrases(
   sheetRows: TimedLine[],
   words: TranscriptWord[],
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
   _lyricsBase?: Pick<LyricsData, 'translationLanguage' | 'alignmentMode'>,
 ): RefinedAlignment {
   const transcriptWords = sanitizeTranscript(words)

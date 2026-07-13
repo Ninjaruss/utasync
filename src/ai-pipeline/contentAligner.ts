@@ -1,4 +1,4 @@
-import type { Language, LineAlignmentQuality, TimedLine } from '../core/types'
+import type { AlignmentLanguage, LineAlignmentQuality, TimedLine } from '../core/types'
 import { lineWeight, type TranscriptWord } from './aligner'
 
 // Characters worth matching on: lowercase Latin letters and Japanese scripts
@@ -559,7 +559,7 @@ function strengthenLineBoundaries(
 function interpolateAnchors(
   anchors: Float64Array,
   lineTexts: string[],
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
   lastTime: number,
 ): number[] {
   const n = anchors.length
@@ -630,7 +630,7 @@ function classifyLineQuality(anchorSource: LineAnchorSource, coverage: number): 
 export function scoreLineAlignment(
   lineText: string,
   windowWords: TranscriptWord[],
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
 ): LineAlignmentScore {
   const text = lineText.trim()
   if (!text || windowWords.length === 0) {
@@ -708,7 +708,7 @@ export function alignByContent(
   lineTexts: string[],
   words: TranscriptWord[],
   existingLines: TimedLine[] | undefined,
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
 ): { lines: TimedLine[]; confidence: number; anchorSources: LineAnchorSource[] } {
   const lineCount = lineTexts.length
   const buildLine = (li: number, startTime: number, endTime: number): TimedLine => ({

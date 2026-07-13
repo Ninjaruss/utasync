@@ -1,4 +1,4 @@
-import type { Language } from '../core/types'
+import type { AlignmentLanguage } from '../core/types'
 import { lineWeight, type TranscriptWord } from '../ai-pipeline/aligner'
 import { normalizeForMatch } from '../ai-pipeline/contentAligner'
 
@@ -7,7 +7,7 @@ const JA_SCRIPT_RE = /[぀-ヿ㐀-鿿]/
 /** Rough duration a line should take to sing. `lineWeight` counts JA characters
  * (≈ morae) or EN words, which sing at very different rates — ~0.25s per JA
  * char, ~0.4s per EN word. Clamped: no line plausibly sings under 0.8s or over 12s. */
-export function expectedLineDuration(text: string, sourceLanguage: Language): number {
+export function expectedLineDuration(text: string, sourceLanguage: AlignmentLanguage): number {
   const weight = Math.max(1, lineWeight(text, sourceLanguage))
   const unit = JA_SCRIPT_RE.test(text) ? 0.25 : 0.4
   return Math.min(12, Math.max(0.8, weight * unit))

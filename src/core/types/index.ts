@@ -1,4 +1,9 @@
 export type Language = 'ja' | 'en'
+/** Language the alignment pipeline operates in. Unlike the stored song
+ * `Language`, this is detected from the lyric sheet itself so an English or
+ * code-switching sheet aligns correctly even when the song metadata defaulted
+ * to 'ja'. 'mixed' means the sheet alternates JA and Latin sections. */
+export type AlignmentLanguage = Language | 'mixed'
 export type AlignmentMode = 'manual' | 'auto'
 export type FuriganaMode = 'none' | 'romaji' | 'furigana'
 export type LyricsLayout = 'stacked' | 'sideBySide'
