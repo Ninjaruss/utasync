@@ -463,10 +463,14 @@ function backfillLineStartsToVocalOnset(
   return out
 }
 
-/** Reliable-span coverage floor — matches boundaryMetrics MIN_SPAN_COVERAGE
- * (the metric's own "well-matched line" gate), stricter than the glyph-snap
- * guard because this tuner moves boundaries on span evidence alone. */
-const LATESTART_SPAN_MIN_COVERAGE = 0.55
+/** Minimum matched-char coverage for a span to count as late-start evidence.
+ * 0.5 matches the LRC ground-truth audit's own evidence floor
+ * (scripts/audit-vs-lrc.mjs): round-5 CLASS-T2 showed real late-anchored lines
+ * (guitar segment #46 at 6/11 = 0.545, stranger segment #16 at 10/20 = 0.50)
+ * gated out by the old 0.55 floor while their evidence was 0.0-0.3s from
+ * truth. The container-word and ownership guards below remain the real
+ * safety against weak-evidence pulls. */
+const LATESTART_SPAN_MIN_COVERAGE = 0.5
 /** Matches the boundary-metric lateStart threshold (boundaryMetrics.mjs). */
 const LATESTART_MIN_PULL_S = 0.35
 /** Segment-mode chunks run several seconds; their starts are still real
