@@ -17,7 +17,7 @@ import { preferredWhisperTimestampMode } from './alignTimestampMode'
 import { detectSheetLanguage } from './whisperLanguage'
 import { isRecoverableTranscriptionError } from './workerError'
 import { resetWhisperTranscriber, transcribeAudio, type LoadProgress, type TranscribeProgressStatus } from './whisperTranscriber'
-import { isDemucsModelAvailable, refreshDemucsModelAvailability, separateVocals } from './demucsSeparator'
+import { DEMUCS_OUTPUT_SAMPLE_RATE, isDemucsModelAvailable, refreshDemucsModelAvailability, separateVocals } from './demucsSeparator'
 import { useSettingsStore } from '../payment/SettingsStore'
 import { yieldToMainThread } from '../core/idle'
 
@@ -164,6 +164,10 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
             onProgress: (pct) => setProgress(pct),
             isCancelled: () => cancelledRef.current,
           })
+          // Demucs returns vocals at ITS model rate, not the decode rate. On a
+          // 48kHz AudioContext (common on Firefox), keeping the old rate scaled
+          // every Whisper timestamp ~8.8% early — the whole song desynced.
+          sampleRate = DEMUCS_OUTPUT_SAMPLE_RATE
         } catch (e) {
           if (cancelledRef.current) return
           setError(classifyVocalSepError(e))

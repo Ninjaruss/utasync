@@ -42,9 +42,17 @@ export interface SeparateVocalsOptions {
   isCancelled?: () => boolean
 }
 
+/** The Demucs worker resamples its input to the model's 44100 Hz and returns
+ * vocals at THAT rate — never the caller's input rate. Callers must treat the
+ * returned buffer as 44100 Hz: feeding it onward under the original rate (e.g.
+ * a 48000 Hz AudioContext decode) uniformly scales every downstream Whisper
+ * timestamp by the rate ratio (~8.8%), which desyncs the whole song. */
+export const DEMUCS_OUTPUT_SAMPLE_RATE = 44100
+
 /**
  * Isolates vocals from mono PCM via the Demucs worker. Returns the original
- * buffer unchanged when separation fails or is cancelled mid-run.
+ * buffer unchanged when separation fails or is cancelled mid-run. The returned
+ * audio is at DEMUCS_OUTPUT_SAMPLE_RATE regardless of the input rate.
  */
 export async function separateVocals(
   audioData: Float32Array,

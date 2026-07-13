@@ -469,9 +469,17 @@ function backfillLineStartsToVocalOnset(
 const LATESTART_SPAN_MIN_COVERAGE = 0.55
 /** Matches the boundary-metric lateStart threshold (boundaryMetrics.mjs). */
 const LATESTART_MIN_PULL_S = 0.35
+/** Segment-mode chunks run several seconds; their starts are still real
+ * acoustic onsets (Whisper stamps segment starts on voice onsets), so they
+ * are acceptable snap targets — only multi-phrase mega-chunks are not. */
+const LATESTART_MAX_CONTAINER_S = 8
 /** Corrections above this belong to another defect class (verse cascade /
- * transcript garble), not a late-anchored start — leave those alone. */
-const LATESTART_MAX_PULL_S = 2.5
+ * transcript garble), not a late-anchored start — leave those alone. Ground
+ * truth (LRC audit, guitar-loneliness segment) showed real late-anchored
+ * clusters of 3-6s that the old 2.5s cap excluded, so the cap sits at 10s;
+ * the ownership guards below (previous line's matched span, straddled-word
+ * check) remain the real safety, not the cap. */
+const LATESTART_MAX_PULL_S = 10
 
 /** Pull a line's start back to its own reliably-matched span (D3 late-starts).
  * The silence-gap backfill above only fires when the onset follows >= 1s of
@@ -502,7 +510,7 @@ function backfillLateStartsToMatchedSpan(
     // segment chunks only carry interpolated char times — too weak to move a
     // boundary on (and the reading pass depends on these windows).
     const container = clean.find((w) => w.startTime <= span.firstTime && w.endTime > span.firstTime)
-    if (!container || container.endTime - container.startTime > LATESTART_MAX_PULL_S) continue
+    if (!container || container.endTime - container.startTime > LATESTART_MAX_CONTAINER_S) continue
     if (container.startTime < prevSpanEnd - 0.05) continue
     const target = container.startTime
     // Pass-2 lines abut, so a late start means the previous line's end
