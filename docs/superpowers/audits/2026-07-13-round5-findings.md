@@ -92,8 +92,14 @@ All are baseline-identical.
    fixture); #2's mega-chunk fix attempted, measured, and reverted (regresses
    stranger segment ja-only via the A7 cascade) — deferred behind A7. See the
    A3/A5 status cells.
-4. **CLASS-T4 "chunk-granularity boundary cosmetics"** — members: A9, A10.
-   Sub-second highlight nudges; fix only if cheap.
+4. **CLASS-T4 "chunk-granularity boundary cosmetics"** — members: A9, A10
+   (plus the A2 #44 residual, same blocker). Sub-second highlight nudges.
+   **Deferred (round 5 close-out):** every member is bounded by transcript
+   chunk granularity — moving the boundary to the evidence-true time lands
+   mid-chunk and trades a sub-second lateStart for bnd_midword/bnd_early
+   flags (measured on A2 #44: 1.95s lateStart vs new midword+early flags).
+   No net user-visible win is available without sub-chunk timing evidence;
+   revisit only if a future round adds intra-chunk onset detection.
 
 ---
 
