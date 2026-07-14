@@ -436,16 +436,24 @@ function extendLineEndOutOfMidWord(
  * audio, not a neighbour's leftover. */
 const ONSET_SPAN_CORROBORATION_TOL_S = 0.35
 const ONSET_SPAN_CORROBORATION_MIN_CHARS = 3
+/** Corrections above this belong to another defect class (verse cascade /
+ * transcript garble), not a late-anchored start — leave those alone. Ground
+ * truth (LRC audit, guitar-loneliness segment) showed real late-anchored
+ * clusters of 3-6s that the old 2.5s cap excluded, so the cap sits at 10s;
+ * the ownership guards below (previous line's matched span, straddled-word
+ * check) remain the real safety, not the cap. */
+const LATESTART_MAX_PULL_S = 10
+
+/** Both backfill tuners run back-to-back on the same texts and transcript
+ * (only start times move between them), so the caller computes the sanitized
+ * transcript and matched spans once and passes them in. */
+type LineSpans = ReturnType<typeof computeLineMatchedSpans>
 
 function backfillLineStartsToVocalOnset(
   lines: TimedLine[],
-  words: TranscriptWord[],
+  clean: TranscriptWord[],
+  spans: LineSpans,
 ): TimedLine[] {
-  const clean = sanitizeTranscript(words)
-  const spans = computeLineMatchedSpans(
-    lines.map((l) => l.original || l.translation),
-    clean,
-  )
   const SILENCE = 1.0
   const out = lines.map((l) => ({ ...l }))
   for (let i = 0; i < out.length; i++) {
@@ -497,13 +505,6 @@ const LATESTART_MIN_PULL_S = 0.35
  * acoustic onsets (Whisper stamps segment starts on voice onsets), so they
  * are acceptable snap targets — only multi-phrase mega-chunks are not. */
 const LATESTART_MAX_CONTAINER_S = 8
-/** Corrections above this belong to another defect class (verse cascade /
- * transcript garble), not a late-anchored start — leave those alone. Ground
- * truth (LRC audit, guitar-loneliness segment) showed real late-anchored
- * clusters of 3-6s that the old 2.5s cap excluded, so the cap sits at 10s;
- * the ownership guards below (previous line's matched span, straddled-word
- * check) remain the real safety, not the cap. */
-const LATESTART_MAX_PULL_S = 10
 
 /** Pull a line's start back to its own reliably-matched span (D3 late-starts).
  * The silence-gap backfill above only fires when the onset follows >= 1s of
@@ -513,13 +514,9 @@ const LATESTART_MAX_PULL_S = 10
  * previous line's own matched span still claims. */
 function backfillLateStartsToMatchedSpan(
   lines: TimedLine[],
-  words: TranscriptWord[],
+  clean: TranscriptWord[],
+  spans: LineSpans,
 ): TimedLine[] {
-  const clean = sanitizeTranscript(words)
-  const spans = computeLineMatchedSpans(
-    lines.map((l) => l.original || l.translation),
-    clean,
-  )
   const out = lines.map((l) => ({ ...l }))
   for (let i = 0; i < out.length; i++) {
     const span = spans[i]
@@ -1809,8 +1806,15 @@ export function refineAlignmentWithPhrases(
   tunedLines = recoverInterjectionTiming(tunedLines, words)
   tunedLines = snapBoundaryToGlyphTransition(tunedLines, words)
   tunedLines = extendLineEndOutOfMidWord(tunedLines, words)
-  tunedLines = backfillLineStartsToVocalOnset(tunedLines, words)
-  tunedLines = backfillLateStartsToMatchedSpan(tunedLines, words)
+  {
+    const clean = sanitizeTranscript(words)
+    const spans = computeLineMatchedSpans(
+      tunedLines.map((l) => l.original || l.translation),
+      clean,
+    )
+    tunedLines = backfillLineStartsToVocalOnset(tunedLines, clean, spans)
+    tunedLines = backfillLateStartsToMatchedSpan(tunedLines, clean, spans)
+  }
   // Phonetic recovery presumes the lexical aligner mostly worked (content
   // mode) and only THIS line was misheard. In the proportional fallback the
   // whole layout is interpolation — pinning one line to a phonetic hit there
