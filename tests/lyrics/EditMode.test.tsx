@@ -156,6 +156,46 @@ describe('EditMode', () => {
     expect(screen.queryByText(/timing approximate/i)).toBeNull()
   })
 
+  // Round-6 honest banner (diagnosis H4): approximate lines squashed below the
+  // compression threshold of their sung floor are visibly mistimed — the
+  // banner must own them, not just needs_review rows.
+  it('banner counts approximate lines squashed below their sung floor as off-timing', () => {
+    const squashed: TimedLine[] = [
+      { startTime: 0, endTime: 5, original: 'a good line here', translation: '' },
+      // ~50 normalized glyphs -> 4.5s floor; 0.2s is far below 0.55x that.
+      {
+        startTime: 5,
+        endTime: 5.2,
+        original: 'a very long lyric line that can not possibly be sung in a blink',
+        translation: '',
+      },
+    ]
+    renderEditMode({
+      lines: squashed,
+      lineAlignmentQuality: ['good', 'approximate'],
+      showAlignmentQuality: true,
+    })
+    expect(screen.getByText(/1.*off-timing/i)).toBeTruthy()
+  })
+
+  it('banner does not count approximate lines with a plausible duration', () => {
+    const healthy: TimedLine[] = [
+      { startTime: 0, endTime: 5, original: 'a good line here', translation: '' },
+      {
+        startTime: 5,
+        endTime: 11,
+        original: 'a very long lyric line that can not possibly be sung in a blink',
+        translation: '',
+      },
+    ]
+    renderEditMode({
+      lines: healthy,
+      lineAlignmentQuality: ['good', 'approximate'],
+      showAlignmentQuality: true,
+    })
+    expect(screen.queryByText(/off-timing/i)).toBeNull()
+  })
+
   it('opens the second-language panel from the toolbar', async () => {
     renderEditMode()
     fireEvent.click(screen.getByRole('button', { name: /translation/i }))

@@ -6,12 +6,15 @@ import {
   LINE_VALIDATE_WINDOW_LEAD_S,
   LINE_VALIDATE_WINDOW_TAIL_S,
 } from './phraseAlignment'
-import { expectedLineDuration, minLineDuration, findActivityRegions } from './lineDegeneracy'
+import {
+  expectedLineDuration,
+  minLineDuration,
+  findActivityRegions,
+  COMPRESSION_FRACTION,
+} from './lineDegeneracy'
 
 /** Consecutive starts closer than this are a pileup. */
 const PILEUP_GAP_S = 0.4
-/** A span under this fraction of the per-text floor is compressed. */
-const COMPRESSION_FRACTION = 0.55
 /** A span over max(18s, 2.5× expected) is an absorption. */
 const ABSORPTION_FACTOR = 2.5
 const ABSORPTION_MIN_S = 18
@@ -22,7 +25,9 @@ export interface RedistributionResult {
   lines: TimedLine[]
   /** True where the pass re-timed the line. */
   redistributed: boolean[]
-  /** True where the re-timed span overlaps transcript activity. */
+  /** True where the re-timed span overlaps transcript activity at no less
+   * than COMPRESSION_FRACTION of the line's floor — the needs_review →
+   * approximate upgrade gate (a sliver on a noise blip must stay flagged). */
   onActivity: boolean[]
 }
 
@@ -228,6 +233,15 @@ function redistributeRun(
     lines[k].startTime = s.start
     lines[k].endTime = Math.max(s.end, s.start)
     redistributed[k] = true
-    onActivity[k] = clean.some((w) => w.startTime < lines[k].endTime && w.endTime > lines[k].startTime)
+    // Upgrade gate (round 6 C, diagnosis H4): word overlap alone must not
+    // certify a placement — a sliver on a hallucinated blip is not
+    // "approximate". The span must also keep the compression threshold of its
+    // floor; region-edge clamps and interjection relief sit exactly at that
+    // acceptance floor, hence >= with epsilon.
+    const dur = lines[k].endTime - lines[k].startTime
+    const wideEnough = dur >= minLineDuration(lineTextOf(lines[k])) * COMPRESSION_FRACTION - 1e-6
+    onActivity[k] =
+      wideEnough &&
+      clean.some((w) => w.startTime < lines[k].endTime && w.endTime > lines[k].startTime)
   }
 }

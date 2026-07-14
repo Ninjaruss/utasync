@@ -62,14 +62,25 @@ const baseline = JSON.parse(readFileSync(join(FIXTURES, 'corpus-baseline.json'),
 // Round-6 Task B (floored degenerate-run packing + zero-width elimination,
 // diagnosis H2/H3): all entries verified per-row against the LRC ground truth
 // (no config regresses; four improve — see the fix commit body).
+//
+// Round-6 Task C (coverage-gated needs_review→approximate upgrade, diagnosis
+// H4): label-only shifts — LRC timing and every bnd_*/align_* timing cell are
+// byte-identical. Each added align_needs_review line was verified squashed
+// below COMPRESSION_FRACTION of its floor (the gate's exact predicate): word
+// +5 (rows 33/34/45/49/50), segment +7 (29/32/35/45/48/49/50), word-autolang
+// +19, segment-autolang +27, segment-medium +2 (rows 0/1), mixed-segment +1
+// (row 32). Sub-gate slivers on activity blips read approximate before.
 const ALLOWED_MEASUREMENT_ARTIFACTS: Record<string, Record<string, number>> = {
   // Floor-spread run lines no longer overlap the false activity blip that fed
-  // the blanket needs_review→approximate upgrade — the extra needs_review are
-  // the honest labels for evidence-free spreads (Task C formalizes the gate).
-  'stranger-than-heaven-word': { align_needs_review: 3 },
-  'stranger-than-heaven-word-autolang': { align_needs_review: 27 },
+  // the blanket needs_review→approximate upgrade (Task B), and squashed
+  // sub-gate spans no longer take the upgrade at all (Task C) — the extra
+  // needs_review are the honest labels for evidence-free or squashed spreads.
+  'stranger-than-heaven-word': { align_needs_review: 8 },
+  'stranger-than-heaven-segment': { align_needs_review: 10 },
+  'stranger-than-heaven-word-autolang': { align_needs_review: 46 },
+  'stranger-than-heaven-segment-autolang': { align_needs_review: 28 },
   'stranger-than-heaven-word-medium': { align_needs_review: 12 },
-  'stranger-than-heaven-segment-medium': { align_needs_review: 5 },
+  'stranger-than-heaven-segment-medium': { align_needs_review: 7 },
   'stranger-than-heaven-mixed-word': {
     align_needs_review: 4,
     // Row 24's start is pushed 0.62s by the display-floor reclaim that gives
@@ -78,6 +89,7 @@ const ALLOWED_MEASUREMENT_ARTIFACTS: Record<string, Record<string, number>> = {
     bnd_midword_p2: 5,
   },
   'stranger-than-heaven-mixed-segment': {
+    align_needs_review: 3,
     // Row 45 leaves the zero_dur bucket (0s → 1.2s floor, the fixed defect)
     // and row 24 is narrowed by the same rows-22/23 reclaim; every previously
     // compressed row got wider (0.30–0.88s → 1.2s).

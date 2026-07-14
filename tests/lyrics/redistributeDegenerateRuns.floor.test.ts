@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { redistributeDegenerateRuns } from '../../src/lyrics/redistributeDegenerateRuns'
-import { minLineDuration } from '../../src/lyrics/lineDegeneracy'
+import { minLineDuration, COMPRESSION_FRACTION } from '../../src/lyrics/lineDegeneracy'
 import type { TimedLine } from '../../src/core/types'
 
 const line = (original: string, startTime: number, endTime: number): TimedLine => ({
@@ -89,5 +89,65 @@ describe('redistributeDegenerateRuns — packing floor', () => {
       expect(res.lines[i].startTime).toBeGreaterThanOrEqual(res.lines[i - 1].endTime - 1e-6)
     }
     expect(res.lines[3].endTime).toBeLessThanOrEqual(60)
+  })
+})
+
+// Round-6 upgrade gate (diagnosis H4): word overlap alone used to certify any
+// redistributed line as "on activity", and the blanket needs_review →
+// approximate upgrade then dressed slivers on hallucinated blips in approx
+// chips. onActivity must also require meaningful width: at least
+// COMPRESSION_FRACTION of the line's floor (>= with epsilon — region-edge
+// clamps and interjection relief sit exactly at that acceptance floor).
+describe('redistributeDegenerateRuns — coverage-gated onActivity', () => {
+  const before = 'the quick brown fox jumps over the lazy dog again'
+  const filler = 'mumble garble noise hums here and more of it still'
+  const after = 'every good boy deserves fudge and cake at the party'
+  const runText = (i: number) => `stranger than heaven calling out my name tonight ${i}`
+  const gate = minLineDuration(runText(0)) * COMPRESSION_FRACTION
+
+  function crowdedRun(windowEnd: number) {
+    const words = [
+      ...anchorWords(before, 10, 14),
+      ...anchorWords(filler, 14, windowEnd),
+      ...anchorWords(after, windowEnd, windowEnd + 4),
+    ]
+    const lines = [
+      line(before, 10, 14),
+      ...Array.from({ length: 4 }, (_, i) => line(runText(i), 14 + i * 0.1, 14.1 + i * 0.1)),
+      line(after, windowEnd, windowEnd + 4),
+    ]
+    return { words, lines }
+  }
+
+  it('a crowded-window line packed below the acceptance floor stays off the upgrade path', () => {
+    // Window so tight that fairShare (= the packing floor) is half the gate:
+    // every run line is packed squashed directly ON activity words.
+    const { words, lines } = crowdedRun(14 + 4 * (gate * 0.5))
+    const res = redistributeDegenerateRuns(lines, words, 'ja')
+    expect(res.redistributed.slice(1, 5)).toEqual([true, true, true, true])
+    for (let i = 1; i <= 4; i++) {
+      const l = res.lines[i]
+      expect(l.endTime - l.startTime, `line ${i} squashed below the gate`).toBeLessThan(gate - 1e-6)
+      // The overlap clause holds — only the width gate may block the upgrade.
+      expect(
+        words.some((w) => w.startTime < l.endTime && w.endTime > l.startTime),
+        `line ${i} overlaps activity`,
+      ).toBe(true)
+      expect(res.onActivity[i], `line ${i} onActivity`).toBe(false)
+    }
+  })
+
+  it('a line at the acceptance floor keeps the upgrade (boundary is >= with epsilon, not >)', () => {
+    // fairShare lands a hair under the gate — inside the epsilon band, where
+    // region-edge clamps and interjection-relief floors live by construction.
+    const { words, lines } = crowdedRun(14 + 4 * (gate - 5e-7))
+    const res = redistributeDegenerateRuns(lines, words, 'ja')
+    expect(res.redistributed.slice(1, 5)).toEqual([true, true, true, true])
+    for (let i = 1; i <= 4; i++) {
+      const dur = res.lines[i].endTime - res.lines[i].startTime
+      expect(dur, `line ${i} sits inside the epsilon band`).toBeGreaterThan(gate - 1e-6)
+      expect(dur, `line ${i} sits inside the epsilon band`).toBeLessThan(gate)
+      expect(res.onActivity[i], `line ${i} onActivity at the acceptance floor`).toBe(true)
+    }
   })
 })

@@ -3,7 +3,10 @@ import {
   expectedLineDuration,
   minLineDuration,
   findActivityRegions,
+  offTimingLineCount,
+  COMPRESSION_FRACTION,
 } from '../../src/lyrics/lineDegeneracy'
+import type { TimedLine } from '../../src/core/types'
 
 describe('expectedLineDuration', () => {
   it('scales JA lines by character count', () => {
@@ -46,5 +49,44 @@ describe('findActivityRegions', () => {
   })
   it('returns [] when the window has no words', () => {
     expect(findActivityRegions([w('a', 5, 6)], 10, 20)).toEqual([])
+  })
+})
+
+// Round-6 honest banner (diagnosis H4): the "N line(s) off-timing" banner used
+// to count needs_review only, so approximate-labelled slivers never surfaced.
+describe('offTimingLineCount', () => {
+  const tl = (original: string, startTime: number, endTime: number): TimedLine => ({
+    original,
+    translation: '',
+    startTime,
+    endTime,
+  })
+  // ~50 normalized glyphs -> the 4.5s minLineDuration cap.
+  const longText = 'a very long lyric line that can not possibly be sung in a blink'
+  const floor = minLineDuration(longText) * COMPRESSION_FRACTION
+
+  it('counts needs_review lines regardless of duration', () => {
+    const lines = [tl('one', 0, 3), tl('two', 3, 6), tl('three', 6, 9)]
+    expect(offTimingLineCount(lines, ['needs_review', 'good', 'needs_review'])).toBe(2)
+  })
+
+  it('adds approximate lines squashed below the compression threshold of their floor', () => {
+    const lines = [tl('a good line', 0, 3), tl(longText, 3, 3.2), tl('x', 3.2, 3.2)]
+    // 0.2s << 0.55 x 4.5s, and the third row is a zero-duration approximate.
+    expect(offTimingLineCount(lines, ['good', 'approximate', 'approximate'])).toBe(2)
+  })
+
+  it('does not count approximate lines at or above the acceptance floor (>= with epsilon)', () => {
+    const lines = [
+      tl(longText, 0, floor), // exactly at the floor
+      tl(longText, 10, 10 + floor - 5e-7), // inside the epsilon band
+      tl(longText, 20, 20 + floor - 1e-3), // measurably below it
+    ]
+    expect(offTimingLineCount(lines, ['approximate', 'approximate', 'approximate'])).toBe(1)
+  })
+
+  it('ignores good lines and blank rows however short', () => {
+    const lines = [tl(longText, 0, 0.1), tl('', 1, 1), tl('   ', 2, 2)]
+    expect(offTimingLineCount(lines, ['good', 'approximate', 'approximate'])).toBe(0)
   })
 })

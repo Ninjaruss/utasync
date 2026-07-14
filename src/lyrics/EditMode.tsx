@@ -13,6 +13,7 @@ import {
   toolbarSectionLabel,
 } from '../core/ui/toolbarClasses'
 import { lineIndexAtPlayhead, linePlaybackStart } from './lineTiming'
+import { offTimingLineCount } from './lineDegeneracy'
 
 interface Props {
   lines: TimedLine[]
@@ -324,9 +325,12 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
     ? lineIndexAtPlayhead(lines, playheadPosition)
     : -1
 
-  const needsReviewCount =
+  // needs_review lines plus approximate lines squashed below their sung floor
+  // (see offTimingLineCount) — a visibly-squashed row is off-timing no matter
+  // which chip it wears.
+  const offTimingCount =
     showAlignmentQuality && lineAlignmentQuality?.length
-      ? lineAlignmentQuality.filter((q) => q === 'needs_review').length
+      ? offTimingLineCount(lines, lineAlignmentQuality)
       : 0
 
   return (
@@ -384,9 +388,9 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             No audio file — use Tap-through to time lyrics while the song plays.
           </p>
         )}
-        {needsReviewCount > 0 && (
+        {offTimingCount > 0 && (
           <p className="text-[10px] text-amber-400/80 text-pretty">
-            {needsReviewCount} line{needsReviewCount === 1 ? '' : 's'} off-timing — adjust the timestamps below or re-run Auto-align.
+            {offTimingCount} line{offTimingCount === 1 ? '' : 's'} off-timing — adjust the timestamps below or re-run Auto-align.
           </p>
         )}
       </div>

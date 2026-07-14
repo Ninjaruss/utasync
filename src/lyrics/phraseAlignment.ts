@@ -1921,9 +1921,11 @@ export function refineAlignmentWithPhrases(
     if (prevOk && nextOk) lineAlignmentQuality[i] = 'approximate'
   }
 
-  // Redistributed lines that landed on transcript activity have plausible,
-  // evidence-adjacent timing; review can't do better than the redistribution
-  // already did, so they read approximate. Off-activity placements stay flagged.
+  // Redistributed lines that landed on transcript activity at meaningful width
+  // (>= COMPRESSION_FRACTION of their floor — see RedistributionResult.onActivity)
+  // have plausible, evidence-adjacent timing; review can't do better than the
+  // redistribution already did, so they read approximate. Off-activity or
+  // squashed placements stay flagged.
   for (let i = 0; i < tunedLines.length; i++) {
     if (lineAlignmentQuality[i] !== 'needs_review') continue
     if (redist.redistributed[i] && redist.onActivity[i]) lineAlignmentQuality[i] = 'approximate'
