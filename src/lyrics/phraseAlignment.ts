@@ -1501,17 +1501,59 @@ function retryPartialMatchForLine(
   return { startTime, endTime }
 }
 
-function expandSquashedLineHighlights(lines: TimedLine[]): TimedLine[] {
+export function expandSquashedLineHighlights(lines: TimedLine[]): TimedLine[] {
   const out = lines.map((l) => ({ ...l }))
   for (let i = 0; i < out.length; i++) {
     const span = out[i].endTime - out[i].startTime
     if (span >= MIN_HIGHLIGHT_S) continue
     const nextStart = out[i + 1]?.startTime ?? out[i].endTime + MIN_HIGHLIGHT_S
     const room = nextStart - out[i].startTime
-    if (room < MIN_HIGHLIGHT_S) continue
+    // ε-tolerant: float addition can land the room ~1e-14 under the floor
+    // (e.g. a zero-span last row computes room 1.1999999999999886), skipping
+    // exactly the rows this pass exists to fix.
+    if (room < MIN_HIGHLIGHT_S - 1e-6) continue
     out[i].endTime = Math.min(out[i].startTime + Math.max(span, MIN_HIGHLIGHT_S), nextStart)
   }
   return out
+}
+
+/**
+ * Display floor for a merged line sequence (mixed two-pass output). The
+ * expansion above can only extend a row into room BEFORE its successor's
+ * start; a row co-started with its successor (room ≈ 0 — e.g. two rows
+ * anchored to the same segment chunk, which the merge stitch then clamps to
+ * zero width) needs that room reclaimed first. Following the
+ * ensureVisibleLineWindows precedent, pull the row's start back into the free
+ * gap and the predecessor's tail first, then push the successor's start —
+ * never reducing either neighbour below the floor itself, so the reclaim
+ * cannot cascade or mint new sub-floor rows.
+ */
+export function enforceLineDisplayFloor(lines: TimedLine[]): TimedLine[] {
+  const out = lines.map((l) => ({ ...l }))
+  for (let i = 0; i < out.length; i++) {
+    if (!(out[i].original || out[i].translation).trim()) continue
+    const next = out[i + 1]
+    const room = (next?.startTime ?? out[i].startTime + MIN_HIGHLIGHT_S) - out[i].startTime
+    if (room >= MIN_HIGHLIGHT_S - 1e-6) continue
+    let needed = MIN_HIGHLIGHT_S - room
+    const prev = out[i - 1]
+    // Earliest start this row may reclaim: the free gap after the predecessor
+    // plus the predecessor's above-floor tail (an under-floor predecessor
+    // contributes nothing).
+    const earliest = prev ? Math.min(prev.endTime, prev.startTime + MIN_HIGHLIGHT_S) : 0
+    const pullback = Math.min(needed, Math.max(0, out[i].startTime - earliest))
+    if (pullback > 0) {
+      out[i].startTime -= pullback
+      if (prev) prev.endTime = Math.min(prev.endTime, out[i].startTime)
+      needed -= pullback
+    }
+    if (next && needed > 1e-9) {
+      const surplus = next.endTime - next.startTime - MIN_HIGHLIGHT_S
+      const push = Math.min(needed, Math.max(0, surplus))
+      if (push > 0) next.startTime += push
+    }
+  }
+  return expandSquashedLineHighlights(out)
 }
 
 function recomputeLineQuality(

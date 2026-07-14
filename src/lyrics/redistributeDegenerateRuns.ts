@@ -1,6 +1,6 @@
 import type { AlignmentLanguage, TimedLine } from '../core/types'
 import { sanitizeTranscript, type TranscriptWord } from '../ai-pipeline/aligner'
-import { scoreLineAlignment } from '../ai-pipeline/contentAligner'
+import { isInterjectionLyricLine, scoreLineAlignment } from '../ai-pipeline/contentAligner'
 import {
   transcriptWindowForLine,
   LINE_VALIDATE_WINDOW_LEAD_S,
@@ -100,6 +100,66 @@ export function redistributeDegenerateRuns(
   return { lines, redistributed, onActivity }
 }
 
+interface RunSpan {
+  start: number
+  end: number
+}
+
+/**
+ * Lay the run out across the window: proportional durations floored per line,
+ * preferring transcript-activity regions. The cursor advances toward the next
+ * region when the current one lacks room — but never further than would leave
+ * the remaining lines' floors unplaceable before the window end, so when
+ * activity capacity cannot fit the floored durations the layout degrades to
+ * spilling past region edges into the window (spread) instead of collapsing
+ * lines into slivers or zero-width rows at a region boundary. A line that
+ * started inside a region still clamps to the region's edge (never claiming
+ * the instrumental after it) while the clamped span stays non-degenerate —
+ * the genuine-capacity-limit carve-out below the full floor.
+ */
+function layoutRun(
+  windowStart: number,
+  windowEnd: number,
+  regions: { start: number; end: number }[],
+  weights: number[],
+  floors: number[],
+  acceptable: number[],
+): RunSpan[] {
+  const totalExpected = weights.reduce((a, b) => a + b, 0)
+  const capacity = regions.reduce((a, r) => a + (r.end - r.start), 0)
+  const scale = Math.min(
+    MAX_STRETCH,
+    (regions.length > 0 ? capacity : windowEnd - windowStart) / totalExpected,
+  )
+  const totalFloor = floors.reduce((a, b) => a + b, 0)
+  // Anchor at the first activity, shifting earlier only as far as the floors need.
+  const anchor = regions.length > 0 ? regions[0].start : windowStart
+  let cursor = Math.max(windowStart, Math.min(anchor, windowEnd - totalFloor))
+  // Σ floors of the lines after the current one: the space that must stay free.
+  let remaining = totalFloor
+  const spans: RunSpan[] = []
+  let ri = 0
+  for (let k = 0; k < weights.length; k++) {
+    remaining -= floors[k]
+    const dur = Math.max(weights[k] * scale, floors[k])
+    while (ri < regions.length - 1 && regions[ri].end - cursor < dur) {
+      const target = Math.min(regions[ri + 1].start, windowEnd - remaining - floors[k])
+      if (target <= cursor) break
+      cursor = target
+      if (cursor < regions[ri + 1].start) break // partial snap into the gap
+      ri++
+    }
+    let durEff = Math.min(dur, windowEnd - remaining - cursor)
+    if (ri < regions.length && cursor >= regions[ri].start && cursor < regions[ri].end) {
+      const room = regions[ri].end - cursor
+      if (room < durEff && room >= acceptable[k]) durEff = room
+    }
+    spans.push({ start: cursor, end: cursor + durEff })
+    cursor += durEff
+  }
+  return spans
+}
+
 function redistributeRun(
   lines: TimedLine[],
   from: number,
@@ -115,52 +175,48 @@ function redistributeRun(
   const windowEnd = to + 1 < lines.length ? lines[to + 1].startTime : lastTime
   if (windowEnd - windowStart < 0.5) return
 
+  // Per-line packing floor: no re-timed line may fall below its plausible sung
+  // minimum, capped at its fair share of the window so a crowded run still
+  // fits. `acceptable` is the region-edge clamp bound: a clamped line may keep
+  // a genuine capacity limit down to the compression threshold, but anything
+  // below that is a sliver and the line spills past the edge instead.
+  const fairShare = (windowEnd - windowStart) / (to - from + 1)
   const weights: number[] = []
+  const floors: number[] = []
+  const acceptable: number[] = []
   for (let k = from; k <= to; k++) {
-    weights.push(expectedLineDuration(lineTextOf(lines[k]), sourceLanguage))
+    const text = lineTextOf(lines[k])
+    weights.push(expectedLineDuration(text, sourceLanguage))
+    floors.push(Math.min(minLineDuration(text), fairShare))
+    acceptable.push(Math.min(fairShare, minLineDuration(text) * COMPRESSION_FRACTION))
   }
-  const totalExpected = weights.reduce((a, b) => a + b, 0)
   const regions = findActivityRegions(clean, windowStart, windowEnd)
 
-  if (regions.length === 0) {
-    const scale = Math.min(MAX_STRETCH, (windowEnd - windowStart) / totalExpected)
-    let cursor = windowStart
-    for (let k = from; k <= to; k++) {
-      const dur = weights[k - from] * scale
-      lines[k].startTime = cursor
-      lines[k].endTime = Math.min(windowEnd, cursor + dur)
-      cursor = lines[k].endTime
-      redistributed[k] = true
-      onActivity[k] = false
+  // A window the floored proportional durations over-subscribe is pure
+  // flattening: every second an interjection filler row keeps is taken from a
+  // lyric line's pacing. Interjections have no anchorable phonetic content and
+  // their parenthetical annotations inflate the glyph floor, so in that regime
+  // (only) they degrade to the compression-threshold floor.
+  {
+    const capacity = regions.reduce((a, r) => a + (r.end - r.start), 0)
+    const scale = Math.min(
+      MAX_STRETCH,
+      (regions.length > 0 ? capacity : windowEnd - windowStart) / weights.reduce((a, b) => a + b, 0),
+    )
+    const wanted = weights.reduce((a, w, k) => a + Math.max(w * scale, floors[k]), 0)
+    if (wanted > windowEnd - windowStart) {
+      for (let k = from; k <= to; k++) {
+        if (isInterjectionLyricLine(lineTextOf(lines[k]))) floors[k - from] = acceptable[k - from]
+      }
     }
-    return
   }
 
-  const capacity = regions.reduce((a, r) => a + (r.end - r.start), 0)
-  const scale = Math.min(MAX_STRETCH, capacity / totalExpected)
+  const spans = layoutRun(windowStart, windowEnd, regions, weights, floors, acceptable)
 
-  // Pack lines into the activity regions, keeping each line wholly inside one
-  // region so it never straddles (and thus "claims") an instrumental gap. A
-  // line takes its scaled expected duration; if that doesn't fit in the room
-  // left in the current region, we advance to the next region rather than
-  // clamp the line to a sub-minLineDuration sliver at the boundary. The unspent
-  // tail of a region is simply left as an unclaimed rest. Only when a line
-  // cannot fit even at the start of a fresh region (its share exceeds a whole
-  // region) do we clamp it to that region's end — a genuine capacity limit.
-  let ri = 0
-  let cursor = regions[0].start
   for (let k = from; k <= to; k++) {
-    const dur = weights[k - from] * scale
-    // Advance to a region with room for this line (or the last region).
-    while (ri < regions.length - 1 && regions[ri].end - cursor < dur) {
-      ri++
-      cursor = regions[ri].start
-    }
-    const start = cursor
-    const end = Math.min(regions[ri].end, cursor + dur)
-    lines[k].startTime = start
-    lines[k].endTime = Math.max(end, start)
-    cursor = lines[k].endTime
+    const s = spans[k - from]
+    lines[k].startTime = s.start
+    lines[k].endTime = Math.max(s.end, s.start)
     redistributed[k] = true
     onActivity[k] = clean.some((w) => w.startTime < lines[k].endTime && w.endTime > lines[k].startTime)
   }

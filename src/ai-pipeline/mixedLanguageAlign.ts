@@ -6,6 +6,7 @@ import {
 } from './aligner'
 import { normalizeForMatch } from './contentAligner'
 import {
+  enforceLineDisplayFloor,
   refineAlignmentWithPhrases,
   syncPhrasesFromValidatedLines,
   type RefinedAlignment,
@@ -128,11 +129,16 @@ export function mergeMixedRefinedAlignments(
     lines[i].endTime = Math.min(ownEnd, lines[i + 1]?.startTime ?? ownEnd)
   }
 
+  // The stitch runs AFTER each pass's own display-floor expansion and can
+  // re-create zero-width rows (cross-pass co-starts on a shared chunk) — the
+  // merged sequence needs the floor re-applied.
+  const floored = enforceLineDisplayFloor(lines)
+
   // Phrase layout follows the pass that supplied the majority of lines; phrase
   // windows re-sync to the merged line timings.
   const enPicked = pickedFrom.filter((s) => s === 'en').length
   const base = enPicked > n / 2 ? en : ja
-  const phrases = syncPhrasesFromValidatedLines(base.phrases, lines)
+  const phrases = syncPhrasesFromValidatedLines(base.phrases, floored)
 
   // The passes match near-disjoint char sets (each ~its script's share), so the
   // sheet-wide matched fraction is approximately the sum.
@@ -141,7 +147,7 @@ export function mergeMixedRefinedAlignments(
 
   return {
     refined: {
-      lines,
+      lines: floored,
       phrases,
       report: base.report,
       mode,

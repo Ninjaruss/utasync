@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import type { TimedLine } from '../../src/core/types'
 import {
   alignPhrasesToTranscript,
+  expandSquashedLineHighlights,
   projectPhraseTimingToLines,
   refineAlignmentWithPhrases,
   sheetRowsForAlignment,
@@ -42,6 +43,28 @@ describe('validateAndRetryLineTimings — repeated-line partial match', () => {
     const { lines: out } = validateAndRetryLineTimings(lines, words, 'ja')
     expect(out[0].startTime).toBeLessThan(out[1].startTime)
     expect(out[0].startTime).toBeLessThan(20)
+  })
+})
+
+describe('expandSquashedLineHighlights — float-tolerant floor guard', () => {
+  // Round 6 (diagnosis H3): float addition makes the room check miss its own
+  // floor by ~1e-14 (247.03999999999996 + 1.2 − start = 1.1999999999999886),
+  // so exactly the rows the pass exists to fix were skipped.
+  it('expands a zero-span final row despite float dust in the synthetic room', () => {
+    const lines = [line('a line of text', 240, 245), line('final row', 247.03999999999996, 247.03999999999996)]
+    const out = expandSquashedLineHighlights(lines)
+    expect(out[1].endTime - out[1].startTime).toBeGreaterThanOrEqual(1.2 - 1e-6)
+  })
+
+  it('expands a sub-floor row whose successor leaves floor-minus-epsilon room', () => {
+    const lines = [
+      line('a line of text', 240, 245),
+      line('squashed row', 247.03999999999996, 247.1),
+      line('next row', 248.23999999999995, 250),
+    ]
+    const out = expandSquashedLineHighlights(lines)
+    expect(out[1].endTime - out[1].startTime).toBeGreaterThanOrEqual(1.2 - 1e-6)
+    expect(out[1].endTime).toBeLessThanOrEqual(out[2].startTime)
   })
 })
 
