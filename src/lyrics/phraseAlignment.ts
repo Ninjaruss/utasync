@@ -443,6 +443,13 @@ const ONSET_SPAN_CORROBORATION_MIN_CHARS = 3
  * the ownership guards below (previous line's matched span, straddled-word
  * check) remain the real safety, not the cap. */
 const LATESTART_MAX_PULL_S = 10
+/** ...unless the span is near-perfectly covered. A line placed 10s+ after its
+ * OWN reliably-matched onset with coverage this high is genuinely late — its
+ * evidence corroborates the pull (round-5 T3 onset-pull precedent). This lifts
+ * the cap for exactly those rows (stranger segment #23/#24: 10.5s late at
+ * 1.00/0.93 coverage) while the container-word and prev-span ownership guards
+ * still gate weak-evidence pulls. */
+const LATESTART_HIGHCOV_CAP_EXCEPTION = 0.9
 
 /** Both backfill tuners run back-to-back on the same texts and transcript
  * (only start times move between them), so the caller computes the sanitized
@@ -521,9 +528,14 @@ function backfillLateStartsToMatchedSpan(
   for (let i = 0; i < out.length; i++) {
     const span = spans[i]
     if (!span) continue
-    if (span.matchedChars / Math.max(1, span.totalChars) < LATESTART_SPAN_MIN_COVERAGE) continue
+    const coverage = span.matchedChars / Math.max(1, span.totalChars)
+    if (coverage < LATESTART_SPAN_MIN_COVERAGE) continue
     const late = out[i].startTime - span.firstTime
-    if (late <= LATESTART_MIN_PULL_S || late >= LATESTART_MAX_PULL_S) continue
+    if (late <= LATESTART_MIN_PULL_S) continue
+    // The 10s cap screens out corrections that belong to another defect class
+    // (verse cascade / transcript garble), but a near-perfectly-covered span is
+    // itself the evidence — lift the cap only for those (D2, diagnosis H5).
+    if (late >= LATESTART_MAX_PULL_S && coverage < LATESTART_HIGHCOV_CAP_EXCEPTION) continue
     const prevSpanEnd = i > 0 ? spans[i - 1]?.lastEndTime ?? -Infinity : -Infinity
     // The evidence must be word-scale: the first matched char's containing
     // transcript word gives a real acoustic edge to snap to, and the word must
