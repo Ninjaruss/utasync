@@ -70,6 +70,12 @@ const baseline = JSON.parse(readFileSync(join(FIXTURES, 'corpus-baseline.json'),
 // +5 (rows 33/34/45/49/50), segment +7 (29/32/35/45/48/49/50), word-autolang
 // +19, segment-autolang +27, segment-medium +2 (rows 0/1), mixed-segment +1
 // (row 32). Sub-gate slivers on activity blips read approximate before.
+//
+// Round-6 Task D (late-start backfill drag clamps, diagnosis H5): only D1
+// (straddle-guard fallback) moves a corpus cell — guitar-loneliness-segment
+// bnd_midword_p2, a Whisper-merged-chunk split artifact detailed on its entry
+// below. D2 (high-coverage cap exception) improves stranger-segment LRC timing
+// with no corpus regression; D3 (prevFloor pinning) was not-applicable on HEAD.
 const ALLOWED_MEASUREMENT_ARTIFACTS: Record<string, Record<string, number>> = {
   // Floor-spread run lines no longer overlap the false activity blip that fed
   // the blanket needs_review→approximate upgrade (Task B), and squashed
@@ -101,6 +107,20 @@ const ALLOWED_MEASUREMENT_ARTIFACTS: Record<string, Record<string, number>> = {
     bnd_latestart_p2: 2,
     bnd_midword_p2: 4,
   },
+  // Round-6 Task D1 (straddle-guard fallback, diagnosis H5): #44
+  // "なりたい 何者かでいい" (span onset 195.90, 10/10 coverage) was frozen at
+  // 197.85 — 2.92s past LRC truth 194.93 — because the shared boundary at
+  // prevSpanEnd (195.81) lands inside Whisper's MERGED chunk
+  // "何回になりたいなりたい" [194.60,196.50] (three lyric words collapsed into one
+  // 1.90s token), so the guard abandoned the pull. The fallback splits that
+  // merged chunk at the previous line's own matched-span end — the true vocal
+  // boundary — cutting the LRC error to 0.88s. Both sides of the split (#43 end,
+  // #44 start) now sit inside the merged token, so bnd_midword counts +2; it is
+  // the chunk-granularity artifact round-5 flagged for this exact row
+  // (A2 #44, deferred "no win without sub-chunk timing evidence"), now supplied
+  // by the neighbour's span. No LRC config regresses (guitar-segment #44
+  // 2.9→0.9, >1s 14→13). Remove at the next baseline ratchet.
+  'guitar-loneliness-segment': { bnd_midword_p2: 2 },
 }
 
 describe('audit corpus — alignment non-regression', () => {

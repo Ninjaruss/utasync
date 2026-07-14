@@ -554,6 +554,17 @@ function backfillLateStartsToMatchedSpan(
     if (straddled) {
       if (straddled.startTime >= Math.max(prevSpanEnd, prevFloor) - 0.05) {
         boundary = Math.max(straddled.startTime, prevFloor)
+      } else if (prevSpanEnd >= straddled.startTime - 0.05) {
+        // The straddled word is genuinely SHARED: the previous line's own
+        // reliably-matched span reaches into it, so the honest split is where
+        // that span ends (prevSpanEnd), floored to keep the previous line
+        // visible. Abandoning the pull here left the line seconds past its own
+        // onset (guitar segment #44: 2.9s -> 0.9s vs LRC truth 194.93, the pull
+        // lands at prevSpanEnd 195.81 inside the shared chunk). Only when the
+        // previous line does NOT own the straddled word — a wrong-occurrence
+        // match (prevSpanEnd = -Inf) or a far-gap prevFloor pin — do we still
+        // abstain, so those stay untouched.
+        boundary = Math.max(prevSpanEnd, prevFloor)
       } else {
         continue
       }
