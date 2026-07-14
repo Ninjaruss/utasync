@@ -53,7 +53,10 @@ describe('two-occurrence repeat re-anchor (evidence-gated)', () => {
   // ("paved", "pull", "shot", "once", "part of", "never look") yields only a
   // stray "past" at ~116.4s — the bridge couplet is absent from the transcript,
   // so no placement policy can lift it above needs_review (transcript-limited).
-  it('stranger 2x repeat block re-anchors on the segment transcript', () => {
+  // 20s: full-pipeline refine over the whole sheet (incl. the whole-sheet span
+  // LCS in the repeated-stanza evidence guard) exceeds the 5s default when the
+  // suite runs in parallel workers.
+  it('stranger 2x repeat block re-anchors on the segment transcript', { timeout: 20_000 }, () => {
     const { lineTexts, refined } = refine(
       'stranger-than-heaven/lyrics.txt',
       'stranger-than-heaven/transcript.segment.json',

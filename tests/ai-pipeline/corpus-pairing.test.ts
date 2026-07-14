@@ -74,6 +74,12 @@ const pairingTruth = JSON.parse(readFileSync(join(FIXTURES, 'pairing-truth.json'
 
 const pairedSongs = manifest.songs.filter((s) => s.en)
 
+// Documented measurement artifacts (same protocol as corpus-scorecard.test.ts):
+// cells allowed to exceed the baseline because the increment is a verified
+// side effect of a fix, not a new bad pair. Each entry needs a findings-doc
+// reference; remove it when the baseline is next ratcheted.
+const ALLOWED_MEASUREMENT_ARTIFACTS: Record<string, Record<string, number>> = {}
+
 describe('audit corpus — word pairing non-regression (cached embeddings)', () => {
   let tokenizer: Tokenizer
   let embedTexts: (texts: string[]) => Promise<number[][]>
@@ -190,9 +196,11 @@ describe('audit corpus — word pairing non-regression (cached embeddings)', () 
       const base = baseline[song.name]
       expect(unpaired, `pair_unpaired regressed`).toBeLessThanOrEqual(base.pair_unpaired as number)
       expect(magnet, `pair_magnet regressed`).toBeLessThanOrEqual(base.pair_magnet as number)
-      expect(wrong, `pair_wrong regressed (known-bad pairs reappeared)`).toBeLessThanOrEqual(
+      const wrongCap = Math.max(
         base.pair_wrong as number,
+        ALLOWED_MEASUREMENT_ARTIFACTS[song.name]?.pair_wrong ?? 0,
       )
+      expect(wrong, `pair_wrong regressed (known-bad pairs reappeared)`).toBeLessThanOrEqual(wrongCap)
     }, 120_000)
   }
 })

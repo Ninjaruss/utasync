@@ -54,6 +54,12 @@ const baseline = JSON.parse(readFileSync(join(FIXTURES, 'corpus-baseline.json'),
   Record<string, number | string>
 >
 
+// Documented measurement artifacts: cells allowed to exceed the baseline
+// because the flagged line is verifiably at its ground-truth placement and the
+// boundary metric misfires on ambiguous span attribution. Each entry needs a
+// findings-doc reference; remove it when the baseline is next ratcheted.
+const ALLOWED_MEASUREMENT_ARTIFACTS: Record<string, Record<string, number>> = {}
+
 describe('audit corpus — alignment non-regression', () => {
   it('baseline has a row for every corpus song', () => {
     // Without this, a typo'd song name would silently skip that song's
@@ -142,9 +148,11 @@ describe('audit corpus — alignment non-regression', () => {
       for (const [key, val] of boundaryChecks) {
         const baselineVal = base[key]
         if (typeof baselineVal === 'number') {
-          expect(val, `${song.name} ${key} regressed: ${val} > ${baselineVal}`).toBeLessThanOrEqual(
+          const cap = Math.max(
             baselineVal,
+            ALLOWED_MEASUREMENT_ARTIFACTS[song.name]?.[key] ?? 0,
           )
+          expect(val, `${song.name} ${key} regressed: ${val} > ${cap}`).toBeLessThanOrEqual(cap)
         }
       }
     })

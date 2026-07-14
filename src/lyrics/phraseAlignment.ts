@@ -431,11 +431,29 @@ function extendLineEndOutOfMidWord(
  * syllable, so the line starts a beat or two into its own audio — bad for looping.
  * A transcript glyph that follows a silence gap (no vocal just before) and sits
  * after the previous line's end is this line's true onset; snap to it. */
+/** Onset pulls beyond the modest cap need the line's own matched span to START
+ * at that onset (within this tolerance) — proof the onset glyph is this line's
+ * audio, not a neighbour's leftover. */
+const ONSET_SPAN_CORROBORATION_TOL_S = 0.35
+const ONSET_SPAN_CORROBORATION_MIN_CHARS = 3
+/** Corrections above this belong to another defect class (verse cascade /
+ * transcript garble), not a late-anchored start — leave those alone. Ground
+ * truth (LRC audit, guitar-loneliness segment) showed real late-anchored
+ * clusters of 3-6s that the old 2.5s cap excluded, so the cap sits at 10s;
+ * the ownership guards below (previous line's matched span, straddled-word
+ * check) remain the real safety, not the cap. */
+const LATESTART_MAX_PULL_S = 10
+
+/** Both backfill tuners run back-to-back on the same texts and transcript
+ * (only start times move between them), so the caller computes the sanitized
+ * transcript and matched spans once and passes them in. */
+type LineSpans = ReturnType<typeof computeLineMatchedSpans>
+
 function backfillLineStartsToVocalOnset(
   lines: TimedLine[],
-  words: TranscriptWord[],
+  clean: TranscriptWord[],
+  spans: LineSpans,
 ): TimedLine[] {
-  const clean = sanitizeTranscript(words)
   const SILENCE = 1.0
   const out = lines.map((l) => ({ ...l }))
   for (let i = 0; i < out.length; i++) {
@@ -453,33 +471,40 @@ function backfillLineStartsToVocalOnset(
         break
       }
     }
-    // Only a modest correction (0.5–2.5 s). A larger gap means the onset glyph
-    // belongs to another line (e.g. an interjection the previous row left behind),
-    // not a late-anchored start of this one.
-    if (onset != null && start - onset > 0.5 && start - onset < 2.5) {
+    if (onset == null || start - onset <= 0.5) continue
+    // A modest correction (0.5–2.5 s) needs no further evidence. A larger gap
+    // usually means the onset glyph belongs to another line (e.g. an
+    // interjection the previous row left behind) — unless the line's OWN
+    // matched span starts right at the onset, which proves the audio is this
+    // line's (ground-truth round 5, CLASS-T3: garbled head lines whose span
+    // coverage sits under the late-start backfill floor were interpolated ~3s
+    // past their real vocal onset).
+    const span = spans[i]
+    const spanCorroborated =
+      span != null &&
+      span.matchedChars >= ONSET_SPAN_CORROBORATION_MIN_CHARS &&
+      Math.abs(span.firstTime - onset) <= ONSET_SPAN_CORROBORATION_TOL_S
+    if (start - onset < 2.5 || (spanCorroborated && start - onset < LATESTART_MAX_PULL_S)) {
       out[i].startTime = Math.max(onset, prevEnd)
     }
   }
   return out
 }
 
-/** Reliable-span coverage floor — matches boundaryMetrics MIN_SPAN_COVERAGE
- * (the metric's own "well-matched line" gate), stricter than the glyph-snap
- * guard because this tuner moves boundaries on span evidence alone. */
-const LATESTART_SPAN_MIN_COVERAGE = 0.55
+/** Minimum matched-char coverage for a span to count as late-start evidence.
+ * 0.5 matches the LRC ground-truth audit's own evidence floor
+ * (scripts/audit-vs-lrc.mjs): round-5 CLASS-T2 showed real late-anchored lines
+ * (guitar segment #46 at 6/11 = 0.545, stranger segment #16 at 10/20 = 0.50)
+ * gated out by the old 0.55 floor while their evidence was 0.0-0.3s from
+ * truth. The container-word and ownership guards below remain the real
+ * safety against weak-evidence pulls. */
+const LATESTART_SPAN_MIN_COVERAGE = 0.5
 /** Matches the boundary-metric lateStart threshold (boundaryMetrics.mjs). */
 const LATESTART_MIN_PULL_S = 0.35
 /** Segment-mode chunks run several seconds; their starts are still real
  * acoustic onsets (Whisper stamps segment starts on voice onsets), so they
  * are acceptable snap targets — only multi-phrase mega-chunks are not. */
 const LATESTART_MAX_CONTAINER_S = 8
-/** Corrections above this belong to another defect class (verse cascade /
- * transcript garble), not a late-anchored start — leave those alone. Ground
- * truth (LRC audit, guitar-loneliness segment) showed real late-anchored
- * clusters of 3-6s that the old 2.5s cap excluded, so the cap sits at 10s;
- * the ownership guards below (previous line's matched span, straddled-word
- * check) remain the real safety, not the cap. */
-const LATESTART_MAX_PULL_S = 10
 
 /** Pull a line's start back to its own reliably-matched span (D3 late-starts).
  * The silence-gap backfill above only fires when the onset follows >= 1s of
@@ -489,13 +514,9 @@ const LATESTART_MAX_PULL_S = 10
  * previous line's own matched span still claims. */
 function backfillLateStartsToMatchedSpan(
   lines: TimedLine[],
-  words: TranscriptWord[],
+  clean: TranscriptWord[],
+  spans: LineSpans,
 ): TimedLine[] {
-  const clean = sanitizeTranscript(words)
-  const spans = computeLineMatchedSpans(
-    lines.map((l) => l.original || l.translation),
-    clean,
-  )
   const out = lines.map((l) => ({ ...l }))
   for (let i = 0; i < out.length; i++) {
     const span = spans[i]
@@ -1785,8 +1806,15 @@ export function refineAlignmentWithPhrases(
   tunedLines = recoverInterjectionTiming(tunedLines, words)
   tunedLines = snapBoundaryToGlyphTransition(tunedLines, words)
   tunedLines = extendLineEndOutOfMidWord(tunedLines, words)
-  tunedLines = backfillLineStartsToVocalOnset(tunedLines, words)
-  tunedLines = backfillLateStartsToMatchedSpan(tunedLines, words)
+  {
+    const clean = sanitizeTranscript(words)
+    const spans = computeLineMatchedSpans(
+      tunedLines.map((l) => l.original || l.translation),
+      clean,
+    )
+    tunedLines = backfillLineStartsToVocalOnset(tunedLines, clean, spans)
+    tunedLines = backfillLateStartsToMatchedSpan(tunedLines, clean, spans)
+  }
   // Phonetic recovery presumes the lexical aligner mostly worked (content
   // mode) and only THIS line was misheard. In the proportional fallback the
   // whole layout is interpolation — pinning one line to a phonetic hit there

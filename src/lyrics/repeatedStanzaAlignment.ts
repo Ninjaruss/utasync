@@ -1,7 +1,13 @@
 import type { AlignmentLanguage, TimedLine } from '../core/types'
 import { alignLyrics, lineWeight, sanitizeTranscript, type TranscriptWord } from '../ai-pipeline/aligner'
 import { anchorLineByPartialMatch } from '../ai-pipeline/partialMatchAnchor'
-import { normalizeForMatch, qualityRank, scoreLineAlignment } from '../ai-pipeline/contentAligner'
+import {
+  computeLineMatchedSpans,
+  normalizeForMatch,
+  qualityRank,
+  scoreLineAlignment,
+  type LineMatchedSpan,
+} from '../ai-pipeline/contentAligner'
 import { isRepetitionOnlyLine } from './lineAligner'
 
 export interface RepeatedStanza {
@@ -231,6 +237,33 @@ function blockQualityScore(
   return { rank, review }
 }
 
+// CLASS-T2b evidence guard: a re-anchored line whose own char-LCS matched-span
+// evidence is high-coverage must not be moved clear off that evidence. Repeat
+// blocks with near-identical neighbors (my-eyes-only `ねえ いつか / ねえ いつも`
+// third occurrence, rows 36–37, next to standalone `ねえ いつか` row 38) can
+// window-realign onto the NEXT line's audio because the occurrence window
+// extends to nextStart + 2 — the guard reverts such lines to their pre-realign
+// placement when that placement agreed with the span evidence.
+const SPAN_GUARD_MIN_CHARS = 4
+const SPAN_GUARD_MIN_COVERAGE = 0.75
+const SPAN_GUARD_TOL_S = 2
+
+function spanGuardApplies(span: LineMatchedSpan | null): span is LineMatchedSpan {
+  return (
+    !!span
+    && span.matchedChars >= SPAN_GUARD_MIN_CHARS
+    && span.totalChars > 0
+    && span.matchedChars / span.totalChars >= SPAN_GUARD_MIN_COVERAGE
+  )
+}
+
+function startAgreesWithSpan(startTime: number, span: LineMatchedSpan): boolean {
+  return (
+    startTime >= span.firstTime - SPAN_GUARD_TOL_S
+    && startTime <= span.lastEndTime + SPAN_GUARD_TOL_S
+  )
+}
+
 /**
  * Re-anchor later occurrences of repeating stanzas with a forward transcript cursor,
  * partial-substring fallback, and reference timing from the first occurrence.
@@ -247,6 +280,8 @@ export function realignRepeatedStanzaOccurrences(
   const clean = sanitizeTranscript(words)
   const lastTime = clean.at(-1)?.endTime ?? 0
   const out = lines.map((l) => ({ ...l }))
+  // Per-line matched-span evidence for the guard below (one whole-sheet LCS).
+  const spans = computeLineMatchedSpans([...lineTexts], clean)
 
   for (const stanza of stanzas) {
     // Two-occurrence blocks are often verse pairs with divergent Whisper text on
@@ -260,9 +295,9 @@ export function realignRepeatedStanzaOccurrences(
 
     for (let o = 1; o < stanza.occurrences.length; o++) {
       const blockStart = stanza.occurrences[o]
-      const beforeBlock = gated
-        ? out.slice(blockStart, blockStart + blockLen).map((l) => ({ ...l }))
-        : null
+      const beforeBlock = out
+        .slice(blockStart, blockStart + blockLen)
+        .map((l) => ({ ...l }))
       const beforeScore = gated
         ? blockQualityScore(out, blockStart, blockLen, clean, sourceLanguage)
         : null
@@ -351,8 +386,23 @@ export function realignRepeatedStanzaOccurrences(
         )
       }
 
+      // Evidence guard (CLASS-T2b): revert any line the re-anchor moved clear
+      // off its own high-coverage span evidence when its previous placement
+      // agreed with that evidence — near-identical repeat lines otherwise
+      // steal the NEXT line's audio through the nextStart + 2 window slack.
+      let reverted = false
+      for (let k = 0; k < blockLen; k++) {
+        const li = blockStart + k
+        const span = spans[li]
+        if (!spanGuardApplies(span)) continue
+        if (startAgreesWithSpan(out[li].startTime, span)) continue
+        if (!startAgreesWithSpan(beforeBlock[k].startTime, span)) continue
+        out[li] = { ...beforeBlock[k] }
+        reverted = true
+      }
+
       enforceBlockMonotonic(out, blockStart, blockLen)
-      if (beforeBlock && beforeScore) {
+      if (beforeScore) {
         const afterScore = blockQualityScore(out, blockStart, blockLen, clean, sourceLanguage)
         // Keep only a strictly-better placement: it must FIX at least one
         // needs_review line and never trade one away, and its summed quality
@@ -362,12 +412,14 @@ export function realignRepeatedStanzaOccurrences(
         const strictlyBetter =
           afterScore.review < beforeScore.review && afterScore.rank > beforeScore.rank
         if (!strictlyBetter) {
-          for (let k = 0; k < blockLen; k++) out[blockStart + k] = beforeBlock[k]
+          for (let k = 0; k < blockLen; k++) out[blockStart + k] = { ...beforeBlock[k] }
           searchFrom = Math.max(searchFromBefore, out[blockStart + blockLen - 1].endTime)
           continue
         }
       }
-      searchFrom = out[blockStart + blockLen - 1].endTime
+      searchFrom = reverted
+        ? Math.max(searchFromBefore, out[blockStart + blockLen - 1].endTime)
+        : out[blockStart + blockLen - 1].endTime
     }
   }
 

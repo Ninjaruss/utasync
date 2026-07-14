@@ -260,18 +260,21 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
       const transcribeWithFallback = async (
         language: typeof alignmentLanguage,
         scaleProgress: (pct: number) => number,
+        // Per-call downgrade to segment timestamps that leaves the user's mode
+        // intact for the other pass (used by the EN-forced mixed pass below).
+        timestampModeOverride?: 'segment',
       ) => {
         const run = () =>
           transcribeAudio(audioData, sampleRate, {
             ...transcribeOptions(language, scaleProgress),
-            timestampMode: effectiveTimestampMode,
+            timestampMode: timestampModeOverride ?? effectiveTimestampMode,
             highAccuracy: effectiveHighAccuracy,
           })
         try {
           return await run()
         } catch (e) {
           if (cancelledRef.current || !isRecoverableTranscriptionError(e)) throw e
-          if (effectiveTimestampMode === 'word') {
+          if (effectiveTimestampMode === 'word' && !timestampModeOverride) {
             effectiveTimestampMode = 'segment'
             setLoadDetail('Word-level pass failed (likely out of memory) — retrying with segment timestamps…')
           } else if (effectiveHighAccuracy) {
@@ -301,7 +304,11 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         // instead and merge per line by alignment quality.
         const jaTranscript = await transcribeWithFallback('ja', (p) => p / 2)
         if (cancelledRef.current) return
-        const enTranscript = await transcribeWithFallback('en', (p) => 50 + p / 2)
+        // The EN pass always runs at segment granularity, regardless of the
+        // user's word-mode setting: the merge only takes line-level times from
+        // it, and Whisper's forced-EN word timestamps on sung vocals are
+        // unreliable enough to fail the confidence gate and waste the pass.
+        const enTranscript = await transcribeWithFallback('en', (p) => 50 + p / 2, 'segment')
         if (cancelledRef.current) return
 
         setTranscribeMerging(false)
