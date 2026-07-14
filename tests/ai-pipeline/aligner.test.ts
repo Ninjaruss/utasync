@@ -249,6 +249,42 @@ describe('sanitizeTranscript', () => {
     expect(result[0].endTime).toBeLessThan(232)
     expect(result[0].endTime - result[0].startTime).toBeLessThanOrEqual(10)
   })
+
+  it('drops pure noise-marker chunks ("[Music]", "(音楽)") that would otherwise match lyrics', () => {
+    const words: TranscriptWord[] = [
+      { word: ' [Music]', startTime: 0, endTime: 4.5 },
+      { word: '(音楽)', startTime: 5, endTime: 8 },
+      { word: '[MUSIC PLAYING]', startTime: 9, endTime: 12 },
+      { word: '青空に', startTime: 13, endTime: 14 },
+    ]
+    expect(sanitizeTranscript(words).map((w) => w.word)).toEqual(['青空に'])
+  })
+
+  it('strips markers from mixed chunks without dropping the lyric text', () => {
+    const words: TranscriptWord[] = [{ word: 'Stranger than heaven ♪', startTime: 157, endTime: 160 }]
+    expect(sanitizeTranscript(words)[0].word).toBe('Stranger than heaven')
+  })
+
+  it('clips a "[Music]"-led chunk to its sung tail instead of smearing lyrics across the intro', () => {
+    // Real defect (stranger-than-heaven EN pass): "[Music] You know I could take
+    // you somewhere" stamped 0–26s while the vocal sits at the chunk's end.
+    const words: TranscriptWord[] = [
+      { word: ' [Music] You know I could take you somewhere', startTime: 0, endTime: 26 },
+    ]
+    const slots = sanitizeTranscript(words)
+    // The clipped chunk still exceeds 10s, so it subdivides into char slots —
+    // all of them confined to the sung tail, none smeared into the intro.
+    expect(slots.map((w) => w.word).join('')).toBe('youknowicouldtakeyousomewhere')
+    expect(slots[0].startTime).toBeGreaterThan(5)
+    expect(slots[slots.length - 1].endTime).toBe(26)
+  })
+
+  it('does not treat a ♪-decorated sung chunk as an instrumental lead-in', () => {
+    const words: TranscriptWord[] = [{ word: '(♪~)夜はく take yourself away', startTime: 142, endTime: 145.2 }]
+    const [w] = sanitizeTranscript(words)
+    expect(w.startTime).toBe(142)
+    expect(w.endTime).toBe(145.2)
+  })
 })
 
 describe('lineWeight', () => {
@@ -256,6 +292,14 @@ describe('lineWeight', () => {
     expect(lineWeight('青空に溶けて', 'ja')).toBe(6)            // 6 kana/kanji
     expect(lineWeight('You always make me so happy', 'ja')).toBe(6) // 6 words
     expect(lineWeight('青空に溶けて', 'ja')).toBeGreaterThan(0)
+  })
+
+  it('on mixed sheets, a code-switched line sings both scripts', () => {
+    expect(lineWeight('青空に溶けて', 'mixed')).toBe(6)
+    expect(lineWeight('You always make me so happy', 'mixed')).toBe(6)
+    // JA sheet treats inline Latin as unsung translation; a mixed sheet sings it.
+    expect(lineWeight('Stranger 青空に溶けて', 'ja')).toBe(6)
+    expect(lineWeight('Stranger 青空に溶けて', 'mixed')).toBe(7)
   })
 })
 
@@ -282,5 +326,39 @@ describe('alignLyrics', () => {
     expect(r.mode).toBe('proportional')
     expect(r.confidence).toBeLessThan(0.5)
     expect(r.lines).toHaveLength(2)
+  })
+
+  it('content-aligns a pure English sheet', () => {
+    const lines = ['stranger than heaven', 'walking on the edge tonight']
+    const words: TranscriptWord[] = [
+      { word: 'stranger', startTime: 1, endTime: 1.5 },
+      { word: 'than', startTime: 1.5, endTime: 1.8 },
+      { word: 'heaven', startTime: 1.8, endTime: 2.4 },
+      { word: 'walking', startTime: 10, endTime: 10.5 },
+      { word: 'on', startTime: 10.5, endTime: 10.7 },
+      { word: 'the', startTime: 10.7, endTime: 10.9 },
+      { word: 'edge', startTime: 10.9, endTime: 11.3 },
+      { word: 'tonight', startTime: 11.3, endTime: 12 },
+    ]
+    const r = alignLyrics(lines, words, undefined, 'en')
+    expect(r.mode).toBe('content')
+    expect(r.lines[0].startTime).toBeCloseTo(1, 0)
+    expect(r.lines[1].startTime).toBeGreaterThanOrEqual(9)
+  })
+
+  it('content-aligns a mixed JA/EN sheet with code-switched sections', () => {
+    const lines = ['あおぞらにとけて', 'stranger than heaven tonight']
+    const words: TranscriptWord[] = [
+      { word: 'あおぞらに', startTime: 1, endTime: 2 },
+      { word: 'とけて', startTime: 2, endTime: 3 },
+      { word: 'stranger', startTime: 10, endTime: 10.5 },
+      { word: 'than', startTime: 10.5, endTime: 10.8 },
+      { word: 'heaven', startTime: 10.8, endTime: 11.4 },
+      { word: 'tonight', startTime: 11.4, endTime: 12 },
+    ]
+    const r = alignLyrics(lines, words, undefined, 'mixed')
+    expect(r.mode).toBe('content')
+    expect(r.lines[0].startTime).toBeCloseTo(1, 0)
+    expect(r.lines[1].startTime).toBeGreaterThanOrEqual(9)
   })
 })

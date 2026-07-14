@@ -1,4 +1,4 @@
-import type { Language, TimedLine } from '../core/types'
+import type { AlignmentLanguage, TimedLine } from '../core/types'
 import { alignByContent, normalizeForMatch } from './contentAligner'
 
 export interface TranscriptWord {
@@ -44,6 +44,46 @@ const MIN_CLIPPED_SEGMENT_S = 1.2
 const SLOW_SING_MAX_SEC_PER_GLYPH = 1.2
 const JA_SCRIPT_RE = /[぀-ヿ㐀-鿿]/
 
+// Whisper decorates segment text with non-lyric noise markers: "[Music]",
+// "[MUSIC PLAYING]", "(音楽)", "♪~", "(♪~)". Left in, their letters/kanji enter
+// the LCS as fake lyric evidence ("music", 音楽) and a pure-marker chunk
+// survives as a matchable word.
+const NOISE_MARKER_RE = /\[[a-z\s]+\]|\((?:音楽|拍手|笑い)\)|\(♪[^)]*\)|♪+~*/gi
+
+// Only the explicit bracketed tag ("[Music] You know I could…") reliably means
+// "instrumental audio precedes these words". ♪ pictographs decorate passages
+// that ARE sung — treating them as lead-ins mis-clipped real vocal onsets
+// (stranger-than-heaven segment rows regressed on the corpus scorecard).
+const LEADING_MUSIC_TAG_RE = /^\[[a-z\s]+\]/i
+
+interface StrippedWord {
+  text: string
+  /** The chunk BEGAN with a "[Music]"-style tag — Whisper stamped it at the music
+   * onset and the sung words sit at the chunk's tail, not spread across it. */
+  leadingMarker: boolean
+}
+
+function stripNoiseMarkers(word: string): StrippedWord {
+  const trimmed = word.trim()
+  return {
+    text: trimmed.replace(NOISE_MARKER_RE, ' ').trim(),
+    leadingMarker: LEADING_MUSIC_TAG_RE.test(trimmed),
+  }
+}
+
+/** A chunk that opens with a music marker ("[Music] You know I could…" stamped
+ * 0–26s) carries its lyrics at the END: the marker owns the instrumental lead-in.
+ * Clip the start so the text occupies at most a plausible sung span before the
+ * chunk's end — subdividing the original span would smear the words across the
+ * whole intro and drag every early line toward 0. */
+function clipMarkerLeadIn(w: TranscriptWord): TranscriptWord {
+  const glyphs = [...normalizeForMatch(w.word)].length
+  if (glyphs === 0) return w
+  const maxSung = Math.max(MIN_CLIPPED_SEGMENT_S, glyphs * MAX_SEC_PER_GLYPH)
+  if (w.endTime - w.startTime <= maxSung) return w
+  return { ...w, startTime: w.endTime - maxSung }
+}
+
 function normalizeToken(word: string): string {
   // Strip whitespace and punctuation so repetition detection isn't fooled by
   // trailing commas/spaces Whisper sprinkles between looped tokens.
@@ -68,19 +108,45 @@ function pushSanitizedWord(kept: TranscriptWord[], w: TranscriptWord): void {
   kept.push(w)
 }
 
+// A whole lyric line stamped into a fraction of a second is a collapsed
+// segment chunk (Whisper squeezes the phrase to its utterance END when the
+// preceding audio confused it). Below this pace the START is untrustworthy;
+// the end roughly marks where the phrase finished.
+const COLLAPSED_SEC_PER_GLYPH = 0.06
+/** Typical sung pace used to reconstruct a collapsed chunk's extent. */
+const EXPAND_SEC_PER_GLYPH = 0.2
+const COLLAPSED_MIN_GLYPHS = 6
+
+/** Expand a collapsed segment chunk backward to a plausible sung span —
+ * bounded by the previous chunk's end so it never claims earlier audio.
+ * Mirror image of clipImplausibleSegmentEnd (ground-truth audit: guitar
+ * lines 18-19 were stamped 95.0-95.4 while actually sung from ~89.7). */
+function expandCollapsedSegment(w: TranscriptWord, prevEnd: number): TranscriptWord {
+  const glyphs = [...normalizeForMatch(w.word)].length
+  if (glyphs < COLLAPSED_MIN_GLYPHS) return w
+  const duration = w.endTime - w.startTime
+  if (duration / glyphs >= COLLAPSED_SEC_PER_GLYPH) return w
+  const start = Math.max(prevEnd + 0.05, w.endTime - glyphs * EXPAND_SEC_PER_GLYPH)
+  if (start >= w.startTime) return w
+  return { ...w, startTime: start }
+}
+
 /** Clip Japanese segment overstamps; leave Latin-only loops for the drop rule.
- * `nextStart` is the following raw chunk's onset (if any): a long segment that is
- * both plausibly paced AND immediately followed by the next chunk is slow singing,
- * not an overstamp into silence, so it is kept in full. */
-function clipImplausibleSegmentEnd(w: TranscriptWord, nextStart?: number): TranscriptWord {
+ * `nextStart` is the following raw chunk's onset (if any). A long segment that is
+ * plausibly paced (≤ SLOW_SING_MAX_SEC_PER_GLYPH) is slow singing, not an
+ * overstamp into silence, and is kept in full — clipping it to the tight
+ * MAX_SEC_PER_GLYPH budget chopped legitimate held notes several seconds early,
+ * which pulled the line's end anchor early and the next line's start with it.
+ * Above that pace, a contiguous follower no longer vouches for the span (the
+ * AKFG "明日を♪" overstamp runs ~11s/glyph) and the tight budget applies. */
+function clipImplausibleSegmentEnd(w: TranscriptWord, _nextStart?: number): TranscriptWord {
   const duration = w.endTime - w.startTime
   if (duration <= MAX_WORD_DURATION_S) return w
   const glyphs = [...normalizeForMatch(w.word)]
   if (glyphs.length === 0 || !glyphs.some((ch) => JA_SCRIPT_RE.test(ch))) return w
   const maxDur = Math.max(MIN_CLIPPED_SEGMENT_S, glyphs.length * MAX_SEC_PER_GLYPH)
   if (duration <= maxDur) return w
-  const contiguousFollower = nextStart != null && nextStart <= w.endTime + 0.35
-  if (duration / glyphs.length <= SLOW_SING_MAX_SEC_PER_GLYPH && contiguousFollower) return w
+  if (duration / glyphs.length <= SLOW_SING_MAX_SEC_PER_GLYPH) return w
   return { ...w, endTime: w.startTime + maxDur }
 }
 
@@ -101,13 +167,17 @@ export function sanitizeTranscript(words: TranscriptWord[]): TranscriptWord[] {
   for (let wi = 0; wi < words.length; wi++) {
     const raw = words[wi]
     if (!Number.isFinite(raw.startTime) || !Number.isFinite(raw.endTime)) continue
+    const stripped = stripNoiseMarkers(raw.word)
+    // Drop music symbols, noise markers, and other non-lyric text entirely.
+    if (!normalizeForMatch(stripped.text)) continue
+    let cleaned: TranscriptWord = { ...raw, word: stripped.text }
+    if (stripped.leadingMarker) cleaned = clipMarkerLeadIn(cleaned)
+    const prevKeptEnd = kept.length ? kept[kept.length - 1].endTime : 0
+    cleaned = expandCollapsedSegment(cleaned, prevKeptEnd)
     const nextRawStart = words[wi + 1]?.startTime
-    const w = clipImplausibleSegmentEnd(raw, nextRawStart)
+    const w = clipImplausibleSegmentEnd(cleaned, nextRawStart)
     const duration = w.endTime - w.startTime
     if (duration <= 0) continue
-
-    // Drop music symbols and other non-lyric noise Whisper emits during bridges.
-    if (!normalizeForMatch(w.word)) continue
 
     if (duration > SUBDIVIDE_TRANSCRIPT_MAX_DURATION_S) continue
     if (duration > MAX_WORD_DURATION_S) {
@@ -152,7 +222,16 @@ function latinWordCount(text: string): number {
 // "You always make me so happy 青空に溶けて") is weighted by its Japanese only:
 // the Latin there is a translation that isn't in the audio. A PURELY Latin line
 // is treated as sung English and weighted by its word count.
-export function lineWeight(text: string, sourceLanguage: Language): number {
+//
+// On a 'mixed' (code-switching) sheet, however, a line carrying both scripts
+// usually sings both — the Latin is lyric, not translation — so both are
+// counted.
+export function lineWeight(text: string, sourceLanguage: AlignmentLanguage): number {
+  if (sourceLanguage === 'mixed') {
+    const both = countMatches(text, JA_CHARS) + latinWordCount(text)
+    if (both > 0) return both
+    return text.replace(/\s+/g, '').length
+  }
   if (sourceLanguage === 'ja') {
     const ja = countMatches(text, JA_CHARS)
     if (ja > 0) return ja
@@ -180,7 +259,7 @@ export function alignTranscriptToLines(
   lineTexts: string[],
   words: TranscriptWord[],
   existingLines?: TimedLine[],
-  sourceLanguage: Language = 'ja'
+  sourceLanguage: AlignmentLanguage = 'ja'
 ): TimedLine[] {
   const lineCount = lineTexts.length
 
@@ -280,15 +359,25 @@ export function ensureVisibleLineWindows(lines: TimedLine[], window = CARVED_WIN
   return out
 }
 
+export interface AlignLyricsOptions {
+  /** Override the content-vs-proportional confidence gate. Confidence is the
+   * matched fraction of ALL sheet chars, so a single-language pass over a
+   * mixed-language sheet can only ever reach that script's share of the sheet —
+   * the mixed two-pass aligner scales the gate by that share. */
+  contentConfidenceThreshold?: number
+}
+
 export function alignLyrics(
   lineTexts: string[],
   words: TranscriptWord[],
   existingLines?: TimedLine[],
-  sourceLanguage: Language = 'ja',
+  sourceLanguage: AlignmentLanguage = 'ja',
+  options?: AlignLyricsOptions,
 ): AlignResult {
+  const threshold = options?.contentConfidenceThreshold ?? CONTENT_CONFIDENCE_THRESHOLD
   const clean = sanitizeTranscript(words)
   const content = alignByContent(lineTexts, clean, existingLines, sourceLanguage)
-  if (content.confidence >= CONTENT_CONFIDENCE_THRESHOLD) {
+  if (content.confidence >= threshold) {
     return {
       lines: ensureVisibleLineWindows(content.lines),
       mode: 'content',

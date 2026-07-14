@@ -22,6 +22,9 @@ const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..')
 const cacheDir = join(root, '.cache/jmdict')
 const outPath = join(root, 'public/jmdict-gloss.json')
+const readingsOutPath = join(root, 'public/jmdict-readings.json')
+
+const KANJI_CHAR_RE = /[㐀-鿿]/
 
 const TAG = '3.6.2+20260622163854'
 const commonOnly = process.argv.includes('--common')
@@ -119,9 +122,20 @@ async function ensureSourceJson() {
   throw new Error(`No jmdict JSON found in ${cacheDir} after extract`)
 }
 
+/** Kana forms applicable to a given kanji surface (JMdict appliesToKanji). */
+function kanaFormsFor(word, surface) {
+  return (word.kana ?? []).filter((kr) => {
+    const applies = kr.appliesToKanji ?? ['*']
+    return applies.includes('*') || applies.includes(surface)
+  })
+}
+
 async function processFile(jsonPath) {
   const romaji = new Map()
   const kanji = new Map()
+  // surface → { common: Set<hiragana>, uncommon: Set<hiragana> } across ALL
+  // entries sharing the surface (角 collects かど, かく, つの from 3 entries).
+  const readings = new Map()
   let lines = 0
   let entries = 0
 
@@ -148,6 +162,28 @@ async function processFile(jsonPath) {
       continue
     }
     entries++
+
+    // Reading inventory — collected before any gloss/common filtering so every
+    // entry contributes its legitimate readings (used to validate sung readings).
+    for (const k of word.kanji ?? []) {
+      const surface = k.text?.trim()
+      if (!surface || surface.length > 8 || !KANJI_CHAR_RE.test(surface)) continue
+      for (const kr of kanaFormsFor(word, surface)) {
+        const reading = toHiragana(kr.text?.trim() ?? '')
+        if (!reading) continue
+        let buckets = readings.get(surface)
+        if (!buckets) {
+          buckets = { common: new Set(), uncommon: new Set() }
+          readings.set(surface, buckets)
+        }
+        if (kr.common) {
+          buckets.common.add(reading)
+          buckets.uncommon.delete(reading)
+        } else if (!buckets.common.has(reading)) {
+          buckets.uncommon.add(reading)
+        }
+      }
+    }
 
     if (commonOnly && !isCommonEntry(word)) continue
 
@@ -179,12 +215,20 @@ async function processFile(jsonPath) {
     }
   }
 
-  console.log(`\nProcessed ${entries} entries → ${romaji.size} romaji, ${kanji.size} kanji`)
+  console.log(`\nProcessed ${entries} entries → ${romaji.size} romaji, ${kanji.size} kanji, ${readings.size} reading surfaces`)
   return {
     v: 1,
     source: commonOnly ? 'jmdict-eng-common' : 'jmdict-eng',
     romaji: Object.fromEntries([...romaji.entries()].map(([k, v]) => [k, v.gloss])),
     kanji: Object.fromEntries([...kanji.entries()].map(([k, v]) => [k, v.romaji])),
+    readings: Object.fromEntries(
+      [...readings.entries()].map(([surface, b]) => {
+        const common = [...b.common].join(',')
+        const uncommon = [...b.uncommon].join(',')
+        // "common1,common2|uncommon1"; no pipe when all common, leading pipe when none.
+        return [surface, uncommon ? `${common}|${uncommon}` : common]
+      }),
+    ),
   }
 }
 
@@ -200,6 +244,11 @@ async function main() {
 
   const mb = (Buffer.byteLength(payload) / 1024 / 1024).toFixed(2)
   console.log(`Wrote ${outPath} (${mb} MB, ${Object.keys(data.romaji).length} romaji entries)`)
+
+  const readingsPayload = `{"v":1,"source":"${data.source}","readings":${JSON.stringify(data.readings)}}`
+  writeFileSync(readingsOutPath, readingsPayload)
+  const rmb = (Buffer.byteLength(readingsPayload) / 1024 / 1024).toFixed(2)
+  console.log(`Wrote ${readingsOutPath} (${rmb} MB, ${Object.keys(data.readings).length} surfaces)`)
 }
 
 main().catch((e) => {

@@ -3,9 +3,10 @@ import { getWhisperModel } from './models'
 import { MODEL_INIT_HINT, ModelLoadProgressTracker, type ModelLoadProgress } from './modelLoadProgress'
 import { loadWhisperAsrPipeline } from './whisperPipeline'
 import { whisperLanguageFor } from './whisperLanguage'
+import { describeWorkerError } from './workerError'
 import { slimWhisperTranscript } from './whisperTranscript'
 import { planWindows, stitchChunkedResults, type WindowResult } from './whisperChunked'
-import type { Language } from '../core/types'
+import type { AlignmentLanguage } from '../core/types'
 
 let asr: Awaited<ReturnType<typeof loadWhisperAsrPipeline>> | null = null
 let requestedDevice: 'webgpu' | 'wasm' = 'wasm'
@@ -68,7 +69,7 @@ self.onmessage = async (e: MessageEvent) => {
       const { audioData, sampleRate, language, timestampMode } = payload as {
         audioData: Float32Array
         sampleRate: number
-        language?: Language
+        language?: AlignmentLanguage
         timestampMode?: 'word' | 'segment'
       }
 
@@ -139,10 +140,7 @@ self.onmessage = async (e: MessageEvent) => {
       self.postMessage({ type: 'result', payload: slim })
     }
   } catch (err) {
-    self.postMessage({
-      type: 'error',
-      payload: err instanceof Error ? err.message : String(err),
-    })
+    self.postMessage({ type: 'error', payload: describeWorkerError(err) })
   }
 }
 

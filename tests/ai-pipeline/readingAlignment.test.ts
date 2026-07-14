@@ -170,3 +170,54 @@ describe('resolveLineReadings — near-match tolerance (mishearing vs mismatch)'
     expect(decisions[0].kind).toBe('mismatch')
   })
 })
+
+describe('resolveLineReadings — JMdict reading validator', () => {
+  // The validator answers "is this kana a legitimate JMdict reading of this
+  // word?" — the audio picks the reading, JMdict vouches for it. Confirmed
+  // alternates adopt even below the strict context gates, and beat the
+  // edit-distance-1 mishearing guard (角 かく→かど is one edit apart yet real).
+  const isCorner = (t: Token, kana: string) => t.surface === '角' && kana === 'かど'
+
+  it('adopts a JMdict-confirmed alternate that the mishearing guard would swallow', () => {
+    // Context 0.6 (< adopt floor 0.75) and edit distance 1 from the dictionary
+    // reading: without the validator this resolves 'verified' (mishearing).
+    const tokens = [tok('僕', 'ボク'), tok('ら', 'ラ'), tok('は', 'ハ'), tok('の', 'ノ'), tok('角', 'カク')]
+    const without = resolveLineReadings(tokens, 'ぼつらばのかど')
+    expect(without[4].kind).toBe('verified')
+
+    const d = resolveLineReadings(tokens, 'ぼつらばのかど', isCorner)
+    expect(d[4].kind).toBe('adopt')
+    expect(d[4].audioReading).toBe('かど')
+    expect(d[4].confidence).toBeGreaterThanOrEqual(0.8)
+  })
+
+  it('boosts confidence when a normally-adopted span is JMdict-confirmed', () => {
+    const tokens = [tok('僕', 'ボク'), tok('らしさ', 'ラシサ'), tok('角', 'カク')]
+    const without = resolveLineReadings(tokens, 'ぼくらへさかど')
+    expect(without[2].kind).toBe('adopt')
+    const before = without[2].confidence!
+
+    const d = resolveLineReadings(tokens, 'ぼくらへさかど', isCorner)
+    expect(d[2].kind).toBe('adopt')
+    expect(d[2].confidence!).toBeGreaterThan(before)
+  })
+
+  it('leaves unconfirmed spans on the existing path (validator false ≠ reject)', () => {
+    const tokens = [tok('僕', 'ボク'), tok('の', 'ノ'), tok('大人', 'オトナ')]
+    const never = () => false
+    const without = resolveLineReadings(tokens, 'ぼきのこども')
+    const d = resolveLineReadings(tokens, 'ぼきのこども', never)
+    expect(d[2].kind).toBe(without[2].kind)
+    expect(without[2].kind).toBe('mismatch')
+  })
+
+  it('never adopts a tainted span even when JMdict-confirmed', () => {
+    const always = () => true
+    const ja = [
+      tok('この', 'コノ'), tok('手', 'テ'), tok('が', 'ガ'),
+      tok('離れ', 'ハナレ'), tok('て', 'テ'), tok('も', 'モ'),
+    ]
+    const d = resolveLineReadings(ja, '変わっていくこの手が満たされても歩いていけ', always)
+    expect(d[3].kind).not.toBe('adopt')
+  })
+})

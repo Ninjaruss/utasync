@@ -57,9 +57,22 @@ async function main() {
   const { refineAlignmentWithPhrases } = await import(
     pathToFileURL(join(root, 'src/lyrics/phraseAlignment.ts')).href
   )
+  const { refineMixedLanguageAlignment } = await import(
+    pathToFileURL(join(root, 'src/ai-pipeline/mixedLanguageAlign.ts')).href
+  )
   const { reconcileTokenReadings } = await import(
     pathToFileURL(join(root, 'src/ai-pipeline/readingReconciler.ts')).href
   )
+  // The app lazily fetches /jmdict-readings.json before reconciling; node can't
+  // fetch a root-relative URL, so inject the real artifact when present so the
+  // scorecard matches real-app JMdict-confirmed reading adoption.
+  {
+    const readingsPath = join(root, 'public/jmdict-readings.json')
+    if (existsSync(readingsPath)) {
+      const jr = await import(pathToFileURL(join(root, 'src/language/japanese/jmdictReadings.ts')).href)
+      jr.setJmdictReadingsForTests(JSON.parse(readFileSync(readingsPath, 'utf8')))
+    }
+  }
   const { applyReadingCorrections } = await import(
     pathToFileURL(join(root, 'src/language/japanese/readingCorrections.ts')).href
   )
@@ -132,9 +145,20 @@ async function main() {
 
   for (const song of manifest.songs) {
     const lineTexts = readLines(join(FIXTURES, song.lyrics))
-    const words = loadTranscriptWords(join(FIXTURES, song.transcript))
+    let words = loadTranscriptWords(join(FIXTURES, song.transcript))
     const sheetRows = lineTexts.map((original) => ({ original, translation: '', startTime: 0, endTime: 0 }))
-    const refined = refineAlignmentWithPhrases(sheetRows, words, song.lang)
+    // A song with a second, EN-forced transcript audits the mixed two-pass path
+    // (the app's path for code-switching sheets). Downstream metrics use the
+    // merged transcript, like the app stores.
+    let refined
+    if (song.transcriptEn) {
+      const enWords = loadTranscriptWords(join(FIXTURES, song.transcriptEn))
+      const mixed = refineMixedLanguageAlignment(sheetRows, words, enWords)
+      refined = mixed.refined
+      words = mixed.transcriptWords
+    } else {
+      refined = refineAlignmentWithPhrases(sheetRows, words, song.lang)
+    }
 
     // --- boundary metrics, attributed per pass ---
     const sanitized = sanitizeTranscript(words)

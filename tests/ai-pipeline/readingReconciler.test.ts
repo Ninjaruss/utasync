@@ -211,3 +211,38 @@ describe('wordsInLineWindow', () => {
     expect(wordsInLineWindow(words, line).map((w) => w.word)).toEqual(['a', 'b'])
   })
 })
+
+describe('reconcileTokenReadings — JMdict reading inventory', () => {
+  const cornerLine: TimedLine = {
+    startTime: 10,
+    endTime: 14,
+    original: '僕らはの角',
+    translation: '',
+  }
+  const cornerTokens = () => [
+    tok('僕', 'ボク', 0), tok('ら', 'ラ', 1), tok('は', 'ハ', 2), tok('の', 'ノ', 3), tok('角', 'カク', 4),
+  ]
+  // Mediocre-context transcript: without JMdict the かど span is treated as an
+  // edit-distance-1 mishearing of かく and marked verified.
+  const words = [{ word: 'ぼつらばのかど', startTime: 10, endTime: 14 }]
+
+  it('adopts a JMdict-confirmed sung alternate when the inventory is loaded', async () => {
+    const { setJmdictReadingsForTests, resetJmdictReadingsCache } = await import('../../src/language/japanese/jmdictReadings')
+    setJmdictReadingsForTests({ v: 1, source: 'jmdict-eng', readings: { 角: 'かど,かく,つの' } })
+    try {
+      const out = reconcileTokenReadings(cornerTokens(), cornerLine, words)
+      expect(out[4].audioReading).toBe('カド')
+      expect(out[4].readingConfidence).toBeGreaterThanOrEqual(HIGH_READING_CONFIDENCE)
+    } finally {
+      resetJmdictReadingsCache()
+    }
+  })
+
+  it('keeps the pre-JMdict behavior when the inventory is not loaded', async () => {
+    const { resetJmdictReadingsCache } = await import('../../src/language/japanese/jmdictReadings')
+    resetJmdictReadingsCache()
+    const out = reconcileTokenReadings(cornerTokens(), cornerLine, words)
+    expect(out[4].audioReading).toBeUndefined()
+    expect(out[4].readingVerified).toBe(true)
+  })
+})

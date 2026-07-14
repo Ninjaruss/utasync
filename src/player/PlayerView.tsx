@@ -29,6 +29,7 @@ import { sentenceToIPA } from '../language/english/phonetics'
 import { detectEnglishGrammar } from '../language/english/grammar'
 import { TapSyncEditor } from './TapSyncEditor'
 import { getDeviceTier } from '../ai-pipeline/capability'
+import { detectSheetLanguage } from '../ai-pipeline/whisperLanguage'
 import { suggestsWordLevelAlignment } from '../ai-pipeline/alignTimestampMode'
 import { linesAreTimed, chooseAutoAlignment, type AlignMode } from './alignmentPolicy'
 import { EditMode } from '../lyrics/EditMode'
@@ -438,7 +439,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           const refined = refineAlignmentWithPhrases(
             sheetRows,
             transcriptWordsToAlignInput(s.lyrics.transcriptWords),
-            s.lyrics.sourceLanguage,
+            detectSheetLanguage(
+              sheetRows.map((r) => r.original || r.translation),
+              s.lyrics.sourceLanguage,
+            ),
             s.lyrics,
           )
           if (refined.phrases.length && !cancelled) {

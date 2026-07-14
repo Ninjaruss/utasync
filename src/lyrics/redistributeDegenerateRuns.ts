@@ -1,4 +1,4 @@
-import type { Language, TimedLine } from '../core/types'
+import type { AlignmentLanguage, TimedLine } from '../core/types'
 import { sanitizeTranscript, type TranscriptWord } from '../ai-pipeline/aligner'
 import { scoreLineAlignment } from '../ai-pipeline/contentAligner'
 import {
@@ -34,7 +34,7 @@ function runIsDegenerate(
   lines: TimedLine[],
   from: number,
   to: number,
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
 ): boolean {
   for (let k = from; k <= to; k++) {
     const text = lineTextOf(lines[k])
@@ -66,7 +66,7 @@ function runIsDegenerate(
 export function redistributeDegenerateRuns(
   linesIn: TimedLine[],
   words: TranscriptWord[],
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
   anchoredMask?: boolean[],
 ): RedistributionResult {
   const lines = linesIn.map((l) => ({ ...l }))
@@ -105,7 +105,7 @@ function redistributeRun(
   from: number,
   to: number,
   clean: TranscriptWord[],
-  sourceLanguage: Language,
+  sourceLanguage: AlignmentLanguage,
   lastTime: number,
   redistributed: boolean[],
   onActivity: boolean[],

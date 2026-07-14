@@ -155,7 +155,18 @@ function editDistanceCapped(a: string, b: string, cap: number): number {
   return prev[b.length]
 }
 
-export function resolveLineReadings(tokens: Token[], windowText: string): ReadingDecision[] {
+/** Confidence floor for adopting a sung reading solely because JMdict lists it
+ * as a legitimate reading of the word — above HIGH_READING_CONFIDENCE so
+ * dictionary-confirmed alternates are promoted into the ruby. */
+const JMDICT_CONFIRMED_CONFIDENCE = 0.85
+/** Confidence bump when an adopted reading is also JMdict-confirmed. */
+const JMDICT_CONFIRMED_BONUS = 0.1
+
+export function resolveLineReadings(
+  tokens: Token[],
+  windowText: string,
+  isValidReading?: (token: Token, kana: string) => boolean,
+): ReadingDecision[] {
   const decisions: ReadingDecision[] = tokens.map(() => ({ kind: 'skip' as ReadingDecisionKind }))
   const { a: A, owner } = buildExpectedKana(tokens)
   const { kana: B, tainted } = comparableKanaTainted(windowText)
@@ -217,11 +228,21 @@ export function resolveLineReadings(tokens: Token[], windowText: string): Readin
     const okuriganaKept = !okurigana || span.endsWith(okurigana)
     if (bracketed && clean && okuriganaKept && contextScore >= MISMATCH_CONTEXT_FLOOR) {
       const confidence = Math.round((0.5 * contextScore + 0.5) * 100) / 100
+      // JMdict lists the span as a legitimate reading of this word: the audio
+      // picked it, the dictionary vouches for it. Checked before the
+      // edit-distance mishearing guard, which would otherwise swallow real
+      // one-edit alternates (角 かく→かど).
+      const jmdictConfirmed = !spanTainted && (isValidReading?.(token, span) ?? false)
       // A span whose transcript kana abut a dropped kanji/latin glyph is missing
       // sung content — never adopt it; leave the softer mismatch flag so the
       // async kanji pass (readingReconciler) can still resolve it from glyphs.
       if (!spanTainted && contextScore >= ADOPT_CONTEXT_FLOOR && confidence >= ADOPT_MIN_CONFIDENCE) {
-        decisions[idx] = { kind: 'adopt', audioReading: span, confidence }
+        const boosted = jmdictConfirmed
+          ? Math.min(1, Math.round((confidence + JMDICT_CONFIRMED_BONUS) * 100) / 100)
+          : confidence
+        decisions[idx] = { kind: 'adopt', audioReading: span, confidence: boosted }
+      } else if (jmdictConfirmed) {
+        decisions[idx] = { kind: 'adopt', audioReading: span, confidence: Math.max(confidence, JMDICT_CONFIRMED_CONFIDENCE) }
       } else if (!spanTainted && R.length >= 2 && editDistanceCapped(span, R, 1) <= 1) {
         // The span failed the adopt gates AND sits one edit from the dictionary
         // reading: that is Whisper mishearing the dictionary reading (空→そら

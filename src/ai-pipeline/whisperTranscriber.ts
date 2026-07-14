@@ -3,7 +3,7 @@ import { whisperBackend } from './inferenceBackend'
 import { getWhisperModel } from './models'
 import { runWhenIdle } from '../core/idle'
 import type { ModelLoadPhase } from './modelLoadProgress'
-import type { Language } from '../core/types'
+import type { AlignmentLanguage } from '../core/types'
 
 export interface TranscriptChunk {
   text: string
@@ -150,7 +150,7 @@ export async function transcribeAudio(
   audioData: Float32Array,
   sampleRate: number,
   options?: {
-    language?: Language
+    language?: AlignmentLanguage
     onLoadProgress?: (p: LoadProgress) => void
     onModelLoaded?: () => void
     onTranscribeProgress?: (p: TranscribeProgress) => void
@@ -205,6 +205,9 @@ export async function transcribeAudio(
         resolve(e.data.payload as WhisperTranscript)
       } else if (e.data.type === 'error') {
         cleanup()
+        // A WASM crash (OOM abort) leaves the runtime unusable — terminate so a
+        // retry spins up a fresh worker instead of reusing a corrupted heap.
+        w.terminate()
         worker = null
         loaded = null
         loadedModel = null
@@ -216,6 +219,7 @@ export async function transcribeAudio(
     // try/catch cannot intercept — without this the promise hangs forever.
     const onError = (e: ErrorEvent) => {
       cleanup()
+      w.terminate()
       worker = null
       loaded = null
       loadedModel = null
