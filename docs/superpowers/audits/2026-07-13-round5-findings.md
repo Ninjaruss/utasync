@@ -205,3 +205,65 @@ tooltip noise; displayed ruby is correct everywhere the truth file covers).
 - Reading false-mismatch flags — **unchanged** (7 flags, same tokens/counts).
 - Pairing noise floor — **unchanged** (13 produced instances = documented
   akfg 6 + guitar 7; veil truth pairs all blocked).
+
+---
+
+## 6. Round close-out: before → after (Task 6)
+
+All numbers from the deterministic instruments; "before" = Task-1 baseline
+(commit 185050e), "after" = post-ratchet (commit a494b7e).
+
+### LRC ground-truth alignment error (align p50 / p90 seconds)
+
+| config | before | after | driver |
+|---|---|---|---|
+| guitar-loneliness word | 0.45 / 1.70 | **0.40 / 1.62** | T3 (#0 head onset 3.1s→0.40s) |
+| guitar-loneliness segment | 0.81 / 2.92 | **0.73 / 1.96** | T2 (#46 4.6s→0.29s) + T3 (#0 3.0s→0.19s) |
+| stranger word ja-only | 0.85 / 37.74 | 0.85 / 37.74 | unchanged (tail is class-A un-anchorable) |
+| stranger segment ja-only | 5.93 / 33.79 | 5.93 / 33.79 | unchanged (class-A + A7 verse cascade, deferred) |
+| stranger word mixed 2-pass | 0.85 / 37.74 | **0.56 / 3.64** | T1 (EN pass engaged; was byte-identical to ja-only) + T2 |
+| stranger segment mixed 2-pass | 0.73 / 7.86 | **0.56 / 7.86** | T2 (#16 2.1s→0.38s) |
+| stranger segment medium ja-only | 0.70 / 12.92 | 0.70 / 12.92 | unchanged (head is class-A #0/#1 + A5#2 deferred behind A7) |
+
+Corpus scorecard: my-eyes-only pileup/compressed 1→0 each (T2b: #37 restored
+to its benchmark truth 167.0s), stranger-segment compressed 24→23,
+mixed-segment compressed 8→6. `read_ruby_wrong` remains 0 on all 14 rows;
+`pair_wrong` movement is confined to the documented noise-floor entries.
+
+### Fixes landed (each TDD'd, spec- and quality-reviewed)
+
+- **T1** `d3e3b21` — mixed-mode EN pass always transcribes at segment
+  granularity (word-granularity forced-EN was a proven no-op: confidence
+  ceiling 0.380 < 0.443 gate even unsanitized).
+- **T2** `ec4a67b` — late-start backfill coverage floor 0.55→0.50, matching
+  the LRC audit's own evidence floor.
+- **T2b** `84d97a5` — repeated-stanza 3+-occurrence re-anchor now
+  evidence-gated (reverts moves contradicting a high-coverage span).
+- **T3** `ef72813` + `1b48d8c` — vocal-onset pulls beyond 2.5s allowed when
+  span-corroborated; shared span computation across backfill tuners.
+- **P1** `f7d1354` — adjacent-translation swap gate now requires per-row
+  bidirectional gloss evidence (kills one-sided-coincidence swaps, keeps
+  true-positive inversions).
+
+### Ratchet (a494b7e)
+
+corpus-baseline re-snapshotted (all movement audited: improvements, 4
+documented artifact cells, mixed-word parity row); all carve-outs cleared;
+lrc-truth thresholds tightened ~10–35% with ≥20% headroom (guitar word p90
+2.2→1.95, guitar segment p90 3.6→2.4, stranger 2-pass p50 0.9→0.7).
+
+### Deferred / follow-ups
+
+- A5#2 medium-head mega-chunk + A7 verse cascade (fix A7 first; the measured
+  dead-end for the head clip is documented in A5's status cell).
+- A2 #44 + CLASS-T4: chunk-granularity-bounded, no net win available without
+  sub-chunk timing evidence.
+- English-only corpus song (coverage gap, needs new audio + transcript).
+- Full suite: 173 files / 1209 tests green post-ratchet.
+- Browser display-layer spot-check: NOT completed this round — the in-app
+  browser's per-origin approval requires an interactive user and this session
+  ran autonomously. Manual step: run the dev server, play one Japanese song
+  and one mixed-language song, confirm line highlight lands with the vocal,
+  ruby matches sung readings on the fixed lines, and the tap-word popover
+  glosses are sane. All fixed behavior is covered by the deterministic
+  instruments above; this check guards only the render layer.
