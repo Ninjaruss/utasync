@@ -196,6 +196,19 @@ describe('EditMode', () => {
     expect(screen.queryByText(/off-timing/i)).toBeNull()
   })
 
+  // Round-6 A2b: a mixed-language song aligned before the current pipeline
+  // version can't be repaired by the single-pass re-refine — surface a
+  // re-run-Auto-align recommendation.
+  it('shows a re-align recommendation for a stale mixed-language song', () => {
+    renderEditMode({ needsMixedRealign: true })
+    expect(screen.getByText(/mixed-language song.*re-run Auto-align/i)).toBeTruthy()
+  })
+
+  it('hides the mixed re-align recommendation by default', () => {
+    renderEditMode()
+    expect(screen.queryByText(/mixed-language song/i)).toBeNull()
+  })
+
   it('opens the second-language panel from the toolbar', async () => {
     renderEditMode()
     fireEvent.click(screen.getByRole('button', { name: /translation/i }))

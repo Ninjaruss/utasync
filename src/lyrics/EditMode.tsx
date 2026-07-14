@@ -42,6 +42,9 @@ interface Props {
   lineAlignmentQuality?: LineAlignmentQuality[]
   /** When false, suppress alignment quality badges (e.g. manual tap-sync). */
   showAlignmentQuality?: boolean
+  /** Mixed-language song aligned before the current pipeline version — the
+   * stored-transcript re-refine can't repair it, so recommend a fresh Auto-align. */
+  needsMixedRealign?: boolean
 }
 
 const DELETE_CONFIRM_MS = 3000
@@ -202,7 +205,7 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
@@ -391,6 +394,11 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
         {offTimingCount > 0 && (
           <p className="text-[10px] text-amber-400/80 text-pretty">
             {offTimingCount} line{offTimingCount === 1 ? '' : 's'} off-timing — adjust the timestamps below or re-run Auto-align.
+          </p>
+        )}
+        {needsMixedRealign && (
+          <p className="text-[10px] text-amber-400/80 text-pretty">
+            Mixed-language song aligned before recent timing fixes — re-run Auto-align to re-time it (older mixed songs can't be re-timed automatically on open).
           </p>
         )}
       </div>

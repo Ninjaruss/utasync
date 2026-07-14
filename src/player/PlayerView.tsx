@@ -18,6 +18,7 @@ import {
   sheetRowsForAlignment,
   applyRefinedAlignment,
   shouldRefineStoredAlignment,
+  needsMixedRealign,
   transcriptWordsToAlignInput,
 } from '../lyrics/phraseAlignment'
 import { summarizePhraseChanges, applySungLayout, revertToSheetLayout } from '../lyrics/phraseLayout'
@@ -1210,6 +1211,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               onPausePlayback={pausePlayback}
               lineAlignmentQuality={song?.lyrics.lineAlignmentQuality}
               showAlignmentQuality={song?.lyrics.alignmentMode === 'auto'}
+              needsMixedRealign={song ? needsMixedRealign(song.lyrics) : false}
             />
           )}
         </div>

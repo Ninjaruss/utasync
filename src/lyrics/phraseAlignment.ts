@@ -16,12 +16,13 @@ import { isRepetitionOnlyLine } from './lineAligner'
 import { redistributeDegenerateRuns } from './redistributeDegenerateRuns'
 import { findPhoneticAnchorEn } from '../ai-pipeline/phoneticEn'
 import { minLineDuration } from './lineDegeneracy'
+import { detectSheetLanguage } from '../ai-pipeline/whisperLanguage'
 
 const REPETITION_REF_MIN_SPAN_S = 1.4
 
 /** Bump when auto-align timing logic changes — triggers one-time re-refine from the
  * persisted Whisper transcript on song open (no re-transcription). */
-export const ALIGNMENT_PIPELINE_VERSION = 19
+export const ALIGNMENT_PIPELINE_VERSION = 20
 
 const ENTWINED_ROLLING_RE = /心絡まって.*ローリング/
 const RUN_LINE_RE = /凍てつく(?:世界|地面).*走り出した/
@@ -1278,11 +1279,40 @@ export function sheetRowsForAlignment(lyrics: LyricsData): TimedLine[] {
   return lyrics.lines
 }
 
-/** Re-run phrase-aware timing when the pipeline version is stale. */
+/** Alignment language re-detected from the stored sheet — the same
+ * `detectSheetLanguage` call (over the alignment rows) that chose the language at
+ * align time, so it reproduces that decision without a persisted field. */
+function detectedAlignmentLanguage(lyrics: LyricsData): AlignmentLanguage {
+  const rows = sheetRowsForAlignment(lyrics)
+  return detectSheetLanguage(
+    rows.map((r) => r.original || r.translation),
+    lyrics.sourceLanguage,
+  )
+}
+
+/** Re-run phrase-aware timing when the pipeline version is stale.
+ * Mixed-language songs are excluded: their stored transcript is the *merged*
+ * single stream (the separate EN-forced pass was never persisted), so a
+ * single-pass re-refine can neither reconstruct the two-pass merge nor safely
+ * re-time a good round-5 alignment — they need a fresh Auto-align instead
+ * (see `needsMixedRealign`). */
 export function shouldRefineStoredAlignment(lyrics: LyricsData): boolean {
   if (!lyrics.lines.length) return false
   if (lyrics.alignmentMode !== 'auto') return false
   if (!lyrics.transcriptWords?.length) return false
+  if (detectedAlignmentLanguage(lyrics) === 'mixed') return false
+  return (lyrics.alignmentPipelineVersion ?? 0) < ALIGNMENT_PIPELINE_VERSION
+}
+
+/** True when a mixed-language auto-aligned song was aligned before the current
+ * pipeline version. Such songs can't be repaired by the stored-transcript
+ * re-refine (see `shouldRefineStoredAlignment`); the UI surfaces a
+ * re-run-Auto-align recommendation so the fix isn't silently unreachable. */
+export function needsMixedRealign(lyrics: LyricsData): boolean {
+  if (!lyrics.lines.length) return false
+  if (lyrics.alignmentMode !== 'auto') return false
+  if (!lyrics.transcriptWords?.length) return false
+  if (detectedAlignmentLanguage(lyrics) !== 'mixed') return false
   return (lyrics.alignmentPipelineVersion ?? 0) < ALIGNMENT_PIPELINE_VERSION
 }
 
