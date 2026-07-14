@@ -443,12 +443,13 @@ const ONSET_SPAN_CORROBORATION_MIN_CHARS = 3
  * the ownership guards below (previous line's matched span, straddled-word
  * check) remain the real safety, not the cap. */
 const LATESTART_MAX_PULL_S = 10
-/** ...unless the span is near-perfectly covered. A line placed 10s+ after its
- * OWN reliably-matched onset with coverage this high is genuinely late — its
- * evidence corroborates the pull (round-5 T3 onset-pull precedent). This lifts
- * the cap for exactly those rows (stranger segment #23/#24: 10.5s late at
- * 1.00/0.93 coverage) while the container-word and prev-span ownership guards
- * still gate weak-evidence pulls. */
+/** The MAX_PULL cap is lifted when the line's own span is near-perfectly
+ * covered: a line placed 10s+ after its OWN reliably-matched onset with
+ * coverage this high is genuinely late, and its evidence corroborates the pull
+ * (same principle as the round-5 T3 span-corroborated onset pull, applied here
+ * as a coverage ratio). 0.9 sits just below the observed worst rows (stranger
+ * segment #23/#24: 10.5s late at 1.00/0.93 coverage — H5); the container-word
+ * and prev-span ownership guards still gate weak-evidence pulls. */
 const LATESTART_HIGHCOV_CAP_EXCEPTION = 0.9
 
 /** Both backfill tuners run back-to-back on the same texts and transcript
@@ -555,7 +556,10 @@ function backfillLateStartsToMatchedSpan(
     // before the previous line's own matched content, and never squashing
     // the previous line below a visible duration.
     const prevFloor = i > 0 ? out[i - 1].startTime + 0.3 : 0
-    let boundary = Math.max(target, prevSpanEnd, prevFloor)
+    // The earliest this line may legitimately start: past the previous line's
+    // own matched content and past its display floor.
+    const prevEdge = Math.max(prevSpanEnd, prevFloor)
+    let boundary = Math.max(target, prevEdge)
     // A boundary strictly inside a short sung word would clip that word
     // (bnd_midword): move out to the word's start when this line owns it,
     // otherwise leave the line alone.
@@ -564,7 +568,7 @@ function backfillLateStartsToMatchedSpan(
       return dur >= 0.4 && dur <= 2.5 && boundary > w.startTime + 0.05 && boundary < w.endTime - 0.05
     })
     if (straddled) {
-      if (straddled.startTime >= Math.max(prevSpanEnd, prevFloor) - 0.05) {
+      if (straddled.startTime >= prevEdge - 0.05) {
         boundary = Math.max(straddled.startTime, prevFloor)
       } else if (prevSpanEnd >= straddled.startTime - 0.05) {
         // The straddled word is genuinely SHARED: the previous line's own
