@@ -58,17 +58,7 @@ const baseline = JSON.parse(readFileSync(join(FIXTURES, 'corpus-baseline.json'),
 // because the flagged line is verifiably at its ground-truth placement and the
 // boundary metric misfires on ambiguous span attribution. Each entry needs a
 // findings-doc reference; remove it when the baseline is next ratcheted.
-const ALLOWED_MEASUREMENT_ARTIFACTS: Record<string, Record<string, number>> = {
-  // Round-5 finding A4 (CLASS-T2b): my-eyes-only #37 `ねえ いつも` sits at its
-  // ground-truth start (167.0s — see truth[37] in alignment-benchmark.test.ts),
-  // but its merged char-LCS span starts at the coincidental shared `ねえ`
-  // prefix at 157.42s that truth assigns to line #36 (whose own span is null),
-  // so a CORRECTLY placed #37 always measures as a late start. The baseline
-  // already carries the identical artifact as bnd_latestart_p1=1; p2 was 0
-  // only while the CLASS-T2b defect pushed #37 onto #38's audio at 171.32s,
-  // outside its span and therefore excluded from measurement entirely.
-  'my-eyes-only': { bnd_latestart_p2: 1 },
-}
+const ALLOWED_MEASUREMENT_ARTIFACTS: Record<string, Record<string, number>> = {}
 
 describe('audit corpus — alignment non-regression', () => {
   it('baseline has a row for every corpus song', () => {

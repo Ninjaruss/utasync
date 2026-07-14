@@ -75,7 +75,7 @@
       "lang": "mixed",
       "lyrics": "stranger-than-heaven/lyrics.txt",
       "transcript": "stranger-than-heaven/transcript.word.json",
-      "transcriptEn": "stranger-than-heaven/transcript.word.forced-en.json"
+      "transcriptEn": "stranger-than-heaven/transcript.segment.forced-en.json"
     },
     {
       "name": "guitar-loneliness-word",

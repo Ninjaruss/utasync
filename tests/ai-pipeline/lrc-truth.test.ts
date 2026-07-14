@@ -83,9 +83,9 @@ describe('alignment vs human-synced LRC ground truth', () => {
     const refined = refineAlignmentWithPhrases(sheetRows, words, 'ja')
     const m = truthMetrics(refined.lines, lineTexts, words, truthTime)
     expect(m.n).toBeGreaterThanOrEqual(30)
-    expect(m.p50).toBeLessThanOrEqual(0.6)   // measured 0.45
-    expect(m.p90).toBeLessThanOrEqual(2.2)   // measured 1.70
-    expect(m.over1s).toBeLessThanOrEqual(8)  // measured 6
+    expect(m.p50).toBeLessThanOrEqual(0.5)   // measured 0.40 (round 5)
+    expect(m.p90).toBeLessThanOrEqual(1.95)  // measured 1.62 (round 5)
+    expect(m.over1s).toBeLessThanOrEqual(6)  // measured 5 (round 5)
   })
 
   it('guitar-loneliness segment mode stays within measured truth error', { timeout: 20_000 }, () => {
@@ -94,9 +94,9 @@ describe('alignment vs human-synced LRC ground truth', () => {
     const sheetRows = lineTexts.map((original) => ({ original, translation: '', startTime: 0, endTime: 0 }))
     const refined = refineAlignmentWithPhrases(sheetRows, words, 'ja')
     const m = truthMetrics(refined.lines, lineTexts, words, truthTime)
-    expect(m.p50).toBeLessThanOrEqual(1.0)   // measured 0.81
-    expect(m.p90).toBeLessThanOrEqual(3.6)   // measured 2.92
-    expect(m.over1s).toBeLessThanOrEqual(18) // measured 16
+    expect(m.p50).toBeLessThanOrEqual(0.9)   // measured 0.73 (round 5)
+    expect(m.p90).toBeLessThanOrEqual(2.4)   // measured 1.96 (round 5)
+    expect(m.over1s).toBeLessThanOrEqual(17) // measured 14 (round 5)
   })
 
   it('stranger-than-heaven segment two-pass (the app path) stays within measured truth error', { timeout: 30_000 }, () => {
@@ -107,8 +107,8 @@ describe('alignment vs human-synced LRC ground truth', () => {
     const mixed = refineMixedLanguageAlignment(sheetRows, ja, en)
     const m = truthMetrics(mixed.refined.lines, lineTexts, mixed.transcriptWords, truthTime)
     expect(m.n).toBe(59)
-    expect(m.p50).toBeLessThanOrEqual(0.9)   // measured 0.73 (was 2.03 pre-fix)
+    expect(m.p50).toBeLessThanOrEqual(0.7)   // measured 0.56 round 5 (was 2.03 pre-fix)
     expect(m.p90).toBeLessThanOrEqual(9.5)   // measured 7.86 (LRC version drift caveat)
-    expect(m.over1s).toBeLessThanOrEqual(28) // measured 25 (was 35)
+    expect(m.over1s).toBeLessThanOrEqual(27) // measured 22 round 5 (was 35)
   })
 })
