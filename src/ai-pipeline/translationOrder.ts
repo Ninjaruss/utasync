@@ -52,9 +52,17 @@ export function adjacentTranslationsSwapped(line0: TimedLine, line1: TimedLine):
   if (isMixedScriptLine(line0.original) || isMixedScriptLine(line1.original)) return false
   if (!JAPANESE_RE.test(line0.original) || !JAPANESE_RE.test(line1.original)) return false
 
-  const direct = lineGlossAffinity(tokens0, en0) + lineGlossAffinity(tokens1, en1)
-  const swapped = lineGlossAffinity(tokens0, en1) + lineGlossAffinity(tokens1, en0)
-  return swapped > direct + 0.12 && swapped > direct * 1.2
+  const direct0 = lineGlossAffinity(tokens0, en0)
+  const direct1 = lineGlossAffinity(tokens1, en1)
+  const cross0 = lineGlossAffinity(tokens0, en1)
+  const cross1 = lineGlossAffinity(tokens1, en0)
+  const direct = direct0 + direct1
+  const swapped = cross0 + cross1
+  // A genuine clause inversion leaves evidence on BOTH rows: each row's tokens
+  // prefer the other row's English. A one-sided margin is typically a single
+  // spurious JMdict gloss hit on a short line (e.g. 状態→"want"), so require
+  // every row to individually beat its direct affinity before swapping.
+  return cross0 > direct0 && cross1 > direct1 && swapped > direct + 0.12 && swapped > direct * 1.2
 }
 
 /**

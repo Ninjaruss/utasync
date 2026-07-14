@@ -74,6 +74,22 @@ const pairingTruth = JSON.parse(readFileSync(join(FIXTURES, 'pairing-truth.json'
 
 const pairedSongs = manifest.songs.filter((s) => s.en)
 
+// Documented measurement artifacts (same protocol as corpus-scorecard.test.ts):
+// cells allowed to exceed the baseline because the increment is a verified
+// side effect of a fix, not a new bad pair. Each entry needs a findings-doc
+// reference; remove it when the baseline is next ratcheted.
+const ALLOWED_MEASUREMENT_ARTIFACTS: Record<string, Record<string, number>> = {
+  // Round-5 finding P10 (CLASS-P1): fixing the spurious adjacent-translation
+  // swap restores the CORRECT translation ("I screamed without being able to
+  // let it out") on the second occurrence of 出せない状態で叫んだよ (fixture
+  // row 43), so the pre-existing known-bad truth pair 状態→without — counted
+  // once per occurrence because truth entries match by line text — now fires
+  // on both occurrences instead of one. The pair itself is unchanged
+  // noise-floor behavior (P11 class); the count was 7 only while the defect
+  // displayed the WRONG translation (no "without" among its words) on row 43.
+  'guitar-loneliness-word': { pair_wrong: 8 },
+}
+
 describe('audit corpus — word pairing non-regression (cached embeddings)', () => {
   let tokenizer: Tokenizer
   let embedTexts: (texts: string[]) => Promise<number[][]>
@@ -190,9 +206,11 @@ describe('audit corpus — word pairing non-regression (cached embeddings)', () 
       const base = baseline[song.name]
       expect(unpaired, `pair_unpaired regressed`).toBeLessThanOrEqual(base.pair_unpaired as number)
       expect(magnet, `pair_magnet regressed`).toBeLessThanOrEqual(base.pair_magnet as number)
-      expect(wrong, `pair_wrong regressed (known-bad pairs reappeared)`).toBeLessThanOrEqual(
+      const wrongCap = Math.max(
         base.pair_wrong as number,
+        ALLOWED_MEASUREMENT_ARTIFACTS[song.name]?.pair_wrong ?? 0,
       )
+      expect(wrong, `pair_wrong regressed (known-bad pairs reappeared)`).toBeLessThanOrEqual(wrongCap)
     }, 120_000)
   }
 })
