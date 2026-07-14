@@ -105,6 +105,23 @@ interface RunSpan {
   end: number
 }
 
+/** Proportional-duration scale for a run: activity capacity (or the whole
+ * window when there is no activity) over the run's expected total, capped at
+ * MAX_STRETCH. */
+function runScale(
+  regions: { start: number; end: number }[],
+  windowStart: number,
+  windowEnd: number,
+  weights: number[],
+): number {
+  const totalExpected = weights.reduce((a, b) => a + b, 0)
+  const capacity = regions.reduce((a, r) => a + (r.end - r.start), 0)
+  return Math.min(
+    MAX_STRETCH,
+    (regions.length > 0 ? capacity : windowEnd - windowStart) / totalExpected,
+  )
+}
+
 /**
  * Lay the run out across the window: proportional durations floored per line,
  * preferring transcript-activity regions. The cursor advances toward the next
@@ -123,14 +140,9 @@ function layoutRun(
   regions: { start: number; end: number }[],
   weights: number[],
   floors: number[],
-  acceptable: number[],
+  regionClampFloor: number[],
 ): RunSpan[] {
-  const totalExpected = weights.reduce((a, b) => a + b, 0)
-  const capacity = regions.reduce((a, r) => a + (r.end - r.start), 0)
-  const scale = Math.min(
-    MAX_STRETCH,
-    (regions.length > 0 ? capacity : windowEnd - windowStart) / totalExpected,
-  )
+  const scale = runScale(regions, windowStart, windowEnd, weights)
   const totalFloor = floors.reduce((a, b) => a + b, 0)
   // Anchor at the first activity, shifting earlier only as far as the floors need.
   const anchor = regions.length > 0 ? regions[0].start : windowStart
@@ -151,8 +163,10 @@ function layoutRun(
     }
     let durEff = Math.min(dur, windowEnd - remaining - cursor)
     if (ri < regions.length && cursor >= regions[ri].start && cursor < regions[ri].end) {
+      // Prefer ending at the region edge over claiming the instrumental after
+      // it — but only down to the clamp floor; a tinier clamp is a sliver.
       const room = regions[ri].end - cursor
-      if (room < durEff && room >= acceptable[k]) durEff = room
+      if (room < durEff && room >= regionClampFloor[k]) durEff = room
     }
     spans.push({ start: cursor, end: cursor + durEff })
     cursor += durEff
@@ -177,18 +191,18 @@ function redistributeRun(
 
   // Per-line packing floor: no re-timed line may fall below its plausible sung
   // minimum, capped at its fair share of the window so a crowded run still
-  // fits. `acceptable` is the region-edge clamp bound: a clamped line may keep
-  // a genuine capacity limit down to the compression threshold, but anything
-  // below that is a sliver and the line spills past the edge instead.
+  // fits. `regionClampFloor` is the region-edge clamp bound: a clamped line
+  // may keep a genuine capacity limit down to the compression threshold, but
+  // anything below that is a sliver and the line spills past the edge instead.
   const fairShare = (windowEnd - windowStart) / (to - from + 1)
   const weights: number[] = []
   const floors: number[] = []
-  const acceptable: number[] = []
+  const regionClampFloor: number[] = []
   for (let k = from; k <= to; k++) {
     const text = lineTextOf(lines[k])
     weights.push(expectedLineDuration(text, sourceLanguage))
     floors.push(Math.min(minLineDuration(text), fairShare))
-    acceptable.push(Math.min(fairShare, minLineDuration(text) * COMPRESSION_FRACTION))
+    regionClampFloor.push(Math.min(fairShare, minLineDuration(text) * COMPRESSION_FRACTION))
   }
   const regions = findActivityRegions(clean, windowStart, windowEnd)
 
@@ -198,20 +212,16 @@ function redistributeRun(
   // their parenthetical annotations inflate the glyph floor, so in that regime
   // (only) they degrade to the compression-threshold floor.
   {
-    const capacity = regions.reduce((a, r) => a + (r.end - r.start), 0)
-    const scale = Math.min(
-      MAX_STRETCH,
-      (regions.length > 0 ? capacity : windowEnd - windowStart) / weights.reduce((a, b) => a + b, 0),
-    )
+    const scale = runScale(regions, windowStart, windowEnd, weights)
     const wanted = weights.reduce((a, w, k) => a + Math.max(w * scale, floors[k]), 0)
     if (wanted > windowEnd - windowStart) {
       for (let k = from; k <= to; k++) {
-        if (isInterjectionLyricLine(lineTextOf(lines[k]))) floors[k - from] = acceptable[k - from]
+        if (isInterjectionLyricLine(lineTextOf(lines[k]))) floors[k - from] = regionClampFloor[k - from]
       }
     }
   }
 
-  const spans = layoutRun(windowStart, windowEnd, regions, weights, floors, acceptable)
+  const spans = layoutRun(windowStart, windowEnd, regions, weights, floors, regionClampFloor)
 
   for (let k = from; k <= to; k++) {
     const s = spans[k - from]
