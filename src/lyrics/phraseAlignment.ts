@@ -431,11 +431,21 @@ function extendLineEndOutOfMidWord(
  * syllable, so the line starts a beat or two into its own audio — bad for looping.
  * A transcript glyph that follows a silence gap (no vocal just before) and sits
  * after the previous line's end is this line's true onset; snap to it. */
+/** Onset pulls beyond the modest cap need the line's own matched span to START
+ * at that onset (within this tolerance) — proof the onset glyph is this line's
+ * audio, not a neighbour's leftover. */
+const ONSET_SPAN_CORROBORATION_TOL_S = 0.35
+const ONSET_SPAN_CORROBORATION_MIN_CHARS = 3
+
 function backfillLineStartsToVocalOnset(
   lines: TimedLine[],
   words: TranscriptWord[],
 ): TimedLine[] {
   const clean = sanitizeTranscript(words)
+  const spans = computeLineMatchedSpans(
+    lines.map((l) => l.original || l.translation),
+    clean,
+  )
   const SILENCE = 1.0
   const out = lines.map((l) => ({ ...l }))
   for (let i = 0; i < out.length; i++) {
@@ -453,10 +463,20 @@ function backfillLineStartsToVocalOnset(
         break
       }
     }
-    // Only a modest correction (0.5–2.5 s). A larger gap means the onset glyph
-    // belongs to another line (e.g. an interjection the previous row left behind),
-    // not a late-anchored start of this one.
-    if (onset != null && start - onset > 0.5 && start - onset < 2.5) {
+    if (onset == null || start - onset <= 0.5) continue
+    // A modest correction (0.5–2.5 s) needs no further evidence. A larger gap
+    // usually means the onset glyph belongs to another line (e.g. an
+    // interjection the previous row left behind) — unless the line's OWN
+    // matched span starts right at the onset, which proves the audio is this
+    // line's (ground-truth round 5, CLASS-T3: garbled head lines whose span
+    // coverage sits under the late-start backfill floor were interpolated ~3s
+    // past their real vocal onset).
+    const span = spans[i]
+    const spanCorroborated =
+      span != null &&
+      span.matchedChars >= ONSET_SPAN_CORROBORATION_MIN_CHARS &&
+      Math.abs(span.firstTime - onset) <= ONSET_SPAN_CORROBORATION_TOL_S
+    if (start - onset < 2.5 || (spanCorroborated && start - onset < LATESTART_MAX_PULL_S)) {
       out[i].startTime = Math.max(onset, prevEnd)
     }
   }
