@@ -6,6 +6,7 @@ import { whisperLanguageFor } from './whisperLanguage'
 import { describeWorkerError } from './workerError'
 import { slimWhisperTranscript } from './whisperTranscript'
 import { planWindows, stitchChunkedResults, type WindowResult } from './whisperChunked'
+import { buildWhisperPrompt, type WhisperPromptPipeline } from './whisperPrompt'
 import type { AlignmentLanguage } from '../core/types'
 
 let asr: Awaited<ReturnType<typeof loadWhisperAsrPipeline>> | null = null
@@ -66,11 +67,12 @@ self.onmessage = async (e: MessageEvent) => {
 
     if (type === 'transcribe') {
       if (!asr) { self.postMessage({ type: 'error', payload: 'Model not loaded' }); return }
-      const { audioData, sampleRate, language, timestampMode } = payload as {
+      const { audioData, sampleRate, language, timestampMode, promptText } = payload as {
         audioData: Float32Array
         sampleRate: number
         language?: AlignmentLanguage
         timestampMode?: 'word' | 'segment'
+        promptText?: string
       }
 
       const resampled = sampleRate === 16000 ? audioData : resampleTo16k(audioData, sampleRate)
@@ -79,6 +81,25 @@ self.onmessage = async (e: MessageEvent) => {
       const STRIDE_LENGTH_S = 5
 
       const useWordTimestamps = timestampMode !== 'segment'
+
+      // Lyric-prompt biasing (round 9, R9-3): when the caller supplies the KNOWN
+      // sheet lyrics for this slice, bias the decoder toward them via
+      // decoder_input_ids. buildWhisperPrompt is segment-mode-only and self-gates on
+      // the (undocumented) pipeline internals it reads — a null result means
+      // transcribe unprompted. Extra options are spread into each asr(...) call.
+      const promptExtra =
+        promptText && language
+          ? (() => {
+              const ids = buildWhisperPrompt(
+                asr as unknown as WhisperPromptPipeline,
+                promptText,
+                language,
+                'transcribe',
+                timestampMode ?? 'word',
+              )
+              return ids ? { decoder_input_ids: ids } : {}
+            })()
+          : {}
 
       let result: { text: string; chunks: { text: string; timestamp: [number, number | null] }[] }
 
@@ -97,6 +118,7 @@ self.onmessage = async (e: MessageEvent) => {
             language: whisperLanguageFor(language),
             task: 'transcribe',
             chunk_length_s: CHUNK_LENGTH_S,
+            ...promptExtra,
           })
           perWindow.push({ offsetS: startS, windowEndS: endS, chunks: out.chunks ?? [] })
           const progress = Math.min(90, Math.round(((wi + 1) / windows.length) * 90))
@@ -124,6 +146,7 @@ self.onmessage = async (e: MessageEvent) => {
           task: 'transcribe',
           chunk_length_s: CHUNK_LENGTH_S,
           stride_length_s: STRIDE_LENGTH_S,
+          ...promptExtra,
           chunk_callback: () => {
             doneChunks++
             const progress = Math.min(90, Math.round((doneChunks / totalChunks) * 90))

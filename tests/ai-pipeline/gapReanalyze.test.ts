@@ -102,8 +102,9 @@ describe('reanalyzeGaps', () => {
 
     expect(res.filledCount).toBe(1)
     expect(transcribeSlice).toHaveBeenCalledTimes(1)
-    // Slice window = the hole [14,44] (≤30s), forced English.
-    expect(transcribeSlice).toHaveBeenCalledWith(14, 44, 'en')
+    // Slice window = the hole [14,44] (≤30s), forced English, biased with the
+    // hole's own sheet lines (GAP1 + GAP2) as the lyric prompt.
+    expect(transcribeSlice).toHaveBeenCalledWith(14, 44, 'en', `${GAP1} ${GAP2}`)
     // The hole's needs_review count dropped.
     const q = res.refined.lineAlignmentQuality!
     expect(q.slice(1, 3).filter((x) => x === 'needs_review').length).toBeLessThan(2)
@@ -291,6 +292,58 @@ describe('reanalyzeGaps', () => {
     })
 
     expect(onProgress).toHaveBeenCalledWith(1)
+  })
+
+  it('passes each hole\'s joined sheet lines as the promptText (lyric-prompt biasing)', async () => {
+    const refined = oneHole()
+    let seenPrompt: string | undefined
+    const transcribeSlice = vi.fn(
+      async (t0: number, t1: number, _lang: AlignmentLanguage, promptText?: string) => {
+        seenPrompt = promptText
+        return cleanGapSlice(t0, t1)
+      },
+    )
+
+    await reanalyzeGaps({
+      refined,
+      transcriptWords: oneHoleTranscript,
+      sheetRows: refined.lines,
+      alignmentLanguage: 'en',
+      transcribeSlice,
+    })
+
+    // The hole spans lines 1-2 (GAP1, GAP2); their sheet texts joined by a space.
+    expect(seenPrompt).toBe(`${GAP1} ${GAP2}`)
+  })
+
+  it('rejects a prompt-echo hallucination (right words, wrong times) → byte-identical', async () => {
+    // A prompted re-transcription can echo the prompt lyrics but place them at the
+    // WRONG times (a hallucinated echo, not a real re-hearing). accept-if-better
+    // must reject: the echo's words don't cover the hole's audio window, so the
+    // splice can't lower needs_review and the song is returned byte-identical.
+    const refined = oneHole()
+    const snapshot = structuredClone(refined)
+    const transcribeSlice = vi.fn(
+      async (_t0: number, _t1: number, _lang: AlignmentLanguage, promptText?: string) => {
+        // Echo the exact prompt words, but crammed into a 0.2s sliver far from the
+        // hole's real [14,44] window — the classic prompt-echo failure mode.
+        const words = (promptText ?? '').split(' ')
+        return words.map((word, i) => w(word, 14 + i * 0.01, 14 + (i + 1) * 0.01))
+      },
+    )
+
+    const res = await reanalyzeGaps({
+      refined,
+      transcriptWords: oneHoleTranscript,
+      sheetRows: refined.lines,
+      alignmentLanguage: 'en',
+      transcribeSlice,
+    })
+
+    expect(res.filledCount).toBe(0)
+    expect(res.refined).toBe(refined)
+    expect(res.transcriptWords).toBe(oneHoleTranscript)
+    expect(refined).toEqual(snapshot)
   })
 
   it('forces the detected per-hole language on a mixed song', async () => {

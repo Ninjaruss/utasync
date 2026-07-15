@@ -50,11 +50,14 @@ export const MAX_HOLES_PER_PASS = 4
 export const MAX_SLICE_S = 30
 
 /** Injected slice transcriber: returns words already offset to ABSOLUTE song time
- * (AutoAlignFlow adds the window's t0 back before returning). */
+ * (AutoAlignFlow adds the window's t0 back before returning). `promptText` (round
+ * 9, R9-3) is the hole's KNOWN sheet lyrics, biasing the re-transcription toward
+ * the expected words; the transcriber forces segment mode for a prompted slice. */
 export type TranscribeSlice = (
   t0: number,
   t1: number,
   lang: AlignmentLanguage,
+  promptText?: string,
 ) => Promise<TranscriptWord[]>
 
 export interface ReanalyzeGapsArgs {
@@ -141,7 +144,11 @@ export async function reanalyzeGaps(args: ReanalyzeGapsArgs): Promise<ReanalyzeG
       const lang = forcedLangForHole(alignmentLanguage, holeTexts, sourceLanguage)
       // Clamp a >30s hole to its first 30s to stay on Whisper's single-window path.
       const sliceEnd = Math.min(hole.t1, hole.t0 + MAX_SLICE_S)
-      const gapWords = await transcribeSlice(hole.t0, sliceEnd, lang)
+      // Bias the re-transcription toward the hole's KNOWN sheet lyrics (R9-3). The
+      // transcriber forces segment mode for a prompted slice; a hallucinated echo
+      // is still caught by accept-if-better below.
+      const promptText = holeTexts.join(' ')
+      const gapWords = await transcribeSlice(hole.t0, sliceEnd, lang, promptText)
 
       const res = spliceGapAlignment({
         refined,

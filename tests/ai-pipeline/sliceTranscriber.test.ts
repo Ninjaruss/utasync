@@ -13,6 +13,7 @@ const transcribeAudio = vi.fn(
     language?: string
     timestampMode?: 'word' | 'segment'
     highAccuracy?: boolean
+    promptText?: string
   }): Promise<WhisperTranscript> => ({ text: '', chunks: [] }),
 )
 
@@ -103,6 +104,43 @@ describe('createSliceTranscriber', () => {
 
     await expect(tx.transcribe(0, 5, 'ja')).rejects.toThrow(/crashed/i)
     expect(transcribeAudio).toHaveBeenCalledTimes(1)
+  })
+
+  it('forwards promptText and FORCES segment mode when a prompt is supplied (even from a word-mode transcriber)', async () => {
+    // The inherited mode is word, but a prompted slice must be segment (word-mode
+    // prompt-prefix trim is missing in transformers.js 3.8.1 → phantom words).
+    const tx = createSliceTranscriber({ ...baseDeps(), timestampMode: 'word' })
+    await tx.transcribe(0, 5, 'ja', 'known lyric words')
+
+    expect(transcribeAudio).toHaveBeenCalledTimes(1)
+    const opts = transcribeAudio.mock.calls[0][2]
+    expect(opts?.timestampMode).toBe('segment')
+    expect(opts?.promptText).toBe('known lyric words')
+  })
+
+  it('does not force segment mode (nor pass promptText) when no prompt is supplied', async () => {
+    const tx = createSliceTranscriber({ ...baseDeps(), timestampMode: 'word' })
+    await tx.transcribe(0, 5, 'ja')
+
+    const opts = transcribeAudio.mock.calls[0][2]
+    expect(opts?.timestampMode).toBe('word')
+    expect(opts?.promptText).toBeUndefined()
+  })
+
+  it('a prompted-slice crash skips the word→segment rung and downgrades accuracy directly', async () => {
+    // The failing call is already forced to segment, so the ladder must advance to
+    // the accuracy downgrade rather than "re-try at segment" (which it already is).
+    transcribeAudio
+      .mockRejectedValueOnce(new Error('oom crash'))
+      .mockResolvedValueOnce({ text: '', chunks: [] })
+    const tx = createSliceTranscriber({ ...baseDeps(), highAccuracy: true, timestampMode: 'word' })
+
+    await tx.transcribe(0, 5, 'ja', 'known lyric words')
+    expect(transcribeAudio).toHaveBeenCalledTimes(2)
+    expect(transcribeAudio.mock.calls[0][2]?.highAccuracy).toBe(true)
+    expect(transcribeAudio.mock.calls[0][2]?.timestampMode).toBe('segment')
+    expect(transcribeAudio.mock.calls[1][2]?.highAccuracy).toBe(false)
+    expect(transcribeAudio.mock.calls[1][2]?.timestampMode).toBe('segment')
   })
 
   it('a slice-triggered downgrade sticks for later slices (own ladder state)', async () => {

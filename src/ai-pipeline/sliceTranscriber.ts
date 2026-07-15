@@ -21,8 +21,18 @@ export interface SliceTranscriberDeps {
 
 export interface SliceTranscriber {
   /** Re-transcribe the [t0,t1] second window and return words offset to ABSOLUTE
-   * song time (slice-relative Whisper stamps + t0), sanitized. */
-  transcribe: (t0: number, t1: number, lang: AlignmentLanguage) => Promise<TranscriptWord[]>
+   * song time (slice-relative Whisper stamps + t0), sanitized.
+   *
+   * `promptText` (round 9, R9-3) is the KNOWN sheet lyrics for the window, biasing
+   * Whisper toward the expected words. Supplying it FORCES segment timestamps for
+   * that call (word-mode prompt-prefix trimming is missing in transformers.js
+   * 3.8.1 → phantom prompt words), regardless of this transcriber's inherited mode. */
+  transcribe: (
+    t0: number,
+    t1: number,
+    lang: AlignmentLanguage,
+    promptText?: string,
+  ) => Promise<TranscriptWord[]>
 }
 
 /**
@@ -48,16 +58,21 @@ export function createSliceTranscriber(deps: SliceTranscriberDeps): SliceTranscr
     t0: number,
     t1: number,
     lang: AlignmentLanguage,
+    promptText?: string,
   ): Promise<TranscriptWord[]> => {
     const slice = audioData.subarray(
       Math.floor(t0 * sampleRate),
       Math.floor(t1 * sampleRate),
     )
+    // A supplied prompt forces segment mode for this call (see the interface note).
+    const prompt = promptText?.trim() ? promptText : undefined
+    const callTimestampMode = () => (prompt ? 'segment' : effectiveTimestampMode)
     const run = () =>
       transcribeAudio(slice, sampleRate, {
         language: lang,
         highAccuracy: effectiveHighAccuracy,
-        timestampMode: effectiveTimestampMode,
+        timestampMode: callTimestampMode(),
+        promptText: prompt,
         onLoadProgress,
         onTranscribeProgress,
       })
@@ -67,7 +82,10 @@ export function createSliceTranscriber(deps: SliceTranscriberDeps): SliceTranscr
       transcript = await run()
     } catch (e) {
       if (isCancelled() || !isRecoverableTranscriptionError(e)) throw e
-      if (effectiveTimestampMode === 'word') {
+      // Advance the crash ladder. A prompted call is already forced to segment, so
+      // the word→segment rung tells us nothing about word mode — skip straight to
+      // the accuracy downgrade (and leave the persistent word state untouched).
+      if (!prompt && effectiveTimestampMode === 'word') {
         effectiveTimestampMode = 'segment'
       } else if (effectiveHighAccuracy) {
         effectiveHighAccuracy = false
