@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   reanalyzeGaps,
   MAX_HOLES_PER_PASS,
+  MAX_SLICE_S,
 } from '../../src/ai-pipeline/gapReanalyze'
 import type { RefinedAlignment } from '../../src/lyrics/phraseAlignment'
 import type { LineAlignmentQuality, SungPhrase, TimedLine } from '../../src/core/types'
@@ -314,6 +315,46 @@ describe('reanalyzeGaps', () => {
 
     // The hole spans lines 1-2 (GAP1, GAP2); their sheet texts joined by a space.
     expect(seenPrompt).toBe(`${GAP1} ${GAP2}`)
+  })
+
+  it('scopes the prompt to in-window lyric lines when a >30s hole is clamped to its first 30s', async () => {
+    // Hole spans [2,60] (58s > MAX_SLICE_S). The slice clamps to [2,32], so only
+    // GAP1 (placed at t=3, inside the clip) may bias the decoder; GAP2 (placed at
+    // t=40, past the 32s clamp) MUST be excluded — its audio was never transcribed
+    // in this slice, so prompting with it would bias toward absent words.
+    const lines = [
+      line('anchor zero words here', 0, 2),
+      line(GAP1, 3, 3.1),
+      line(GAP2, 40, 40.1),
+      line('anchor after words present', 60, 62),
+    ]
+    const refined = makeRefined(lines, ['good', 'needs_review', 'needs_review', 'good'])
+    const transcript = [
+      ...anchorWords('anchor zero words here', 0, 2),
+      ...anchorWords('anchor after words present', 60, 62),
+    ]
+    let seenPrompt: string | undefined
+    let seenEnd: number | undefined
+    const transcribeSlice = vi.fn(
+      async (_t0: number, t1: number, _lang: AlignmentLanguage, promptText?: string) => {
+        seenPrompt = promptText
+        seenEnd = t1
+        return [] as TranscriptWord[]
+      },
+    )
+
+    await reanalyzeGaps({
+      refined,
+      transcriptWords: transcript,
+      sheetRows: refined.lines,
+      alignmentLanguage: 'en',
+      transcribeSlice,
+    })
+
+    expect(transcribeSlice).toHaveBeenCalledTimes(1)
+    expect(seenEnd).toBe(2 + MAX_SLICE_S) // hole.t0 (2) clamped to +30s
+    expect(seenPrompt).toBe(GAP1) // only the in-window line
+    expect(seenPrompt).not.toContain(GAP2) // the post-clamp line is excluded
   })
 
   it('rejects a prompt-echo hallucination (right words, wrong times) → byte-identical', async () => {

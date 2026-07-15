@@ -112,6 +112,10 @@ self.onmessage = async (e: MessageEvent) => {
         for (let wi = 0; wi < windows.length; wi++) {
           const { startS, endS } = windows[wi]
           const slice = resampled.subarray(Math.floor(startS * 16000), Math.floor(endS * 16000))
+          // promptExtra is applied uniformly to every window. Prompted slices come
+          // only from the gap path, which clamps to ≤30s = a single window here, so
+          // there is no repeated-echo across windows; a future >30s prompted caller
+          // would need per-window prompt scoping instead.
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const out = await (asr as any)(slice, {
             return_timestamps: useWordTimestamps ? 'word' : true,

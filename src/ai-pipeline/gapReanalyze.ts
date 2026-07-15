@@ -144,10 +144,17 @@ export async function reanalyzeGaps(args: ReanalyzeGapsArgs): Promise<ReanalyzeG
       const lang = forcedLangForHole(alignmentLanguage, holeTexts, sourceLanguage)
       // Clamp a >30s hole to its first 30s to stay on Whisper's single-window path.
       const sliceEnd = Math.min(hole.t1, hole.t0 + MAX_SLICE_S)
-      // Bias the re-transcription toward the hole's KNOWN sheet lyrics (R9-3). The
-      // transcriber forces segment mode for a prompted slice; a hallucinated echo
-      // is still caught by accept-if-better below.
-      const promptText = holeTexts.join(' ')
+      // Bias the re-transcription toward the hole's KNOWN sheet lyrics (R9-3), but
+      // ONLY the lines whose placed time falls inside the (possibly clamped) audio
+      // window — prompting the decoder with lyrics whose audio was cut off would
+      // bias toward words that aren't in the clip. Hole lines are spread
+      // monotonically within [t0,t1] by round-6/7, so this is the in-window prefix;
+      // for a ≤30s hole (sliceEnd===t1) it is every line, unchanged. A hallucinated
+      // echo is still caught by accept-if-better below.
+      const promptText = sheetTexts
+        .slice(hole.from, hole.to + 1)
+        .filter((_, k) => refined.lines[hole.from + k].startTime < sliceEnd)
+        .join(' ')
       const gapWords = await transcribeSlice(hole.t0, sliceEnd, lang, promptText)
 
       const res = spliceGapAlignment({

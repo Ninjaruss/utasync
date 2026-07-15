@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import {
   buildWhisperPrompt,
   WHISPER_MAX_PROMPT_TOKENS,
+  __resetPromptWarnOnce,
   type WhisperPromptPipeline,
 } from '../../src/ai-pipeline/whisperPrompt'
 
@@ -47,6 +48,12 @@ function makeStubAsr(): WhisperPromptPipeline {
     },
   }
 }
+
+beforeEach(() => {
+  // The log-once latch is module-level; reset it so each test — especially the
+  // dedup test — starts from a cold state and genuinely observes first-call-warns.
+  __resetPromptWarnOnce()
+})
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -114,14 +121,17 @@ describe('buildWhisperPrompt', () => {
       expect(buildWhisperPrompt(asr, 'two words', 'ja', 'transcribe', 'segment')).toBeNull()
     })
 
-    it('logs the feature-gate reason at most once across calls', () => {
+    it('warns on the FIRST gated call and stays silent on subsequent calls (from a cold latch)', () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const asr = makeStubAsr()
       asr.model = { generation_config: null }
+
       buildWhisperPrompt(asr, 'a', 'ja', 'transcribe', 'segment')
+      expect(warn).toHaveBeenCalledTimes(1) // first gated call warns
+
       buildWhisperPrompt(asr, 'b', 'ja', 'transcribe', 'segment')
       buildWhisperPrompt(asr, 'c', 'ja', 'transcribe', 'segment')
-      expect(warn.mock.calls.length).toBeLessThanOrEqual(1)
+      expect(warn).toHaveBeenCalledTimes(1) // subsequent calls are silent
     })
   })
 

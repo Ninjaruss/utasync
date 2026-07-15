@@ -3,8 +3,10 @@ import type { AlignmentLanguage } from '../core/types'
 /**
  * Whisper's decoder context window. The assembled `decoder_input_ids` (prompt
  * prefix + start-of-transcript sequence) must fit inside it; an over-long lyric
- * prompt is truncated to stay under the cap (holes are ≤4 lines, so this is a
- * safety belt that in practice never fires).
+ * prompt is truncated to stay under the cap. This is a genuine safety belt: a hole
+ * has no hard line cap (MAX_HOLES_PER_PASS bounds holes-per-pass, not lines, and
+ * enumerateGapHoles caps neither), so a long hole's joined sheet lines can exceed
+ * 448 tokens.
  */
 export const WHISPER_MAX_PROMPT_TOKENS = 448
 
@@ -38,6 +40,11 @@ export interface WhisperPromptPipeline {
 }
 
 let warnedOnce = false
+/** Test-only: reset the log-once latch so a test can observe first-call-warns /
+ * subsequent-calls-don't from a cold state. Not used in production. */
+export function __resetPromptWarnOnce(): void {
+  warnedOnce = false
+}
 function gateWarn(reason: string): null {
   if (!warnedOnce) {
     warnedOnce = true
