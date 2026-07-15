@@ -260,3 +260,154 @@ broken transcript. Single-language stored songs re-refine cleanly.
   lines, and approx chips only sit on genuinely-approximate lines. All fixed
   behavior is covered by the deterministic instruments; this guards only the
   render layer.
+
+---
+
+## Round 7 — placement fixes (instrumental packing + over-long tails)
+
+A second user spot-check surfaced two residual symptoms that round 6's honesty
+floors made *visible* but did not fix at the placement layer:
+
+1. **Verse on the instrumental** — a whole verse's highlights firing during an
+   instrumental break, where Whisper had hallucinated a few noise moras. → Fix 1.
+2. **Over-long highlight cascade** — a mid/late line staying lit ~6–11s while the
+   sung phrase is ~3s, the highlight running long into the following rest. → Fix 2.
+
+Both fixes are region-selection / `endTime`-only; neither changes a line START,
+so the LRC ground-truth start-error table is **byte-identical to the round-6
+close** (verified below).
+
+### Fix 1 — run-coverage gate on activity regions (commits `fd4b21f`, `8cade51`)
+
+`findActivityRegions` treats ANY transcribed word as activity, and no acoustic /
+VAD / `no_speech_prob` signal survives to the alignment stage (see limit (a)), so
+a hallucinated blip during an instrumental forms a false activity region that
+`redistributeRun` packs a whole degenerate run onto. The only usable signal on
+the re-refine path is **lexical run-coverage**: keep an activity region only when
+its words char-LCS-corroborate ≥ `RUN_COVERAGE_MIN` (0.15) of the RUN's expected
+characters (the framing is run-coverage, not region-coverage — a lone `ような`
+blip covers 67% of its own region but ~2% of the run), OR the region carries
+≥ `DENSE_REGION_MIN_WORD_TIME_S` (1.5s) of transcribed audio (the density
+OR-clause protects cross-script real vocals — English verses that JA-mode Whisper
+returns as unmatchable katakana — from the lexical gate's blind spot; a real
+vocal region carries 2.0–27.1s of audio, every instrumental blip ≤ 1.2s). When
+the filter empties the region set the layout falls back to spreading the run
+across the whole window at floor with `onActivity=false` — an honest
+`needs_review` spread instead of a false `approximate` clustered on noise. Only
+words inside kept regions feed the `onActivity → approximate` upgrade, so a line
+merely passing over a rejected blip stays flagged.
+
+Fixture before/after (pre-Fix-1 = `redistributeDegenerateRuns.ts` at `fd4b21f~1`):
+
+| fixture | row | pre-Fix-1 | current | truth |
+|---|---|---|---|---|
+| garbled (single blip in a desert) | 15 | 228.0s `approximate` (on the blip) | 190.3s `needs_review` | ~190s |
+| instrumental (sparse noise region) | 16 | 245.0s `approximate` (on the noise) | 197.1s `needs_review` | ~203s |
+
+In both, the whole run (garbled 15–20, instrumental 16–20) previously packed
+into the few-second blip/noise region wearing false `approximate` chips; now it
+spreads across its true window at floor, honestly `needs_review`.
+
+### Fix 2 — cap over-long unanchored gap-fill tails (commits `bb86914`, `432bde4`)
+
+Pass-1 `projectPhraseTimingToLines` hands an un-anchorable line the whole
+`[prevEnd, nextStart]` slab (`end = min(ownEnd, nextStart)`), and
+`clipSilencePaddedLineTails` cannot reclaim it when a forced-language pass
+hallucinated continuous words over the gap (its silence check is keyed on raw
+words). No stage bounded a highlight to its expected sung length.
+`capUnanchoredGapFillTails` bounds a line's `end` to `expectedLineDuration` when
+(1) the end is gap-defined, (2) the line is not a held-vowel / interjection line,
+(3) its own matched-span coverage is < 0.15 (the decisive gate — a well-evidenced
+long line is untouched), and (4) it is over-long. **Ends only** — starts and the
+next line are never moved, so the freed tail becomes an un-highlighted
+instrumental rest. Two call sites: the single-pass tuner chain (gated off the
+mixed passes, whose per-language transcript reads spurious cov 0 on the other
+script) and the mixed two-pass merge against the MERGED transcript. Verified
+caps: stranger segment-mixed row 54 `6.74s → 5.0s`, row 37 `4.20s → 2.25s` (both
+cov 0); the cov-0.84 wide row 2 and the high-cov extended AKFG rows are untouched.
+Because it moves only `endTime`s and the capped rows sit below the 18s
+`align_long_dur` threshold, it moves **nothing** in the corpus scorecard and
+leaves LRC start-error byte-identical.
+
+### Rejected dead-end — "early-start pull"
+
+Prototyped pulling a late-placed line's START back toward its earliest
+span-evidence when that evidence sat well before the placement. It **regressed**
+stranger segment-mixed p50 `0.56 → 0.68`: the lines it targeted are already
+correctly placed, and their late span-evidence is a *spurious repeated-chorus
+match* (the same lyric recurring later in the song), so pulling the start toward
+it moves a correct line onto the wrong occurrence. Documented here so a future
+round does not re-attempt it — the late span-evidence on those lines is noise,
+not a missed onset.
+
+### Honest limits (unchanged, restated for round 7)
+
+- **(a) No acoustic signal exists.** The `@huggingface/transformers` stack
+  discards the audio before alignment and it is absent on re-refine; there is no
+  VAD / `no_speech_prob` / energy signal to distinguish an instrumental from
+  sung vocals Whisper simply missed. A run whose vocals were never transcribed is
+  **un-placeable** — Fix 1 only stops the *confident mis-pack* onto hallucinated
+  noise and degrades it to an honest floor-spread `needs_review`. It cannot
+  invent the missing onset.
+- **(b) The user's exact "Stranger than heaven 11s" is device-specific.** It
+  depends on that user's in-app Whisper transcript, which is not reproducible
+  from the committed fixtures. Fix 2 helps it only if that line has weak
+  in-window coverage (cov < 0.15) and a gap-defined over-long tail; if the line's
+  onset itself is mis-transcribed, limit (a) applies.
+
+### New permanent guard — `akfg-instrumental-word`
+
+Round 6's `akfg-garbled-word` is a transcript DESERT with a single blip; it did
+not specifically exercise "a run must not pack onto an instrumental *activity
+region*." `scripts/make-instrumental-fixture.mjs` (deterministic; `--check` mode)
+deletes sheet rows 16–20's real vocals + the ♪ marker (midpoint window
+[198,260]s) and inserts four sparse single-mora katakana noise chunks
+(ネ/ヌ/ホ, ~1.3s of audio total) forming one ~9s region at 245–254s AFTER the
+block's true position. `tests/ai-pipeline/instrumentalFixture.guard.test.ts`
+asserts the run does not cluster onto that region, spreads across its window,
+overlaps no part of the noise, and stays `needs_review` — proven RED on
+`fd4b21f~1` (row 16 packs to 245.0s `approximate`) and GREEN on HEAD. Baselined
+as corpus row `akfg-instrumental-word`.
+
+### Ratchet — moved corpus cells (Task 16, 2026-07-15)
+
+`--write-baseline` moved exactly two cells plus the new row; every move is a
+Fix-1 region-selection honesty gain (Fix 2 moved nothing):
+
+- `akfg-garbled-word.align_needs_review` 5 → 6 — the run no longer buys a false
+  `approximate` on the 228s blip (row 15 stays `needs_review`); +1 *honest* flag.
+- `stranger-than-heaven-word-medium.align_needs_review` 12 → 11 — rows 57/58
+  pulled from 242.98s/244.52s (≈20.5s / 16.5s late) to 221.77s/223.59s, i.e.
+  within **0.7s / 4.4s** of LRC truth (222.5s / 228s); row 57 upgraded
+  `needs_review → approximate` *at its true position* (a real improvement, not a
+  masking — verified against `lrc-truth/stranger-than-heaven.json`).
+- `akfg-instrumental-word` — new row, all-honest snapshot (`align_needs_review`
+  5, `align_zero_dur`/`align_pileup`/`align_compressed`/`align_long_dur` 0).
+
+The round-7 `ALLOWED_MEASUREMENT_ARTIFACTS` carve-out (garbled 5→6) was folded
+into `corpus-baseline.json` and cleared; `--pairing --check-baseline` exits 0.
+
+### LRC ground-truth (byte-identical to round-6 close)
+
+| config | align p50 / p90 (r6 = r7) |
+|---|---|
+| guitar-loneliness word | 0.40 / 1.62 |
+| guitar-loneliness segment | 0.73 / 1.93 |
+| stranger word ja-only | 0.64 / 36.10 |
+| stranger segment ja-only | 1.44 / 33.79 |
+| stranger word mixed 2-pass | 0.56 / 2.82 |
+| stranger segment mixed 2-pass | 0.56 / 6.48 |
+| stranger segment medium ja-only | 0.70 / 9.34 |
+
+No start time changed, so `lrc-truth.test.ts` thresholds are unchanged (round-6
+headroom retained; no config gained actionable slack to tighten).
+
+### Still open (round 7)
+
+- **Browser display-layer spot-check**: still NOT completed (autonomous session;
+  the in-app browser's per-origin approval needs an interactive user). Manual
+  step unchanged from round 6 — plus: confirm a run over an instrumental now
+  spreads honestly rather than lighting the verse during the break.
+- Everything under round 6's "Deferred / still open" (class-A alternate-take
+  tail, unevidenced segment-mixed tail, English-only corpus gap) is unchanged —
+  limit (a) bounds all of them.
