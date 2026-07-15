@@ -15,7 +15,7 @@ import { findMergedLineGroups, mergedGroupNeedsRealign } from '../ai-pipeline/al
 import { isRepetitionOnlyLine } from './lineAligner'
 import { redistributeDegenerateRuns } from './redistributeDegenerateRuns'
 import { findPhoneticAnchorEn } from '../ai-pipeline/phoneticEn'
-import { minLineDuration } from './lineDegeneracy'
+import { expectedLineDuration, minLineDuration } from './lineDegeneracy'
 import { detectSheetLanguage } from '../ai-pipeline/whisperLanguage'
 
 const REPETITION_REF_MIN_SPAN_S = 1.4
@@ -56,6 +56,20 @@ const ORPHAN_GAP_FILL_MAX_S = 4
 const SILENCE_CLIP_THRESHOLD_S = 2.5
 /** Maximum tail to keep after the last word in a clipped line. */
 const MAX_TAIL_AFTER_WORD_S = 1.5
+
+/** A line whose end sits within this of the next line's start is "gap-defined":
+ * its offset is pinned by the successor, not by a sung word — the shape a
+ * projected, un-anchorable line takes when it claims the whole [prev, next] slab. */
+const CAP_GAP_DEFINED_TOL_S = 0.2
+/** Only cap a gap-fill tail once it exceeds expectedLineDuration by this margin —
+ * short over-runs are within phrasing noise and left alone. */
+const CAP_OVERLONG_MARGIN_S = 1.5
+/** Never touch a line whose own matched span covers at least this fraction of its
+ * chars — that line has real vocal evidence for its span (the decisive gate). */
+const CAP_UNANCHORED_COV_MAX = 0.15
+/** Apply the cap only when it shortens the end by more than this — otherwise the
+ * gain isn't worth perturbing an already near-right tail. */
+const CAP_MIN_SHORTEN_S = 1.0
 
 /** Pass-1 placed this phrase at the forward cursor — include overlapping segments. */
 function phraseOnsetAtCursor(phraseStart: number, searchFrom: number): boolean {
@@ -858,6 +872,60 @@ function clipSilencePaddedLineTails(
     out[i].endTime = clipped
   }
 
+  return out
+}
+
+/**
+ * Cap the highlight tail of an over-long, genuinely-unanchored, gap-filled line.
+ *
+ * pass-1 projectPhraseTimingToLines hands a line whose own onset it cannot anchor
+ * the whole [prevEnd, nextStart] slab (end = min(ownEnd, nextStart)), and
+ * clipSilencePaddedLineTails can't reclaim it when a forced-language pass
+ * hallucinated continuous words filling that slab (its silence check is keyed on
+ * raw words, which the hallucination defeats). The line then lights for 6-11s
+ * while its phrase sings for ~3s, desyncing the perceived timing.
+ *
+ * Bound such a line's end to its plausible sung length. Fires only when ALL hold:
+ *  1. gap-defined end — the offset is pinned by the next line's start, not a sung
+ *     word (nextStart - endTime < CAP_GAP_DEFINED_TOL_S). The last line has no
+ *     successor to pin it, so it is never capped.
+ *  2. not a held-vowel / interjection line — those legitimately sustain.
+ *  3. genuinely unanchored — the line's own matched-span coverage is under
+ *     CAP_UNANCHORED_COV_MAX (the decisive gate; a well-evidenced long line, e.g.
+ *     an extendValidatedLineTails-stretched high-coverage row, is left untouched).
+ *  4. actually over-long — longer than expectedLineDuration + CAP_OVERLONG_MARGIN_S.
+ *
+ * The new end never drops below MIN_HIGHLIGHT_S (>= the display floor) and is
+ * applied only when it shortens the tail by more than CAP_MIN_SHORTEN_S. Only the
+ * endTime moves — the startTime and the next line are never touched, so the freed
+ * [newEnd, nextStart] simply becomes an un-highlighted instrumental rest. Compute
+ * spans over the passed transcript so a mixed merge can pass its MERGED words (a
+ * JA line the EN pass hallucinated over then reads its true coverage 0). */
+export function capUnanchoredGapFillTails(
+  lines: TimedLine[],
+  transcriptWords: TranscriptWord[],
+  lineTexts: string[],
+  sourceLanguage: AlignmentLanguage,
+): TimedLine[] {
+  const clean = sanitizeTranscript(transcriptWords)
+  const spans = computeLineMatchedSpans(lineTexts, clean)
+  const out = lines.map((l) => ({ ...l }))
+  for (let i = 0; i < out.length; i++) {
+    const next = out[i + 1]
+    if (!next) continue // (1) last line: no successor pins the end — nothing to cap
+    const line = out[i]
+    const text = lineTexts[i]
+    if (!text || !text.trim()) continue
+    if (next.startTime - line.endTime >= CAP_GAP_DEFINED_TOL_S) continue // (1)
+    if (isInterjectionLyricLine(text)) continue // (2)
+    const s = spans[i] // (3)
+    const coverage = s ? s.matchedChars / Math.max(1, s.totalChars) : 0
+    if (coverage >= CAP_UNANCHORED_COV_MAX) continue
+    const expected = expectedLineDuration(text, sourceLanguage) // (4)
+    if (line.endTime - line.startTime <= expected + CAP_OVERLONG_MARGIN_S) continue
+    const newEnd = line.startTime + Math.max(expected, MIN_HIGHLIGHT_S)
+    if (line.endTime - newEnd > CAP_MIN_SHORTEN_S) line.endTime = newEnd
+  }
   return out
 }
 
@@ -1996,6 +2064,18 @@ export function refineAlignmentWithPhrases(
   for (let i = 0; i < tunedLines.length; i++) {
     if (lineAlignmentQuality[i] !== 'needs_review') continue
     if (phonetic.recovered[i] && !redist.redistributed[i]) lineAlignmentQuality[i] = 'approximate'
+  }
+
+  // Cap over-long unanchored gap-fill tails (single-pass path). The mixed
+  // two-pass merge caps against its MERGED transcript instead
+  // (refineMixedLanguageAlignment): a per-pass transcript reads spurious
+  // coverage 0 on the OTHER language's lines, so capping here would mis-fire and
+  // could flip merge picks. Runs AFTER all quality/label logic — shortening a
+  // line's tail widens the NEXT line's validation window (prevEnd), so capping
+  // earlier would churn needs_review labels; the timing change is ends-only and
+  // must not do that. Phrases below sync from the capped lines.
+  if (sourceLanguage !== 'mixed') {
+    tunedLines = capUnanchoredGapFillTails(tunedLines, words, lineTexts, sourceLanguage)
   }
 
   const syncedPhrases = syncPhrasesFromValidatedLines(phrases, tunedLines)

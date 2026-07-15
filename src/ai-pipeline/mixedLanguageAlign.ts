@@ -6,6 +6,7 @@ import {
 } from './aligner'
 import { normalizeForMatch } from './contentAligner'
 import {
+  capUnanchoredGapFillTails,
   enforceLineDisplayFloor,
   refineAlignmentWithPhrases,
   syncPhrasesFromValidatedLines,
@@ -220,5 +221,14 @@ export function refineMixedLanguageAlignment(
   })
   const { refined, pickedFrom } = mergeMixedRefinedAlignments(jaPass, enPass, lineTexts)
   const transcriptWords = mergeMixedTranscripts(jaWords, enWords, refined.lines, pickedFrom)
+  // Cap over-long unanchored gap-fill tails against the MERGED transcript, so a
+  // JA line the EN pass hallucinated katakana/romaji over (and vice-versa) reads
+  // its true coverage 0. Runs AFTER the merge's stitch + enforceLineDisplayFloor;
+  // the cap only ever shortens a tail toward expectedLineDuration (>=
+  // MIN_HIGHLIGHT_S), so it can never create a sub-floor row and the floor stays
+  // satisfied. Ends only — starts (which the LRC audit measures) are untouched.
+  const cappedLines = capUnanchoredGapFillTails(refined.lines, transcriptWords, lineTexts, 'mixed')
+  refined.lines = cappedLines
+  refined.phrases = syncPhrasesFromValidatedLines(refined.phrases, cappedLines)
   return { refined, transcriptWords, pickedFrom }
 }

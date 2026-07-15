@@ -286,3 +286,72 @@ describe('refineMixedLanguageAlignment — post-merge display floor (fixtures)',
     })
   }
 })
+
+// Round 7 (over-long gap-fill tail): pass-1 projectPhraseTimingToLines hands a
+// line whose onset can't be anchored the whole [prev, next] slab, and
+// clipSilencePaddedLineTails can't reclaim it when the OTHER forced-language
+// pass hallucinated continuous words over it. Against the MERGED transcript such
+// a line reads coverage 0, and capUnanchoredGapFillTails bounds its highlight to
+// the plausible sung length. Pre-fix (verified): segment-mixed row 54 錆ひとつない
+// lit 6.74s, row 37 連れ行くその場所は 4.20s. Row 2 (18.85s, cov 0.84) is a start
+// mis-anchor, NOT an unanchored gap-fill — its real coverage must protect it.
+describe('refineMixedLanguageAlignment — cap over-long unanchored gap-fill tails (fixtures)', () => {
+  const FIXTURES = join(here, 'fixtures/stranger-than-heaven')
+
+  function loadWords(path: string): TranscriptWord[] {
+    const raw = JSON.parse(readFileSync(path, 'utf8'))
+    const arr: TranscriptWord[] = Array.isArray(raw)
+      ? raw.map((w: { word?: string; startTime?: number; endTime?: number }) => ({
+          word: (w.word ?? '').trim(),
+          startTime: w.startTime as number,
+          endTime: w.endTime as number,
+        }))
+      : (raw.chunks ?? []).map((c: { text?: string; timestamp?: number[] }) => ({
+          word: (c.text ?? '').trim(),
+          startTime: c.timestamp?.[0] as number,
+          endTime: c.timestamp?.[1] as number,
+        }))
+    return arr.filter((w) => w.word && Number.isFinite(w.startTime) && Number.isFinite(w.endTime))
+  }
+
+  const lineTexts = readFileSync(join(FIXTURES, 'lyrics.txt'), 'utf8')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+  const sheetRows: TimedLine[] = lineTexts.map((original) => ({
+    original,
+    translation: '',
+    startTime: 0,
+    endTime: 0,
+  }))
+  const enWords = loadWords(join(FIXTURES, 'transcript.segment.forced-en.json'))
+
+  const dur = (l: TimedLine) => l.endTime - l.startTime
+
+  it('segment mixed: caps the unanchored gap-fill rows, leaves the evidenced long row', { timeout: 60_000 }, () => {
+    const jaWords = loadWords(join(FIXTURES, 'transcript.segment.json'))
+    const { refined } = refineMixedLanguageAlignment(sheetRows, jaWords, enWords)
+    // Row 54 錆ひとつない…: cov 0, was 6.74s → capped near expectedLineDuration (~5s).
+    expect(refined.lines[54].original.startsWith('錆ひとつない')).toBe(true)
+    expect(dur(refined.lines[54]), 'row 54 capped').toBeLessThan(5.5)
+    // Row 37 連れ行くその場所は: cov 0, was 4.20s → capped (~2.3s).
+    expect(refined.lines[37].original.startsWith('連れ行くその場所は')).toBe(true)
+    expect(dur(refined.lines[37]), 'row 37 capped').toBeLessThan(3.0)
+    // Row 2 "You know I could take you somewhere": cov 0.84 (real evidence) — a
+    // separate start-mis-anchor defect, NOT an unanchored gap-fill. Untouched.
+    expect(refined.lines[2].original.startsWith('You know I could take you somewhere')).toBe(true)
+    expect(dur(refined.lines[2]), 'row 2 (cov 0.84) not capped').toBeGreaterThan(15)
+    // The cap only ever shortens toward MIN_HIGHLIGHT_S — no sub-floor rows.
+    for (let i = 0; i + 1 < refined.lines.length; i++) {
+      if (!refined.lines[i].original.trim()) continue
+      expect(dur(refined.lines[i]), `row ${i} display floor`).toBeGreaterThanOrEqual(1.2 - 1e-6)
+    }
+  })
+
+  it('word mixed: caps the unanchored gap-fill JA row 37', { timeout: 60_000 }, () => {
+    const jaWords = loadWords(join(FIXTURES, 'transcript.word.json'))
+    const { refined } = refineMixedLanguageAlignment(sheetRows, jaWords, enWords)
+    expect(refined.lines[37].original.startsWith('連れ行くその場所は')).toBe(true)
+    expect(dur(refined.lines[37]), 'row 37 capped').toBeLessThan(3.0)
+  })
+})
