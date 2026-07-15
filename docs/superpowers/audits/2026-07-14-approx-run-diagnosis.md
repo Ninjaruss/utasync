@@ -138,3 +138,125 @@ activity region's left edge (redistributeDegenerateRuns.ts:139–166):
    the recipe) and guard `align_zero_dur`/pileup on it.
 
 Items 2–5 each have measured repro cases cited above to become TDD tests.
+
+---
+
+## Round 6 — before/after (Task F)
+
+All numbers from the deterministic instruments. "before" = round-5 close
+(commit `a494b7e`, values from `2026-07-13-round5-findings.md` §6); "after" =
+post-round-6 ratchet. Every fix was TDD'd from a repro cited above, spec- and
+quality-reviewed, and gated on the LRC ground truth + corpus scorecard.
+
+### LRC ground-truth alignment error (align p50 / p90 seconds)
+
+| config | before (r5) | after (r6) | driver |
+|---|---|---|---|
+| guitar-loneliness word | 0.40 / 1.62 | 0.40 / 1.62 | unchanged (no degenerate run here) |
+| guitar-loneliness segment | 0.73 / 1.96 | **0.73 / 1.93** | D1 straddle fallback (#44 2.9→0.9s; >1s 14→13) |
+| stranger word ja-only | 0.85 / 37.74 | **0.64 / 36.10** | B floor + D clamps (p50 down; p90 still class-A tail) |
+| stranger segment ja-only | 5.93 / 33.79 | **1.44 / 33.79** | D2 high-cov cap exception (verse cascade #23–30 recovered) |
+| stranger word mixed 2-pass | 0.56 / 3.64 | **0.56 / 2.82** | B post-merge re-floor + D clamps |
+| stranger segment mixed 2-pass | 0.56 / 7.86 | **0.56 / 6.48** | B post-merge re-floor + D2 |
+| stranger segment medium ja-only | 0.70 / 12.92 | **0.70 / 9.34** | B floor + D2 (residual head class-A + A5#2) |
+
+Six of seven configs improved; the seventh (guitar word, which has no
+degenerate run) held. Nothing regressed. The headline win is
+**stranger segment ja-only p50 5.93 → 1.44** — the D2 high-coverage cap
+exception recovers the verse-cascade rows (~23–30) that round 5 deferred as
+"high-risk." lrc-truth.test.ts now locks this config's p50 at ≤ 1.8 (its p90 is
+left loose — 33.79s is the un-anchorable class-A chorus tail, not our defect).
+
+### Fix → commit map
+
+- **A** `721529f` — ship plumbing: `ALIGNMENT_PIPELINE_VERSION` 19 → 20, and a
+  guard so a stored `mixed`-language song aligned pre-v20 is NOT silently
+  re-refined from its lossy stored single-pass transcript (surfaces the
+  re-run-Auto-align nudge instead). Fixes H1.
+- **B** `c1859b0` + `fdb4c3d` — honest degenerate display (H2/H3): per-line
+  packing floor (`redistributeRun` never emits below `min(minLineDuration,
+  fairShare)`; spreads at floor + `needs_review` when capacity can't fit),
+  no more `start == end` rows, epsilon-tolerant expansion room-check, and a
+  re-run of the display floor after the mixed-merge stitch.
+- **C** `fd146a8` — honest labels (H4): the `needs_review → approximate`
+  upgrade now requires the packed line to be on activity AND ≥ 0.55 of its
+  floor; the off-timing banner counts `needs_review` (or approximate-below-
+  floor) instead of `needs_review`-only. Label-only — timing byte-identical.
+- **D** `8df30eb` (D1 straddle-guard fallback) + `da54ae8` (D2 high-coverage
+  cap exception) + `a16a617` (D2 doc/naming polish) — late-start backfill drag
+  clamps (H5). D3 (prevFloor pinning) was not-applicable on HEAD once B
+  eliminated the zero-width neighbour it keyed on.
+- **E** `9489379` — garbled/desert transcript fixture class (H1/CI gap):
+  `akfg-garbled-word` (deterministic perturbation of the healthy word
+  transcript) with a focused honesty guard asserting `align_zero_dur=0`, no
+  sub-floor pileups, honest labels.
+
+### Corpus honesty deltas (proxy metrics vs. the LRC senior gate)
+
+The scorecard moved in the expected honesty direction; every "worse-looking"
+cell is a floor/label artifact while the LRC timing above improved or held
+(audited per-cell at the ratchet — see the round-6 commit body):
+
+- **Zero-duration rows eliminated** (Task B): `align_zero_dur` 1 → 0 on
+  stranger word-medium, mixed-segment (the 183.5–183.5 row 45), and mixed-word.
+- **Sub-floor pileups gone** (Task B): `align_pileup` down on stranger segment
+  (5→1), word-autolang (9→0), segment-autolang (10→2), segment-medium (1→0),
+  mixed-segment (2→0), mixed-word (2→0).
+- **Compression relieved** (Task B floor-spread): `align_compressed` down on
+  most configs (e.g. word-medium 28→8, word-autolang 59→39). It rises on
+  mixed-segment (6→8) only because a former zero-dur row and a display-floor-
+  reclaimed row now sit at the 1.2s floor (< 0.55×minLineDuration) — a real
+  improvement (zero/sliver → visible) that the proxy counts as "compressed."
+- **Honest labels** (Task C): `align_needs_review` rises where slivers used to
+  wear dishonest `approximate` chips — stranger word 2→8, segment 3→8,
+  word-autolang 7→46, segment-autolang 1→28, word-medium 5→12, segment-medium
+  0→7, mixed-word 3→4. These are the piled/spread lines telling the truth.
+- **D1 boundary artifact** (Task D): guitar-loneliness-segment `bnd_midword_p2`
+  0 → 2 — the straddle fallback splits Whisper's merged chunk
+  `何回になりたいなりたい` at the neighbour's true span end, so both sides land
+  inside the merged token (chunk-granularity cosmetics, LRC #44 2.9→0.9s).
+- **Garbled fixture baselined** (Task E): `akfg-garbled-word` snapshots
+  `align_zero_dur=0`, `align_pileup=0`, `align_compressed=0`,
+  `align_needs_review=5` (honest) — the exact shape the fixes guarantee on a
+  garbled/desert transcript.
+
+All round-6 carve-outs (`ALLOWED_MEASUREMENT_ARTIFACTS` in
+corpus-scorecard.test.ts) were folded into `corpus-baseline.json` via
+`--write-baseline` and cleared; `--pairing --check-baseline` exits 0.
+
+### Deferred / still open
+
+- **Class-A alternate-take tail** (stranger #32–51, ~20 lines): no transcript
+  evidence in any of the five fixtures; drives the ja-only p90 33.79/36.10 and
+  is un-fixable at source. Unchanged, guarded loosely.
+- **A7 verse-cascade residual**: D2 recovered the p50 (5.93→1.44) but the
+  ja-only p90 tail is still the class-A block above; the head rows #0/#1 remain
+  interpolation-only (class-A).
+- **Segment-mixed unevidenced tail**: #2's 0–26s mega-segment (13.7s error) and
+  the bridge cluster #44–47 are partially class-A EN audio; the B post-merge
+  re-floor made them honest (no zero-dur) but can't invent evidence.
+- **A2 #44 / CLASS-T4**: chunk-granularity boundary cosmetics — no net win
+  without sub-chunk onset timing (D1 supplied the neighbour's span for #44; the
+  rest wait on intra-chunk detection).
+- **English-only corpus song**: still a coverage gap (needs new audio +
+  transcript).
+
+### H1 shipping note
+
+The version bump (19 → 20, commit `721529f`) is what actually lets round-5 and
+round-6 fixes reach songs stored by an older app: `shouldRefineStoredAlignment`
+now re-refines them. The one hazard H1 flagged — a pre-v20 **mixed** song whose
+stored merged transcript is the lossy JA-only tail — is handled by the guard
+that surfaces the "re-run Auto-align" nudge instead of silently replaying the
+broken transcript. Single-language stored songs re-refine cleanly.
+
+### Not done this round
+
+- **Browser display-layer spot-check**: NOT completed — the in-app browser's
+  per-origin approval needs an interactive user; this session ran autonomously.
+  Manual step: run the dev server, play one Japanese and one mixed-language
+  song, confirm the degenerate runs now render with a visible floor (no
+  zero-duration rows), the off-timing banner count matches the visibly-off
+  lines, and approx chips only sit on genuinely-approximate lines. All fixed
+  behavior is covered by the deterministic instruments; this guards only the
+  render layer.

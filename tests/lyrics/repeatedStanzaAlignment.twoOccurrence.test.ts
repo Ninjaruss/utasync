@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { refineAlignmentWithPhrases } from '../../src/lyrics/phraseAlignment'
+import { minLineDuration, COMPRESSION_FRACTION } from '../../src/lyrics/lineDegeneracy'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const FIXTURES = join(here, '../ai-pipeline/fixtures')
@@ -75,8 +76,18 @@ describe('two-occurrence repeat re-anchor (evidence-gated)', () => {
     // row 37 "連れ行くその場所は" stays flagged). The blanket skip manages only 2.
     const cleanInBlock = [0, 1, 2, 3].filter((k) => quality[second + k] !== 'needs_review').length
     expect(cleanInBlock).toBeGreaterThanOrEqual(3)
-    // And the line the re-anchor recovers outright:
-    expect(quality[second]).not.toBe('needs_review')
+    // The re-anchor once recovered this line outright, but later rounds'
+    // layout leaves row 35 a squashed sliver (1.7s < 0.55× its 2.16s floor)
+    // that pre-round-6 read "approximate" only via the blanket redistribution
+    // upgrade — exactly the diagnosis-H4 mislabel. Round 6 C's coverage gate
+    // now (honestly) flags squashed spans, so assert the label POLICY instead
+    // of the label: an unflagged row must carry a non-squashed span.
+    if (quality[second] !== 'needs_review') {
+      const dur = refined.lines[second].endTime - refined.lines[second].startTime
+      expect(dur).toBeGreaterThanOrEqual(
+        minLineDuration(lineTexts[second]) * COMPRESSION_FRACTION - 1e-6,
+      )
+    }
   })
 
   it('veil does not regress (its 2-occurrence verse pairs must fail the gate)', () => {

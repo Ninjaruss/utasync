@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { TimedLine } from '../../src/core/types'
 import type { TranscriptWord } from '../../src/ai-pipeline/aligner'
 import type { RefinedAlignment } from '../../src/lyrics/phraseAlignment'
@@ -10,6 +13,8 @@ import {
   mergeMixedTranscripts,
   refineMixedLanguageAlignment,
 } from '../../src/ai-pipeline/mixedLanguageAlign'
+
+const here = dirname(fileURLToPath(import.meta.url))
 
 const line = (original: string, startTime: number, endTime: number): TimedLine => ({
   original,
@@ -221,4 +226,63 @@ describe('refineMixedLanguageAlignment (integration)', () => {
     expect(inJaVerse.length).toBeGreaterThan(0)
     expect(inJaVerse.every((w) => !/^[a-z]+$/i.test(w.word))).toBe(true)
   })
+})
+
+// Round 6 (diagnosis H3): the merge stitch (end = min(ownEnd, next.start)) runs
+// AFTER each pass's display-floor expansion and re-created zero-duration rows —
+// stranger row 45 ('Once you come here…') shipped as 183.5–183.5, quality
+// 'good', in both word and segment modes.
+describe('refineMixedLanguageAlignment — post-merge display floor (fixtures)', () => {
+  const FIXTURES = join(here, 'fixtures/stranger-than-heaven')
+
+  function loadWords(path: string): TranscriptWord[] {
+    const raw = JSON.parse(readFileSync(path, 'utf8'))
+    const arr: TranscriptWord[] = Array.isArray(raw)
+      ? raw.map((w: { word?: string; startTime?: number; endTime?: number }) => ({
+          word: (w.word ?? '').trim(),
+          startTime: w.startTime as number,
+          endTime: w.endTime as number,
+        }))
+      : (raw.chunks ?? []).map((c: { text?: string; timestamp?: number[] }) => ({
+          word: (c.text ?? '').trim(),
+          startTime: c.timestamp?.[0] as number,
+          endTime: c.timestamp?.[1] as number,
+        }))
+    return arr.filter((w) => w.word && Number.isFinite(w.startTime) && Number.isFinite(w.endTime))
+  }
+
+  const lineTexts = readFileSync(join(FIXTURES, 'lyrics.txt'), 'utf8')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+  const sheetRows: TimedLine[] = lineTexts.map((original) => ({
+    original,
+    translation: '',
+    startTime: 0,
+    endTime: 0,
+  }))
+  const enWords = loadWords(join(FIXTURES, 'transcript.segment.forced-en.json'))
+
+  for (const mode of ['word', 'segment'] as const) {
+    it(`${mode} mode ships no zero-duration rows and floors the co-started row`, { timeout: 60_000 }, () => {
+      const jaWords = loadWords(join(FIXTURES, `transcript.${mode}.json`))
+      const { refined } = refineMixedLanguageAlignment(sheetRows, jaWords, enWords)
+      for (let i = 0; i < refined.lines.length; i++) {
+        const l = refined.lines[i]
+        expect(l.endTime, `row ${i} "${l.original.slice(0, 24)}" duration`).toBeGreaterThan(l.startTime)
+        if (i > 0) {
+          expect(l.startTime, `row ${i} monotonicity`).toBeGreaterThanOrEqual(refined.lines[i - 1].startTime)
+        }
+        if (i + 1 < refined.lines.length) {
+          expect(l.endTime, `row ${i} end vs next start`).toBeLessThanOrEqual(
+            refined.lines[i + 1].startTime + 1e-6,
+          )
+        }
+      }
+      const row45 = refined.lines.findIndex((l) => l.original.startsWith('Once you come here'))
+      expect(row45).toBeGreaterThanOrEqual(0)
+      const dur = refined.lines[row45].endTime - refined.lines[row45].startTime
+      expect(dur, 'row 45 display floor').toBeGreaterThanOrEqual(1.2 - 1e-6)
+    })
+  }
 })

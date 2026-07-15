@@ -13,6 +13,7 @@ import {
   toolbarSectionLabel,
 } from '../core/ui/toolbarClasses'
 import { lineIndexAtPlayhead, linePlaybackStart } from './lineTiming'
+import { offTimingLineCount } from './lineDegeneracy'
 
 interface Props {
   lines: TimedLine[]
@@ -41,6 +42,9 @@ interface Props {
   lineAlignmentQuality?: LineAlignmentQuality[]
   /** When false, suppress alignment quality badges (e.g. manual tap-sync). */
   showAlignmentQuality?: boolean
+  /** Mixed-language song aligned before the current pipeline version — the
+   * stored-transcript re-refine can't repair it, so recommend a fresh Auto-align. */
+  needsMixedRealign?: boolean
 }
 
 const DELETE_CONFIRM_MS = 3000
@@ -201,7 +205,7 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
@@ -324,9 +328,12 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
     ? lineIndexAtPlayhead(lines, playheadPosition)
     : -1
 
-  const needsReviewCount =
+  // needs_review lines plus approximate lines squashed below their sung floor
+  // (see offTimingLineCount) — a visibly-squashed row is off-timing no matter
+  // which chip it wears.
+  const offTimingCount =
     showAlignmentQuality && lineAlignmentQuality?.length
-      ? lineAlignmentQuality.filter((q) => q === 'needs_review').length
+      ? offTimingLineCount(lines, lineAlignmentQuality)
       : 0
 
   return (
@@ -384,9 +391,14 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             No audio file — use Tap-through to time lyrics while the song plays.
           </p>
         )}
-        {needsReviewCount > 0 && (
+        {offTimingCount > 0 && (
           <p className="text-[10px] text-amber-400/80 text-pretty">
-            {needsReviewCount} line{needsReviewCount === 1 ? '' : 's'} off-timing — adjust the timestamps below or re-run Auto-align.
+            {offTimingCount} line{offTimingCount === 1 ? '' : 's'} off-timing — adjust the timestamps below or re-run Auto-align.
+          </p>
+        )}
+        {needsMixedRealign && (
+          <p className="text-[10px] text-amber-400/80 text-pretty">
+            Mixed-language song aligned before recent timing fixes — re-run Auto-align to re-time it (older mixed songs can't be re-timed automatically on open).
           </p>
         )}
       </div>

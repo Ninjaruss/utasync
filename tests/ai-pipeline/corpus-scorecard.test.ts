@@ -58,6 +58,14 @@ const baseline = JSON.parse(readFileSync(join(FIXTURES, 'corpus-baseline.json'),
 // because the flagged line is verifiably at its ground-truth placement and the
 // boundary metric misfires on ambiguous span attribution. Each entry needs a
 // findings-doc reference; remove it when the baseline is next ratcheted.
+//
+// Cleared at the round-6 Task-F ratchet (2026-07-14): the round-6 fix-loop
+// carve-outs (Task B floor-spread/zero-width honesty, Task C coverage-gated
+// needs_review labels, Task D1 straddle-fallback bnd_midword) were all audited
+// against the LRC ground truth — every config improved or held, no timing
+// regression — and folded into corpus-baseline.json via --write-baseline. See
+// docs/superpowers/audits/2026-07-14-approx-run-diagnosis.md "Round 6 —
+// before/after (Task F)".
 const ALLOWED_MEASUREMENT_ARTIFACTS: Record<string, Record<string, number>> = {}
 
 describe('audit corpus — alignment non-regression', () => {
@@ -122,13 +130,16 @@ describe('audit corpus — alignment non-regression', () => {
         if (dur > 0 && dur < minLineDuration(text) * 0.55) compressed++
       }
 
+      // Carve-outs cap alignment cells the same way as the boundary cells below.
+      const cap = (key: string, baselineVal: number) =>
+        Math.max(baselineVal, ALLOWED_MEASUREMENT_ARTIFACTS[song.name]?.[key] ?? 0)
       expect(refined.lines.length).toBe(lineTexts.length)
-      expect(needsReview).toBeLessThanOrEqual(base.align_needs_review as number)
-      expect(monotonicity).toBeLessThanOrEqual(base.align_monotonicity as number)
-      expect(zeroDur).toBeLessThanOrEqual(base.align_zero_dur as number)
-      expect(longDur).toBeLessThanOrEqual(base.align_long_dur as number)
-      expect(pileup).toBeLessThanOrEqual(base.align_pileup as number)
-      expect(compressed).toBeLessThanOrEqual(base.align_compressed as number)
+      expect(needsReview).toBeLessThanOrEqual(cap('align_needs_review', base.align_needs_review as number))
+      expect(monotonicity).toBeLessThanOrEqual(cap('align_monotonicity', base.align_monotonicity as number))
+      expect(zeroDur).toBeLessThanOrEqual(cap('align_zero_dur', base.align_zero_dur as number))
+      expect(longDur).toBeLessThanOrEqual(cap('align_long_dur', base.align_long_dur as number))
+      expect(pileup).toBeLessThanOrEqual(cap('align_pileup', base.align_pileup as number))
+      expect(compressed).toBeLessThanOrEqual(cap('align_compressed', base.align_compressed as number))
 
       const sanitized = sanitizeTranscript(words)
       const spans = computeLineMatchedSpans(lineTexts, sanitized)

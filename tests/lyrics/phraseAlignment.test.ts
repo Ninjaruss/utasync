@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url'
 import type { TimedLine } from '../../src/core/types'
 import {
   alignPhrasesToTranscript,
+  enforceLineDisplayFloor,
+  expandSquashedLineHighlights,
   projectPhraseTimingToLines,
   refineAlignmentWithPhrases,
   sheetRowsForAlignment,
@@ -42,6 +44,90 @@ describe('validateAndRetryLineTimings — repeated-line partial match', () => {
     const { lines: out } = validateAndRetryLineTimings(lines, words, 'ja')
     expect(out[0].startTime).toBeLessThan(out[1].startTime)
     expect(out[0].startTime).toBeLessThan(20)
+  })
+})
+
+describe('expandSquashedLineHighlights — float-tolerant floor guard', () => {
+  // Round 6 (diagnosis H3): float addition makes the room check miss its own
+  // floor by ~1e-14 (247.03999999999996 + 1.2 − start = 1.1999999999999886),
+  // so exactly the rows the pass exists to fix were skipped.
+  it('expands a zero-span final row despite float dust in the synthetic room', () => {
+    const lines = [line('a line of text', 240, 245), line('final row', 247.03999999999996, 247.03999999999996)]
+    const out = expandSquashedLineHighlights(lines)
+    expect(out[1].endTime - out[1].startTime).toBeGreaterThanOrEqual(1.2 - 1e-6)
+  })
+
+  it('expands a sub-floor row whose successor leaves floor-minus-epsilon room', () => {
+    const lines = [
+      line('a line of text', 240, 245),
+      line('squashed row', 247.03999999999996, 247.1),
+      line('next row', 248.23999999999995, 250),
+    ]
+    const out = expandSquashedLineHighlights(lines)
+    expect(out[1].endTime - out[1].startTime).toBeGreaterThanOrEqual(1.2 - 1e-6)
+    expect(out[1].endTime).toBeLessThanOrEqual(out[2].startTime)
+  })
+})
+
+describe('enforceLineDisplayFloor — co-start reclaim', () => {
+  const FLOOR = 1.2
+
+  // Shared invariants: the reclaim must never break ordering and must never
+  // pay for one row's floor by dropping a neighbour below the floor itself.
+  function assertWellFormed(out: TimedLine[]) {
+    for (let i = 0; i < out.length; i++) {
+      expect(out[i].endTime, `row ${i} width`).toBeGreaterThanOrEqual(out[i].startTime)
+      if (i > 0) {
+        expect(out[i].startTime, `row ${i} monotonicity`).toBeGreaterThanOrEqual(out[i - 1].startTime)
+        expect(out[i - 1].endTime, `row ${i - 1} end vs next start`).toBeLessThanOrEqual(
+          out[i].startTime + 1e-6,
+        )
+      }
+    }
+  }
+
+  it('takes nothing from a predecessor that is already sub-floor', () => {
+    // prev is pinned at t=0 (no free space before it) and sub-floor: the
+    // zero-width row must be fed from the successor's surplus only.
+    const lines = [line('prev', 0, 0.8), line('cur', 0.8, 0.8), line('next', 0.8, 5)]
+    const out = enforceLineDisplayFloor(lines)
+    expect(out[0]).toMatchObject({ startTime: 0, endTime: 0.8 }) // untouched
+    expect(out[1].endTime - out[1].startTime).toBeGreaterThanOrEqual(FLOOR - 1e-6)
+    expect(out[2].startTime).toBeCloseTo(0.8 + FLOOR, 6) // pushed by exactly the floor
+    expect(out[2].endTime - out[2].startTime).toBeGreaterThanOrEqual(FLOOR - 1e-6)
+    assertWellFormed(out)
+  })
+
+  it('reclaims from a comfortable predecessor tail without touching the successor', () => {
+    const lines = [line('prev', 10, 14), line('cur', 14, 14), line('next', 14, 18)]
+    const out = enforceLineDisplayFloor(lines)
+    expect(out[2].startTime).toBe(14) // pullback-only: successor never moved
+    expect(out[1].startTime).toBeCloseTo(14 - FLOOR, 6)
+    expect(out[1].endTime - out[1].startTime).toBeGreaterThanOrEqual(FLOOR - 1e-6)
+    expect(out[0].endTime - out[0].startTime).toBeGreaterThanOrEqual(FLOOR - 1e-6) // prev keeps its floor
+    assertWellFormed(out)
+  })
+
+  it('caps the successor push at zero when the successor has no surplus', () => {
+    // Neither neighbour has anything to give: the zero-width row stays (the
+    // guarded residual) rather than robbing the exactly-at-floor successor.
+    const lines = [line('prev', 0, 0.8), line('cur', 0.8, 0.8), line('next', 0.8, 0.8 + FLOOR)]
+    const out = enforceLineDisplayFloor(lines)
+    expect(out[0]).toMatchObject({ startTime: 0, endTime: 0.8 })
+    expect(out[2]).toMatchObject({ startTime: 0.8, endTime: 0.8 + FLOOR }) // never robbed
+    expect(out[1]).toMatchObject({ startTime: 0.8, endTime: 0.8 }) // honest residual
+    assertWellFormed(out)
+  })
+
+  it('resolves a 3-deep co-start pile without cascading anyone below the floor', () => {
+    // Row a pulls back into prev's tail, row b pushes into c's surplus — each
+    // reclaim is bounded by the neighbour's own floor, so nothing cascades.
+    const lines = [line('prev', 0, 10), line('a', 10, 10), line('b', 10, 10), line('c', 10, 18)]
+    const out = enforceLineDisplayFloor(lines)
+    for (let i = 0; i < out.length; i++) {
+      expect(out[i].endTime - out[i].startTime, `row ${i} floor`).toBeGreaterThanOrEqual(FLOOR - 1e-6)
+    }
+    assertWellFormed(out)
   })
 })
 

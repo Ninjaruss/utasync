@@ -16,12 +16,13 @@ import { isRepetitionOnlyLine } from './lineAligner'
 import { redistributeDegenerateRuns } from './redistributeDegenerateRuns'
 import { findPhoneticAnchorEn } from '../ai-pipeline/phoneticEn'
 import { minLineDuration } from './lineDegeneracy'
+import { detectSheetLanguage } from '../ai-pipeline/whisperLanguage'
 
 const REPETITION_REF_MIN_SPAN_S = 1.4
 
 /** Bump when auto-align timing logic changes — triggers one-time re-refine from the
  * persisted Whisper transcript on song open (no re-transcription). */
-export const ALIGNMENT_PIPELINE_VERSION = 19
+export const ALIGNMENT_PIPELINE_VERSION = 20
 
 const ENTWINED_ROLLING_RE = /心絡まって.*ローリング/
 const RUN_LINE_RE = /凍てつく(?:世界|地面).*走り出した/
@@ -443,6 +444,14 @@ const ONSET_SPAN_CORROBORATION_MIN_CHARS = 3
  * the ownership guards below (previous line's matched span, straddled-word
  * check) remain the real safety, not the cap. */
 const LATESTART_MAX_PULL_S = 10
+/** The MAX_PULL cap is lifted when the line's own span is near-perfectly
+ * covered: a line placed 10s+ after its OWN reliably-matched onset with
+ * coverage this high is genuinely late, and its evidence corroborates the pull
+ * (same principle as the round-5 T3 span-corroborated onset pull, applied here
+ * as a coverage ratio). 0.9 sits just below the observed worst rows (stranger
+ * segment #23/#24: 10.5s late at 1.00/0.93 coverage — H5); the container-word
+ * and prev-span ownership guards still gate weak-evidence pulls. */
+const LATESTART_HIGHCOV_CAP_EXCEPTION = 0.9
 
 /** Both backfill tuners run back-to-back on the same texts and transcript
  * (only start times move between them), so the caller computes the sanitized
@@ -521,9 +530,14 @@ function backfillLateStartsToMatchedSpan(
   for (let i = 0; i < out.length; i++) {
     const span = spans[i]
     if (!span) continue
-    if (span.matchedChars / Math.max(1, span.totalChars) < LATESTART_SPAN_MIN_COVERAGE) continue
+    const coverage = span.matchedChars / Math.max(1, span.totalChars)
+    if (coverage < LATESTART_SPAN_MIN_COVERAGE) continue
     const late = out[i].startTime - span.firstTime
-    if (late <= LATESTART_MIN_PULL_S || late >= LATESTART_MAX_PULL_S) continue
+    if (late <= LATESTART_MIN_PULL_S) continue
+    // The 10s cap screens out corrections that belong to another defect class
+    // (verse cascade / transcript garble), but a near-perfectly-covered span is
+    // itself the evidence — lift the cap only for those (D2, diagnosis H5).
+    if (late >= LATESTART_MAX_PULL_S && coverage < LATESTART_HIGHCOV_CAP_EXCEPTION) continue
     const prevSpanEnd = i > 0 ? spans[i - 1]?.lastEndTime ?? -Infinity : -Infinity
     // The evidence must be word-scale: the first matched char's containing
     // transcript word gives a real acoustic edge to snap to, and the word must
@@ -543,7 +557,10 @@ function backfillLateStartsToMatchedSpan(
     // before the previous line's own matched content, and never squashing
     // the previous line below a visible duration.
     const prevFloor = i > 0 ? out[i - 1].startTime + 0.3 : 0
-    let boundary = Math.max(target, prevSpanEnd, prevFloor)
+    // The earliest this line may legitimately start: past the previous line's
+    // own matched content and past its display floor.
+    const prevEdge = Math.max(prevSpanEnd, prevFloor)
+    let boundary = Math.max(target, prevEdge)
     // A boundary strictly inside a short sung word would clip that word
     // (bnd_midword): move out to the word's start when this line owns it,
     // otherwise leave the line alone.
@@ -552,8 +569,19 @@ function backfillLateStartsToMatchedSpan(
       return dur >= 0.4 && dur <= 2.5 && boundary > w.startTime + 0.05 && boundary < w.endTime - 0.05
     })
     if (straddled) {
-      if (straddled.startTime >= Math.max(prevSpanEnd, prevFloor) - 0.05) {
+      if (straddled.startTime >= prevEdge - 0.05) {
         boundary = Math.max(straddled.startTime, prevFloor)
+      } else if (prevSpanEnd >= straddled.startTime - 0.05) {
+        // The straddled word is genuinely SHARED: the previous line's own
+        // reliably-matched span reaches into it, so the honest split is where
+        // that span ends (prevSpanEnd), floored to keep the previous line
+        // visible. Abandoning the pull here left the line seconds past its own
+        // onset (guitar segment #44: 2.9s -> 0.9s vs LRC truth 194.93, the pull
+        // lands at prevSpanEnd 195.81 inside the shared chunk). Only when the
+        // previous line does NOT own the straddled word — a wrong-occurrence
+        // match (prevSpanEnd = -Inf) or a far-gap prevFloor pin — do we still
+        // abstain, so those stay untouched.
+        boundary = Math.max(prevSpanEnd, prevFloor)
       } else {
         continue
       }
@@ -1251,11 +1279,40 @@ export function sheetRowsForAlignment(lyrics: LyricsData): TimedLine[] {
   return lyrics.lines
 }
 
-/** Re-run phrase-aware timing when the pipeline version is stale. */
+/** Alignment language re-detected from the stored sheet — the same
+ * `detectSheetLanguage` call (over the alignment rows) that chose the language at
+ * align time, so it reproduces that decision without a persisted field. */
+function detectedAlignmentLanguage(lyrics: LyricsData): AlignmentLanguage {
+  const rows = sheetRowsForAlignment(lyrics)
+  return detectSheetLanguage(
+    rows.map((r) => r.original || r.translation),
+    lyrics.sourceLanguage,
+  )
+}
+
+/** Re-run phrase-aware timing when the pipeline version is stale.
+ * Mixed-language songs are excluded: their stored transcript is the *merged*
+ * single stream (the separate EN-forced pass was never persisted), so a
+ * single-pass re-refine can neither reconstruct the two-pass merge nor safely
+ * re-time a good round-5 alignment — they need a fresh Auto-align instead
+ * (see `needsMixedRealign`). */
 export function shouldRefineStoredAlignment(lyrics: LyricsData): boolean {
   if (!lyrics.lines.length) return false
   if (lyrics.alignmentMode !== 'auto') return false
   if (!lyrics.transcriptWords?.length) return false
+  if (detectedAlignmentLanguage(lyrics) === 'mixed') return false
+  return (lyrics.alignmentPipelineVersion ?? 0) < ALIGNMENT_PIPELINE_VERSION
+}
+
+/** True when a mixed-language auto-aligned song was aligned before the current
+ * pipeline version. Such songs can't be repaired by the stored-transcript
+ * re-refine (see `shouldRefineStoredAlignment`); the UI surfaces a
+ * re-run-Auto-align recommendation so the fix isn't silently unreachable. */
+export function needsMixedRealign(lyrics: LyricsData): boolean {
+  if (!lyrics.lines.length) return false
+  if (lyrics.alignmentMode !== 'auto') return false
+  if (!lyrics.transcriptWords?.length) return false
+  if (detectedAlignmentLanguage(lyrics) !== 'mixed') return false
   return (lyrics.alignmentPipelineVersion ?? 0) < ALIGNMENT_PIPELINE_VERSION
 }
 
@@ -1501,17 +1558,59 @@ function retryPartialMatchForLine(
   return { startTime, endTime }
 }
 
-function expandSquashedLineHighlights(lines: TimedLine[]): TimedLine[] {
+export function expandSquashedLineHighlights(lines: TimedLine[]): TimedLine[] {
   const out = lines.map((l) => ({ ...l }))
   for (let i = 0; i < out.length; i++) {
     const span = out[i].endTime - out[i].startTime
     if (span >= MIN_HIGHLIGHT_S) continue
     const nextStart = out[i + 1]?.startTime ?? out[i].endTime + MIN_HIGHLIGHT_S
     const room = nextStart - out[i].startTime
-    if (room < MIN_HIGHLIGHT_S) continue
+    // ε-tolerant: float addition can land the room ~1e-14 under the floor
+    // (e.g. a zero-span last row computes room 1.1999999999999886), skipping
+    // exactly the rows this pass exists to fix.
+    if (room < MIN_HIGHLIGHT_S - 1e-6) continue
     out[i].endTime = Math.min(out[i].startTime + Math.max(span, MIN_HIGHLIGHT_S), nextStart)
   }
   return out
+}
+
+/**
+ * Display floor for a merged line sequence (mixed two-pass output). The
+ * expansion above can only extend a row into room BEFORE its successor's
+ * start; a row co-started with its successor (room ≈ 0 — e.g. two rows
+ * anchored to the same segment chunk, which the merge stitch then clamps to
+ * zero width) needs that room reclaimed first. Following the
+ * ensureVisibleLineWindows precedent, pull the row's start back into the free
+ * gap and the predecessor's tail first, then push the successor's start —
+ * never reducing either neighbour below the floor itself, so the reclaim
+ * cannot cascade or mint new sub-floor rows.
+ */
+export function enforceLineDisplayFloor(lines: TimedLine[]): TimedLine[] {
+  const out = lines.map((l) => ({ ...l }))
+  for (let i = 0; i < out.length; i++) {
+    if (!(out[i].original || out[i].translation).trim()) continue
+    const next = out[i + 1]
+    const room = (next?.startTime ?? out[i].startTime + MIN_HIGHLIGHT_S) - out[i].startTime
+    if (room >= MIN_HIGHLIGHT_S - 1e-6) continue
+    let needed = MIN_HIGHLIGHT_S - room
+    const prev = out[i - 1]
+    // Earliest start this row may reclaim: the free gap after the predecessor
+    // plus the predecessor's above-floor tail (an under-floor predecessor
+    // contributes nothing).
+    const earliest = prev ? Math.min(prev.endTime, prev.startTime + MIN_HIGHLIGHT_S) : 0
+    const pullback = Math.min(needed, Math.max(0, out[i].startTime - earliest))
+    if (pullback > 0) {
+      out[i].startTime -= pullback
+      if (prev) prev.endTime = Math.min(prev.endTime, out[i].startTime)
+      needed -= pullback
+    }
+    if (next && needed > 1e-9) {
+      const surplus = next.endTime - next.startTime - MIN_HIGHLIGHT_S
+      const push = Math.min(needed, Math.max(0, surplus))
+      if (push > 0) next.startTime += push
+    }
+  }
+  return expandSquashedLineHighlights(out)
 }
 
 function recomputeLineQuality(
@@ -1879,9 +1978,11 @@ export function refineAlignmentWithPhrases(
     if (prevOk && nextOk) lineAlignmentQuality[i] = 'approximate'
   }
 
-  // Redistributed lines that landed on transcript activity have plausible,
-  // evidence-adjacent timing; review can't do better than the redistribution
-  // already did, so they read approximate. Off-activity placements stay flagged.
+  // Redistributed lines that landed on transcript activity at meaningful width
+  // (>= COMPRESSION_FRACTION of their floor — see RedistributionResult.onActivity)
+  // have plausible, evidence-adjacent timing; review can't do better than the
+  // redistribution already did, so they read approximate. Off-activity or
+  // squashed placements stay flagged.
   for (let i = 0; i < tunedLines.length; i++) {
     if (lineAlignmentQuality[i] !== 'needs_review') continue
     if (redist.redistributed[i] && redist.onActivity[i]) lineAlignmentQuality[i] = 'approximate'

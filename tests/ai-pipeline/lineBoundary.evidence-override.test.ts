@@ -86,3 +86,63 @@ describe('line boundary: matched-span evidence must not be overridden (CLASS-T2)
     ).toBeLessThanOrEqual(1.0)
   })
 })
+
+// Round-6 Task D (drag clamps in backfillLateStartsToMatchedSpan). Each case is
+// a measured ground-truth repro (docs/superpowers/audits/2026-07-14-approx-run-
+// diagnosis.md H5) where a well-evidenced line is frozen SECONDS after its own
+// matched-span onset by a backfill guard that abandons an otherwise-valid pull.
+describe('line boundary: late-start backfill must not abandon evidence-backed pulls (Task D)', () => {
+  // D1 — straddle guard fallback. #44 "なりたい 何者かでいい" has perfect coverage
+  // (10/10) with span onset 195.90; it is placed at 197.85 (2.9s late vs LRC
+  // truth 194.93). The pull lands the shared boundary at prevSpanEnd (195.81)
+  // INSIDE the segment chunk "何回になりたいなりたい" [194.60,196.50] that the previous
+  // line partially owns, so the straddle guard `continue`d and left the line
+  // late. When the previous line's own matched span reaches into that word, the
+  // honest split is prevSpanEnd, not abandonment.
+  it('guitar-loneliness (segment): なりたい 何者かでいい snaps to its shared-word boundary', { timeout: 20_000 }, () => {
+    const dir = join(here, 'fixtures/guitar-loneliness')
+    const { lineTexts, refined, spans } = refineFor(
+      join(dir, 'lyrics.ja.txt'),
+      join(dir, 'transcript.segment.json'),
+      'ja',
+    )
+    const i = lineTexts.indexOf('なりたい 何者かでいい')
+    expect(i).toBe(44)
+    const span = spans[i]!
+    expect(span).not.toBeNull()
+    expect(span.matchedChars / span.totalChars).toBeGreaterThanOrEqual(0.9)
+    expect(
+      Math.abs(refined.lines[i].startTime - span.firstTime),
+      `"${lineTexts[i]}" start vs span evidence`,
+    ).toBeLessThanOrEqual(1.0)
+  })
+
+  // D2 — high-coverage cap exception. #23/#24 are near-perfectly covered
+  // (33/33 = 1.00, 38/41 = 0.93) with span onsets 106.45/107.00, yet are piled
+  // at 117.0/117.35 — ~10.5s late (LRC truth 104.90/107.40). They sit exactly
+  // at the LATESTART_MAX_PULL_S=10 cap, which excludes them; span corroboration
+  // ≈ 1.0 makes the pull safe (round-5 T3 precedent). Fixing them also unwinds
+  // the cascade behind them (#25/#26) back onto their own evidence.
+  it('stranger-than-heaven (segment): high-coverage lines pull past the 10s cap', { timeout: 20_000 }, () => {
+    const dir = join(here, 'fixtures/stranger-than-heaven')
+    const { lineTexts, refined, spans } = refineFor(
+      join(dir, 'lyrics.txt'),
+      join(dir, 'transcript.segment.json'),
+      'mixed',
+    )
+    for (const text of [
+      'Nothing stays buried, no names, not a word',
+      'Dive through the silence while the memories blur',
+    ]) {
+      const i = lineTexts.indexOf(text)
+      expect(i).toBeGreaterThanOrEqual(0)
+      const span = spans[i]!
+      expect(span).not.toBeNull()
+      expect(span.matchedChars / span.totalChars).toBeGreaterThanOrEqual(0.9)
+      expect(
+        Math.abs(refined.lines[i].startTime - span.firstTime),
+        `"${text}" start vs span evidence`,
+      ).toBeLessThanOrEqual(1.0)
+    }
+  })
+})
