@@ -19,8 +19,10 @@ import { getAudioFile } from '../core/opfs/audio'
  * automatically once on open (gated by `gapRecoveryVersion`) and on demand via the
  * EditMode "Recover N sections" button. Reuses the exact round-8 machinery —
  * enumerateGapHoles / reanalyzeGaps / spliceGapAlignment's accept-if-better — so a
- * bad re-transcription can NEVER worsen the stored alignment (rejected splices
- * return the song byte-identical).
+ * bad re-transcription can NEVER worsen the stored alignment: a rejected splice
+ * leaves the alignment content (lines / lineAlignmentQuality / anchorSources /
+ * transcriptWords) unchanged. gapRecoveryVersion is still stamped either way, so
+ * the returned LyricsData object always differs by at least that field.
  */
 
 /**
@@ -58,17 +60,22 @@ export function reconstructRefinedFromLyrics(lyrics: LyricsData): RefinedAlignme
 }
 
 /**
- * The gap holes worth re-transcribing in a stored alignment. Requires a stored
- * Whisper transcript: it's the run-coverage baseline for "worth retrying" and only
- * auto-aligned songs carry one (a hand-timed manual song has nothing to recover
- * against). Pure/cheap — no audio, no Whisper.
+ * The reusable inputs to a gap-recovery pass: the alignment view, the alignment
+ * rows + their text, the align-input transcript, and the holes worth re-transcribing.
+ * Built once and shared so the hole detection isn't recomputed for the count check,
+ * the early-out, and the reanalyze call. Returns `null` when the song can't be
+ * recovered — it needs a stored Whisper transcript as the run-coverage baseline for
+ * "worth retrying", which only auto-aligned songs carry (a hand-timed manual song
+ * has nothing to recover against). Pure/cheap — no audio, no Whisper.
  */
-function recoverableHoles(lyrics: LyricsData) {
-  if (!lyrics.transcriptWords?.length) return []
+function buildGapContext(lyrics: LyricsData) {
+  if (!lyrics.transcriptWords?.length) return null
   const refined = reconstructRefinedFromLyrics(lyrics)
-  const sheetTexts = sheetRowsForAlignment(lyrics).map(lineText)
+  const sheetRows = sheetRowsForAlignment(lyrics)
+  const sheetTexts = sheetRows.map(lineText)
   const words = transcriptWordsToAlignInput(lyrics.transcriptWords)
-  return enumerateGapHoles(refined).filter((h) => holeWorthRetrying(h, words, sheetTexts))
+  const holes = enumerateGapHoles(refined).filter((h) => holeWorthRetrying(h, words, sheetTexts))
+  return { refined, sheetRows, sheetTexts, words, holes }
 }
 
 /**
@@ -76,7 +83,7 @@ function recoverableHoles(lyrics: LyricsData) {
  * "Recover N sections" button and the trigger for auto recovery.
  */
 export function countRecoverableHoles(lyrics: LyricsData): number {
-  return recoverableHoles(lyrics).length
+  return buildGapContext(lyrics)?.holes.length ?? 0
 }
 
 /**
@@ -131,12 +138,9 @@ export async function recoverGapsForStoredSong(
   } = args
 
   // No hole worth a slice → skip the (expensive) decode + model load entirely.
-  if (recoverableHoles(lyrics).length === 0) return null
-
-  const refined = reconstructRefinedFromLyrics(lyrics)
-  const sheetRows = sheetRowsForAlignment(lyrics)
-  const sheetTexts = sheetRows.map(lineText)
-  const words = transcriptWordsToAlignInput(lyrics.transcriptWords)
+  const ctx = buildGapContext(lyrics)
+  if (!ctx || ctx.holes.length === 0) return null
+  const { refined, sheetRows, sheetTexts, words } = ctx
 
   let file = audioFile
   if (!file) {

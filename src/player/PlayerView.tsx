@@ -502,6 +502,12 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         // safe on any song (mixed included); gapRecoveryVersion is stamped even
         // when nothing is filled, so Whisper isn't re-loaded on every open.
         if (!cancelled && shouldAutoRecoverGaps(loaded.lyrics, { willAutoAlign, hasAudio: !!s.audioStoredPath })) {
+          // Flip the busy flag SYNCHRONOUSLY (before the decode/model-load await) so
+          // the manual "Recover N sections" button — which guards on recoveringGaps —
+          // can't fire a second concurrent recovery during this window (duplicate
+          // decode + racing db.put). onProgress only fires after the model loads.
+          setRecoveringGaps(true)
+          setRecoverGapsStatus('Recovering…')
           try {
             const result = await recoverGapsForStoredSong({
               lyrics: loaded.lyrics,
@@ -510,8 +516,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               isCancelled: () => cancelled,
               onProgress: (n) => {
                 if (!cancelled) {
-                  setRecoveringGaps(n > 0)
-                  setRecoverGapsStatus(n > 0 ? `Recovering ${n} section${n === 1 ? '' : 's'}…` : null)
+                  setRecoverGapsStatus(n > 0 ? `Recovering ${n} section${n === 1 ? '' : 's'}…` : 'Recovering…')
                 }
               },
               highAccuracy: false,

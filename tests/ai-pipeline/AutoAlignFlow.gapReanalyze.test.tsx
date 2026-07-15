@@ -5,6 +5,7 @@ import { AutoAlignFlow } from '../../src/ai-pipeline/AutoAlignFlow'
 import type { Song } from '../../src/core/types'
 import { db } from '../../src/core/db/schema'
 import type { ReanalyzeGapsArgs } from '../../src/ai-pipeline/gapReanalyze'
+import { GAP_RECOVERY_VERSION } from '../../src/ai-pipeline/gapRecovery'
 
 // This suite tests the AutoAlignFlow GLUE around reanalyzeGaps — that it is wired
 // in after the main align, that the injected transcribeSlice slices audioData and
@@ -159,5 +160,16 @@ describe('AutoAlignFlow gap re-transcription wiring', () => {
     // The gap pass's returned line + transcript won over the pre-gap alignment.
     expect(saved?.lyrics.lines[0]?.original).toBe('GAP-FILLED')
     expect(saved?.lyrics.transcriptWords).toEqual([{ word: 'gapword', startTime: 9, endTime: 10 }])
+  })
+
+  it('stamps gapRecoveryVersion so a fresh align never re-runs stored-song auto-recovery', async () => {
+    // This flow already ran its own gap pass; the stamp guards against a leftover
+    // unrecoverable hole tripping shouldAutoRecoverGaps (re-decode + Whisper) on reopen.
+    const onComplete = vi.fn()
+    render(<AutoAlignFlow song={song} autoStart onComplete={onComplete} onClose={vi.fn()} />)
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalled())
+    const saved = await db.songs.get(song.id)
+    expect(saved?.lyrics.gapRecoveryVersion).toBe(GAP_RECOVERY_VERSION)
   })
 })

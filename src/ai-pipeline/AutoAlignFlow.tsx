@@ -9,6 +9,7 @@ import { sanitizeTranscript, LOW_CONFIDENCE_WARN_THRESHOLD, type TranscriptWord 
 import { refineAlignmentWithPhrases, sheetRowsForAlignment, applyRefinedAlignment, type RefinedAlignment } from '../lyrics/phraseAlignment'
 import { refineMixedLanguageAlignment } from './mixedLanguageAlign'
 import { reanalyzeGaps } from './gapReanalyze'
+import { GAP_RECOVERY_VERSION } from './gapRecovery'
 import { createSliceTranscriber } from './sliceTranscriber'
 import { chunksToWords } from './transcriptChunks'
 import { db } from '../core/db/schema'
@@ -383,7 +384,13 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
       const updated: Song = {
         ...song,
         lyrics: applyRefinedAlignment(
-          { ...song.lyrics, alignmentMode: 'auto', transcriptWords },
+          // Stamp gapRecoveryVersion here too: this flow already ran its own gap
+          // re-transcription pass above, so a leftover unrecoverable hole (some are
+          // rejected by accept-if-better) must NOT trip the stored-song auto-recovery
+          // on the next open — it would re-decode + re-load Whisper to re-attempt the
+          // exact same audio/text. applyRefinedAlignment doesn't carry it, so pass it
+          // in the lyrics arg (mirrors transcriptWords).
+          { ...song.lyrics, alignmentMode: 'auto', transcriptWords, gapRecoveryVersion: GAP_RECOVERY_VERSION },
           refined,
         ),
         syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines: refined.lines } }),
