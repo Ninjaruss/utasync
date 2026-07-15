@@ -358,3 +358,42 @@ describe('EditMode — local re-align', () => {
     expect(screen.queryByRole('button', { name: /re-align.*weak/i })).toBeNull()
   })
 })
+
+describe('EditMode — gap recovery (R9-2)', () => {
+  it('offers "Recover N sections" when audio is present and holes are recoverable', () => {
+    const onRecoverGaps = vi.fn()
+    renderEditMode({ recoverableGapCount: 2, onRecoverGaps })
+    const btn = screen.getByRole('button', { name: /recover 2 sections/i })
+    fireEvent.click(btn)
+    expect(onRecoverGaps).toHaveBeenCalledTimes(1)
+  })
+
+  it('singularizes the label for a single recoverable section', () => {
+    renderEditMode({ recoverableGapCount: 1, onRecoverGaps: vi.fn() })
+    expect(screen.getByRole('button', { name: /recover 1 section$/i })).toBeTruthy()
+  })
+
+  it('hides the recover button when there are no recoverable holes', () => {
+    renderEditMode({ recoverableGapCount: 0, onRecoverGaps: vi.fn() })
+    expect(screen.queryByRole('button', { name: /recover/i })).toBeNull()
+  })
+
+  it('hides the recover button without local audio', () => {
+    renderEditMode({ hasLocalAudio: false, recoverableGapCount: 3, onRecoverGaps: vi.fn() })
+    expect(screen.queryByRole('button', { name: /recover/i })).toBeNull()
+  })
+
+  it('shows recovering progress and disables the button while recovering', () => {
+    const onRecoverGaps = vi.fn()
+    renderEditMode({
+      recoverableGapCount: 2,
+      onRecoverGaps,
+      recoveringGaps: true,
+      recoverGapsStatus: 'Recovering 2 sections…',
+    })
+    const btn = screen.getByRole('button', { name: /recovering 2 sections/i })
+    expect(btn).toBeDisabled()
+    fireEvent.click(btn)
+    expect(onRecoverGaps).not.toHaveBeenCalled()
+  })
+})

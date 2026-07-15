@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useToast } from '../core/ui/Toast'
 import { usePlayerStore } from './PlayerStore'
 import { useLyricsStore } from '../lyrics/LyricsStore'
@@ -22,6 +22,11 @@ import {
   transcriptWordsToAlignInput,
 } from '../lyrics/phraseAlignment'
 import { summarizePhraseChanges, applySungLayout, revertToSheetLayout } from '../lyrics/phraseLayout'
+import {
+  recoverGapsForStoredSong,
+  shouldAutoRecoverGaps,
+  countRecoverableHoles,
+} from '../ai-pipeline/gapRecovery'
 import { tokenizeJapanese } from '../language/japanese/tokenizer'
 import { toRomaji, toFurigana } from '../language/japanese/phonetics'
 import { detectGrammarPatterns } from '../language/japanese/grammar'
@@ -294,6 +299,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [localAudioLoadFailed, setLocalAudioLoadFailed] = useState(false)
   const [showLyricsReimport, setShowLyricsReimport] = useState(false)
   const [phrasingBusy, setPhrasingBusy] = useState(false)
+  const [recoveringGaps, setRecoveringGaps] = useState(false)
+  const [recoverGapsStatus, setRecoverGapsStatus] = useState<string | null>(null)
   const {
     setBusy: setLyricsReimportBusy,
     confirming: confirmLyricsReimportClose,
@@ -465,12 +472,14 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       if (isNewSong) setCurrentSong(songId) // resets position to 0
       const resumeAt = isNewSong ? 0 : store.position
       // Load locally-stored audio into the engine so playback works for
-      // non-YouTube sources. Without this, play() is a no-op.
+      // non-YouTube sources. Without this, play() is a no-op. Keep the fetched
+      // File so gap recovery below can reuse it (no second OPFS read).
+      let audioFile: File | null = null
       if (s.audioStoredPath) {
         try {
-          const file = await getAudioFile(s.id)
+          audioFile = await getAudioFile(s.id)
           const loadVolume = usePlayerStore.getState().volume
-          await engine.load(file, loadVolume)
+          await engine.load(audioFile, loadVolume)
           if (!cancelled) {
             setDuration(Math.max(engine.duration, 0))
             engine.setVolume(usePlayerStore.getState().volume)
@@ -487,7 +496,45 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       const willAutoAlign = autoAlignOnOpen
         && chooseAutoAlignment(!!s.audioStoredPath, s.lyrics.lines, getDeviceTier(), true, s.lyrics.alignmentMode) !== null
       if (!willAutoAlign) {
-        cancelIdle = deferBackgroundEnrichment(loaded, loaded.lyrics.lines, () => cancelled)
+        // Auto gap recovery (round 9, R9-2), once per song: re-transcribe garbled
+        // gaps of an already-stored song. Independent of the version-gated
+        // re-refine above (that never re-transcribes). accept-if-better makes it
+        // safe on any song (mixed included); gapRecoveryVersion is stamped even
+        // when nothing is filled, so Whisper isn't re-loaded on every open.
+        if (!cancelled && shouldAutoRecoverGaps(loaded.lyrics, { willAutoAlign, hasAudio: !!s.audioStoredPath })) {
+          try {
+            const result = await recoverGapsForStoredSong({
+              lyrics: loaded.lyrics,
+              songId: s.id,
+              audioFile: audioFile ?? undefined,
+              isCancelled: () => cancelled,
+              onProgress: (n) => {
+                if (!cancelled) {
+                  setRecoveringGaps(n > 0)
+                  setRecoverGapsStatus(n > 0 ? `Recovering ${n} section${n === 1 ? '' : 's'}…` : null)
+                }
+              },
+              highAccuracy: false,
+              timestampMode: 'segment',
+            })
+            if (result && !cancelled) {
+              loaded = { ...loaded, lyrics: result.lyrics }
+              await db.songs.put(loaded)
+              if (!cancelled) {
+                setSong(loaded)
+                setLines(loaded.lyrics.lines)
+              }
+            }
+          } catch {
+            /* leave alignment as-is; playback still works */
+          } finally {
+            if (!cancelled) {
+              setRecoveringGaps(false)
+              setRecoverGapsStatus(null)
+            }
+          }
+        }
+        if (!cancelled) cancelIdle = deferBackgroundEnrichment(loaded, loaded.lyrics.lines, () => cancelled)
       }
     })
     return () => {
@@ -659,6 +706,52 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     if (choice) beginAlignment(choice)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [song, autoAlignOnOpen])
+
+  // Manual gap recovery (round 9, R9-2): re-transcribe the recoverable gaps of a
+  // stored song on demand from the EditMode banner. OVERRIDES the once-guard —
+  // re-attempts even at the current gapRecoveryVersion (auto only runs once).
+  const handleRecoverGaps = async () => {
+    if (!song || !hasStoredAudio || recoveringGaps) return
+    setRecoveringGaps(true)
+    setRecoverGapsStatus('Recovering…')
+    try {
+      const result = await recoverGapsForStoredSong({
+        lyrics: song.lyrics,
+        songId: song.id,
+        isCancelled: () => false,
+        onProgress: (n) =>
+          setRecoverGapsStatus(n > 0 ? `Recovering ${n} section${n === 1 ? '' : 's'}…` : 'Recovering…'),
+        highAccuracy: false,
+        timestampMode: 'segment',
+      })
+      if (!result) {
+        toast('No unaligned sections to recover.', 'info')
+        return
+      }
+      const updated = { ...song, lyrics: result.lyrics }
+      await db.songs.put(updated)
+      setSong(updated)
+      setLines(updated.lyrics.lines)
+      toast(
+        result.filledCount > 0
+          ? `Recovered ${result.filledCount} section${result.filledCount === 1 ? '' : 's'}.`
+          : 'The audio could not be re-heard for these sections.',
+        result.filledCount > 0 ? 'info' : 'warning',
+      )
+    } catch {
+      toast('Gap recovery failed — try again.', 'warning')
+    } finally {
+      setRecoveringGaps(false)
+      setRecoverGapsStatus(null)
+    }
+  }
+
+  // Cheap enough to memoize on the song reference (not per frame): reconstructs the
+  // alignment view + runs pure hole detection. Only auto-aligned songs qualify.
+  const recoverableGapCount = useMemo(
+    () => (song && song.lyrics.alignmentMode === 'auto' ? countRecoverableHoles(song.lyrics) : 0),
+    [song],
+  )
 
   const applyAlignedSong = (updated: Song) => {
     setSong(updated)
@@ -1212,6 +1305,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               lineAlignmentQuality={song?.lyrics.lineAlignmentQuality}
               showAlignmentQuality={song?.lyrics.alignmentMode === 'auto'}
               needsMixedRealign={song ? needsMixedRealign(song.lyrics) : false}
+              recoverableGapCount={recoverableGapCount}
+              onRecoverGaps={handleRecoverGaps}
+              recoveringGaps={recoveringGaps}
+              recoverGapsStatus={recoverGapsStatus}
             />
           )}
         </div>

@@ -108,6 +108,11 @@ export interface LyricsData {
   /** Bump when auto-align timing logic changes; songs below this re-refine from the
    * stored Whisper transcript on open (no re-transcription). */
   alignmentPipelineVersion?: number
+  /** Set once a stored song has been auto-recovered for garbled gaps (round 9,
+   * R9-2). SEPARATE from alignmentPipelineVersion: gates the expensive once-on-open
+   * gap re-transcription so it runs at most once (stamped even if nothing filled).
+   * Manual "Recover N sections" bypasses this. */
+  gapRecoveryVersion?: number
   /** Set after token enrichment is persisted; avoids re-tokenizing on every open. */
   enrichmentVersion?: number
   /** Sanitized Whisper word timeline from the last auto-align (furigana verification). */
