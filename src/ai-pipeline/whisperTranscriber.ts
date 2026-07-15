@@ -156,6 +156,11 @@ export async function transcribeAudio(
     onTranscribeProgress?: (p: TranscribeProgress) => void
     /** Word timestamps are slow to merge on long tracks — default picks by tier/duration. */
     timestampMode?: 'word' | 'segment'
+    /** Known sheet lyrics for this slice, biasing Whisper toward the expected words
+     * via `decoder_input_ids` (round 9, R9-3). Only honored in segment mode; the
+     * worker feature-gates it and falls back to unprompted if the pipeline internals
+     * it needs are absent. */
+    promptText?: string
     /** Abort if transcription exceeds this many ms (default: max(5 min, 20× audio length)). */
     timeoutMs?: number
     /** Use the larger, more accurate model when the device tier supports it. */
@@ -235,6 +240,7 @@ export async function transcribeAudio(
         sampleRate,
         language: options?.language,
         timestampMode: options?.timestampMode ?? 'word',
+        promptText: options?.promptText,
       },
     })
   })

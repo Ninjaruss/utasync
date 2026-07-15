@@ -59,13 +59,16 @@ const baseline = JSON.parse(readFileSync(join(FIXTURES, 'corpus-baseline.json'),
 // boundary metric misfires on ambiguous span attribution. Each entry needs a
 // findings-doc reference; remove it when the baseline is next ratcheted.
 //
-// Cleared at the round-6 Task-F ratchet (2026-07-14): the round-6 fix-loop
-// carve-outs (Task B floor-spread/zero-width honesty, Task C coverage-gated
-// needs_review labels, Task D1 straddle-fallback bnd_midword) were all audited
-// against the LRC ground truth — every config improved or held, no timing
-// regression — and folded into corpus-baseline.json via --write-baseline. See
-// docs/superpowers/audits/2026-07-14-approx-run-diagnosis.md "Round 6 —
-// before/after (Task F)".
+// Cleared at the round-7 Task-16 ratchet (2026-07-15): the round-7 run-coverage
+// gate (verse-on-instrumental fix) moved two honest `align_needs_review` cells —
+// akfg-garbled-word 5→6 (the run no longer buys a false `approximate` on the
+// 228s blip; row 15 stays needs_review) and stranger-than-heaven-word-medium
+// 12→11 (rows 57-58 pulled from ~20s/16s late to within 0.7s/4.4s of LRC truth;
+// row 57 upgraded needs_review→approximate at its true position). Both were
+// audited against the LRC ground truth, folded into corpus-baseline.json via
+// --write-baseline, and are guarded by garbledFixture.guard.test.ts +
+// instrumentalFixture.guard.test.ts. See
+// docs/superpowers/audits/2026-07-14-approx-run-diagnosis.md "Round 7".
 const ALLOWED_MEASUREMENT_ARTIFACTS: Record<string, Record<string, number>> = {}
 
 describe('audit corpus — alignment non-regression', () => {

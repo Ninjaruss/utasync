@@ -28,6 +28,12 @@
       "transcript": "akfg/transcript.word.garbled.json"
     },
     {
+      "name": "akfg-instrumental-word",
+      "lang": "ja",
+      "lyrics": "akfg/lyrics.ja.txt",
+      "transcript": "akfg/transcript.word.instrumental.json"
+    },
+    {
       "name": "my-eyes-only",
       "lang": "ja",
       "lyrics": "my-eyes-only.lyrics.txt",
