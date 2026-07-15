@@ -9,6 +9,8 @@ import { sanitizeTranscript, LOW_CONFIDENCE_WARN_THRESHOLD, type TranscriptWord 
 import { refineAlignmentWithPhrases, sheetRowsForAlignment, applyRefinedAlignment, type RefinedAlignment } from '../lyrics/phraseAlignment'
 import { refineMixedLanguageAlignment } from './mixedLanguageAlign'
 import { reanalyzeGaps } from './gapReanalyze'
+import { createSliceTranscriber } from './sliceTranscriber'
+import { chunksToWords } from './transcriptChunks'
 import { db } from '../core/db/schema'
 import { computeSyncState } from '../core/db/migrations'
 import { ProcessProgress } from '../core/ui/ProcessProgress'
@@ -294,14 +296,6 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           return await run()
         }
       }
-      const toWords = (t: { chunks?: { text?: string; timestamp?: [number, number] }[] }): TranscriptWord[] =>
-        (t.chunks ?? []).flatMap((c) => {
-          const [start, end] = c.timestamp ?? []
-          const word = c.text?.trim()
-          if (!word || !Number.isFinite(start) || !Number.isFinite(end)) return []
-          return [{ word, startTime: start as number, endTime: end as number }]
-        })
-
       let refined: RefinedAlignment
       let transcriptWords: TranscriptWord[]
       if (alignmentLanguage === 'mixed') {
@@ -323,7 +317,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         setStage('aligning')
         setProgress(0)
         await yieldToMainThread()
-        const mixed = refineMixedLanguageAlignment(sheetRows, toWords(jaTranscript), toWords(enTranscript))
+        const mixed = refineMixedLanguageAlignment(sheetRows, chunksToWords(jaTranscript), chunksToWords(enTranscript))
         refined = mixed.refined
         transcriptWords = mixed.transcriptWords
       } else {
@@ -335,7 +329,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         setStage('aligning')
         setProgress(0)
         await yieldToMainThread()
-        const words = toWords(transcriptResult)
+        const words = chunksToWords(transcriptResult)
         transcriptWords = sanitizeTranscript(words)
         refined = refineAlignmentWithPhrases(
           sheetRows,
@@ -352,35 +346,29 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
       // single-language branches above feed their assigned refined/transcriptWords
       // here. Fresh-Auto-align only (re-refine in PlayerView has no audioData).
       if (!cancelledRef.current) {
-        const gapAudio = audioData
-        const gapSampleRate = sampleRate
-        const transcribeSlice = async (
-          t0: number,
-          t1: number,
-          lang: typeof alignmentLanguage,
-        ): Promise<TranscriptWord[]> => {
-          const slice = gapAudio.subarray(
-            Math.floor(t0 * gapSampleRate),
-            Math.floor(t1 * gapSampleRate),
-          )
-          // Reuse the crash-downgrade ladder and the main pass's transcribe
-          // options; inherit the effective timestamp mode. Words come back
-          // slice-relative → offset by t0 to absolute song time.
-          const sliceResult = await transcribeWithFallback(lang, (p) => p, undefined, slice)
-          const offset = toWords(sliceResult).map((word) => ({
-            ...word,
-            startTime: word.startTime + t0,
-            endTime: word.endTime + t0,
-          }))
-          return sanitizeTranscript(offset)
-        }
+        // Re-use the main pass's exact progress callbacks (language-independent) so
+        // the extracted slice transcriber updates the UI identically to the old
+        // inline closure. It carries its OWN crash-downgrade ladder, seeded from the
+        // main pass's effective modes, so a slice downgrade can't affect the
+        // (already-finished) main passes.
+        const { onLoadProgress: sliceLoadProgress, onTranscribeProgress: sliceTranscribeProgress } =
+          transcribeOptions(alignmentLanguage, (p) => p)
+        const sliceTx = createSliceTranscriber({
+          audioData,
+          sampleRate,
+          isCancelled: () => cancelledRef.current,
+          highAccuracy: effectiveHighAccuracy,
+          timestampMode: effectiveTimestampMode,
+          onLoadProgress: sliceLoadProgress,
+          onTranscribeProgress: sliceTranscribeProgress,
+        })
         const gap = await reanalyzeGaps({
           refined,
           transcriptWords,
           sheetRows,
           alignmentLanguage,
           sourceLanguage: song.lyrics.sourceLanguage,
-          transcribeSlice,
+          transcribeSlice: sliceTx.transcribe,
           isCancelled: () => cancelledRef.current,
           refineOpts: { lyricsBase: song.lyrics },
           onProgress: (n) => {
