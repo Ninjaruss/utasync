@@ -269,12 +269,9 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         // Per-call downgrade to segment timestamps that leaves the user's mode
         // intact for the other pass (used by the EN-forced mixed pass below).
         timestampModeOverride?: 'segment',
-        // Buffer to transcribe; defaults to the whole song. The round-8 gap pass
-        // passes a sub-window slice, reusing this crash-downgrade ladder.
-        audio: Float32Array = audioData,
       ) => {
         const run = () =>
-          transcribeAudio(audio, sampleRate, {
+          transcribeAudio(audioData, sampleRate, {
             ...transcribeOptions(language, scaleProgress),
             timestampMode: timestampModeOverride ?? effectiveTimestampMode,
             highAccuracy: effectiveHighAccuracy,
@@ -347,10 +344,10 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
       // here. Fresh-Auto-align only (re-refine in PlayerView has no audioData).
       if (!cancelledRef.current) {
         // Re-use the main pass's exact progress callbacks (language-independent) so
-        // the extracted slice transcriber updates the UI identically to the old
-        // inline closure. It carries its OWN crash-downgrade ladder, seeded from the
-        // main pass's effective modes, so a slice downgrade can't affect the
-        // (already-finished) main passes.
+        // the slice transcriber updates the UI the same way the main passes do. It
+        // carries its OWN crash-downgrade ladder, seeded from the main pass's
+        // effective modes, so a slice downgrade can't affect the (already-finished)
+        // main passes.
         const { onLoadProgress: sliceLoadProgress, onTranscribeProgress: sliceTranscribeProgress } =
           transcribeOptions(alignmentLanguage, (p) => p)
         const sliceTx = createSliceTranscriber({
