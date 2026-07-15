@@ -546,3 +546,132 @@ each line-range retried **at most once**.
   verse now highlights on-beat rather than spreading honestly through the gap.
 - **Lever 4 (prompt-biasing)** awaits a transformers.js upgrade that wires
   `prompt_ids`; **lever 3 (per-gap higher tier)** is a possible future MVP+.
+
+## Round 9 — addressing the boundaries (stored-song recovery + lyric-prompt biasing)
+
+Round 8 shipped gap recovery but left **two honest limits** in its "still open":
+recovery ran only during a *fresh* Auto-align (never on already-stored songs), and
+lyric prompt-biasing was deferred on a library-version wall. Round 9 lifts both,
+and separately ships round-7's placement fixes to stored songs via a version bump.
+Every gap re-transcription still passes through round-8's **accept-if-better**
+(`spliceGapAlignment`): a re-align is adopted only if it strictly reduces
+`needs_review` **and** placement-aware coverage does not regress. That single
+invariant is what makes running recovery on *stored* songs (B1) and steering the
+decoder through an *undocumented* prompt hatch (B2) both safe — a bad
+re-transcription is rejected **byte-identical**, so either path can only help or
+no-op, never worsen a song.
+
+### B1 — stored-song gap recovery (the "fresh-align-only" limit, lifted)
+
+Stored songs now recover garbled gaps **without a full re-align**. The recovery
+math is unchanged — it reuses round-8's `reanalyzeGaps` — via a shared
+`createSliceTranscriber` (R9-1) extracted from `AutoAlignFlow`'s inline slice
+closure (behavior-identical: audit-vs-lrc byte-identical, `AutoAlignFlow.*` green,
+net line reduction). For a stored song the routine **decodes the stored audio on
+demand** (`getAudioFile` → `decodeAudioFileToMono`) and **reconstructs a
+`RefinedAlignment`** view from the persisted fields (lines, phrases,
+`lineAlignmentQuality`, anchor sources, confidence, mode, phrase layout, sheet
+snapshot) — everything `enumerateGapHoles` and `spliceGapAlignment` read is already
+on disk. `applyRefinedAlignment` is called with `{...lyrics, transcriptWords:
+recovered}` so the recovered words are not dropped.
+
+**Version-independent trigger.** The gate is a **new persisted
+`gapRecoveryVersion`** (`GAP_RECOVERY_VERSION`, starts at 1), deliberately
+*separate* from `ALIGNMENT_PIPELINE_VERSION`. It has to be: round-6-onward songs are
+already at pipeline v20+ and so **never re-refine on open** (`shouldRefineStoredAlignment`
+only fires below the current version), meaning a recovery trigger keyed off the
+pipeline version would never fire for exactly the stored songs that need it.
+Instead the trigger is derived from the song's own stored **holes + audio**.
+
+**Both paths.**
+
+- **AUTO (once on open).** In PlayerView's enrichment effect, gated on
+  `!willAutoAlign` **and** local audio present **and** `(gapRecoveryVersion ?? 0) <
+  GAP_RECOVERY_VERSION` **and** at least one worth-retrying hole in the reconstructed
+  refined view. It runs after (and independent of) the version-gated re-refine block,
+  and is **skipped when a fresh Auto-align will run** (that path already recovers).
+  `gapRecoveryVersion` is **stamped even when `filledCount === 0`** so the auto pass
+  never churns — a song with an unrecoverable gap is marked "tried at v1" and left
+  alone until a future `GAP_RECOVERY_VERSION` bump. Cancel-aware; **mixed songs
+  included** (accept-if-better protects them).
+- **MANUAL.** The EditMode off-timing banner gains a **"Recover N sections"** action,
+  shown when `hasLocalAudio && recoverableHoleCount > 0` (count derived from the same
+  stored lines + quality + `transcriptWords`). It re-runs recovery **even if
+  `gapRecoveryVersion` is already current** — a manual click overrides the once-guard —
+  shows the "Recovering N…" progress, persists, and refreshes the lines.
+
+A race guard (R9-2 review, `bf26149`) stops the auto pass and a manual click from
+recovering the same song concurrently, and stamps `gapRecoveryVersion` on a fresh
+align too so a just-aligned song isn't re-scanned on its first open.
+
+Commits: `e0cf227`, `bf26149` (+ R9-1 `5d711d2`, `40018f1`).
+
+### B2 — lyric-prompt biasing (the deferred lever, now shipped guarded)
+
+Each hole's **known sheet lyrics** are fed to Whisper as a decoder prompt, biasing
+the re-transcription toward the words we already know belong there. Round 8 deferred
+this because no *released* transformers.js wires the documented `prompt_ids` option
+(it is a stub even in 4.2.0). Round 9 ships it through the **`decoder_input_ids`
+escape hatch** instead: the ASR pipeline forwards kwargs to `model.generate`, which
+honors `decoder_input_ids`, so a worker helper `buildWhisperPrompt` assembles the
+`<|startofprev|> … <|startoftranscript|> <|ja|> transcribe <|notimestamps|>` id
+sequence from the pipeline's own tokenizer + generation-config internals.
+
+- **Feature-gated.** If any required internal is absent (tokenizer /
+  generation-config ids), it logs once and falls back to the **unprompted** slice —
+  it never crashes.
+- **Segment-mode only.** The prompted path forces segment timestamps; word-mode's
+  prompt-prefix trim is missing in 3.8.1 and would emit phantom words.
+- **Window-scoped.** The prompt is the hole's sheet lines only, scoped to the
+  transcribed window (R9-3 review, `71eae51`), well within Whisper's 448-token
+  context (holes are ≤4 lines).
+- **Safe by construction.** Round-8 accept-if-better rejects a prompt-echo
+  hallucination — a decoder that parrots the prompt text at the wrong times scores
+  low placed-coverage and is rejected byte-identical — so, like B1, prompting can
+  only help or no-op. A test asserts a prompt-echo mock (right words, wrong times)
+  is rejected.
+
+Commits: `9f5bab9`, `71eae51`.
+
+### R9-4 — version bump 20 → 21
+
+`ALIGNMENT_PIPELINE_VERSION` 20 → 21 (`phraseAlignment.ts`), so
+`shouldRefineStoredAlignment` re-refines round-6-aligned (v20) non-mixed auto songs
+on open and applies **round-7's placement fixes** (run-coverage gate + tail cap,
+both in the refine path). Single-pass, no Whisper — cheap. This is **independent of
+`gapRecoveryVersion`**: the version bump ships placement math to stored songs; the
+recovery version ships gap re-transcription. Mixed v20 songs still skip re-refine
+(mixed guard intact), getting the `needsMixedRealign` nudge plus now the manual
+Recover button. Commit: `647de68`.
+
+### Verification (round 9 close)
+
+- **`npx vitest run --exclude "**/.claude/**"`** — **185 files pass / 1 skipped;
+  1334 tests pass / 2 skipped**. No flakes on this run.
+- **`npx tsc -b`** — clean.
+- **`npx tsx scripts/audit-corpus.mjs --pairing --check-baseline`** — exit 0, **no
+  regressions**. Round 9 is additive / UI / version-only and changes no refine math,
+  so no corpus cell moved and no baseline was re-ratcheted.
+- **`npx tsx scripts/audit-vs-lrc.mjs`** — **byte-identical** to the round-7/8 close
+  (guitar 0.40/1.62, 0.73/1.93; stranger 0.64/36.10, 1.44/33.79; mixed 0.56/2.82,
+  0.56/6.48; medium 0.70/9.34).
+
+### Commits (round 9)
+
+- **R9-1** shared `createSliceTranscriber`: `5d711d2`, `40018f1`.
+- **R9-2 (B1)** stored-song recovery (auto + manual): `e0cf227`, `bf26149`.
+- **R9-3 (B2)** lyric-prompt biasing: `9f5bab9`, `71eae51`.
+- **R9-4** version bump: `647de68`.
+- **Report** (this section): this task.
+
+### Still open (round 9)
+
+- **Browser display-layer spot-check** — still NOT completed (autonomous session;
+  the in-app browser's per-origin approval needs an interactive user). For round 9:
+  open an *already-stored* song with a garbled mid-verse and confirm the AUTO
+  once-on-open recovery fires (or the manual "Recover N sections" banner button
+  works) and the verse re-anchors on-beat.
+- **The deferred library upgrade.** Watch **transformers.js issue #1590**. The
+  upgrade would unlock WebGPU + WASM timestamp accuracy — but it does **NOT** wire
+  `prompt_ids` (still a stub even in 4.2.0), so B2 rightly ships through the
+  `decoder_input_ids` hatch today rather than waiting on it.
