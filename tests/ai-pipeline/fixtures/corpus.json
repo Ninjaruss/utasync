@@ -22,6 +22,12 @@
       "transcript": "akfg/transcript.segment.json"
     },
     {
+      "name": "akfg-garbled-word",
+      "lang": "ja",
+      "lyrics": "akfg/lyrics.ja.txt",
+      "transcript": "akfg/transcript.word.garbled.json"
+    },
+    {
       "name": "my-eyes-only",
       "lang": "ja",
       "lyrics": "my-eyes-only.lyrics.txt",
