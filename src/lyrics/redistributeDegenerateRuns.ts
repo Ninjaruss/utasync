@@ -30,18 +30,13 @@ const MAX_STRETCH = 1.5
  * region's words lexically corroborate at least this fraction of the RUN's
  * expected characters (matched chars / total run chars, via the same char-LCS +
  * MIN_RELIABLE_RUN coincidence filter the aligner anchors on — computeLine
- * MatchedSpans). findActivityRegions treats ANY Whisper word as activity, so
- * during an instrumental a hallucinated blip (♪, a misheard mora) forms a false
- * region that would otherwise attract the whole run (the AKFG "verse on the
- * instrumental" report). There is no acoustic/VAD/confidence signal on the
- * re-refine path, so the only usable signal is lexical. The framing is RUN-
+ * MatchedSpans). No acoustic/VAD/confidence signal exists on the re-refine path,
+ * so lexical corroboration is the only usable signal. The framing is RUN-
  * coverage, not region-coverage: a lone `ような` blip covers 67% of its own
- * region but only ~2% of the run. Below the threshold the region is rejected and
- * the run spreads across the whole window at floor (onActivity stays false →
- * honest needs_review) instead of clustering on dead air. AKFG garbled-fixture
- * separation — instrumental noise 0.00, a lone `ような` blip 0.023, a healthy
- * vocal region 0.74 — so any threshold in [0.05, 0.5] splits cleanly; 0.15 sits
- * central with a ~5× margin below the healthy floor. */
+ * region but only ~2% of the run. AKFG garbled-fixture separation — instrumental
+ * noise 0.00, a lone `ような` blip 0.023, a healthy vocal region 0.74 — so any
+ * threshold in [0.05, 0.5] splits cleanly; 0.15 sits central with a ~5× margin
+ * below the healthy floor. */
 const RUN_COVERAGE_MIN = 0.15
 /**
  * Density OR-clause guarding the lexical gate against cross-script false

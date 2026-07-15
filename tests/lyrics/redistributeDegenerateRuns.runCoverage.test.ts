@@ -89,3 +89,59 @@ describe('redistributeDegenerateRuns — run-coverage lexical gate', () => {
     expect(res.lines[5]).toMatchObject({ startTime: 44, endTime: 48 })
   })
 })
+
+// The density OR-clause: char-LCS is blind across scripts, so real EN/mixed
+// vocals transcribed as katakana score ~0 run-coverage yet must still anchor a
+// run. A region that FAILS the lexical gate is kept anyway when it carries real
+// transcribed audio (>= DENSE_REGION_MIN_WORD_TIME_S = 1.5s of word/segment
+// duration); a shorter lexically-dead region is the instrumental blip the gate
+// exists to reject. These pin that branch directly (the corpus scorecard only
+// exercises it transitively via stranger-than-heaven).
+describe('redistributeDegenerateRuns — density OR-clause', () => {
+  const before = 'the quick brown fox jumps over the lazy dog again'
+  const after = 'every good boy deserves fudge and cake at the party'
+  const runLine = (i: number) => `moonlight velvet harbor drifting slowly ${i}`
+  // Gibberish sharing no reliable char-LCS run with the run lines: run-coverage
+  // ≈ 0, so ONLY the density clause can keep it (mirrors katakana-over-EN).
+  const gibberish = 'zzqx wkpb jjvg xxqq kkzz'
+
+  function scenario(regionStart: number, regionEnd: number) {
+    const words = [
+      ...anchorWords(before, 10, 14),
+      ...anchorWords(gibberish, regionStart, regionEnd),
+      ...anchorWords(after, 44, 48),
+    ]
+    const lines = [
+      line(before, 10, 14),
+      ...Array.from({ length: 3 }, (_, i) => line(runLine(i), 14 + i * 0.1, 14.1 + i * 0.1)),
+      line(after, 44, 48),
+    ]
+    return { words, lines }
+  }
+
+  it('KEEPS a lexically-unmatched region that carries >= 1.5s of real audio', () => {
+    // 14s of transcribed audio at [26,40]: char-LCS matches none of it, but the
+    // sustained audio marks real vocals, so the run is packed onto it and the
+    // lines sit on activity (eligible for the approximate upgrade). Guards the
+    // density branch: with the OR-clause removed the region fails the lexical
+    // gate and the run would spread from the window start with onActivity=false.
+    const { words, lines } = scenario(26, 40)
+    const res = redistributeDegenerateRuns(lines, words, 'ja')
+    expect(res.redistributed.slice(1, 4)).toEqual([true, true, true])
+    // Clustered onto the region (~26), not spread from the window start (~14).
+    expect(res.lines[1].startTime).toBeGreaterThanOrEqual(26 - 1e-6)
+    expect(res.lines[3].endTime).toBeLessThanOrEqual(44)
+    expect(res.onActivity.slice(1, 4)).toEqual([true, true, true])
+  })
+
+  it('REJECTS the same gibberish when it spans < 1.5s (a blip, not vocals)', () => {
+    // Identical lexically-dead words, but only 1.2s of audio at [26,27.2] — below
+    // the density floor, so both clauses fail and the run spreads at floor.
+    const { words, lines } = scenario(26, 27.2)
+    const res = redistributeDegenerateRuns(lines, words, 'ja')
+    expect(res.redistributed.slice(1, 4)).toEqual([true, true, true])
+    // Not clustered on the 26s blip: spread from the window start, off-activity.
+    expect(res.lines[1].startTime).toBeLessThan(20)
+    expect(res.onActivity.slice(1, 4)).toEqual([false, false, false])
+  })
+})
