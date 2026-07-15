@@ -70,7 +70,10 @@ const HOLE_MIN_WINDOW_S = 4
  */
 const COVERAGE_REALIZE_TOL = 0.15
 
-function lineText(l: TimedLine): string {
+/** A lyric line's alignable text: the original, or its translation when the row
+ * has no original. Shared with the G2 orchestrator so hole detection and the
+ * splice agree on what text a row carries. */
+export function lineText(l: TimedLine): string {
   return l.original || l.translation
 }
 

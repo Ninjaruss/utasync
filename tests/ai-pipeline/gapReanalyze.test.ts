@@ -320,4 +320,35 @@ describe('reanalyzeGaps', () => {
     expect(transcribeSlice).toHaveBeenCalledTimes(1)
     expect(transcribeSlice.mock.calls[0][2]).toBe('ja')
   })
+
+  it('falls back to the song sourceLanguage for a mixed-song hole with no detectable script', async () => {
+    // A hole whose text is a short (<3-word) Latin phrase matches neither the
+    // JA-script rule nor the >=3-Latin-word rule → detectSheetLanguage resolves to
+    // its stored fallback, which must be the song's own language (here 'en'), not
+    // the arbitrary 'ja' default. (The chars survive normalizeForMatch so the hole
+    // still passes the worth-retrying gate and reaches language detection.)
+    const lines = [
+      line('hello brave new morning', 10, 14),
+      line('hola mundo', 14, 14.1),
+      line('waking up again today', 44, 48),
+    ]
+    const refined = makeRefined(lines, ['good', 'needs_review', 'good'])
+    const transcript = [
+      ...anchorWords('hello brave new morning', 10, 14),
+      ...anchorWords('waking up again today', 44, 48),
+    ]
+    const transcribeSlice = vi.fn(async (_t0: number, _t1: number) => [] as TranscriptWord[])
+
+    await reanalyzeGaps({
+      refined,
+      transcriptWords: transcript,
+      sheetRows: refined.lines,
+      alignmentLanguage: 'mixed',
+      sourceLanguage: 'en',
+      transcribeSlice,
+    })
+
+    expect(transcribeSlice).toHaveBeenCalledTimes(1)
+    expect(transcribeSlice.mock.calls[0][2]).toBe('en')
+  })
 })

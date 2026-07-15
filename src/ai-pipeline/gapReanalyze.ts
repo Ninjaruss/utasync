@@ -1,10 +1,11 @@
-import type { AlignmentLanguage, TimedLine } from '../core/types'
+import type { AlignmentLanguage, Language, TimedLine } from '../core/types'
 import type { RefinedAlignment } from '../lyrics/phraseAlignment'
 import type { TranscriptWord } from './aligner'
 import { detectSheetLanguage } from './whisperLanguage'
 import {
   enumerateGapHoles,
   holeWorthRetrying,
+  lineText,
   spliceGapAlignment,
   type GapRefineOptions,
 } from '../lyrics/gapRealign'
@@ -64,6 +65,11 @@ export interface ReanalyzeGapsArgs {
   sheetRows: TimedLine[]
   /** The song-level alignment language chosen by the main pass. */
   alignmentLanguage: AlignmentLanguage
+  /** The song's stored source language — the fallback when a mixed-song hole's
+   * text carries no detectable script (numerals/emoji/third script), so it
+   * resolves to the song's actual language rather than detectSheetLanguage's
+   * arbitrary 'ja' default. Unused for single-language songs. */
+  sourceLanguage?: Language
   transcribeSlice: TranscribeSlice
   /** Checked before each slice; return true to abort the sweep immediately. */
   isCancelled?: () => boolean
@@ -92,16 +98,25 @@ export interface ReanalyzeGapsResult {
 function forcedLangForHole(
   alignmentLanguage: AlignmentLanguage,
   holeTexts: string[],
+  storedLanguage?: Language,
 ): AlignmentLanguage {
   if (alignmentLanguage !== 'mixed') return alignmentLanguage
-  return detectSheetLanguage(holeTexts)
+  return detectSheetLanguage(holeTexts, storedLanguage)
 }
 
 export async function reanalyzeGaps(args: ReanalyzeGapsArgs): Promise<ReanalyzeGapsResult> {
-  const { sheetRows, alignmentLanguage, transcribeSlice, isCancelled, refineOpts, onProgress } = args
+  const {
+    sheetRows,
+    alignmentLanguage,
+    sourceLanguage,
+    transcribeSlice,
+    isCancelled,
+    refineOpts,
+    onProgress,
+  } = args
   let refined = args.refined
   let transcriptWords = args.transcriptWords
-  const sheetTexts = sheetRows.map((l) => l.original || l.translation)
+  const sheetTexts = sheetRows.map(lineText)
   // A given line range is re-transcribed at most once across the whole run, so a
   // rejected hole is never retried and the sweep can't churn on the same window.
   const retried = new Set<string>()
@@ -123,7 +138,7 @@ export async function reanalyzeGaps(args: ReanalyzeGapsArgs): Promise<ReanalyzeG
       retried.add(`${hole.from}:${hole.to}`)
 
       const holeTexts = sheetTexts.slice(hole.from, hole.to + 1)
-      const lang = forcedLangForHole(alignmentLanguage, holeTexts)
+      const lang = forcedLangForHole(alignmentLanguage, holeTexts, sourceLanguage)
       // Clamp a >30s hole to its first 30s to stay on Whisper's single-window path.
       const sliceEnd = Math.min(hole.t1, hole.t0 + MAX_SLICE_S)
       const gapWords = await transcribeSlice(hole.t0, sliceEnd, lang)

@@ -379,6 +379,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           transcriptWords,
           sheetRows,
           alignmentLanguage,
+          sourceLanguage: song.lyrics.sourceLanguage,
           transcribeSlice,
           isCancelled: () => cancelledRef.current,
           refineOpts: { lyricsBase: song.lyrics },
