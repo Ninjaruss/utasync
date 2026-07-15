@@ -1,6 +1,11 @@
 import type { AlignmentLanguage, TimedLine } from '../core/types'
 import { sanitizeTranscript, type TranscriptWord } from '../ai-pipeline/aligner'
-import { isInterjectionLyricLine, scoreLineAlignment } from '../ai-pipeline/contentAligner'
+import {
+  computeLineMatchedSpans,
+  isInterjectionLyricLine,
+  normalizeForMatch,
+  scoreLineAlignment,
+} from '../ai-pipeline/contentAligner'
 import {
   transcriptWindowForLine,
   LINE_VALIDATE_WINDOW_LEAD_S,
@@ -20,6 +25,39 @@ const ABSORPTION_FACTOR = 2.5
 const ABSORPTION_MIN_S = 18
 /** Redistributed lines never stretch beyond 1.5× their expected duration. */
 const MAX_STRETCH = 1.5
+/**
+ * A degenerate run is packed onto a transcript-activity region only when the
+ * region's words lexically corroborate at least this fraction of the RUN's
+ * expected characters (matched chars / total run chars, via the same char-LCS +
+ * MIN_RELIABLE_RUN coincidence filter the aligner anchors on — computeLine
+ * MatchedSpans). findActivityRegions treats ANY Whisper word as activity, so
+ * during an instrumental a hallucinated blip (♪, a misheard mora) forms a false
+ * region that would otherwise attract the whole run (the AKFG "verse on the
+ * instrumental" report). There is no acoustic/VAD/confidence signal on the
+ * re-refine path, so the only usable signal is lexical. The framing is RUN-
+ * coverage, not region-coverage: a lone `ような` blip covers 67% of its own
+ * region but only ~2% of the run. Below the threshold the region is rejected and
+ * the run spreads across the whole window at floor (onActivity stays false →
+ * honest needs_review) instead of clustering on dead air. AKFG garbled-fixture
+ * separation — instrumental noise 0.00, a lone `ような` blip 0.023, a healthy
+ * vocal region 0.74 — so any threshold in [0.05, 0.5] splits cleanly; 0.15 sits
+ * central with a ~5× margin below the healthy floor. */
+const RUN_COVERAGE_MIN = 0.15
+/**
+ * Density OR-clause guarding the lexical gate against cross-script false
+ * negatives (a region is also kept when its words can't be char-matched but it
+ * is plainly a real vocal stretch): a region qualifies when it carries at least
+ * this much actual transcribed audio (summed word/segment durations). The
+ * signal is audio-TIME, not word count — in segment-mode transcripts a real
+ * vocal region is often a SINGLE long segment (stranger-than-heaven's mixed
+ * two-pass: one 8s "Stranger than heaven" segment), so a word-count floor would
+ * wrongly reject it. Absolute time, not a fraction of the run, so a real region
+ * is not penalised for sitting inside a long un-anchorable run (autolang's
+ * 55-line proportional run). Corpus separation across every stranger config
+ * (English/mixed lyric, JA-mode transcript): real vocal regions carry 2.0–27.1s
+ * of audio, while every instrumental blip that must stay rejected (AKFG `ような`
+ * and lone song-edge artifacts) carries ≤1.2s. */
+const DENSE_REGION_MIN_WORD_TIME_S = 1.5
 
 export interface RedistributionResult {
   lines: TimedLine[]
@@ -203,13 +241,46 @@ function redistributeRun(
   const weights: number[] = []
   const floors: number[] = []
   const regionClampFloor: number[] = []
+  const runTexts: string[] = []
   for (let k = from; k <= to; k++) {
     const text = lineTextOf(lines[k])
     weights.push(expectedLineDuration(text, sourceLanguage))
     floors.push(Math.min(minLineDuration(text), fairShare))
     regionClampFloor.push(Math.min(fairShare, minLineDuration(text) * COMPRESSION_FRACTION))
+    runTexts.push(text)
   }
-  const regions = findActivityRegions(clean, windowStart, windowEnd)
+
+  // Run-coverage lexical gate (round 7): keep only activity regions whose words
+  // lexically corroborate the RUN's expected text above RUN_COVERAGE_MIN. This
+  // rejects hallucinated/instrumental blips (a ♪ or a lone misheard mora that
+  // findActivityRegions can't tell from real vocals) so a whole verse is never
+  // clustered onto dead air. When the filter empties the set the layout falls
+  // back to spreading the run across the whole window at floor with onActivity
+  // false — an honest needs_review rather than a false approximate on noise.
+  const totalRunChars = runTexts.reduce((a, t) => a + normalizeForMatch(t).length, 0)
+  const regions = findActivityRegions(clean, windowStart, windowEnd).filter((r) => {
+    if (totalRunChars === 0) return true
+    const regionWords = clean.filter((w) => w.endTime > r.start && w.startTime < r.end)
+    const spans = computeLineMatchedSpans(runTexts, regionWords)
+    const matched = spans.reduce((a, s) => a + (s ? s.matchedChars : 0), 0)
+    if (matched / totalRunChars >= RUN_COVERAGE_MIN) return true
+    // Density OR-clause: the lexical gate is blind across scripts. When the
+    // lyric is English (or mixed) but the transcript is JA-mode Whisper, the
+    // real sung vocals come back as katakana that char-LCS can't match, so a
+    // genuine vocal region scores near-zero coverage (stranger-than-heaven's
+    // English verses: cov 0.02–0.13). Keep such a region when it carries real
+    // transcribed audio (not a lone token in dead air). A hallucinated
+    // instrumental blip is a single ≤1.2s word and fails both clauses (AKFG
+    // `ような`: one word, 1s), so this exception protects cross-script vocals
+    // without re-admitting the noise the lexical gate exists to reject.
+    const wordTime = regionWords.reduce((a, w) => a + (w.endTime - w.startTime), 0)
+    return wordTime >= DENSE_REGION_MIN_WORD_TIME_S
+  })
+  // Words inside the kept (corroborated) regions — the only activity the
+  // onActivity → approximate upgrade may credit. A line merely passing over a
+  // rejected blip must not be certified as sitting on real vocals.
+  const activeWords = clean.filter((w) =>
+    regions.some((r) => w.endTime > r.start && w.startTime < r.end))
 
   // A window the floored proportional durations over-subscribe is pure
   // flattening: every second an interjection filler row keeps is taken from a
@@ -242,6 +313,6 @@ function redistributeRun(
     const wideEnough = dur >= minLineDuration(lineTextOf(lines[k])) * COMPRESSION_FRACTION - 1e-6
     onActivity[k] =
       wideEnough &&
-      clean.some((w) => w.startTime < lines[k].endTime && w.endTime > lines[k].startTime)
+      activeWords.some((w) => w.startTime < lines[k].endTime && w.endTime > lines[k].startTime)
   }
 }

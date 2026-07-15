@@ -121,6 +121,34 @@ describe('garbled fixture honesty guard (round 6 B+C invariants)', () => {
     expect(squashedApprox, 'no line may be both squashed and approximate').toBe(0)
   })
 
+  it('does not cluster the evidence-desert run onto the lone 228s hallucination (round 7)', { timeout: 30_000 }, () => {
+    // The closest real repro of the user's "verse on the instrumental" report:
+    // rows 15-20 lose ALL their evidence to the [188,258]s garble, whose ONLY
+    // remaining chunk is the hallucinated `ような` at [228,229]. Pre-round-7 the
+    // packer treated that blip as activity and clustered the whole run onto
+    // 228-240s (row 15 ~38s late, upgraded to approximate). The run-coverage
+    // gate (`ような` corroborates ~2% of the run) rejects it, so the run spreads
+    // across its true [~190,~261]s window at floor, honestly needs_review.
+    const { lines, quality } = align()
+    // Row 15 lands near the window start (its true onset ~190s per GT), not on
+    // the 228s blip.
+    expect(lines[15].startTime, `row 15 clustered on the 228s blip at ${lines[15].startTime.toFixed(1)}s`)
+      .toBeLessThan(205)
+    // The run spreads across its window rather than piling onto one ~1s blip.
+    expect(lines[20].startTime - lines[15].startTime, 'run must spread, not cluster')
+      .toBeGreaterThan(15)
+    // No run line sits on the hallucination: none overlaps [228,229].
+    for (let i = 15; i <= 20; i++) {
+      const onBlip = lines[i].startTime < 229 && lines[i].endTime > 228
+      expect(onBlip, `row ${i} still overlaps the 228s hallucination`).toBe(false)
+    }
+    // Landing off any corroborated activity, the run stays honestly flagged —
+    // never the false `approximate` the blip used to buy row 15.
+    for (let i = 15; i <= 20; i++) {
+      expect(quality[i], `row ${i} mislabeled ${quality[i]} off real evidence`).toBe('needs_review')
+    }
+  })
+
   it('the off-timing banner owns every unplaceable line (round 6 C banner)', { timeout: 30_000 }, () => {
     const { lines, quality } = align()
     const counted = (i: number) =>
