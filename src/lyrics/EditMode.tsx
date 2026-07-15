@@ -45,6 +45,15 @@ interface Props {
   /** Mixed-language song aligned before the current pipeline version — the
    * stored-transcript re-refine can't repair it, so recommend a fresh Auto-align. */
   needsMixedRealign?: boolean
+  /** Number of gap holes worth re-transcribing (round 9, R9-2). When > 0 and audio
+   * is present, the off-timing banner offers a "Recover N sections" action. */
+  recoverableGapCount?: number
+  /** Re-transcribe the recoverable gaps of this stored song. */
+  onRecoverGaps?: () => void
+  /** True while a recovery pass is in flight — disables the button. */
+  recoveringGaps?: boolean
+  /** Live "Recovering N sections…" status shown on the button while recovering. */
+  recoverGapsStatus?: string | null
 }
 
 const DELETE_CONFIRM_MS = 3000
@@ -205,7 +214,7 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
@@ -395,6 +404,18 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
           <p className="text-[10px] text-amber-400/80 text-pretty">
             {offTimingCount} line{offTimingCount === 1 ? '' : 's'} off-timing — adjust the timestamps below or re-run Auto-align.
           </p>
+        )}
+        {hasLocalAudio && recoverableGapCount > 0 && onRecoverGaps && (
+          <button
+            type="button"
+            onClick={onRecoverGaps}
+            disabled={recoveringGaps}
+            className={`${toolbarActionBtn} self-start disabled:opacity-60`}
+          >
+            {recoveringGaps
+              ? recoverGapsStatus ?? 'Recovering…'
+              : `Recover ${recoverableGapCount} section${recoverableGapCount === 1 ? '' : 's'}`}
+          </button>
         )}
         {needsMixedRealign && (
           <p className="text-[10px] text-amber-400/80 text-pretty">
