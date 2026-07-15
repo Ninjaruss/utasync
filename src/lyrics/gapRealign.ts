@@ -53,6 +53,23 @@ const RUN_COVERAGE_MIN = 0.15
  */
 const HOLE_MIN_WINDOW_S = 4
 
+/**
+ * Acceptance guard tolerance (round-8 G1 follow-up). A dropped needs_review
+ * count is only a label proxy — it can fall while a line is actually placed FAR
+ * from its evidence (e.g. the gap words carry the right text in the wrong ORDER;
+ * forced monotonicity then strands a line ~15s off, yet one line anchors so the
+ * count still drops). To catch that, acceptance also requires the candidate's
+ * PLACEMENT-AWARE run-coverage (each gap line's chars matched by words inside its
+ * placed window) to realize the ORDER-FREE coverage the same gap words could
+ * achieve over the window — a misplaced line leaves that corroboration on the
+ * table. This is the slack allowed before "unrealized" reads as misplacement:
+ * boundary words straddling a line edge cost a char or two, so a correct
+ * placement may sit a hair below the order-free figure; a reversed/misplaced one
+ * falls far below it. Cross-script gaps (JA transcript over EN lyric) score ~0 on
+ * BOTH figures, so 0 >= 0 − tol always holds and they are never wrongly blocked.
+ */
+const COVERAGE_REALIZE_TOL = 0.15
+
 function lineText(l: TimedLine): string {
   return l.original || l.translation
 }
@@ -120,6 +137,36 @@ function runCoverage(
   const spans = computeLineMatchedSpans(texts, windowWords)
   const matched = spans.reduce((a, s) => a + (s ? s.matchedChars : 0), 0)
   return matched / totalRunChars
+}
+
+/**
+ * Placement-aware run-coverage: each line's chars matched ONLY by the words
+ * inside its own placed window [line.startTime, line.endTime], summed over
+ * [from..to] and divided by the run's total chars. Unlike the order-free
+ * runCoverage (char-LCS across the whole window, blind to which line a word sits
+ * under), this credits a line only when it actually sits on the words that
+ * corroborate it — so a line placed away from its own evidence scores low here
+ * even though the words exist somewhere in the window. Returns 1 when the run has
+ * no matchable chars (nothing to realize → never blocks, e.g. cross-script gaps).
+ */
+function placedRunCoverage(
+  lines: TimedLine[],
+  from: number,
+  to: number,
+  words: TranscriptWord[],
+): number {
+  let matched = 0
+  let total = 0
+  for (let k = from; k <= to; k++) {
+    const text = lineText(lines[k])
+    total += normalizeForMatch(text).length
+    const windowWords = words.filter(
+      (w) => w.endTime > lines[k].startTime && w.startTime < lines[k].endTime,
+    )
+    const spans = computeLineMatchedSpans([text], windowWords)
+    matched += spans[0] ? spans[0].matchedChars : 0
+  }
+  return total === 0 ? 1 : matched / total
 }
 
 /**
@@ -219,8 +266,24 @@ export function spliceGapAlignment(args: SpliceGapArgs): SpliceGapResult {
   }
   enforceLineMonotonicity(candidateLines)
 
-  const accepted =
+  // Accept-if-better, gated on BOTH a label-count drop AND a placement check.
+  // (a) strictly fewer needs_review over the spliced range, and
+  // (b) the new placement realizes the gap transcript's corroboration: the
+  //     candidate's placement-aware run-coverage (each gap line vs the words in
+  //     its placed window) is no worse than the order-free run-coverage the same
+  //     gap words could achieve over [t0,t1]. Without (b), a label drop alone can
+  //     accept a WORSE placement — gap words with the right text in the wrong
+  //     ORDER strand a line far from its evidence (placed-coverage collapses)
+  //     while one line still anchors and the count falls. Cross-script gaps score
+  //     ~0 on both figures, so (b) never blocks a legitimate low-coverage gap.
+  const cleanGap = sanitizeTranscript(gapWords)
+  const gapTexts = candidateLines.slice(from, to + 1).map(lineText)
+  const achievableCoverage = runCoverage(gapTexts, cleanGap, t0, t1)
+  const placedCoverage = placedRunCoverage(candidateLines, from, to, cleanGap)
+  const fewerNeedsReview =
     countNeedsReview(candidateQuality, from, to) < countNeedsReview(currentQuality, from, to)
+  const placementRealizesCoverage = placedCoverage >= achievableCoverage - COVERAGE_REALIZE_TOL
+  const accepted = fewerNeedsReview && placementRealizesCoverage
   if (!accepted) {
     return { refined, transcriptWords, accepted: false }
   }
@@ -237,7 +300,7 @@ export function spliceGapAlignment(args: SpliceGapArgs): SpliceGapResult {
   // fresh gap words, re-sort by time (mirrors mergeMixedTranscripts).
   const nextTranscript = [
     ...transcriptWords.filter((w) => w.endTime <= t0 || w.startTime >= t1),
-    ...sanitizeTranscript(gapWords),
+    ...cleanGap,
   ].sort((a, b) => a.startTime - b.startTime || a.endTime - b.endTime)
 
   return { refined: candidate, transcriptWords: nextTranscript, accepted: true }

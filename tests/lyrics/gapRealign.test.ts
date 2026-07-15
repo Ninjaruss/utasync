@@ -198,6 +198,35 @@ describe('spliceGapAlignment', () => {
     }
   })
 
+  // THE SECOND SAFETY TEST (round-8 G1 follow-up): the gap words carry the
+  // CORRECT text but in the WRONG ORDER. A pure needs_review-count gate accepts
+  // this (count drops 2→1 because one line still anchors) even though the other
+  // line is forced ~15s from its evidence by monotonicity. The placement-aware
+  // coverage guard must catch it: placed-coverage falls well below the order-free
+  // coverage the same words could achieve, so the splice is REJECTED and the
+  // input stays byte-identical.
+  it('REJECTS correct-but-reversed gap words (placement regresses despite a needs_review drop)', () => {
+    const refined = badAlignment()
+    const snapshot = structuredClone(refined)
+    // GAP2's words placed early (18–26), GAP1's words placed late (30–40): the
+    // right text, reversed relative to the sheet line order.
+    const reversedGap = [...anchorWords(GAP2, 18, 26), ...anchorWords(GAP1, 30, 40)]
+    const res = spliceGapAlignment({
+      refined,
+      transcriptWords: globalTranscript,
+      sheetRows: refined.lines,
+      from: 1,
+      to: 2,
+      gapWords: reversedGap,
+      lang: 'en',
+    })
+
+    expect(res.accepted).toBe(false)
+    expect(res.refined).toBe(refined)
+    expect(res.transcriptWords).toBe(globalTranscript)
+    expect(refined).toEqual(snapshot)
+  })
+
   // THE KEY SAFETY TEST: a garbled re-transcript must be rejected, leaving the
   // input byte-identical (the pass can never make a song worse).
   it('REJECTS a garbled gap transcript and returns refined + transcriptWords byte-identical', () => {
