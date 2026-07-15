@@ -239,8 +239,11 @@ export function spliceGapAlignment(args: SpliceGapArgs): SpliceGapResult {
   )
   const { t0, t1 } = holeBounds(refined.lines, from, to)
 
-  // Deep-copy every array we touch so the input `refined` is never mutated (the
-  // reject path must return it byte-identical).
+  // Shallow-copy the arrays and each line object we touch so the input `refined`
+  // is never mutated (the reject path must return it byte-identical). We only
+  // ever reassign top-level TimedLine fields (start/endTime, quality), never the
+  // nested token/annotation arrays, so a per-line spread is sufficient — if this
+  // module ever mutates TimedLine.tokens/grammarAnnotations, deep-copy those too.
   const candidateLines = refined.lines.map((l) => ({ ...l }))
   const currentQuality = refined.lineAlignmentQuality ?? []
   const candidateQuality: LineAlignmentQuality[] = [...currentQuality]

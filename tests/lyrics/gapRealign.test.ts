@@ -330,3 +330,21 @@ describe('gapRealign over the committed garbled AKFG fixture', () => {
     }
   })
 })
+
+describe('gapRealign shares round-7 constants', () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const readConst = (relPath: string) => {
+    const src = readFileSync(join(here, relPath), 'utf8')
+    const m = src.match(/const RUN_COVERAGE_MIN = ([\d.]+)/)
+    if (!m) throw new Error(`RUN_COVERAGE_MIN not found in ${relPath}`)
+    return Number(m[1])
+  }
+
+  it('RUN_COVERAGE_MIN in gapRealign mirrors redistributeDegenerateRuns (no silent desync)', () => {
+    // gapRealign mirrors the module-private constant with a comment; this guard
+    // fails if a future retune of one copy forgets the other.
+    expect(readConst('../../src/lyrics/gapRealign.ts')).toBe(
+      readConst('../../src/lyrics/redistributeDegenerateRuns.ts'),
+    )
+  })
+})
