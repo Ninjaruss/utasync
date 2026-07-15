@@ -67,9 +67,6 @@ const CAP_OVERLONG_MARGIN_S = 1.5
 /** Never touch a line whose own matched span covers at least this fraction of its
  * chars — that line has real vocal evidence for its span (the decisive gate). */
 const CAP_UNANCHORED_COV_MAX = 0.15
-/** Apply the cap only when it shortens the end by more than this — otherwise the
- * gain isn't worth perturbing an already near-right tail. */
-const CAP_MIN_SHORTEN_S = 1.0
 
 /** Pass-1 placed this phrase at the forward cursor — include overlapping segments. */
 function phraseOnsetAtCursor(phraseStart: number, searchFrom: number): boolean {
@@ -895,20 +892,22 @@ function clipSilencePaddedLineTails(
  *     an extendValidatedLineTails-stretched high-coverage row, is left untouched).
  *  4. actually over-long — longer than expectedLineDuration + CAP_OVERLONG_MARGIN_S.
  *
- * The new end never drops below MIN_HIGHLIGHT_S (>= the display floor) and is
- * applied only when it shortens the tail by more than CAP_MIN_SHORTEN_S. Only the
+ * The new end never drops below MIN_HIGHLIGHT_S (>= the display floor). Only the
  * endTime moves — the startTime and the next line are never touched, so the freed
- * [newEnd, nextStart] simply becomes an un-highlighted instrumental rest. Compute
- * spans over the passed transcript so a mixed merge can pass its MERGED words (a
- * JA line the EN pass hallucinated over then reads its true coverage 0). */
+ * [newEnd, nextStart] simply becomes an un-highlighted instrumental rest.
+ *
+ * Coverage comes from precomputedSpans when the caller already has the same-text,
+ * same-transcript LCS in hand (single-pass path), else it is computed over the
+ * passed transcript — so a mixed merge can pass its MERGED words (a JA line the
+ * EN pass hallucinated over then reads its true coverage 0). */
 export function capUnanchoredGapFillTails(
   lines: TimedLine[],
   transcriptWords: TranscriptWord[],
   lineTexts: string[],
   sourceLanguage: AlignmentLanguage,
+  precomputedSpans?: LineSpans,
 ): TimedLine[] {
-  const clean = sanitizeTranscript(transcriptWords)
-  const spans = computeLineMatchedSpans(lineTexts, clean)
+  const spans = precomputedSpans ?? computeLineMatchedSpans(lineTexts, sanitizeTranscript(transcriptWords))
   const out = lines.map((l) => ({ ...l }))
   for (let i = 0; i < out.length; i++) {
     const next = out[i + 1]
@@ -923,8 +922,9 @@ export function capUnanchoredGapFillTails(
     if (coverage >= CAP_UNANCHORED_COV_MAX) continue
     const expected = expectedLineDuration(text, sourceLanguage) // (4)
     if (line.endTime - line.startTime <= expected + CAP_OVERLONG_MARGIN_S) continue
-    const newEnd = line.startTime + Math.max(expected, MIN_HIGHLIGHT_S)
-    if (line.endTime - newEnd > CAP_MIN_SHORTEN_S) line.endTime = newEnd
+    // Gate (4) already guarantees a meaningful shorten: dur > expected + 1.5, so
+    // endTime - newEnd = dur - max(expected, MIN_HIGHLIGHT_S) is always > 1.1s.
+    line.endTime = line.startTime + Math.max(expected, MIN_HIGHLIGHT_S)
   }
   return out
 }
@@ -2073,9 +2073,11 @@ export function refineAlignmentWithPhrases(
   // could flip merge picks. Runs AFTER all quality/label logic — shortening a
   // line's tail widens the NEXT line's validation window (prevEnd), so capping
   // earlier would churn needs_review labels; the timing change is ends-only and
-  // must not do that. Phrases below sync from the capped lines.
+  // must not do that. upgradeSpans (same lineTexts + sanitized transcript,
+  // timing-independent) is reused for coverage. Phrases below sync from the
+  // capped lines.
   if (sourceLanguage !== 'mixed') {
-    tunedLines = capUnanchoredGapFillTails(tunedLines, words, lineTexts, sourceLanguage)
+    tunedLines = capUnanchoredGapFillTails(tunedLines, words, lineTexts, sourceLanguage, upgradeSpans)
   }
 
   const syncedPhrases = syncPhrasesFromValidatedLines(phrases, tunedLines)
