@@ -59,69 +59,14 @@ const baseline = JSON.parse(readFileSync(join(FIXTURES, 'corpus-baseline.json'),
 // boundary metric misfires on ambiguous span attribution. Each entry needs a
 // findings-doc reference; remove it when the baseline is next ratcheted.
 //
-// Round-6 Task B (floored degenerate-run packing + zero-width elimination,
-// diagnosis H2/H3): all entries verified per-row against the LRC ground truth
-// (no config regresses; four improve — see the fix commit body).
-//
-// Round-6 Task C (coverage-gated needs_review→approximate upgrade, diagnosis
-// H4): label-only shifts — LRC timing and every bnd_*/align_* timing cell are
-// byte-identical. Each added align_needs_review line was verified squashed
-// below COMPRESSION_FRACTION of its floor (the gate's exact predicate): word
-// +5 (rows 33/34/45/49/50), segment +7 (29/32/35/45/48/49/50), word-autolang
-// +19, segment-autolang +27, segment-medium +2 (rows 0/1), mixed-segment +1
-// (row 32). Sub-gate slivers on activity blips read approximate before.
-//
-// Round-6 Task D (late-start backfill drag clamps, diagnosis H5): only D1
-// (straddle-guard fallback) moves a corpus cell — guitar-loneliness-segment
-// bnd_midword_p2, a Whisper-merged-chunk split artifact detailed on its entry
-// below. D2 (high-coverage cap exception) improves stranger-segment LRC timing
-// with no corpus regression; D3 (prevFloor pinning) was not-applicable on HEAD.
-const ALLOWED_MEASUREMENT_ARTIFACTS: Record<string, Record<string, number>> = {
-  // Floor-spread run lines no longer overlap the false activity blip that fed
-  // the blanket needs_review→approximate upgrade (Task B), and squashed
-  // sub-gate spans no longer take the upgrade at all (Task C) — the extra
-  // needs_review are the honest labels for evidence-free or squashed spreads.
-  'stranger-than-heaven-word': { align_needs_review: 8 },
-  'stranger-than-heaven-segment': { align_needs_review: 10 },
-  'stranger-than-heaven-word-autolang': { align_needs_review: 46 },
-  'stranger-than-heaven-segment-autolang': { align_needs_review: 28 },
-  'stranger-than-heaven-word-medium': { align_needs_review: 12 },
-  'stranger-than-heaven-segment-medium': { align_needs_review: 7 },
-  'stranger-than-heaven-mixed-word': {
-    align_needs_review: 4,
-    // Row 24's start is pushed 0.62s by the display-floor reclaim that gives
-    // the zero-room rows 22/23 their 1.2s floor (post-merge co-start block).
-    bnd_latestart_p2: 1,
-    bnd_midword_p2: 5,
-  },
-  'stranger-than-heaven-mixed-segment': {
-    align_needs_review: 3,
-    // Row 45 leaves the zero_dur bucket (0s → 1.2s floor, the fixed defect)
-    // and row 24 is narrowed by the same rows-22/23 reclaim; every previously
-    // compressed row got wider (0.30–0.88s → 1.2s).
-    align_compressed: 8,
-    // Rows 21/23/24: end borrowed / end floored / start pushed by the
-    // display-floor reclaim of the co-start block (all bounded by the floor).
-    bnd_early_p2: 3,
-    bnd_late_p2: 1,
-    bnd_latestart_p2: 2,
-    bnd_midword_p2: 4,
-  },
-  // Round-6 Task D1 (straddle-guard fallback, diagnosis H5): #44
-  // "なりたい 何者かでいい" (span onset 195.90, 10/10 coverage) was frozen at
-  // 197.85 — 2.92s past LRC truth 194.93 — because the shared boundary at
-  // prevSpanEnd (195.81) lands inside Whisper's MERGED chunk
-  // "何回になりたいなりたい" [194.60,196.50] (three lyric words collapsed into one
-  // 1.90s token), so the guard abandoned the pull. The fallback splits that
-  // merged chunk at the previous line's own matched-span end — the true vocal
-  // boundary — cutting the LRC error to 0.88s. Both sides of the split (#43 end,
-  // #44 start) now sit inside the merged token, so bnd_midword counts +2; it is
-  // the chunk-granularity artifact round-5 flagged for this exact row
-  // (A2 #44, deferred "no win without sub-chunk timing evidence"), now supplied
-  // by the neighbour's span. No LRC config regresses (guitar-segment #44
-  // 2.9→0.9, >1s 14→13). Remove at the next baseline ratchet.
-  'guitar-loneliness-segment': { bnd_midword_p2: 2 },
-}
+// Cleared at the round-6 Task-F ratchet (2026-07-14): the round-6 fix-loop
+// carve-outs (Task B floor-spread/zero-width honesty, Task C coverage-gated
+// needs_review labels, Task D1 straddle-fallback bnd_midword) were all audited
+// against the LRC ground truth — every config improved or held, no timing
+// regression — and folded into corpus-baseline.json via --write-baseline. See
+// docs/superpowers/audits/2026-07-14-approx-run-diagnosis.md "Round 6 —
+// before/after (Task F)".
+const ALLOWED_MEASUREMENT_ARTIFACTS: Record<string, Record<string, number>> = {}
 
 describe('audit corpus — alignment non-regression', () => {
   it('baseline has a row for every corpus song', () => {
