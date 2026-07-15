@@ -8,6 +8,7 @@ import type { Song } from '../core/types'
 import { sanitizeTranscript, LOW_CONFIDENCE_WARN_THRESHOLD, type TranscriptWord } from './aligner'
 import { refineAlignmentWithPhrases, sheetRowsForAlignment, applyRefinedAlignment, type RefinedAlignment } from '../lyrics/phraseAlignment'
 import { refineMixedLanguageAlignment } from './mixedLanguageAlign'
+import { reanalyzeGaps } from './gapReanalyze'
 import { db } from '../core/db/schema'
 import { computeSyncState } from '../core/db/migrations'
 import { ProcessProgress } from '../core/ui/ProcessProgress'
@@ -106,6 +107,9 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
   const [transcribeMerging, setTranscribeMerging] = useState(false)
   const [transcribePhase, setTranscribePhase] = useState<TranscribeProgressStatus>('transcribing')
   const [loadDetail, setLoadDetail] = useState<string | null>(null)
+  // Round-8 gap re-transcription: a status line shown during the aligning stage
+  // while unaligned sections are being recovered ("Recovering N section(s)…").
+  const [gapRecovery, setGapRecovery] = useState<string | null>(null)
   const [loadPhase, setLoadPhase] = useState<'download' | 'init'>('download')
   const [lastLoadProgress, setLastLoadProgress] = useState<LoadProgress | null>(null)
   const [error, setError] = useState('')
@@ -263,9 +267,12 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         // Per-call downgrade to segment timestamps that leaves the user's mode
         // intact for the other pass (used by the EN-forced mixed pass below).
         timestampModeOverride?: 'segment',
+        // Buffer to transcribe; defaults to the whole song. The round-8 gap pass
+        // passes a sub-window slice, reusing this crash-downgrade ladder.
+        audio: Float32Array = audioData,
       ) => {
         const run = () =>
-          transcribeAudio(audioData, sampleRate, {
+          transcribeAudio(audio, sampleRate, {
             ...transcribeOptions(language, scaleProgress),
             timestampMode: timestampModeOverride ?? effectiveTimestampMode,
             highAccuracy: effectiveHighAccuracy,
@@ -337,6 +344,56 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           song.lyrics,
         )
       }
+
+      // Round-8 gap re-transcription: where the aligner left a HOLE (a run of
+      // un-anchored lines between good anchors) even though vocals are audible,
+      // re-transcribe just that ≤30s window (forced-language slice) and re-align
+      // it, keeping the result only if it strictly improves. Both the mixed and
+      // single-language branches above feed their assigned refined/transcriptWords
+      // here. Fresh-Auto-align only (re-refine in PlayerView has no audioData).
+      if (!cancelledRef.current) {
+        const gapAudio = audioData
+        const gapSampleRate = sampleRate
+        const transcribeSlice = async (
+          t0: number,
+          t1: number,
+          lang: typeof alignmentLanguage,
+        ): Promise<TranscriptWord[]> => {
+          const slice = gapAudio.subarray(
+            Math.floor(t0 * gapSampleRate),
+            Math.floor(t1 * gapSampleRate),
+          )
+          // Reuse the crash-downgrade ladder and the main pass's transcribe
+          // options; inherit the effective timestamp mode. Words come back
+          // slice-relative → offset by t0 to absolute song time.
+          const sliceResult = await transcribeWithFallback(lang, (p) => p, undefined, slice)
+          const offset = toWords(sliceResult).map((word) => ({
+            ...word,
+            startTime: word.startTime + t0,
+            endTime: word.endTime + t0,
+          }))
+          return sanitizeTranscript(offset)
+        }
+        const gap = await reanalyzeGaps({
+          refined,
+          transcriptWords,
+          sheetRows,
+          alignmentLanguage,
+          transcribeSlice,
+          isCancelled: () => cancelledRef.current,
+          refineOpts: { lyricsBase: song.lyrics },
+          onProgress: (n) => {
+            setGapRecovery(
+              n > 0 ? `Recovering ${n} unaligned section${n === 1 ? '' : 's'}…` : null,
+            )
+          },
+        })
+        if (cancelledRef.current) return
+        setGapRecovery(null)
+        refined = gap.refined
+        transcriptWords = gap.transcriptWords
+      }
+
       const updated: Song = {
         ...song,
         lyrics: applyRefinedAlignment(
@@ -396,7 +453,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
       : tier === 'lite'
         ? 'On-device speech recognition — can take a few minutes on phones'
         : 'Running on-device speech recognition',
-    aligning: 'Matching the transcript to your lyric lines',
+    aligning: gapRecovery ?? 'Matching the transcript to your lyric lines',
   }
 
   const taskStatus =
