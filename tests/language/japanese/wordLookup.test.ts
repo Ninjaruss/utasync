@@ -95,6 +95,76 @@ describe('jishoSearchUrl', () => {
   })
 })
 
+describe('lookupWord — blank recovery for inflected + subsidiary verbs (round 10, T2)', () => {
+  // Uses the real regenerated JMdict data so recovered glosses match production.
+  beforeEach(() => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    setJmdictGlossForTests(
+      JSON.parse(readFileSync(join(here, '../../../public/jmdict-gloss.json'), 'utf8')),
+    )
+  })
+  afterEach(() => resetJmdictGlossCache())
+
+  it('(a) glosses a kanji subsidiary verb via its reading (行く → go)', async () => {
+    // In 〜て行く kuromoji tags 行く as 動詞/非自立. It misses the kana-keyed
+    // grammar map (only いく is listed there) and grammar suppression otherwise
+    // blocks the lexical chain, so the popover showed "No definition found".
+    const r = await lookupWord(tok({ surface: '行く', pos: '動詞', posDetail1: '非自立', reading: 'イク' }))
+    expect(r!.glosses.join(' '), '行く should gloss to go').toContain('go')
+  })
+
+  it('(b) romanizes the dictionary form, not the inflected reading (わから → understand)', async () => {
+    // わから romanizes to "wakara" (miss); the base form わかる → "wakaru" resolves.
+    const r = await lookupWord(
+      tok({ surface: 'わから', pos: '動詞', posDetail1: '自立', baseForm: 'わかる', reading: 'ワカラ' }),
+    )
+    expect(r!.glosses).toContain('understand')
+  })
+
+  it('(b) recovers other inflected content verbs to a non-blank gloss (なくし / いっ / ぶちまけ)', async () => {
+    const cases = [
+      tok({ surface: 'なくし', pos: '動詞', posDetail1: '自立', baseForm: 'なくす', reading: 'ナクシ' }),
+      tok({ surface: 'いっ', pos: '動詞', posDetail1: '自立', baseForm: 'いう', reading: 'イッ' }),
+      tok({ surface: 'ぶちまけ', pos: '動詞', posDetail1: '自立', baseForm: 'ぶちまける', reading: 'ブチマケ' }),
+    ]
+    for (const t of cases) {
+      const r = await lookupWord(t)
+      expect(r!.glosses, `${t.surface} should not be blank`).not.toEqual([])
+    }
+  })
+
+  it('leaves a genuinely-undefined verb blank (base-form recovery invents nothing)', async () => {
+    // Synthetic inflected verb whose base form has no JMdict gloss: the base-form
+    // romanization must not fabricate a definition for it.
+    const r = await lookupWord(
+      tok({ surface: 'ずびし', pos: '動詞', posDetail1: '自立', baseForm: 'ずびす', reading: 'ズビシ' }),
+    )
+    expect(r!.glosses).toEqual([])
+  })
+
+  it('regression: still resolves katakana long-vowel loanwords (スーパー → supermarket)', async () => {
+    // Base-form romanization must NOT displace the long-vowel-preserving reading
+    // path: スーパー has no distinct baseForm, so its reading still romanizes to
+    // "suupaa" (not the hyphenated hiragana form).
+    const r = await lookupWord(tok({ surface: 'スーパー', pos: '名詞', posDetail1: '一般', reading: 'スーパー' }))
+    expect(r!.glosses).toContain('supermarket')
+  })
+
+  it('regression: leaves an already-dictionary-form verb unchanged (わかる → understand)', async () => {
+    const r = await lookupWord(tok({ surface: 'わかる', pos: '動詞', posDetail1: '自立', reading: 'ワカル' }))
+    expect(r!.glosses).toContain('understand')
+  })
+
+  it('regression: kana subsidiary verbs stay on the grammar map (いく → going on / continuing)', async () => {
+    // The subsidiary-verb recovery is kanji-scoped; kana 非自立 verbs must keep
+    // their grammar-function gloss, not fall through to the lexical "go".
+    const r = await lookupWord(
+      tok({ surface: 'いく', pos: '動詞', posDetail1: '非自立', baseForm: 'いく', reading: 'イク' }),
+    )
+    expect(r!.glosses.join(' ')).toMatch(/going on|continuing/)
+  })
+})
+
 describe('lookupWord — surface-specific kanji gloss (homophone collapse fix)', () => {
   afterEach(() => resetJmdictGlossCache())
 
