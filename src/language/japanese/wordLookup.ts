@@ -1,7 +1,8 @@
 import { toRomaji as kanaToRomaji } from 'wanakana'
 import { katakanaToHiragana } from './phonetics'
-import { kanjiLemmaRomaji, lemmaGloss } from '../../ai-pipeline/lyricGloss'
-import { jmdictGlossLoaded, prepareJmdictStemIndex } from '../../ai-pipeline/jmdictGloss'
+import { KANJI_ROMAJI, kanjiLemmaRomaji, lemmaGloss } from '../../ai-pipeline/lyricGloss'
+import { normalizeLemmaGloss } from '../../ai-pipeline/glossNormalize'
+import { getJmdictKanjiGloss, jmdictGlossLoaded, prepareJmdictStemIndex } from '../../ai-pipeline/jmdictGloss'
 import { loadJmdictReadings, readingInventory } from './jmdictReadings'
 import { grammarGloss, isGrammarToken } from './grammarGlosses'
 import { shouldPromoteSungReading } from '../../lyrics/readingDisplay'
@@ -68,16 +69,52 @@ function jmdictFallbackReading(surface: string): string | undefined {
   return inv ? inv.common[0] ?? inv.uncommon[0] : undefined
 }
 
-/** Content-word gloss via the curated-first romaji lemma chain. */
+/** Content-word gloss: curated overlay → surface-specific kanji gloss → romaji lemma chain. */
 function lexicalGloss(token: Token, headword: string, kana: string | undefined): string | undefined {
-  // Romanize the ORIGINAL kana, not the hiragana conversion: wanakana resolves
-  // the long-vowel mark ー into doubled vowels for katakana (スーパー → "suupaa",
-  // matching JMdict keys) but emits literal hyphens for hiragana ("su-pa-").
+  // 1. Curated KANJI_ROMAJI overlay wins first — intentional poetic/song
+  //    readings (愛→ai, 転がる→korogaru) that must override JMdict.
+  const curatedRomaji = KANJI_ROMAJI[headword] ?? KANJI_ROMAJI[token.surface]
+  if (curatedRomaji) {
+    const curated = lemmaGloss(curatedRomaji, headword)
+    if (curated) return curated
+  }
+
+  // 2. Surface-specific JMdict gloss — bypasses the romaji key so homophones
+  //    don't collapse onto one definition (億 stays "hundred million", not
+  //    置く's "put"). Sparse: only present for collision-corrected surfaces.
+  const kanjiGloss = getJmdictKanjiGloss(headword) ?? getJmdictKanjiGloss(token.surface)
+  if (kanjiGloss) return normalizeLemmaGloss(kanjiGloss)
+
+  // 3. Fallback: romaji lemma chain (JMdict kanji→romaji, then the kana reading).
+  //    On the kana branch, romanize the dictionary (base) form when kuromoji
+  //    supplies a kana one: an inflected verb's surface reading misses
+  //    (わから → "wakara"), but the base reading resolves (わかる → "wakaru" →
+  //    "understand"). Katakana loanwords keep the reading path — they carry no
+  //    distinct baseForm (スーパー), so the long-vowel handling below still applies:
+  //    romanize the ORIGINAL kana, not the hiragana conversion, since wanakana
+  //    turns the long-vowel mark ー into doubled vowels for katakana (スーパー →
+  //    "suupaa", matching JMdict keys) but into literal hyphens for hiragana.
+  const kanaHead = token.baseForm && KANA_ONLY.test(token.baseForm) ? token.baseForm : kana
   const romaji =
     kanjiLemmaRomaji(headword) ??
     kanjiLemmaRomaji(token.surface) ??
-    (kana ? kanaToRomaji(kana).toLowerCase() : undefined)
+    (kanaHead ? kanaToRomaji(kanaHead).toLowerCase() : undefined)
   return romaji ? lemmaGloss(romaji, headword) : undefined
+}
+
+/**
+ * Kanji subsidiary verbs (行く in 〜て行く) are tagged 動詞/非自立 but miss the
+ * kana-keyed grammar map, which only lists their kana spellings (いく); grammar
+ * suppression then blocks the lexical chain, leaving the popover blank. Recover
+ * them through the surface-gated lexical gloss (行く → "go"). Deliberately scoped
+ * to kanji verbs: kana subsidiary verbs already resolve via the grammar map, and
+ * routing every 非自立 token to the lexical chain re-opens the kana homophone
+ * collisions the grammar suppression exists to prevent.
+ */
+function subsidiaryVerbLexicalGloss(token: Token, headword: string, kana: string | undefined): string | undefined {
+  if (token.pos !== '動詞' || token.posDetail1 !== '非自立') return undefined
+  if (KANA_ONLY.test(token.surface)) return undefined
+  return lexicalGloss(token, headword, kana)
 }
 
 /**
@@ -112,7 +149,9 @@ export async function lookupWord(token: Token, readingMode: ReadingMode = 'dicti
   // not lexical: the kana homophone chain would gloss は as 端 "edge" or た as
   // 田 "rice". They only ever take the curated grammar glossary — an uncurated
   // one shows no gloss rather than a wrong one.
-  const gloss = isGrammarToken(token) ? grammarGloss(token) : lexicalGloss(token, headword, kana)
+  const gloss = isGrammarToken(token)
+    ? grammarGloss(token) ?? subsidiaryVerbLexicalGloss(token, headword, kana)
+    : lexicalGloss(token, headword, kana)
 
   return {
     headword,

@@ -10,6 +10,10 @@ export interface JmdictGlossData {
   source: string
   romaji: Record<string, string>
   kanji: Record<string, string>
+  /** Sparse surface→gloss map for the tap-lookup popover: present only for
+   * surfaces whose own definition differs from the romaji-collapsed fallback
+   * (homophone collisions). Read by the popover, never by the word pairer. */
+  kanjiGloss?: Record<string, string>
 }
 
 let data: JmdictGlossData | null = null
@@ -75,6 +79,7 @@ export function loadJmdictGloss(): Promise<JmdictGlossData | null> {
         source: parsed.source ?? 'jmdict',
         romaji: parsed.romaji ?? {},
         kanji: parsed.kanji ?? {},
+        kanjiGloss: parsed.kanjiGloss ?? {},
       }
       lastLoadFailureAt = 0
       return data
@@ -104,6 +109,15 @@ export function getJmdictRomajiGloss(romaji: string): string | undefined {
 
 export function getJmdictKanjiRomaji(surface: string): string | undefined {
   return data?.kanji[surface.trim()]
+}
+
+/**
+ * Surface-specific gloss for the tap-lookup popover — bypasses the romaji key
+ * so homophones don't collide (億 stays "hundred million", not 置く's "put").
+ * Undefined for surfaces whose romaji fallback is already correct (sparse map).
+ */
+export function getJmdictKanjiGloss(surface: string): string | undefined {
+  return data?.kanjiGloss?.[surface.trim()]
 }
 
 export function allJmdictLemmaKeys(): string[] {
