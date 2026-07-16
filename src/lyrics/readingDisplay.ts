@@ -1,6 +1,21 @@
 import { toRomaji as kanaToRomaji } from 'wanakana'
+import { isParticleToken } from '../core/language'
 import type { ReadingMode, Token } from '../core/types'
 import { katakanaToHiragana } from '../language/japanese/phonetics'
+
+/** Particles pronounced differently from how their kana romanizes: topic は is
+ * *wa*, direction へ is *e*, object を is *o*. wanakana romanizes by kana alone
+ * (は→"ha"), so these are overridden by surface + 助詞 pos. Keyed on the exact
+ * hiragana surface: lexical 葉(は)/部屋(へや) keep their phonetic romaji, and the
+ * rare katakana ヲ particle is deliberately left to wanakana's "wo". */
+const PARTICLE_ROMAJI_OVERRIDE: Record<string, string> = { は: 'wa', へ: 'e', を: 'o' }
+
+/** Grammatical romaji for a phonetic-shift particle, or null when the token is
+ * not one (lexical は/へ/を, or a particle written some other way). */
+function particleRomajiOverride(token: Token): string | null {
+  if (!isParticleToken(token)) return null
+  return PARTICLE_ROMAJI_OVERRIDE[token.surface] ?? null
+}
 
 const KANA_ONLY_RE = /^[぀-ゟ゠-ヿ]+$/u
 
@@ -80,7 +95,10 @@ export function resolveTokenReading(
 function tokenKanaRomaji(token: Token, readingMode: ReadingMode): { kana: string | null; romaji: string } {
   const kana = resolveTokenKana(token, readingMode) ?? (KANA_ONLY_RE.test(token.surface) ? token.surface : null)
   if (!kana) return { kana: null, romaji: token.surface }
-  return { kana, romaji: kanaToRomaji(kana) }
+  // Particle override applies before the gemination loop consumes `romaji`; a
+  // は/へ/を particle never geminates (its kana is not っ-final) and "wa"/"e"/"o"
+  // are not geminating onsets, so a preceding っ-final token won't fuse either.
+  return { kana, romaji: particleRomajiOverride(token) ?? kanaToRomaji(kana) }
 }
 
 /** Onsets a token-final っ geminates into (never vowels or n/y/w). */
