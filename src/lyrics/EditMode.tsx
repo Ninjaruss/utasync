@@ -337,6 +337,13 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
     ? lineIndexAtPlayhead(lines, playheadPosition)
     : -1
 
+  // Center the playhead line when entering Edit mode so the user lands where
+  // the song currently is, matching Play mode's centering.
+  const playheadRowRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    playheadRowRef.current?.scrollIntoView({ block: 'center' })
+  }, [])
+
   // needs_review lines plus approximate lines squashed below their sung floor
   // (see offTimingLineCount) — a visibly-squashed row is off-timing no matter
   // which chip it wears.
@@ -431,7 +438,7 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
         onClick={() => { if (openPopover !== null) cancelPopover() }}
       >
         {lines.map((line, i) => (
-          <div key={i} onClick={(e) => e.stopPropagation()}>
+          <div key={i} ref={activePlayheadIndex === i ? playheadRowRef : undefined} onClick={(e) => e.stopPropagation()}>
           <Row
             line={line}
             index={i}

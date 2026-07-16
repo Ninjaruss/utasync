@@ -277,7 +277,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
         <h1 className="text-2xl font-bold text-cinnabar-accent tracking-widest">Upload audio</h1>
       )}
 
-      <div className={embedded ? 'flex flex-col flex-1 min-h-0 gap-2 md:gap-2.5' : 'w-full max-w-md space-y-3'}>
+      <div className={embedded ? 'flex flex-col flex-1 min-h-0 overflow-y-auto gap-2 md:gap-2.5' : 'w-full max-w-md space-y-3'}>
         <div className={embedded ? 'shrink-0 space-y-2 md:space-y-2' : 'space-y-3'}>
         <label className={fileLabelClass}>
           {file ? file.name : 'Choose an audio file…'}
@@ -349,8 +349,8 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
         </div>
 
         {file && title.trim() && (
-          <div className={embedded ? 'flex-1 min-h-0 flex flex-col rounded-xl border border-cinnabar-800 bg-cinnabar-900/50 overflow-hidden' : 'rounded-xl border border-cinnabar-800 bg-cinnabar-900/50 p-4 space-y-3'}>
-            <div className={embedded ? 'flex-1 min-h-0 overflow-y-auto p-3 md:p-3 space-y-2 md:space-y-3' : 'space-y-3'}>
+          <div className={embedded ? 'flex-1 shrink-0 flex flex-col rounded-xl border border-cinnabar-800 bg-cinnabar-900/50' : 'rounded-xl border border-cinnabar-800 bg-cinnabar-900/50 p-4 space-y-3'}>
+            <div className={embedded ? 'flex-1 flex flex-col p-3 md:p-3 space-y-2 md:space-y-3' : 'space-y-3'}>
             <h2 className="text-sm font-medium text-white/70 shrink-0">Lyrics</h2>
 
             {lyricsPhase.kind === 'idle' && (
@@ -392,8 +392,8 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
                     value={pasted}
                     onChange={(e) => setPasted(e.target.value)}
                     placeholder="Paste lyrics, one line per row…"
-                    rows={embedded ? 4 : 6}
-                    className={[fieldClass, embedded ? 'min-h-[5rem] resize-y' : ''].join(' ')}
+                    rows={embedded ? 8 : 6}
+                    className={[fieldClass, embedded ? 'flex-1 min-h-[7rem] resize-none' : ''].join(' ')}
                   />
                 )}
 

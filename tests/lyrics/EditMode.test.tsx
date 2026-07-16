@@ -397,3 +397,39 @@ describe('EditMode — gap recovery (R9-2)', () => {
     expect(onRecoverGaps).not.toHaveBeenCalled()
   })
 })
+
+describe('EditMode playhead centering on mount', () => {
+  const timedLines: TimedLine[] = [
+    { startTime: 0, endTime: 2, original: 'first', translation: '' },
+    { startTime: 2, endTime: 4, original: 'second', translation: '' },
+    { startTime: 4, endTime: 6, original: 'third', translation: '' },
+  ]
+
+  it('scrolls the playhead line into view when entering edit mode', () => {
+    const original = window.HTMLElement.prototype.scrollIntoView
+    const scrolled: Array<{ el: HTMLElement; opts: unknown }> = []
+    window.HTMLElement.prototype.scrollIntoView = function (opts?: unknown) {
+      scrolled.push({ el: this as HTMLElement, opts })
+    }
+    try {
+      renderEditMode({ lines: timedLines, playheadPosition: 4.5 })
+      expect(scrolled).toHaveLength(1)
+      expect(scrolled[0].opts).toMatchObject({ block: 'center' })
+      expect(scrolled[0].el.textContent).toContain('third')
+    } finally {
+      window.HTMLElement.prototype.scrollIntoView = original
+    }
+  })
+
+  it('does not scroll when no line matches the playhead', () => {
+    const original = window.HTMLElement.prototype.scrollIntoView
+    const spy = vi.fn()
+    window.HTMLElement.prototype.scrollIntoView = spy
+    try {
+      renderEditMode({ lines: timedLines, playheadPosition: undefined })
+      expect(spy).not.toHaveBeenCalled()
+    } finally {
+      window.HTMLElement.prototype.scrollIntoView = original
+    }
+  })
+})
