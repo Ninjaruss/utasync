@@ -71,12 +71,15 @@ describe('lineRomajiFromTokens — grammatical particle romaji', () => {
     expect(lineRomajiFromTokens([tok('葉', 'ハ', '名詞')])).toBe('ha')
   })
 
-  it('leaves a word containing へ internally unaffected (部屋 → heya)', () => {
+  it('does not override a multi-char noun whose reading contains he (部屋 → heya)', () => {
+    // The override is exact-surface (=== へ), so a word merely containing へ in
+    // its reading is never touched.
     expect(lineRomajiFromTokens([tok('部屋', 'ヘヤ', '名詞')])).toBe('heya')
   })
 
-  it('leaves a word containing を internally unaffected (男 has no を; 逢を-like nonsense)', () => {
-    // A multi-char token whose surface is not exactly を is never overridden.
+  it('does not override a noun whose surface is not exactly を (全て → subete)', () => {
+    // Guards against any accidental substring/regex match — the override keys on
+    // the whole surface string, so only a token whose surface IS を is affected.
     expect(lineRomajiFromTokens([tok('全て', 'スベテ', '名詞')])).toBe('subete')
   })
 
