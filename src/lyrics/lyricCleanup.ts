@@ -27,6 +27,36 @@ function isJunkLine(trimmed: string): boolean {
 }
 
 /**
+ * Inline furigana annotation: a run of kanji immediately followed by a
+ * parenthesized run of *only* kana. Both ascii "()" and fullwidth "（）" parens
+ * are accepted, and may be mixed within one annotation.
+ *
+ *   君(きみ)の名前（なまえ）を呼(よ)ぶ  →  君の名前を呼ぶ
+ *
+ * Ranges: kanji = CJK Unified Ideographs U+4E00–U+9FFF plus the iteration mark
+ * 々 (U+3005); kana = hiragana (U+3041–U+3096), katakana (U+30A1–U+30F6) and the
+ * long-vowel mark ー (U+30FC). Requiring kanji immediately before the open paren
+ * AND an entirely-kana body keeps this from eating Latin ad-libs ("(Hey)"),
+ * romanizations ("(Haru Ni Mau)", "(Romanized)"), or a kana ad-lib that is not
+ * preceded by kanji ("(なにか)" at line start / after kana).
+ */
+const INLINE_FURIGANA_RE =
+  /([一-鿿々]+)[(（]([ぁ-ゖァ-ヶー]+)[)）]/g
+
+/**
+ * Strip inline furigana readings 漢字(かな) → 漢字, keeping the kanji, applied
+ * globally so multiple/adjacent annotations on one line are all removed. Lines
+ * with no such annotation (blank, English, kana-only, plain Japanese) are
+ * returned unchanged because the pattern simply does not match.
+ *
+ * Deferred: the paren-LESS inline form (君きみ…) is genuinely ambiguous without
+ * parens and needs a tokenizer-aware pass; not handled here.
+ */
+export function stripInlineFurigana(line: string): string {
+  return line.replace(INLINE_FURIGANA_RE, '$1')
+}
+
+/**
  * Remove non-lyric lines from pasted/imported lyric text, returning the cleaned
  * text (same line order, junk removed). The "You might also like" recommendation
  * block runs from its marker to the next section header (bounded to a short
@@ -63,7 +93,7 @@ export function cleanPastedLyrics(text: string): string {
     }
     if (SECTION_HEADER_RE.test(trimmed)) continue
     if (isJunkLine(trimmed)) continue
-    kept.push(lines[i])
+    kept.push(stripInlineFurigana(lines[i]))
   }
 
   return kept.join('\n')

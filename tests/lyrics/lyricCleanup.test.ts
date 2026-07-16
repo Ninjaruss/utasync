@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cleanPastedLyrics } from '../../src/lyrics/lyricCleanup'
+import { cleanPastedLyrics, stripInlineFurigana } from '../../src/lyrics/lyricCleanup'
 import { linesFromPlainText } from '../../src/sources/songBuilder'
 
 describe('cleanPastedLyrics', () => {
@@ -77,6 +77,74 @@ describe('cleanPastedLyrics', () => {
       'I found a place where I’m not alone',
       '錆ひとつない 触らせやしない 媚びる気はない',
       'Paved my way, won’t live in my past',
+    ])
+  })
+
+  it('strips inline furigana 漢字(かな) from kept lyric lines (ascii parens)', () => {
+    expect(cleanPastedLyrics('君(きみ)の名前(なまえ)を呼(よ)ぶ')).toBe('君の名前を呼ぶ')
+  })
+
+  it('strips inline furigana with fullwidth parens', () => {
+    expect(cleanPastedLyrics('君（きみ）の名前（なまえ）を呼（よ）ぶ')).toBe('君の名前を呼ぶ')
+  })
+
+  it('strips mixed paren styles within one line', () => {
+    expect(cleanPastedLyrics('君(きみ)の名前（なまえ）')).toBe('君の名前')
+  })
+
+  it('strips consecutive/adjacent annotations with no separator', () => {
+    expect(cleanPastedLyrics('名前(なまえ)呼(よ)ぶ')).toBe('名前呼ぶ')
+  })
+
+  it('strips a katakana reading 漢字(カナ)', () => {
+    expect(cleanPastedLyrics('漢字(カナ)')).toBe('漢字')
+  })
+
+  it('does NOT strip a Latin ad-lib parenthetical', () => {
+    expect(cleanPastedLyrics('Oh (Hey)')).toBe('Oh (Hey)')
+  })
+
+  it('does NOT strip "(Ah)" (Latin, not kana)', () => {
+    expect(cleanPastedLyrics('(Ah)')).toBe('(Ah)')
+  })
+
+  it('does NOT strip a kana parenthetical at line start (no preceding kanji)', () => {
+    expect(cleanPastedLyrics('(なにか)を探す')).toBe('(なにか)を探す')
+  })
+
+  it('does NOT strip a kana parenthetical preceded by kana, not kanji', () => {
+    // "そら(あお)": the char before "(" is ら (hiragana), so it is not furigana.
+    expect(cleanPastedLyrics('そら(あお)')).toBe('そら(あお)')
+  })
+
+  it('does NOT strip English parentheticals — isolated from the junk filter', () => {
+    // "(Haru Ni Mau)" / "(Romanized)" are romanization annotations, not furigana.
+    // Tested via the helper so the (Romanized) junk-line filter does not mask it.
+    expect(stripInlineFurigana('春に舞う (Haru Ni Mau) (Romanized)')).toBe(
+      '春に舞う (Haru Ni Mau) (Romanized)',
+    )
+  })
+
+  it('leaves a normal Japanese line without furigana unchanged', () => {
+    expect(cleanPastedLyrics('ただただ荒れていく時代に')).toBe('ただただ荒れていく時代に')
+  })
+
+  it('leaves an English line unchanged', () => {
+    expect(cleanPastedLyrics('Back streets, walking on the edge of the night')).toBe(
+      'Back streets, walking on the edge of the night',
+    )
+  })
+
+  it('strips inline furigana end-to-end through linesFromPlainText', () => {
+    const input = [
+      '[Verse 1: Ado]',
+      '君(きみ)の名前(なまえ)を呼(よ)ぶ',
+      '滾(たぎ)らせるこの覚悟(かくご)の血(ち)',
+    ].join('\n')
+    const lines = linesFromPlainText(input)
+    expect(lines.map((l) => l.original)).toEqual([
+      '君の名前を呼ぶ',
+      '滾らせるこの覚悟の血',
     ])
   })
 })
