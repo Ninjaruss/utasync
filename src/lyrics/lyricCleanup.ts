@@ -51,6 +51,12 @@ const INLINE_FURIGANA_RE =
  *
  * Deferred: the paren-LESS inline form (君きみ…) is genuinely ambiguous without
  * parens and needs a tokenizer-aware pass; not handled here.
+ *
+ * Accepted residual: a genuine all-kana ad-lib written immediately after a kanji
+ * with no space (愛(あい)) is indistinguishable from furigana and gets stripped.
+ * Furigana is the overwhelmingly intended reading of that exact shape, and the
+ * guarded cases (a space, non-kana content, or no preceding kanji) cover the
+ * real ad-lib/English/(Romanized) forms.
  */
 export function stripInlineFurigana(line: string): string {
   return line.replace(INLINE_FURIGANA_RE, '$1')
