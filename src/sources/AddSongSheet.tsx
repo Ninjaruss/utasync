@@ -83,8 +83,8 @@ function SourceTile({
           </span>
         )}
       </div>
-      <p className="text-[11px] text-white/45 md:mb-0 mb-2.5 text-pretty">{option.summary}</p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 md:hidden">
+      <p className={['text-[11px] text-white/45 md:mb-0 text-pretty', selected ? 'mb-2.5' : 'mb-0'].join(' ')}>{option.summary}</p>
+      <div className={[selected ? 'grid' : 'hidden', 'grid-cols-1 sm:grid-cols-2 gap-2.5 md:hidden'].join(' ')}>
         <div>
           <p className="text-[10px] uppercase tracking-wide text-white/30 mb-1">Includes</p>
           <ul className="space-y-0.5">
@@ -125,7 +125,7 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
         className="absolute inset-0 bg-black/60"
       />
       <div
-        className="relative bg-cinnabar-950 border-t md:border border-cinnabar-900 rounded-t-2xl md:rounded-2xl p-4 md:p-5 w-full md:max-w-3xl max-h-[90dvh] md:max-h-[min(90vh,44rem)] flex flex-col overflow-hidden"
+        className="relative bg-cinnabar-950 border-t md:border border-cinnabar-900 rounded-t-2xl md:rounded-2xl p-4 md:p-5 w-full md:max-w-3xl max-h-[92dvh] md:max-h-[min(92vh,54rem)] flex flex-col overflow-hidden"
         role="dialog"
         aria-label="Add a song"
         aria-modal="true"

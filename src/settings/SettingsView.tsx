@@ -24,6 +24,49 @@ interface Props {
   onViewLanding?: () => void
 }
 
+function SettingToggle({
+  title,
+  description,
+  checked,
+  onToggle,
+}: {
+  title: string
+  description: string
+  checked: boolean
+  onToggle: () => void
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+      <div className="min-w-0 space-y-0.5">
+        <p className="text-sm font-medium">{title}</p>
+        <p className="text-xs text-white/45 text-pretty">{description}</p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={title}
+        onClick={onToggle}
+        className="shrink-0 min-h-11 min-w-11 flex items-center justify-center touch-manipulation"
+      >
+        <span
+          className={[
+            'relative block w-11 h-6 rounded-full transition-colors duration-150 ease-out',
+            checked ? 'bg-cinnabar-accent' : 'bg-cinnabar-800',
+          ].join(' ')}
+        >
+          <span
+            className={[
+              'absolute top-0.5 w-5 h-5 rounded-full bg-white transition-[left] duration-150 ease-out',
+              checked ? 'left-[1.375rem]' : 'left-0.5',
+            ].join(' ')}
+          />
+        </span>
+      </button>
+    </div>
+  )
+}
+
 export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewLanding }: Props) {
   const [songs, setSongs] = useState<Song[]>([])
   const [storage, setStorage] = useState<StorageBreakdown | null>(null)
@@ -94,23 +137,6 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
         <button onClick={onClose} className="min-h-11 min-w-11 flex items-center justify-center text-white/40 hover:text-white text-xl touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]" aria-label="Close settings">✕</button>
       </div>
 
-      <div className="bg-cinnabar-900 rounded-xl p-4 space-y-3">
-        <div className="space-y-1">
-          <p className="text-sm font-medium">Support Utasync</p>
-          <p className="text-xs text-white/45 text-pretty">
-            Utasync is free and runs entirely on your device. If it helps your studies, you can support ongoing development.
-          </p>
-        </div>
-        <a
-          href={KOFI_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="w-full min-h-11 rounded-lg bg-cinnabar-accent hover:bg-cinnabar-accent/90 text-white text-sm font-medium flex items-center justify-center gap-2 touch-manipulation transition-[background-color,transform] duration-150 ease-out active:scale-[0.98]"
-        >
-          ☕ Support on Ko-fi
-        </a>
-      </div>
-
       <div className="bg-cinnabar-900 rounded-xl p-4 space-y-2">
         <p className="text-sm font-medium">Song language</p>
         <p className="text-xs text-white/45 text-pretty">
@@ -136,69 +162,27 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
         </div>
       </div>
 
-      {canUseVocalSeparation(getDeviceTier()) && (
-        <div className="bg-cinnabar-900 rounded-xl p-4 space-y-2">
-          <p className="text-sm font-medium">Auto-align</p>
-          <p className="text-xs text-white/45 text-pretty">
-            Isolate vocals before speech recognition on busy mixes. Adds a separate step and downloads the Demucs model.
-          </p>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={vocalSeparationEnabled}
-            onClick={() => setVocalSeparationEnabled(!vocalSeparationEnabled)}
-            className={[
-              'w-full min-h-11 rounded-lg text-sm font-medium touch-manipulation transition-[color,background-color] duration-150 ease-out text-left px-4',
-              vocalSeparationEnabled
-                ? 'bg-cinnabar-accent text-white'
-                : 'bg-cinnabar-800 text-white/50 hover:text-white/80',
-            ].join(' ')}
-          >
-            {vocalSeparationEnabled ? 'Vocal separation: On' : 'Vocal separation: Off'}
-          </button>
-        </div>
-      )}
-
-      <div className="bg-cinnabar-900 rounded-xl p-4 space-y-2">
-        <p className="text-sm font-medium">Furigana</p>
-        <p className="text-xs text-white/45 text-pretty">
-          By default the furigana shows dictionary readings, plus sung readings the audio confirms with high confidence; weaker detections show in a tooltip. Turn this on to show every detected sung reading in the furigana.
-        </p>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={readingMode === 'sung'}
-          onClick={() => setReadingMode(readingMode === 'sung' ? 'dictionary' : 'sung')}
-          className={[
-            'w-full min-h-11 rounded-lg text-sm font-medium touch-manipulation transition-[color,background-color] duration-150 ease-out text-left px-4',
-            readingMode === 'sung'
-              ? 'bg-cinnabar-accent text-white'
-              : 'bg-cinnabar-800 text-white/50 hover:text-white/80',
-          ].join(' ')}
-        >
-          {readingMode === 'sung' ? 'Show sung readings in furigana' : 'Show dictionary readings in furigana'}
-        </button>
-      </div>
-
-      <div className="bg-cinnabar-900 rounded-xl p-4 space-y-2">
-        <p className="text-sm font-medium">Word lookup</p>
-        <p className="text-xs text-white/45 text-pretty">
-          Tap a word in the lyrics to see its reading and meaning. Turn this off if you use a dictionary extension like Yomitan.
-        </p>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={tapLookupEnabled}
-          onClick={() => setTapLookupEnabled(!tapLookupEnabled)}
-          className={[
-            'w-full min-h-11 rounded-lg text-sm font-medium touch-manipulation transition-[color,background-color] duration-150 ease-out text-left px-4',
-            tapLookupEnabled
-              ? 'bg-cinnabar-accent text-white'
-              : 'bg-cinnabar-800 text-white/50 hover:text-white/80',
-          ].join(' ')}
-        >
-          {tapLookupEnabled ? 'Tap to look up words: On' : 'Tap to look up words: Off'}
-        </button>
+      <div className="bg-cinnabar-900 rounded-xl p-4 divide-y divide-cinnabar-800/60">
+        {canUseVocalSeparation(getDeviceTier()) && (
+          <SettingToggle
+            title="Auto-align vocal separation"
+            description="Isolate vocals before speech recognition on busy mixes. Downloads the Demucs model."
+            checked={vocalSeparationEnabled}
+            onToggle={() => setVocalSeparationEnabled(!vocalSeparationEnabled)}
+          />
+        )}
+        <SettingToggle
+          title="Sung readings in furigana"
+          description="Show every detected sung reading. When off, furigana uses dictionary readings plus high-confidence sung ones."
+          checked={readingMode === 'sung'}
+          onToggle={() => setReadingMode(readingMode === 'sung' ? 'dictionary' : 'sung')}
+        />
+        <SettingToggle
+          title="Tap word lookup"
+          description="Tap a lyric word for its reading and meaning. Turn off if you use an extension like Yomitan."
+          checked={tapLookupEnabled}
+          onToggle={() => setTapLookupEnabled(!tapLookupEnabled)}
+        />
       </div>
 
       {storage && (
@@ -310,6 +294,23 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
             </div>
           )
         })}
+      </div>
+
+      <div className="bg-cinnabar-900 rounded-xl p-4 space-y-3">
+        <div className="space-y-1">
+          <p className="text-sm font-medium">Support Utasync</p>
+          <p className="text-xs text-white/45 text-pretty">
+            Utasync is free and runs entirely on your device. If it helps your studies, you can support ongoing development.
+          </p>
+        </div>
+        <a
+          href={KOFI_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full min-h-11 rounded-lg bg-cinnabar-accent hover:bg-cinnabar-accent/90 text-white text-sm font-medium flex items-center justify-center gap-2 touch-manipulation transition-[background-color,transform] duration-150 ease-out active:scale-[0.98]"
+        >
+          ☕ Support on Ko-fi
+        </a>
       </div>
 
       <div className="bg-cinnabar-900 rounded-xl p-4 space-y-2">

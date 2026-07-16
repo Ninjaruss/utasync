@@ -416,3 +416,32 @@ describe('tap-to-look-up wiring', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 })
+
+describe('LyricDisplay active-line centering', () => {
+  const twoLines: TimedLine[] = [
+    { original: 'line one', startTime: 0, endTime: 2, translation: '' },
+    { original: 'line two', startTime: 2, endTime: 4, translation: '' },
+  ]
+
+  it('jumps instantly on mount, then scrolls smoothly as the line advances', async () => {
+    const { act } = await import('@testing-library/react')
+    const original = window.HTMLElement.prototype.scrollIntoView
+    const calls: unknown[] = []
+    window.HTMLElement.prototype.scrollIntoView = function (opts?: unknown) {
+      calls.push(opts)
+    }
+    try {
+      setStore(twoLines, { activeLine: 0 })
+      render(<LyricDisplay onLineClick={() => {}} />)
+      expect(calls).toHaveLength(1)
+      expect(calls[0]).toMatchObject({ block: 'center', behavior: 'auto' })
+      act(() => {
+        useLyricsStore.setState({ activeLine: 1 })
+      })
+      expect(calls).toHaveLength(2)
+      expect(calls[1]).toMatchObject({ block: 'center', behavior: 'smooth' })
+    } finally {
+      window.HTMLElement.prototype.scrollIntoView = original
+    }
+  })
+})

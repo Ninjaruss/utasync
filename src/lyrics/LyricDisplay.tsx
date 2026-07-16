@@ -332,9 +332,15 @@ export function LyricDisplay({
   const loopActive = abLoop ? isABLoopActive(abLoop) : false
 
   // Keep the active line centered as playback advances, without hijacking the
-  // user's manual scrolling beyond the moment the line changes.
+  // user's manual scrolling beyond the moment the line changes. The first
+  // centering (mount, e.g. returning from Edit mode) jumps instantly so the
+  // user isn't watching a long smooth scroll from the top of the song.
+  const hasCentered = useRef(false)
   useEffect(() => {
-    activeRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    const el = activeRef.current
+    if (!el) return
+    el.scrollIntoView({ block: 'center', behavior: hasCentered.current ? 'smooth' : 'auto' })
+    hasCentered.current = true
   }, [activeLine])
 
   if (lines.length === 0) {
