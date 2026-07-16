@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { glossMatchesSource, glossMatchesTarget, lemmaGloss, ensureGlossLexicon } from '../../src/ai-pipeline/lyricGloss'
-import { resetJmdictGlossCache, setJmdictGlossForTests } from '../../src/ai-pipeline/jmdictGloss'
+import {
+  getJmdictKanjiGloss,
+  getJmdictKanjiRomaji,
+  resetJmdictGlossCache,
+  setJmdictGlossForTests,
+} from '../../src/ai-pipeline/jmdictGloss'
 
 const JMdictFixture = {
   v: 1,
@@ -69,5 +74,36 @@ describe('JMdict gloss integration', () => {
 
   it('uses JMdict kidzuku for 気付く surface over wrong kizuku gloss', () => {
     expect(glossMatchesSource({ romaji: 'kizuku', surface: '気付く' }, 'notice')).toBe(true)
+  })
+})
+
+describe('getJmdictKanjiGloss (tap-popover surface glosses)', () => {
+  beforeEach(() => {
+    resetJmdictGlossCache()
+    // 億 and 置く both romanize "oku"; the romaji map collapses to one gloss
+    // ("put"), so the sparse kanjiGloss map stores 億's own definition.
+    setJmdictGlossForTests({
+      v: 1,
+      source: 'test',
+      romaji: { oku: 'put', joutai: 'upper' },
+      kanji: { 億: 'oku', 状態: 'joutai', 色: 'iro' },
+      kanjiGloss: { 億: 'hundred million', 状態: 'state' },
+    })
+  })
+
+  it('returns the surface-specific gloss for a homophone-collided kanji', () => {
+    expect(getJmdictKanjiGloss('億')).toBe('hundred million')
+    expect(getJmdictKanjiGloss('状態')).toBe('state')
+  })
+
+  it('returns undefined for a surface with no stored gloss (romaji fallback is correct)', () => {
+    expect(getJmdictKanjiGloss('色')).toBeUndefined()
+  })
+
+  it('keeps getJmdictKanjiRomaji on the romaji bridge the word pairer reads', () => {
+    // The pairer path resolves surface→romaji, never surface→gloss; adding the
+    // sparse kanjiGloss map must not disturb it.
+    expect(getJmdictKanjiRomaji('億')).toBe('oku')
+    expect(getJmdictKanjiRomaji('状態')).toBe('joutai')
   })
 })

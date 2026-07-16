@@ -1,7 +1,8 @@
 import { toRomaji as kanaToRomaji } from 'wanakana'
 import { katakanaToHiragana } from './phonetics'
-import { kanjiLemmaRomaji, lemmaGloss } from '../../ai-pipeline/lyricGloss'
-import { jmdictGlossLoaded, prepareJmdictStemIndex } from '../../ai-pipeline/jmdictGloss'
+import { KANJI_ROMAJI, kanjiLemmaRomaji, lemmaGloss } from '../../ai-pipeline/lyricGloss'
+import { normalizeLemmaGloss } from '../../ai-pipeline/glossNormalize'
+import { getJmdictKanjiGloss, jmdictGlossLoaded, prepareJmdictStemIndex } from '../../ai-pipeline/jmdictGloss'
 import { loadJmdictReadings, readingInventory } from './jmdictReadings'
 import { grammarGloss, isGrammarToken } from './grammarGlosses'
 import { shouldPromoteSungReading } from '../../lyrics/readingDisplay'
@@ -68,11 +69,26 @@ function jmdictFallbackReading(surface: string): string | undefined {
   return inv ? inv.common[0] ?? inv.uncommon[0] : undefined
 }
 
-/** Content-word gloss via the curated-first romaji lemma chain. */
+/** Content-word gloss: curated overlay → surface-specific kanji gloss → romaji lemma chain. */
 function lexicalGloss(token: Token, headword: string, kana: string | undefined): string | undefined {
-  // Romanize the ORIGINAL kana, not the hiragana conversion: wanakana resolves
-  // the long-vowel mark ー into doubled vowels for katakana (スーパー → "suupaa",
-  // matching JMdict keys) but emits literal hyphens for hiragana ("su-pa-").
+  // 1. Curated KANJI_ROMAJI overlay wins first — intentional poetic/song
+  //    readings (愛→ai, 転がる→korogaru) that must override JMdict.
+  const curatedRomaji = KANJI_ROMAJI[headword] ?? KANJI_ROMAJI[token.surface]
+  if (curatedRomaji) {
+    const curated = lemmaGloss(curatedRomaji, headword)
+    if (curated) return curated
+  }
+
+  // 2. Surface-specific JMdict gloss — bypasses the romaji key so homophones
+  //    don't collapse onto one definition (億 stays "hundred million", not
+  //    置く's "put"). Sparse: only present for collision-corrected surfaces.
+  const kanjiGloss = getJmdictKanjiGloss(headword) ?? getJmdictKanjiGloss(token.surface)
+  if (kanjiGloss) return normalizeLemmaGloss(kanjiGloss)
+
+  // 3. Fallback: romaji lemma chain (JMdict kanji→romaji, then the kana reading).
+  //    Romanize the ORIGINAL kana, not the hiragana conversion: wanakana resolves
+  //    the long-vowel mark ー into doubled vowels for katakana (スーパー → "suupaa",
+  //    matching JMdict keys) but emits literal hyphens for hiragana ("su-pa-").
   const romaji =
     kanjiLemmaRomaji(headword) ??
     kanjiLemmaRomaji(token.surface) ??

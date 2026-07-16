@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { lookupWord, jishoSearchUrl } from '../../../src/language/japanese/wordLookup'
 import { setJmdictGlossForTests, resetJmdictGlossCache } from '../../../src/ai-pipeline/jmdictGloss'
 import type { Token } from '../../../src/core/types'
@@ -89,6 +91,66 @@ describe('lookupWord', () => {
 describe('jishoSearchUrl', () => {
   it('URL-encodes the headword', () => {
     expect(jishoSearchUrl('躱す')).toBe(`https://jisho.org/search/${encodeURIComponent('躱す')}`)
+  })
+})
+
+describe('lookupWord — surface-specific kanji gloss (homophone collapse fix)', () => {
+  afterEach(() => resetJmdictGlossCache())
+
+  it('prefers the surface gloss over the romaji-collapsed homophone', async () => {
+    // 億/置く both romanize "oku"; 状態/上体 → "joutai"; 機嫌/紀元 → "kigen".
+    // Without the surface gloss the popover inherits the wrong homophone.
+    setJmdictGlossForTests({
+      v: 1,
+      source: 'test',
+      romaji: { oku: 'put', joutai: 'upper', kigen: 'era' },
+      kanji: { 億: 'oku', 状態: 'joutai', 機嫌: 'kigen' },
+      kanjiGloss: { 億: 'hundred million', 状態: 'state; condition', 機嫌: 'mood; temper' },
+    })
+
+    const oku = await lookupWord(tok({ surface: '億', reading: 'オク', pos: '名詞' }))
+    expect(oku!.glosses).toEqual(['hundred million'])
+    expect(oku!.glosses).not.toContain('put')
+
+    const joutai = await lookupWord(tok({ surface: '状態', reading: 'ジョウタイ', pos: '名詞' }))
+    expect(joutai!.glosses).toEqual(['state', 'condition'])
+    expect(joutai!.glosses).not.toContain('upper')
+
+    const kigen = await lookupWord(tok({ surface: '機嫌', reading: 'キゲン', pos: '名詞' }))
+    expect(kigen!.glosses).toEqual(['mood', 'temper'])
+    expect(kigen!.glosses).not.toContain('era')
+  })
+
+  it('leaves a non-colliding kanji on its romaji-path gloss (no stored override)', async () => {
+    setJmdictGlossForTests({
+      v: 1,
+      source: 'test',
+      romaji: { tsukue: 'desk' },
+      kanji: { 机: 'tsukue' },
+      kanjiGloss: {}, // 机 is not homophone-collided → no surface gloss stored
+    })
+    const result = await lookupWord(tok({ surface: '机', reading: 'ツクエ', pos: '名詞' }))
+    expect(result!.glosses).toEqual(['desk'])
+  })
+
+  it('resolves the real regenerated JMdict data for every audited surface', async () => {
+    setJmdictGlossForTests(
+      JSON.parse(readFileSync(join(process.cwd(), 'public/jmdict-gloss.json'), 'utf8')),
+    )
+    // surface, katakana reading, expected-correct substring, previously-wrong homophone gloss
+    const cases: Array<[string, string, string, string]> = [
+      ['億', 'オク', 'hundred', 'put'],
+      ['状態', 'ジョウタイ', 'state', 'upper'],
+      ['情報', 'ジョウホウ', 'information', 'upper'],
+      ['機嫌', 'キゲン', 'humour', 'era'],
+      ['春', 'ハル', 'spring', 'stick'],
+      ['傘', 'カサ', 'umbrella', 'conical'],
+    ]
+    for (const [surface, reading, correct, wrong] of cases) {
+      const r = await lookupWord(tok({ surface, reading, pos: '名詞' }))
+      expect(r!.glosses.join(' '), `${surface} should gloss to ${correct}`).toContain(correct)
+      expect(r!.glosses, `${surface} must not show ${wrong}`).not.toContain(wrong)
+    }
   })
 })
 

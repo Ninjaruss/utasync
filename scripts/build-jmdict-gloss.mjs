@@ -3,7 +3,13 @@
  *
  * Source: jmdict-simplified (English glosses), streamed line-by-line.
  * Output: public/jmdict-gloss.json — lazy-loaded at runtime; curated
- * overrides in lyricGloss.ts always win.
+ * overrides in lyricGloss.ts always win. Shape:
+ *   { v, source,
+ *     romaji: { romaji → gloss },        // word-pairer lemma lookup
+ *     kanji:  { surface → romaji },       // word-pairer kanji→romaji bridge
+ *     kanjiGloss: { surface → gloss } }   // sparse; tap-popover only. Present
+ *   only for surfaces whose own gloss differs from the romaji-collapsed
+ *   fallback (homophone collisions). The pairer never reads kanjiGloss.
  *
  * Usage:
  *   node scripts/build-jmdict-gloss.mjs              # full JMdict (eng)
@@ -205,7 +211,10 @@ async function processFile(jsonPath) {
         const r = kanaToRomaji(kr.text)
         if (r.length < 2) continue
         const prev = kanji.get(surface)
-        if (!prev || score >= prev.score) kanji.set(surface, { romaji: r, score })
+        // Track the winning entry's own gloss alongside its romaji so the
+        // popover can show a surface-specific definition instead of the
+        // romaji-collapsed one (see the sparse kanjiGloss map below).
+        if (!prev || score >= prev.score) kanji.set(surface, { romaji: r, score, gloss })
         break
       }
     }
@@ -215,12 +224,28 @@ async function processFile(jsonPath) {
     }
   }
 
-  console.log(`\nProcessed ${entries} entries → ${romaji.size} romaji, ${kanji.size} kanji, ${readings.size} reading surfaces`)
+  // Sparse surface→gloss map for the tap-lookup popover. A kanji surface's own
+  // gloss is stored ONLY when it differs from what the romaji fallback would
+  // return for that surface's romaji key — i.e. only for homophone-collided
+  // surfaces (億/置く both romanize "oku"; without this 億 would inherit 置く's
+  // "put"). This keeps the map small and leaves the romaji/kanji maps (read by
+  // the word pairer) byte-identical. The pairer ignores kanjiGloss entirely.
+  const kanjiGloss = Object.fromEntries(
+    [...kanji.entries()].flatMap(([surface, v]) => {
+      const romajiGloss = romaji.get(v.romaji)?.gloss
+      return v.gloss && v.gloss !== romajiGloss ? [[surface, v.gloss]] : []
+    }),
+  )
+  console.log(
+    `\nProcessed ${entries} entries → ${romaji.size} romaji, ${kanji.size} kanji, ` +
+      `${Object.keys(kanjiGloss).length} kanji glosses, ${readings.size} reading surfaces`,
+  )
   return {
     v: 1,
     source: commonOnly ? 'jmdict-eng-common' : 'jmdict-eng',
     romaji: Object.fromEntries([...romaji.entries()].map(([k, v]) => [k, v.gloss])),
     kanji: Object.fromEntries([...kanji.entries()].map(([k, v]) => [k, v.romaji])),
+    kanjiGloss,
     readings: Object.fromEntries(
       [...readings.entries()].map(([surface, b]) => {
         const common = [...b.common].join(',')
@@ -239,11 +264,15 @@ async function main() {
 
   const romajiJson = JSON.stringify(data.romaji)
   const kanjiJson = JSON.stringify(data.kanji)
-  const payload = `{"v":1,"source":"${data.source}","romaji":${romajiJson},"kanji":${kanjiJson}}`
+  const kanjiGlossJson = JSON.stringify(data.kanjiGloss)
+  const payload = `{"v":1,"source":"${data.source}","romaji":${romajiJson},"kanji":${kanjiJson},"kanjiGloss":${kanjiGlossJson}}`
   writeFileSync(outPath, payload)
 
   const mb = (Buffer.byteLength(payload) / 1024 / 1024).toFixed(2)
-  console.log(`Wrote ${outPath} (${mb} MB, ${Object.keys(data.romaji).length} romaji entries)`)
+  console.log(
+    `Wrote ${outPath} (${mb} MB, ${Object.keys(data.romaji).length} romaji, ` +
+      `${Object.keys(data.kanjiGloss).length} kanji-gloss entries)`,
+  )
 
   const readingsPayload = `{"v":1,"source":"${data.source}","readings":${JSON.stringify(data.readings)}}`
   writeFileSync(readingsOutPath, readingsPayload)
