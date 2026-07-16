@@ -5,12 +5,14 @@ export interface TimestampModeOptions {
   accurateReadings?: boolean
 }
 
-/** Word-level timestamps verify readings and refine phrase boundaries, but the
- * merge can stall for minutes on phones / long songs — so the default falls back
- * to segment timestamps there. The user can opt back into word mode for accuracy:
- * the opt-in is honored on lite tier too (a lite device is often just a browser
- * without deviceMemory, not a phone), so lite users aren't permanently locked to
- * the coarser segment boundaries. */
+/** Word-level timestamps verify readings and refine phrase boundaries and keep
+ * line-end tails tight (segment chunks clip a sung final syllable ~0.7-1.0s
+ * early), but the merge can stall for minutes on phones / long songs — so the
+ * default trades that tail accuracy for speed past 180s and offers word mode
+ * on-demand instead (accurate-readings opt-in + the in-editor re-align hint from
+ * `suggestsWordLevelAlignment`). The opt-in is honored on lite tier too (a lite
+ * device is often just a browser without deviceMemory, not a phone), so lite
+ * users aren't permanently locked to the coarser segment boundaries. */
 export function preferredWhisperTimestampMode(
   tier: DeviceTier,
   durationSec: number,

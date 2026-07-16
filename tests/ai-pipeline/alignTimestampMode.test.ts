@@ -25,7 +25,7 @@ describe('preferredWhisperTimestampMode', () => {
     expect(preferredWhisperTimestampMode('lite', 60)).toBe('segment')
   })
 
-  it('uses segment timestamps for long songs on full tier', () => {
+  it('uses segment timestamps for long songs on full tier (speed default; accuracy on-demand)', () => {
     expect(preferredWhisperTimestampMode('full', 300)).toBe('segment')
     expect(preferredWhisperTimestampMode('full', 200)).toBe('segment')
   })
