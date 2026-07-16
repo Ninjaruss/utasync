@@ -1,5 +1,5 @@
 import type { AlignmentLanguage, LineAlignmentQuality, TimedLine } from '../core/types'
-import { lineWeight, type TranscriptWord } from '../ai-pipeline/aligner'
+import { CONTENT_CONFIDENCE_THRESHOLD, lineWeight, type TranscriptWord } from '../ai-pipeline/aligner'
 import { normalizeForMatch } from '../ai-pipeline/contentAligner'
 
 const JA_SCRIPT_RE = /[぀-ヿ㐀-鿿]/
@@ -50,6 +50,40 @@ export function offTimingLineCount(
     if (line.endTime - line.startTime < minLineDuration(text) * COMPRESSION_FRACTION - 1e-6) count++
   }
   return count
+}
+
+/** Share of scoreable (non-blank) lines that must be off-timing before the
+ * mismatch is systemic (a different/live version or the wrong lyrics) rather
+ * than a handful of stray rows. */
+const MISMATCH_OFF_FRACTION = 0.4
+const MISMATCH_MIN_OFF_LINES = 4
+
+/**
+ * Coarse "these lyrics probably don't match this recording" signal for the
+ * Edit-mode alignment hint. True when content matching largely fell through —
+ * either the stored confidence dropped below the content threshold (the aligner
+ * fell back to proportional interpolation, i.e. it could not anchor the lyrics
+ * to the audio at all), OR a large share of scoreable lines never anchored.
+ * Both mean a version mismatch / wrong lyrics that no re-align can fix — the fix
+ * is Replace lyrics, so the banner should say so instead of offering a re-align.
+ *
+ * Deliberately conservative (confidence gate OR >=4 off lines AND >=40% share)
+ * so an otherwise-good song with a few stray rows is NOT accused of mismatch.
+ */
+export function likelyLyricsMismatch(
+  lines: readonly TimedLine[],
+  lineAlignmentQuality: readonly LineAlignmentQuality[] | undefined,
+  alignmentConfidence: number | undefined,
+): boolean {
+  if (alignmentConfidence != null && alignmentConfidence < CONTENT_CONFIDENCE_THRESHOLD) return true
+  if (!lineAlignmentQuality?.length) return false
+  const offTiming = offTimingLineCount(lines, lineAlignmentQuality)
+  if (offTiming < MISMATCH_MIN_OFF_LINES) return false
+  const scoreable = lines.reduce(
+    (n, l) => n + ((l.original || l.translation).trim() ? 1 : 0),
+    0,
+  )
+  return scoreable > 0 && offTiming / scoreable >= MISMATCH_OFF_FRACTION
 }
 
 export interface ActivityRegion {

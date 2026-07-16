@@ -4,9 +4,10 @@ import {
   minLineDuration,
   findActivityRegions,
   offTimingLineCount,
+  likelyLyricsMismatch,
   COMPRESSION_FRACTION,
 } from '../../src/lyrics/lineDegeneracy'
-import type { TimedLine } from '../../src/core/types'
+import type { LineAlignmentQuality, TimedLine } from '../../src/core/types'
 
 describe('expectedLineDuration', () => {
   it('scales JA lines by character count', () => {
@@ -88,5 +89,49 @@ describe('offTimingLineCount', () => {
   it('ignores good lines and blank rows however short', () => {
     const lines = [tl(longText, 0, 0.1), tl('', 1, 1), tl('   ', 2, 2)]
     expect(offTimingLineCount(lines, ['good', 'approximate', 'approximate'])).toBe(0)
+  })
+})
+
+describe('likelyLyricsMismatch', () => {
+  const line = (original: string, startTime = 1, endTime = 4): TimedLine => ({
+    original, translation: '', startTime, endTime,
+  })
+  const mk = (n: number) => Array.from({ length: n }, (_, i) => line(`line ${i}`))
+
+  it('flags mismatch when confidence fell below the content threshold (proportional fallback)', () => {
+    const lines = mk(10)
+    const good: LineAlignmentQuality[] = lines.map(() => 'good')
+    expect(likelyLyricsMismatch(lines, good, 0.3)).toBe(true)
+  })
+
+  it('does not flag a well-matched song (high confidence, all good)', () => {
+    const lines = mk(10)
+    const good: LineAlignmentQuality[] = lines.map(() => 'good')
+    expect(likelyLyricsMismatch(lines, good, 0.85)).toBe(false)
+  })
+
+  it('flags mismatch when a large share of lines never anchored', () => {
+    const lines = mk(10)
+    // 5/10 = 50% needs_review, no confidence signal.
+    const q: LineAlignmentQuality[] = lines.map((_, i) => (i < 5 ? 'needs_review' : 'good'))
+    expect(likelyLyricsMismatch(lines, q, undefined)).toBe(true)
+  })
+
+  it('does not flag a few stray off-timing rows in an otherwise good song', () => {
+    const lines = mk(20)
+    // 2/20 = 10% needs_review — below the 40% systemic-mismatch share.
+    const q: LineAlignmentQuality[] = lines.map((_, i) => (i < 2 ? 'needs_review' : 'good'))
+    expect(likelyLyricsMismatch(lines, q, 0.7)).toBe(false)
+  })
+
+  it('needs at least a few off lines before the share matters (tiny songs)', () => {
+    const lines = mk(4)
+    // 2/4 = 50% share but only 2 off lines — below the 4-line floor.
+    const q: LineAlignmentQuality[] = lines.map((_, i) => (i < 2 ? 'needs_review' : 'good'))
+    expect(likelyLyricsMismatch(lines, q, undefined)).toBe(false)
+  })
+
+  it('is quiet when there is no quality data yet', () => {
+    expect(likelyLyricsMismatch(mk(5), undefined, undefined)).toBe(false)
   })
 })

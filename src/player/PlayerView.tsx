@@ -1314,6 +1314,9 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               onRecoverGaps={handleRecoverGaps}
               recoveringGaps={recoveringGaps}
               recoverGapsStatus={recoverGapsStatus}
+              alignmentConfidence={song?.lyrics.alignmentConfidence}
+              suggestAccurateAlign={suggestWordLevelAlign}
+              onAutoAlignAccurate={() => beginAlignment('auto', true)}
             />
           )}
         </div>
