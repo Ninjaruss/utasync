@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { lookupWord, jishoSearchUrl } from '../../../src/language/japanese/wordLookup'
 import { setJmdictGlossForTests, resetJmdictGlossCache } from '../../../src/ai-pipeline/jmdictGloss'
 import type { Token } from '../../../src/core/types'
@@ -134,8 +135,9 @@ describe('lookupWord — surface-specific kanji gloss (homophone collapse fix)',
   })
 
   it('resolves the real regenerated JMdict data for every audited surface', async () => {
+    const here = dirname(fileURLToPath(import.meta.url))
     setJmdictGlossForTests(
-      JSON.parse(readFileSync(join(process.cwd(), 'public/jmdict-gloss.json'), 'utf8')),
+      JSON.parse(readFileSync(join(here, '../../../public/jmdict-gloss.json'), 'utf8')),
     )
     // surface, katakana reading, expected-correct substring, previously-wrong homophone gloss
     const cases: Array<[string, string, string, string]> = [
