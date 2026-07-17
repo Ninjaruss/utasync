@@ -184,7 +184,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
         />
         <SettingToggle
           title="Tap word lookup"
-          description="Tap a lyric word for its reading and meaning. Turn off if you use an extension like Yomitan."
+          description="Tap a Japanese word for its reading and meaning, or an English translation word for its Japanese meaning. Turn off if you use an extension like Yomitan."
           checked={tapLookupEnabled}
           onToggle={() => setTapLookupEnabled(!tapLookupEnabled)}
         />
