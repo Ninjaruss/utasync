@@ -381,7 +381,7 @@ export function LyricDisplay({
             loopHighlight={loopHighlight}
             onLineClick={onLineClick}
             lineRef={isActive ? activeRef : undefined}
-            onWordTap={tapLookupEnabled ? setWordTap : undefined}
+            onWordTap={tapLookupEnabled && isActive ? setWordTap : undefined}
           />
         )
       })}

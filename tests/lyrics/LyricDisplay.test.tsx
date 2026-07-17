@@ -415,6 +415,23 @@ describe('tap-to-look-up wiring', () => {
     expect(onLineClick).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('dialog')).toBeNull()
   })
+
+  it('does not open the popover for a word on a non-active line; it seeks instead', () => {
+    useLyricsStore.setState({
+      lines: [
+        { original: '一行目', startTime: 0, endTime: 2, translation: '',
+          tokens: [{ surface: '一行目', reading: 'イチギョウメ', pos: '名詞', startIndex: 0, endIndex: 3 }] },
+        { original: '躱し', startTime: 2, endTime: 4, translation: '',
+          tokens: [{ surface: '躱し', reading: 'カワシ', pos: '動詞', baseForm: '躱す', startIndex: 0, endIndex: 2 }] },
+      ],
+      activeLine: 0, furiganaMode: 'none', showTranslation: false, lyricsLayout: 'stacked',
+    })
+    const onLineClick = vi.fn()
+    render(<LyricDisplay onLineClick={onLineClick} />)
+    fireEvent.click(screen.getByText('躱し')) // word on the NON-active (second) line
+    expect(onLineClick).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
 })
 
 describe('LyricDisplay active-line centering', () => {
