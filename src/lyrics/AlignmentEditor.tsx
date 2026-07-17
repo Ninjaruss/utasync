@@ -95,8 +95,8 @@ export function AlignmentEditor({ originalLines, translationLines, extraLines, o
         </div>
       </div>
 
-      {/* Column headers */}
-      <div className="grid grid-cols-[1fr_1fr_auto] gap-2 text-[10px] uppercase tracking-wide text-white/30 px-1 shrink-0">
+      {/* Column headers — meaningless for the stacked mobile cards, so desktop-only */}
+      <div className="hidden sm:grid grid-cols-[1fr_1fr_auto] gap-2 text-[10px] uppercase tracking-wide text-white/30 px-1 shrink-0">
         <span>Original</span>
         <span>Translation</span>
         {/* Matches the row control cluster: 3 × min-w-11 (2.75rem) + 2 × gap-1 (0.25rem). */}
@@ -105,47 +105,55 @@ export function AlignmentEditor({ originalLines, translationLines, extraLines, o
 
       <div className="flex-1 min-h-0 space-y-1.5 overflow-y-auto pr-1">
         {originalLines.map((original, i) => (
-          <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
-            {/* Original — read only */}
+          <div
+            key={i}
+            className="flex flex-col gap-1 sm:grid sm:grid-cols-[1fr_1fr_auto] sm:gap-2 sm:items-center"
+          >
+            {/* Original — read only. Wraps full-width on phones (no truncation) so a
+                stranger can actually read the line; truncates in the desktop grid. */}
             <div
-              className="px-2 py-1.5 rounded-lg bg-cinnabar-900/50 text-white/60 text-sm font-jp leading-snug select-none truncate"
+              className="px-2 py-1.5 rounded-lg bg-cinnabar-900/50 text-white/60 text-sm font-jp leading-snug select-none whitespace-normal break-words sm:truncate"
               title={original}
             >
               {original || <span className="text-white/20 italic">empty</span>}
             </div>
 
-            {/* Translation — editable */}
-            <input
-              value={translations[i] ?? ''}
-              onChange={(e) => update(i, e.target.value)}
-              placeholder="—"
-              className={[
-                'bg-cinnabar-900 text-sm px-2 py-1.5 rounded-lg outline-none border focus:border-cinnabar-accent',
-                translations[i]?.trim()
-                  ? 'text-white border-cinnabar-800'
-                  : 'text-white/30 border-cinnabar-800/50',
-              ].join(' ')}
-            />
+            {/* On phones the input + controls share a row below the original; on
+                desktop `sm:contents` flattens them back into their own grid cells. */}
+            <div className="flex items-center gap-1 sm:contents">
+              {/* Translation — editable */}
+              <input
+                value={translations[i] ?? ''}
+                onChange={(e) => update(i, e.target.value)}
+                placeholder="—"
+                className={[
+                  'flex-1 min-w-0 sm:flex-none sm:min-w-[auto] bg-cinnabar-900 text-sm px-2 py-1.5 rounded-lg outline-none border focus:border-cinnabar-accent',
+                  translations[i]?.trim()
+                    ? 'text-white border-cinnabar-800'
+                    : 'text-white/30 border-cinnabar-800/50',
+                ].join(' ')}
+              />
 
-            {/* Move + clear controls — 44px targets */}
-            <div className="flex items-center gap-1 justify-end">
-              <button
-                onClick={() => moveUp(i)}
-                disabled={i === 0}
-                className="min-w-11 min-h-11 flex items-center justify-center text-white/30 hover:text-white disabled:opacity-20 text-sm touch-manipulation"
-                aria-label="Move translation up"
-              >↑</button>
-              <button
-                onClick={() => moveDown(i)}
-                disabled={i >= translations.length - 1}
-                className="min-w-11 min-h-11 flex items-center justify-center text-white/30 hover:text-white disabled:opacity-20 text-sm touch-manipulation"
-                aria-label="Move translation down"
-              >↓</button>
-              <button
-                onClick={() => clearRow(i)}
-                className="min-w-11 min-h-11 flex items-center justify-center text-white/20 hover:text-red-400 text-sm touch-manipulation"
-                aria-label="Clear translation"
-              >✕</button>
+              {/* Move + clear controls — 44px targets */}
+              <div className="flex items-center gap-1 justify-end">
+                <button
+                  onClick={() => moveUp(i)}
+                  disabled={i === 0}
+                  className="min-w-11 min-h-11 flex items-center justify-center text-white/30 hover:text-white disabled:opacity-20 text-sm touch-manipulation"
+                  aria-label="Move translation up"
+                >↑</button>
+                <button
+                  onClick={() => moveDown(i)}
+                  disabled={i >= translations.length - 1}
+                  className="min-w-11 min-h-11 flex items-center justify-center text-white/30 hover:text-white disabled:opacity-20 text-sm touch-manipulation"
+                  aria-label="Move translation down"
+                >↓</button>
+                <button
+                  onClick={() => clearRow(i)}
+                  className="min-w-11 min-h-11 flex items-center justify-center text-white/20 hover:text-red-400 text-sm touch-manipulation"
+                  aria-label="Clear translation"
+                >✕</button>
+              </div>
             </div>
           </div>
         ))}
