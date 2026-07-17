@@ -7,6 +7,7 @@ interface SettingsState extends UserSettings {
   setVocalSeparationEnabled: (enabled: boolean) => void
   setReadingMode: (mode: ReadingMode) => void
   setTapLookupEnabled: (enabled: boolean) => void
+  setImmersionDefinitions: (enabled: boolean) => void
   setModelDownloadConsented: (consented: boolean) => void
 }
 
@@ -24,11 +25,13 @@ export const useSettingsStore = create<SettingsState>()(
       vocalSeparationEnabled: false,
       readingMode: 'dictionary',
       tapLookupEnabled: true,
+      immersionDefinitions: false,
       modelDownloadConsented: false,
       setDefaultSongLanguage: (defaultSongLanguage) => set({ defaultSongLanguage }),
       setVocalSeparationEnabled: (vocalSeparationEnabled) => set({ vocalSeparationEnabled }),
       setReadingMode: (readingMode) => set({ readingMode }),
       setTapLookupEnabled: (tapLookupEnabled) => set({ tapLookupEnabled }),
+      setImmersionDefinitions: (immersionDefinitions) => set({ immersionDefinitions }),
       setModelDownloadConsented: (modelDownloadConsented) => set({ modelDownloadConsented }),
     }),
     { name: 'utasync-settings' }
