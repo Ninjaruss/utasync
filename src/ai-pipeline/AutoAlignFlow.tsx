@@ -80,6 +80,15 @@ function formatLoadStatus(p: LoadProgress, downloadHint: string): string | null 
   return null
 }
 
+// Operator hint for a missing Demucs model — logged (once) instead of rendered:
+// the UI shows plain user copy, deployment docs belong in the console.
+let demucsMissingWarned = false
+function noteDemucsModelMissing() {
+  if (demucsMissingWarned) return
+  demucsMissingWarned = true
+  console.warn('Demucs model not installed (see docs/DEPLOYMENT.md). Transcription will run on the full mix.')
+}
+
 function loadTaskProgress(p: LoadProgress | null, phase: 'download' | 'init'): number | null {
   if (phase === 'init') return null
   if (!p) return null
@@ -110,6 +119,10 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
   const [transcribeMerging, setTranscribeMerging] = useState(false)
   const [transcribePhase, setTranscribePhase] = useState<TranscribeProgressStatus>('transcribing')
   const [loadDetail, setLoadDetail] = useState<string | null>(null)
+  // Crash-downgrade retry notice: without it, a recoverable WASM crash mid-
+  // transcription just snaps the progress bar to 0 with no explanation (the
+  // transcribing stage never showed loadDetail). Held until the retry finishes.
+  const [retryNotice, setRetryNotice] = useState<string | null>(null)
   // Round-8 gap re-transcription: a status line shown during the aligning stage
   // while unaligned sections are being recovered ("Recovering N section(s)…").
   const [gapRecovery, setGapRecovery] = useState<string | null>(null)
@@ -128,12 +141,18 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
 
   useEffect(() => {
     if (!vocalSeparationSupported) return
-    void refreshDemucsModelAvailability().then(setDemucsReady)
+    void refreshDemucsModelAvailability().then((ready) => {
+      setDemucsReady(ready)
+      if (!ready) noteDemucsModelMissing()
+    })
   }, [vocalSeparationSupported])
 
   useEffect(() => {
     if (!vocalSeparationSupported || stage !== 'idle') return
-    void refreshDemucsModelAvailability().then(setDemucsReady)
+    void refreshDemucsModelAvailability().then((ready) => {
+      setDemucsReady(ready)
+      if (!ready) noteDemucsModelMissing()
+    })
   }, [vocalSeparationSupported, stage])
 
   const start = async () => {
@@ -146,6 +165,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
       setStage('preparing')
       setProgress(0)
       setLoadDetail(null)
+      setRetryNotice(null)
 
       const willSeparate =
         vocalSeparation
@@ -283,15 +303,30 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           if (cancelledRef.current || !isRecoverableTranscriptionError(e)) throw e
           if (effectiveTimestampMode === 'word' && !timestampModeOverride) {
             effectiveTimestampMode = 'segment'
-            setLoadDetail('Word-level pass failed (likely out of memory) — retrying with segment timestamps…')
+            // Shown in the transcribing stage's detail area (loadDetail never
+            // rendered there — the bar just snapped to 0 unexplained).
+            setRetryNotice('Word-level pass failed (likely out of memory) — retrying with segment timestamps…')
           } else if (effectiveHighAccuracy) {
             effectiveHighAccuracy = false
-            setLoadDetail('High-accuracy model failed — retrying with the standard model…')
+            const notice = 'High-accuracy model failed — retrying with the standard model…'
+            setRetryNotice(notice)
+            // The standard model may still need to download/initialize, so flip
+            // back to the loading stage (and let onModelLoaded re-announce the
+            // return to transcribing) instead of leaving a dead transcribe bar.
+            modelAnnounced = false
+            setStage('loading')
+            setLoadPhase('download')
+            setLastLoadProgress(null)
+            setLoadDetail(notice)
           } else {
             throw e
           }
           setProgress(0)
-          return await run()
+          try {
+            return await run()
+          } finally {
+            setRetryNotice(null)
+          }
         }
       }
       let refined: RefinedAlignment
@@ -439,13 +474,13 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
     preparing: 'Reading and decoding your audio file — longer songs take longer here',
     separating: 'Isolating vocals before transcription',
     loading: loadDetail ?? `Checking cached model files (first run downloads ${downloadHint})`,
-    transcribing: transcribeMerging
+    transcribing: retryNotice ?? (transcribeMerging
       ? transcribePhase === 'finalizing'
         ? 'Packaging transcript — almost ready (can take a few minutes on long songs)'
         : 'Finalizing transcript — merging chunks (can take a few minutes on long songs)'
       : tier === 'lite'
         ? 'On-device speech recognition — can take a few minutes on phones'
-        : 'Running on-device speech recognition',
+        : 'Running on-device speech recognition'),
     aligning: gapRecovery ?? 'Matching the transcript to your lyric lines',
   }
 
@@ -477,6 +512,20 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
 
   const isProcessing = activeStage !== null
 
+  // Browser back / refresh / tab-close would silently kill a multi-minute run.
+  // The in-app Cancel is confirmed (ConfirmDialog below); this guards the escape
+  // routes it can't. Registered only while actively processing, removed again on
+  // done/error/idle and on unmount.
+  useEffect(() => {
+    if (!isProcessing) return
+    const warnBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = '' // legacy Chromium requires returnValue for the prompt
+    }
+    window.addEventListener('beforeunload', warnBeforeUnload)
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload)
+  }, [isProcessing])
+
   const requestClose = () => {
     if (stage === 'done' || stage === 'error') {
       onClose()
@@ -489,8 +538,8 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
   const tierNote =
     vocalSeparationRun ? 'Vocal separation + transcription'
     : tier === 'full' ? 'Transcription (optional vocal separation available)'
-    : tier === 'lite' ? 'Transcription only'
-    : 'Your device does not support on-device AI. Please use tap-sync instead.'
+    : tier === 'lite' ? 'Listens to your song on this device and times each lyric line.'
+    : 'Your device does not support on-device AI. Please use Tap-through instead.'
 
   const toggleVocalSeparation = (enabled: boolean) => {
     setVocalSeparation(enabled)
@@ -532,7 +581,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
               <span className="font-medium text-white">Isolate vocals first</span>
               {' — '}
               {demucsReady === false
-                ? 'Demucs model not installed (see docs/DEPLOYMENT.md). Transcription will run on the full mix.'
+                ? "Vocal isolation isn't available right now — alignment will run on the full mix."
                 : demucsReady === null
                   ? 'Checking for vocal separation model…'
                   : 'Slower, but helps on busy mixes with loud instrumentals.'}
@@ -549,9 +598,9 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
               onChange={(e) => setAccurateReadings(e.target.checked)}
             />
             <span className="text-sm text-white/80 text-pretty">
-              <span className="font-medium text-white">Word-level timestamps (slower)</span>
+              <span className="font-medium text-white">Accurate timing (slower)</span>
               {' — '}
-              More reliable furigana and readings on long songs. Timing accuracy varies by song.
+              Better furigana and tighter line timing on long songs.
             </span>
           </label>
         )}
@@ -613,8 +662,8 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
             ? <p className="text-yellow-400 text-sm">
                 Alignment is approximate — the vocals were hard to transcribe, so per-line timings may be off.
                 {vocalSeparationSupported && demucsReady === true && !vocalSeparationRun
-                  ? ' Turn on Vocal separation and re-run for a cleaner result, or use tap-sync.'
-                  : ' Try tap-sync or double-check your lyrics.'}
+                  ? ' Turn on “Isolate vocals first” and re-run for a cleaner result, or use Tap-through.'
+                  : ' Try Tap-through or double-check your lyrics.'}
               </p>
             : <p className="text-green-400 text-sm">Lyrics aligned successfully.</p>
         )}
