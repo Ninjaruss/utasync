@@ -25,4 +25,10 @@ describe('enjaDict loader', () => {
     expect(data?.entries.umbrella).toEqual([{ w: '傘', r: 'かさ' }])
     expect(getEnjaEntries('umbrella')).toEqual([{ w: '傘', r: 'かさ' }])
   })
+
+  it('returns undefined for a prototype-member key not present in the data', () => {
+    setEnjaDictForTests({ v: 1, source: 'test', entries: { spring: [{ w: '春', r: 'はる' }] } })
+    expect(getEnjaEntries('constructor')).toBeUndefined()
+    expect(getEnjaEntries('toString')).toBeUndefined()
+  })
 })

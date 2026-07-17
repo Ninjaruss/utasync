@@ -36,7 +36,9 @@ export function loadEnjaDict(): Promise<EnjaDictData | null> {
 export function enjaDictLoaded(): boolean { return data !== null }
 
 export function getEnjaEntries(word: string): EnjaEntry[] | undefined {
-  return data?.entries[word.trim().toLowerCase()]
+  if (!data) return undefined
+  const key = word.trim().toLowerCase()
+  return Object.prototype.hasOwnProperty.call(data.entries, key) ? data.entries[key] : undefined
 }
 
 export function resetEnjaDictCache(): void { data = null; loadPromise = null; lastLoadFailureAt = 0 }
