@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { lookupWord, jishoSearchUrl } from '../../../src/language/japanese/wordLookup'
 import { setJmdictGlossForTests, resetJmdictGlossCache } from '../../../src/ai-pipeline/jmdictGloss'
+import { setJaMonolingualForTests, resetJaMonolingualCache } from '../../../src/language/japanese/jaMonolingual'
 import type { Token } from '../../../src/core/types'
 
 const tok = (patch: Partial<Token> & { surface: string }): Token => ({
@@ -298,5 +299,42 @@ describe('lookupWord — sung-reading coherence with the ruby', () => {
     const result = await lookupWord(tok({ surface: '躱す', reading: 'カワス', pos: '動詞' }))
     expect(result!.reading).toBe('かわす')
     expect(result!.dictionaryReading).toBeNull()
+  })
+})
+
+describe('lookupWord immersion (JA→JA)', () => {
+  beforeEach(() => {
+    setJmdictGlossForTests({
+      v: 1,
+      source: 'test',
+      romaji: { kawasu: 'to dodge; to evade' },
+      kanji: { '躱す': 'kawasu' },
+    })
+  })
+
+  afterEach(() => {
+    resetJaMonolingualCache()
+    resetJmdictGlossCache()
+  })
+
+  it('returns the Japanese definition and definitionLang "ja" when immersion is on', async () => {
+    setJaMonolingualForTests({ v: 1, source: 't', entries: { '走る': ['速く移動する'] } })
+    const r = await lookupWord(tok({ surface: '走っ', reading: 'ハシッ', pos: '動詞', baseForm: '走る' }), 'dictionary', { immersion: true })
+    expect(r!.definitionLang).toBe('ja')
+    expect(r!.glosses).toEqual(['速く移動する'])
+  })
+
+  it('falls back to reading-only (no gloss) when there is no Japanese definition', async () => {
+    setJaMonolingualForTests({ v: 1, source: 't', entries: {} })
+    const r = await lookupWord(tok({ surface: '走っ', reading: 'ハシッ', pos: '動詞', baseForm: '走る' }), 'dictionary', { immersion: true })
+    expect(r!.definitionLang).toBe('ja')
+    expect(r!.glosses).toEqual([])
+    expect(r!.reading).toBe('はしっ')
+  })
+
+  it('leaves non-immersion output on the English path (definitionLang "en")', async () => {
+    const r = await lookupWord(tok({ surface: '躱し', reading: 'カワシ', pos: '動詞', baseForm: '躱す' }))
+    expect(r!.definitionLang).toBe('en')
+    expect(r!.glosses).toEqual(['to dodge', 'to evade'])
   })
 })
