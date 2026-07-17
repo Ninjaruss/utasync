@@ -30,6 +30,7 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
   const reading = loading ? null : result.reading
   const pos = loading ? null : result.posLabel ?? result.pos
   const glosses = loading ? [] : result.glosses
+  const isJaDef = !loading && result.definitionLang === 'ja'
 
   const externalLink = immersion
     ? { href: `https://www.weblio.jp/content/${encodeURIComponent(headword)}`, label: 'weblio 国語辞書 ↗' }
@@ -55,7 +56,7 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
       {loading ? (
         <p className="text-xs text-white/40">Looking up…</p>
       ) : glosses.length > 0 ? (
-        <p className="text-sm text-white/80 text-pretty">{glosses.join('; ')}</p>
+        <p lang={isJaDef ? 'ja' : undefined} className={['text-sm text-white/80 text-pretty', isJaDef ? 'font-jp' : ''].join(' ')}>{glosses.join('; ')}</p>
       ) : result.dictionaryAvailable ? (
         <p className="text-xs text-white/40">No definition found.</p>
       ) : (

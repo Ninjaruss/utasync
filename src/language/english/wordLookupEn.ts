@@ -9,7 +9,7 @@ export interface EnWordLookupResult {
   definitionLang: 'ja' | 'en'
   /** Japanese equivalents — populated when definitionLang === 'ja'. */
   equivalents: EnEquivalent[]
-  /** English definitions — populated when definitionLang === 'en' (later task). */
+  /** English definitions — populated when definitionLang === 'en' (immersion). */
   definitions: string[]
   /** False when the underlying dictionary failed to load (offline). */
   dictionaryAvailable: boolean
@@ -47,7 +47,7 @@ export function stemCandidates(word: string): string[] {
 
 /**
  * Look up an English translation word. Immersion off → Japanese equivalents
- * (reverse JMdict). Immersion on → English definitions (later task). Null for a
+ * (reverse JMdict). Immersion on → English definitions (WordNet). Null for a
  * token with no latin letters (punctuation) so the popover unmounts.
  */
 export async function lookupEnglishWord(
