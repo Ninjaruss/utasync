@@ -4,6 +4,16 @@ interface Props {
   onOpenApp: () => void
 }
 
+// Illustrative in-app snippet for the landing preview. The line is an invented,
+// public-domain-safe example (「今日は雪が降る」 — "today snow falls"), NOT from any
+// real song. Each content word shares one colour with its English gloss chip; the
+// hues are distinct from the cinnabar accent red so they don't read as the CTA.
+const PREVIEW_WORDS = [
+  { base: '今日', reading: 'きょう', gloss: 'today', color: '#38bdf8' }, // sky blue
+  { base: '雪', reading: 'ゆき', gloss: 'snow', color: '#4ade80' }, //  green
+  { base: '降', tail: 'る', reading: 'ふ', gloss: 'falls', color: '#fbbf24' }, // amber
+]
+
 const FEATURES = [
   {
     badge: '01',
@@ -60,6 +70,60 @@ export function LandingScreen({ onOpenApp }: Props) {
             >
               Get started →
             </button>
+          </div>
+        </section>
+
+        {/* In-app preview — illustrative snippet of a synced lyric line. Decorative:
+            the feature cards below convey the same ideas as real text, so the whole
+            mock is aria-hidden (ruby readings would be announced awkwardly otherwise). */}
+        <section
+          aria-hidden="true"
+          className="mb-10 rounded-2xl border border-cinnabar-900 bg-gradient-to-b from-cinnabar-900/45 to-cinnabar-950 p-5 sm:p-6 shadow-lg shadow-black/20"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-[0.2em] text-white/30">Preview</span>
+            <span className="flex items-center gap-1.5 text-[10px] text-white/30">
+              <span className="w-1.5 h-1.5 rounded-full bg-cinnabar-accent/70" />
+              Synced line
+            </span>
+          </div>
+
+          {/* Japanese line: real HTML ruby furigana + colour-paired content words. */}
+          <p className="font-jp furigana-text mt-5 flex flex-wrap items-end gap-x-1.5 gap-y-3 text-2xl sm:text-3xl leading-loose text-white">
+            {PREVIEW_WORDS.map((w, i) => (
+              <span key={w.gloss} className="contents">
+                <span
+                  className="pb-0.5"
+                  style={{ borderBottom: `2px solid ${w.color}` }}
+                >
+                  <ruby>
+                    {w.base}
+                    <rt>{w.reading}</rt>
+                  </ruby>
+                  {w.tail}
+                </span>
+                {/* grammatical particles, rendered muted like the real app */}
+                {i === 0 && <span className="text-white/40">は</span>}
+                {i === 1 && <span className="text-white/40">が</span>}
+              </span>
+            ))}
+          </p>
+
+          {/* Colour-matched word → English gloss chips. */}
+          <div className="mt-5 flex flex-wrap gap-2">
+            {PREVIEW_WORDS.map((w) => (
+              <span
+                key={w.gloss}
+                className="inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium"
+                style={{
+                  color: w.color,
+                  borderColor: `${w.color}59`,
+                  backgroundColor: `${w.color}14`,
+                }}
+              >
+                {w.gloss}
+              </span>
+            ))}
           </div>
         </section>
 
