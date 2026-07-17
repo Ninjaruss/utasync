@@ -9,7 +9,7 @@ import { exportLRC, downloadFile } from '../lyrics/exporter'
 import { useSettingsStore } from '../payment/SettingsStore'
 import { useAbLoopPlaylistStore } from '../player/abLoopPlaylistStore'
 import { LegalLinks } from '../core/ui/LegalLinks'
-import { LEGAL_LAST_UPDATED, KOFI_URL } from '../core/legal'
+import { LEGAL_LAST_UPDATED, SUPPORT_URL } from '../core/legal'
 import { getDeviceTier, canUseVocalSeparation } from '../ai-pipeline/capability'
 import { refreshDemucsModelAvailability } from '../ai-pipeline/demucsSeparator'
 import type { Language, Song } from '../core/types'
@@ -331,12 +331,12 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
           </p>
         </div>
         <a
-          href={KOFI_URL}
+          href={SUPPORT_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="w-full min-h-11 rounded-lg bg-cinnabar-accent hover:bg-cinnabar-accent/90 text-white text-sm font-medium flex items-center justify-center gap-2 touch-manipulation transition-[background-color,transform] duration-150 ease-out active:scale-[0.98]"
         >
-          ☕ Support on Ko-fi
+          ♥ Support on Patreon
         </a>
       </div>
 
