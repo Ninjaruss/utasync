@@ -40,6 +40,8 @@ export default function App() {
   const [songId, setSongId] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // Bumped when Settings deletes a song, so the still-mounted LibraryScreen refetches.
+  const [libraryRefreshKey, setLibraryRefreshKey] = useState(0)
   const toast = useToast()
 
   useEffect(() => {
@@ -90,6 +92,7 @@ export default function App() {
             onOpen={openSong}
             onAdd={() => setAddOpen(true)}
             onSettings={() => setSettingsOpen(true)}
+            refreshKey={libraryRefreshKey}
           />
           <Onboarding />
         </>
@@ -105,6 +108,7 @@ export default function App() {
         <SettingsSheet
           onClose={() => setSettingsOpen(false)}
           onSongDeleted={(deletedId) => {
+            setLibraryRefreshKey((k) => k + 1)
             if (songId === deletedId) {
               setView('library')
               setSongId(null)
