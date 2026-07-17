@@ -77,14 +77,14 @@ describe('enumerateGapHoles', () => {
       line(AFTER, 44, 48),
     ]
     const refined = makeRefined(lines, ['good', 'needs_review', 'needs_review', 'good'])
-    const holes = enumerateGapHoles(refined)
+    const holes = enumerateGapHoles(refined, [])
     expect(holes).toEqual<GapHole[]>([{ from: 1, to: 2, t0: 14, t1: 44 }])
   })
 
   it('returns [] for a fully-good alignment', () => {
     const lines = [line(BEFORE, 10, 14), line(GAP1, 14, 18), line(AFTER, 44, 48)]
     const refined = makeRefined(lines, ['good', 'good', 'good'])
-    expect(enumerateGapHoles(refined)).toEqual([])
+    expect(enumerateGapHoles(refined, [])).toEqual([])
   })
 
   it('skips a run whose lines are all interjection/blank', () => {
@@ -95,14 +95,14 @@ describe('enumerateGapHoles', () => {
       line(AFTER, 44, 48),
     ]
     const refined = makeRefined(lines, ['good', 'needs_review', 'needs_review', 'good'])
-    expect(enumerateGapHoles(refined)).toEqual([])
+    expect(enumerateGapHoles(refined, [])).toEqual([])
   })
 
   it('anchors t0/t1 to the edges when the hole touches the array boundary', () => {
     const lines = [line(GAP1, 0, 4), line(AFTER, 44, 48)]
     const refined = makeRefined(lines, ['needs_review', 'good'])
     // from=0 → t0 defaults to 0; anchorAfter=lines[1].startTime=44.
-    expect(enumerateGapHoles(refined)).toEqual<GapHole[]>([{ from: 0, to: 0, t0: 0, t1: 44 }])
+    expect(enumerateGapHoles(refined, [])).toEqual<GapHole[]>([{ from: 0, to: 0, t0: 0, t1: 44 }])
   })
 })
 
@@ -289,7 +289,7 @@ describe('gapRealign over the committed garbled AKFG fixture', () => {
     const words = loadTranscriptWords(join(dir, 'transcript.word.garbled.json'))
     const refined = refineAlignmentWithPhrases(sheetRows, words, 'ja')
 
-    const holes = enumerateGapHoles(refined)
+    const holes = enumerateGapHoles(refined, words)
     expect(holes.length).toBeGreaterThan(0)
     // The desert [188,258]s strips lines' evidence → the biggest hole sits there.
     const hole = holes.reduce((a, b) => (b.to - b.from > a.to - a.from ? b : a))
@@ -346,5 +346,105 @@ describe('gapRealign shares round-7 constants', () => {
     expect(readConst('../../src/lyrics/gapRealign.ts')).toBe(
       readConst('../../src/lyrics/redistributeDegenerateRuns.ts'),
     )
+  })
+})
+
+describe('enumerateGapHoles round-11 semantics (unverified runs bounded by verified anchors)', () => {
+  it('surfaces a DISGUISED hole: an approximate run with no corroborating evidence', () => {
+    // The upgrade passes relabeled an interpolated-over-a-void run to
+    // approximate; the transcript has no words under it, so it is still a hole.
+    const lines = [
+      line(BEFORE, 10, 14),
+      line(GAP1, 14, 16),
+      line(GAP2, 16, 18),
+      line(AFTER, 44, 48),
+    ]
+    const words = [...anchorWords(BEFORE, 10, 14), ...anchorWords(AFTER, 44, 48)]
+    const refined = makeRefined(lines, ['good', 'approximate', 'approximate', 'good'])
+    expect(enumerateGapHoles(refined, words)).toEqual<GapHole[]>([{ from: 1, to: 2, t0: 14, t1: 44 }])
+  })
+
+  it('does NOT hole an approximate run whose lines the transcript corroborates in place', () => {
+    // Chunk-demoted segment lines: approximate by construction but their own
+    // words sit under them at sane widths — nothing to re-transcribe.
+    const lines = [
+      line(BEFORE, 10, 14),
+      line(GAP1, 14, 18),
+      line(GAP2, 18, 22),
+      line(AFTER, 44, 48),
+    ]
+    const words = [
+      ...anchorWords(BEFORE, 10, 14),
+      ...anchorWords(GAP1, 14, 18),
+      ...anchorWords(GAP2, 18, 22),
+      ...anchorWords(AFTER, 44, 48),
+    ]
+    const refined = makeRefined(lines, ['good', 'approximate', 'approximate', 'good'])
+    expect(enumerateGapHoles(refined, words)).toEqual([])
+  })
+
+  it('extends a hole past a non-desert approximate line to the verified anchor (false-anchor bypass)', () => {
+    // A wrongly-anchored line inside the trouble region reads approximate with
+    // local evidence (a stolen occurrence). It must NOT cap the window: the
+    // run reaches the good anchor beyond it, so the slice can cover the
+    // un-heard audio after the false anchor.
+    const lines = [
+      line(BEFORE, 10, 14),
+      line(GAP1, 14, 14.1), // needs_review trouble
+      line(GAP2, 14.1, 16.1), // the false anchor: approximate WITH evidence under it
+      line('crimson lanterns floating over quiet water tonight', 16.1, 18),
+      line(AFTER, 44, 48),
+    ]
+    const words = [
+      ...anchorWords(BEFORE, 10, 14),
+      ...anchorWords(GAP2, 14.1, 16.1),
+      ...anchorWords(AFTER, 44, 48),
+    ]
+    const refined = makeRefined(lines, [
+      'good',
+      'needs_review',
+      'approximate',
+      'approximate',
+      'good',
+    ])
+    // One hole spanning the whole unverified run; t1 comes from the GOOD anchor.
+    expect(enumerateGapHoles(refined, words)).toEqual<GapHole[]>([{ from: 1, to: 3, t0: 14, t1: 44 }])
+  })
+})
+
+describe('spliceGapAlignment round-11 acceptance (no needs_review to drop)', () => {
+  const mkArgs = (gapWords: TranscriptWord[]) => {
+    const lines = [
+      line(BEFORE, 10, 14),
+      line(GAP1, 14, 16),
+      line(GAP2, 16, 18),
+      line(AFTER, 44, 48),
+    ]
+    // Approximate hole: zero needs_review on both sides of the splice.
+    const refined = makeRefined(lines, ['good', 'approximate', 'approximate', 'good'])
+    const transcriptWords = [...anchorWords(BEFORE, 10, 14), ...anchorWords(AFTER, 44, 48)]
+    const sheetRows = lines.map((l) => line(l.original, 0, 0))
+    return { refined, transcriptWords, sheetRows, from: 1, to: 2, gapWords, lang: 'en' as const }
+  }
+
+  it('ACCEPTS a clean slice into an all-approximate hole when placed coverage strictly improves', () => {
+    const gapWords = [...anchorWords(GAP1, 20, 24), ...anchorWords(GAP2, 30, 34)]
+    const res = spliceGapAlignment(mkArgs(gapWords))
+    expect(res.accepted).toBe(true)
+    // The hole lines snapped to the fresh evidence.
+    expect(res.refined.lines[1].startTime).toBeCloseTo(20, 0)
+    expect(res.refined.lines[2].startTime).toBeCloseTo(30, 0)
+    // Anchors untouched.
+    expect(res.refined.lines[0].startTime).toBe(10)
+    expect(res.refined.lines[3].startTime).toBe(44)
+  })
+
+  it('REJECTS an unrelated slice (no placed-coverage gain) and returns inputs byte-identical', () => {
+    const gapWords = anchorWords('zebra quartz jigsaw phantom xylophone', 20, 30)
+    const args = mkArgs(gapWords)
+    const res = spliceGapAlignment(args)
+    expect(res.accepted).toBe(false)
+    expect(res.refined).toBe(args.refined)
+    expect(res.transcriptWords).toBe(args.transcriptWords)
   })
 })

@@ -12,6 +12,7 @@ import {
   syncPhrasesFromValidatedLines,
   type RefinedAlignment,
 } from './phraseAlignment'
+import { isEvidenceDesertLine } from './labelHonesty'
 
 /**
  * Pure gap-targeted re-alignment core (round 8, G1). No audio, no Whisper.
@@ -70,6 +71,16 @@ const HOLE_MIN_WINDOW_S = 4
  */
 const COVERAGE_REALIZE_TOL = 0.15
 
+/**
+ * Minimum placed-coverage gain for the round-11 no-needs_review-drop acceptance
+ * branch: a splice into a mostly-`approximate` hole is kept only when the fresh
+ * slice anchors at least this much MORE of the run's lyric text (placement-
+ * aware) than the current transcript corroborates at the current placement.
+ * Big enough that attribution jitter can't flip an acceptance; small enough
+ * that genuinely recovering even a couple of lines in a long run clears it.
+ */
+const PLACED_COVERAGE_IMPROVE_MIN = 0.1
+
 /** A lyric line's alignable text: the original, or its translation when the row
  * has no original. Shared with the G2 orchestrator so hole detection and the
  * splice agree on what text a row carries. */
@@ -87,34 +98,54 @@ function holeBounds(lines: TimedLine[], from: number, to: number): { t0: number;
 }
 
 /**
- * Maximal runs of `needs_review` lines bounded by non-`needs_review` anchors.
- * A run entirely of blank/interjection lines is skipped — those carry no
- * phonetic content a re-transcription could anchor (they are upgraded out of
- * needs_review in the main path; guarded here anyway). The orchestrator handles
+ * Maximal runs of UNVERIFIED lines (`needs_review` or `approximate`) bounded by
+ * verified `good` anchors, kept only when the run contains real trouble — at
+ * least one `needs_review` line or an evidence-desert `approximate` line
+ * (isEvidenceDesertLine: no local matched evidence / squashed below the
+ * compression floor). Two things this buys over the round-8 needs_review-only
+ * runs (2026-07 round 11 audit):
+ *  - the needs_review→approximate upgrade passes can no longer DISGUISE a hole
+ *    (an interpolated run over a transcript void reads approximate but is
+ *    still un-corroborated, so it still surfaces here);
+ *  - a wrongly-anchored line inside the trouble region (labeled approximate by
+ *    the honesty pass, e.g. a repeated chorus tag on a stolen occurrence) no
+ *    longer CAPS the window at its false position — bounds come from the
+ *    nearest verified anchors, so the slice can reach the un-heard audio.
+ * A run of unverified lines with NO trouble in it (e.g. chunk-demoted segment
+ * lines whose audio corroborates them) is not a hole; holeWorthRetrying's
+ * run-coverage gate additionally rejects windows the transcript already
+ * covers. A run entirely of blank/interjection lines is skipped — no phonetic
+ * content a re-transcription could anchor. The orchestrator handles
  * sub-windowing a >30s hole; this just reports [t0,t1] + line indices.
  */
-export function enumerateGapHoles(refined: RefinedAlignment): GapHole[] {
+export function enumerateGapHoles(
+  refined: RefinedAlignment,
+  transcriptWords: readonly TranscriptWord[],
+): GapHole[] {
   const quality = refined.lineAlignmentQuality
   const lines = refined.lines
   if (!quality || lines.length === 0) return []
+  const clean = sanitizeTranscript([...transcriptWords])
+  const isMember = (k: number) =>
+    quality[k] === 'needs_review' || quality[k] === 'approximate'
   const holes: GapHole[] = []
   let i = 0
   while (i < lines.length) {
-    if (quality[i] !== 'needs_review') {
+    if (!isMember(i)) {
       i++
       continue
     }
     let j = i
-    while (j + 1 < lines.length && quality[j + 1] === 'needs_review') j++
+    while (j + 1 < lines.length && isMember(j + 1)) j++
     let hasContent = false
+    let hasTrouble = false
     for (let k = i; k <= j; k++) {
       const text = lineText(lines[k])
-      if (text.trim() && !isInterjectionLyricLine(text)) {
-        hasContent = true
-        break
-      }
+      if (!hasContent && text.trim() && !isInterjectionLyricLine(text)) hasContent = true
+      if (!hasTrouble && isEvidenceDesertLine(lines[k], text, quality[k], clean)) hasTrouble = true
+      if (hasContent && hasTrouble) break
     }
-    if (hasContent) {
+    if (hasContent && hasTrouble) {
       const { t0, t1 } = holeBounds(lines, i, j)
       holes.push({ from: i, to: j, t0, t1 })
     }
@@ -173,11 +204,48 @@ function placedRunCoverage(
 }
 
 /**
- * True when a hole is worth re-transcribing: the sheet expects lyrics over the
- * window but the current transcript doesn't corroborate them (run-coverage <
- * RUN_COVERAGE_MIN), and the window is wide enough to bother (≥ HOLE_MIN_WINDOW_S).
- * The low coverage is also the BEFORE baseline for accept-if-better. A window
- * the transcript already covers, or one too short/empty, is skipped.
+ * An audio span this long inside a hole window with ZERO transcript words is
+ * strong independent evidence Whisper never heard that stretch (a skipped
+ * chorus/bridge), regardless of how well OTHER parts of the window corroborate
+ * their lines. Instrumental breaks also qualify; a wasted slice there is
+ * bounded by the orchestrator's per-pass cap and rejected by accept-if-better.
+ */
+export const UNTRANSCRIBED_SPAN_MIN_S = 8
+
+/** Largest sub-span of [t0, t1] containing no transcript words at all. */
+export function largestUntranscribedSpan(
+  transcriptWords: readonly TranscriptWord[],
+  t0: number,
+  t1: number,
+): { start: number; length: number } {
+  const covering = transcriptWords
+    .filter((w) => w.endTime > t0 && w.startTime < t1)
+    .sort((a, b) => a.startTime - b.startTime)
+  let cursor = t0
+  let start = t0
+  let length = 0
+  for (const w of covering) {
+    if (w.startTime - cursor > length) {
+      length = w.startTime - cursor
+      start = cursor
+    }
+    cursor = Math.max(cursor, w.endTime)
+  }
+  if (t1 - cursor > length) {
+    length = t1 - cursor
+    start = cursor
+  }
+  return { start, length }
+}
+
+/**
+ * True when a hole is worth re-transcribing: the window is wide enough to
+ * bother (≥ HOLE_MIN_WINDOW_S) and EITHER the sheet expects lyrics the current
+ * transcript doesn't corroborate (run-coverage < RUN_COVERAGE_MIN — also the
+ * BEFORE baseline for accept-if-better), OR the window contains a large span
+ * with no transcript words at all (round 11): a wide unverified run whose
+ * EDGES partially corroborate can hide a never-transcribed chorus in the
+ * middle, and the partial matches alone push run-coverage past the floor.
  */
 export function holeWorthRetrying(
   hole: GapHole,
@@ -189,7 +257,8 @@ export function holeWorthRetrying(
   const totalRunChars = texts.reduce((a, t) => a + normalizeForMatch(t).length, 0)
   if (totalRunChars === 0) return false
   const clean = sanitizeTranscript(transcriptWords)
-  return runCoverage(texts, clean, hole.t0, hole.t1) < RUN_COVERAGE_MIN
+  if (runCoverage(texts, clean, hole.t0, hole.t1) < RUN_COVERAGE_MIN) return true
+  return largestUntranscribedSpan(clean, hole.t0, hole.t1).length >= UNTRANSCRIBED_SPAN_MIN_S
 }
 
 /** Pass-through re-align options mirroring refineAlignmentWithPhrases's 4th/5th
@@ -209,6 +278,13 @@ export interface SpliceGapArgs {
   gapWords: TranscriptWord[]
   lang: AlignmentLanguage
   refineOpts?: GapRefineOptions
+  /** The audio window the slice actually re-transcribed (round 11 aimed
+   * slices). Only THIS window's old words are dropped from the stored
+   * transcript on accept — a wide hole keeps its partially-corroborating words
+   * outside the slice. Defaults to the hole's anchor bounds (round-8 behavior,
+   * where slice === window). */
+  sliceT0?: number
+  sliceT1?: number
 }
 
 export interface SpliceGapResult {
@@ -241,6 +317,8 @@ export function spliceGapAlignment(args: SpliceGapArgs): SpliceGapResult {
     refineOpts?.options,
   )
   const { t0, t1 } = holeBounds(refined.lines, from, to)
+  const sliceT0 = args.sliceT0 ?? t0
+  const sliceT1 = args.sliceT1 ?? t1
 
   // Shallow-copy the arrays and each line object we touch so the input `refined`
   // is never mutated (the reject path must return it byte-identical). We only
@@ -272,8 +350,13 @@ export function spliceGapAlignment(args: SpliceGapArgs): SpliceGapResult {
   }
   enforceLineMonotonicity(candidateLines)
 
-  // Accept-if-better, gated on BOTH a label-count drop AND a placement check.
-  // (a) strictly fewer needs_review over the spliced range, and
+  // Accept-if-better, gated on BOTH a label improvement AND a placement check.
+  // (a) label improvement: strictly fewer needs_review over the spliced range,
+  //     OR (round 11 — mostly-approximate holes have no needs_review to drop)
+  //     needs_review not worse AND the candidate's placement-aware coverage
+  //     strictly exceeds what the CURRENT transcript corroborates at the
+  //     current placement by a real margin — the fresh slice demonstrably
+  //     anchors lyric text the old alignment left unmatched.
   // (b) the new placement realizes the gap transcript's corroboration: the
   //     candidate's placement-aware run-coverage (each gap line vs the words in
   //     its placed window) is no worse than the order-free run-coverage the same
@@ -282,14 +365,39 @@ export function spliceGapAlignment(args: SpliceGapArgs): SpliceGapResult {
   //     ORDER strand a line far from its evidence (placed-coverage collapses)
   //     while one line still anchors and the count falls. Cross-script gaps score
   //     ~0 on both figures, so (b) never blocks a legitimate low-coverage gap.
+  //     (b) is also the prompt-echo hallucination backstop (see whisperPrompt):
+  //     echoed text carries degenerate timing, which collapses placed coverage.
   const cleanGap = sanitizeTranscript(gapWords)
   const gapTexts = candidateLines.slice(from, to + 1).map(lineText)
   const achievableCoverage = runCoverage(gapTexts, cleanGap, t0, t1)
   const placedCoverage = placedRunCoverage(candidateLines, from, to, cleanGap)
-  const fewerNeedsReview =
-    countNeedsReview(candidateQuality, from, to) < countNeedsReview(currentQuality, from, to)
+  const currentNeedsReview = countNeedsReview(currentQuality, from, to)
+  const candidateNeedsReview = countNeedsReview(candidateQuality, from, to)
+  const fewerNeedsReview = candidateNeedsReview < currentNeedsReview
+  // Region-splice the transcript: drop the old words inside the RE-HEARD slice
+  // window only, add the fresh gap words, re-sort by time (mirrors
+  // mergeMixedTranscripts). Built before acceptance so the improvement branch
+  // can score the candidate against its own merged transcript.
+  const cleanCurrent = sanitizeTranscript(transcriptWords)
+  const nextTranscript = [
+    ...transcriptWords.filter((w) => w.endTime <= sliceT0 || w.startTime >= sliceT1),
+    ...cleanGap,
+  ].sort((a, b) => a.startTime - b.startTime || a.endTime - b.endTime)
+  // Round-11 improvement branch: needs_review not worse AND the candidate's
+  // placement corroborates strictly more of the run's text against its merged
+  // transcript than the current placement does against the current transcript.
+  const beforePlacedCoverage = placedRunCoverage(refined.lines, from, to, cleanCurrent)
+  const candidatePlacedFull = placedRunCoverage(
+    candidateLines,
+    from,
+    to,
+    sanitizeTranscript(nextTranscript),
+  )
+  const placementImproves =
+    candidateNeedsReview <= currentNeedsReview
+    && candidatePlacedFull >= beforePlacedCoverage + PLACED_COVERAGE_IMPROVE_MIN
   const placementRealizesCoverage = placedCoverage >= achievableCoverage - COVERAGE_REALIZE_TOL
-  const accepted = fewerNeedsReview && placementRealizesCoverage
+  const accepted = (fewerNeedsReview || placementImproves) && placementRealizesCoverage
   if (!accepted) {
     return { refined, transcriptWords, accepted: false }
   }
@@ -301,13 +409,6 @@ export function spliceGapAlignment(args: SpliceGapArgs): SpliceGapResult {
     lineAlignmentQuality: candidateQuality,
     anchorSources: candidateAnchors ?? refined.anchorSources,
   }
-
-  // Region-splice the transcript: drop the old words inside [t0,t1], add the
-  // fresh gap words, re-sort by time (mirrors mergeMixedTranscripts).
-  const nextTranscript = [
-    ...transcriptWords.filter((w) => w.endTime <= t0 || w.startTime >= t1),
-    ...cleanGap,
-  ].sort((a, b) => a.startTime - b.startTime || a.endTime - b.endTime)
 
   return { refined: candidate, transcriptWords: nextTranscript, accepted: true }
 }

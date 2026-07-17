@@ -7,7 +7,7 @@ import {
   refineAlignmentWithPhrases,
   type RefinedAlignment,
 } from '../../src/lyrics/phraseAlignment'
-import { enumerateGapHoles } from '../../src/lyrics/gapRealign'
+import { enumerateGapHoles, holeWorthRetrying } from '../../src/lyrics/gapRealign'
 import { computeLineMatchedSpans, normalizeForMatch } from '../../src/ai-pipeline/contentAligner'
 import type { TimedLine } from '../../src/core/types'
 import type { TranscriptWord } from '../../src/ai-pipeline/aligner'
@@ -99,8 +99,14 @@ describe('gap re-transcription end-to-end (real refine → reanalyze → splice 
   it('recovers a garbled gap: clean slice fills the hole to its TRUE positions', async () => {
     const { refined, rows, words } = badRefine()
 
-    // The real refine leaves exactly one content hole (the garble desert).
-    const holes = enumerateGapHoles(refined)
+    // The real refine leaves exactly one hole WORTH RETRYING (the garble
+    // desert). Round-11 enumerate also surfaces stray repetition-only
+    // approximate rows, but their sub-4s windows fail holeWorthRetrying — the
+    // same filter every orchestrator applies before slicing.
+    const lineTexts = rows.map((r) => r.original)
+    const holes = enumerateGapHoles(refined, words).filter((h) =>
+      holeWorthRetrying(h, words, lineTexts),
+    )
     expect(holes.length).toBe(1)
     const hole = holes[0]
     expect(hole.to).toBeGreaterThan(hole.from) // multi-line run

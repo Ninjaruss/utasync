@@ -1,12 +1,15 @@
 import type { AlignmentLanguage, Language, TimedLine } from '../core/types'
 import type { RefinedAlignment } from '../lyrics/phraseAlignment'
-import type { TranscriptWord } from './aligner'
+import { sanitizeTranscript, type TranscriptWord } from './aligner'
+import { computeLineMatchedSpans } from './contentAligner'
 import { detectSheetLanguage } from './whisperLanguage'
 import {
   enumerateGapHoles,
   holeWorthRetrying,
+  largestUntranscribedSpan,
   lineText,
   spliceGapAlignment,
+  UNTRANSCRIBED_SPAN_MIN_S,
   type GapRefineOptions,
 } from '../lyrics/gapRealign'
 
@@ -59,6 +62,48 @@ export type TranscribeSlice = (
   lang: AlignmentLanguage,
   promptText?: string,
 ) => Promise<TranscriptWord[]>
+
+/** Minimum un-transcribed span worth AIMING a slice at (see gapRealign's
+ * UNTRANSCRIBED_SPAN_MIN_S — same threshold that makes such a hole worth
+ * retrying, re-exported so callers/tests read one name). */
+export const UNTRANSCRIBED_AIM_MIN_S = UNTRANSCRIBED_SPAN_MIN_S
+
+/** Attributed-coverage floor for a hole line to be a splice-range endpoint
+ * (mirrors LINE_QUALITY_MIN_COVERAGE — the same bar a line needs to score
+ * 'good'). */
+export const PROBE_STRONG_COVERAGE = 0.55
+
+/**
+ * Audio window for a hole's re-transcription slice. Default: the hole's first
+ * MAX_SLICE_S (its early lines sit right after a verified anchor and are the
+ * most re-anchorable). Round 11: when the hole window contains a large span
+ * with no transcript words at all that the default slice would NOT fully
+ * cover, aim the slice at that span instead — that un-heard audio is where the
+ * hole's missing lines actually live (measured: stranger-than-heaven's last
+ * chorus, a 35s transcript void the first-30s rule never reached).
+ */
+export function chooseSliceWindow(
+  hole: { t0: number; t1: number },
+  transcriptWords: readonly TranscriptWord[],
+): { sliceStart: number; sliceEnd: number; aimed: boolean } {
+  const defaultEnd = Math.min(hole.t1, hole.t0 + MAX_SLICE_S)
+  const { start: gapStart, length: gapLen } = largestUntranscribedSpan(
+    transcriptWords,
+    hole.t0,
+    hole.t1,
+  )
+  const coveredByDefault = gapStart >= hole.t0 && gapStart + gapLen <= defaultEnd
+  // Only aim when the void starts meaningfully AFTER the hole front — a void at
+  // the front is already what the default slice transcribes first, and the
+  // round-9 placement-prefix prompt rule stays correct there.
+  if (gapLen >= UNTRANSCRIBED_AIM_MIN_S && !coveredByDefault && gapStart > hole.t0 + 0.5) {
+    // Open slightly before the void so a line whose head Whisper clipped can
+    // still anchor its first words.
+    const sliceStart = Math.max(hole.t0, gapStart - 2)
+    return { sliceStart, sliceEnd: Math.min(hole.t1, sliceStart + MAX_SLICE_S), aimed: true }
+  }
+  return { sliceStart: hole.t0, sliceEnd: defaultEnd, aimed: false }
+}
 
 export interface ReanalyzeGapsArgs {
   refined: RefinedAlignment
@@ -128,7 +173,7 @@ export async function reanalyzeGaps(args: ReanalyzeGapsArgs): Promise<ReanalyzeG
   for (let pass = 0; pass < MAX_GAP_PASSES; pass++) {
     if (isCancelled?.()) break
 
-    const holes = enumerateGapHoles(refined)
+    const holes = enumerateGapHoles(refined, transcriptWords)
       .filter((h) => holeWorthRetrying(h, transcriptWords, sheetTexts))
       .filter((h) => !retried.has(`${h.from}:${h.to}`))
       .slice(0, MAX_HOLES_PER_PASS)
@@ -142,30 +187,77 @@ export async function reanalyzeGaps(args: ReanalyzeGapsArgs): Promise<ReanalyzeG
 
       const holeTexts = sheetTexts.slice(hole.from, hole.to + 1)
       const lang = forcedLangForHole(alignmentLanguage, holeTexts, sourceLanguage)
-      // Clamp a >30s hole to its first 30s to stay on Whisper's single-window path.
-      const sliceEnd = Math.min(hole.t1, hole.t0 + MAX_SLICE_S)
+      // ≤30s single-window slice; aimed at a large un-transcribed span when the
+      // hole contains one the default front-clamp wouldn't reach (round 11).
+      const { sliceStart, sliceEnd, aimed } = chooseSliceWindow(hole, transcriptWords)
       // Bias the re-transcription toward the hole's KNOWN sheet lyrics (R9-3), but
-      // ONLY the lines whose placed time falls inside the (possibly clamped) audio
-      // window — prompting the decoder with lyrics whose audio was cut off would
-      // bias toward words that aren't in the clip. Hole lines are spread
-      // monotonically within [t0,t1] by round-6/7, so this is the in-window prefix;
-      // for a ≤30s hole (sliceEnd===t1) it is every line, unchanged. A hallucinated
-      // echo is still caught by accept-if-better below.
-      const promptText = sheetTexts
-        .slice(hole.from, hole.to + 1)
-        .filter((_, k) => refined.lines[hole.from + k].startTime < sliceEnd)
-        .join(' ')
-      const gapWords = await transcribeSlice(hole.t0, sliceEnd, lang, promptText)
+      // ONLY the lines whose placed time falls inside the audio window — prompting
+      // the decoder with lyrics whose audio was cut off would bias toward words
+      // that aren't in the clip. Hole lines are spread monotonically within
+      // [t0,t1] by round-6/7, so this is the in-window prefix; for a ≤30s hole
+      // (sliceEnd===t1) it is every line, unchanged. For an AIMED slice the
+      // placements are known-wrong (the lines' audio was never transcribed), so
+      // placement filtering is meaningless — prompt with the hole lines the
+      // CURRENT transcript does not corroborate instead (those are the
+      // candidates for the un-heard span). A hallucinated echo is still caught
+      // by accept-if-better below.
+      const promptText = aimed
+        ? holeTexts
+            .filter((_, k) => {
+              const l = refined.lines[hole.from + k]
+              const windowWords = transcriptWords.filter(
+                (w) => w.endTime > l.startTime - 3 && w.startTime < l.endTime + 6,
+              )
+              const span = windowWords.length
+                ? computeLineMatchedSpans([holeTexts[k]], windowWords)[0]
+                : null
+              const cov = span ? span.matchedChars / Math.max(1, span.totalChars) : 0
+              return cov < 0.35
+            })
+            .join(' ')
+        : sheetTexts
+            .slice(hole.from, hole.to + 1)
+            .filter((_, k) => refined.lines[hole.from + k].startTime < sliceEnd)
+            .join(' ')
+      const gapWords = await transcribeSlice(sliceStart, sliceEnd, lang, promptText)
+
+      // Focus the splice on the lines the fresh slice actually evidences. A
+      // wide round-11 hole (e.g. 20+ unverified lines around a 30s void)
+      // re-aligned WHOLESALE against one slice would honestly mark every
+      // un-sliced line needs_review — more than the current (upgrade-softened)
+      // labels — and the not-worse guard would reject the genuinely recovered
+      // middle. The range ENDPOINTS need STRONG attributed coverage in the
+      // fresh words (timing-independent char-LCS attribution across the whole
+      // hole, >= PROBE_STRONG_COVERAGE of the line's chars): weaker echo
+      // matches at the edges drag lines that were already correctly placed off
+      // their true position (measured: stranger #52/#53 pulled 5–9s off).
+      // Interior lines between two strong endpoints ride along; everything
+      // outside keeps its current timing for a later pass/slice.
+      let spliceFrom = hole.from
+      let spliceTo = hole.to
+      if (gapWords.length > 0) {
+        const probeSpans = computeLineMatchedSpans(holeTexts, sanitizeTranscript(gapWords))
+        const strong = probeSpans
+          .map((s, k) =>
+            s && s.matchedChars / Math.max(1, s.totalChars) >= PROBE_STRONG_COVERAGE ? k : -1,
+          )
+          .filter((k) => k >= 0)
+        if (strong.length === 0) continue // nothing anchors — skip the doomed splice
+        spliceFrom = hole.from + strong[0]
+        spliceTo = hole.from + strong[strong.length - 1]
+      }
 
       const res = spliceGapAlignment({
         refined,
         transcriptWords,
         sheetRows,
-        from: hole.from,
-        to: hole.to,
+        from: spliceFrom,
+        to: spliceTo,
         gapWords,
         lang,
         refineOpts,
+        sliceT0: sliceStart,
+        sliceT1: sliceEnd,
       })
       refined = res.refined
       transcriptWords = res.transcriptWords
