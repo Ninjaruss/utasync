@@ -1220,7 +1220,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         <div className="shrink-0 px-3 sm:px-4 py-2.5 border-b border-cinnabar-900/80 bg-cinnabar-950/80 flex items-start gap-3">
           <p className="text-[11px] text-white/55 text-pretty leading-snug flex-1">
             Some lines share one block in the audio analysis, so their timing is approximate.
-            Re-align with <span className="text-white/80">Accurate readings</span> for tighter per-line sync (slower).
+            Re-align with <span className="text-white/80">Accurate timing</span> for tighter per-line sync (slower).
           </p>
           <div className="flex items-center gap-2 shrink-0">
             <button
