@@ -71,32 +71,42 @@ export default function App() {
 
   return (
     <>
-      <div className="fixed top-0 inset-x-0 z-[65] flex flex-col pointer-events-none" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+      {/* Normal document flow: the banners are static rows that push the active
+          view down instead of a fixed overlay painting over the header. The
+          shell owns the viewport height; each inner view fills the flex-1 slot
+          (they use h-full, not their own 100dvh, so a shown banner can't cause
+          the page to overflow). */}
+      <div
+        className="flex flex-col h-[100dvh]"
+        style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+      >
         <OfflineBanner />
         <UpdateBanner />
+        <div className="flex-1 min-h-0 overflow-hidden">
+          {view === 'landing' ? (
+            <Suspense fallback={<div className="h-full bg-cinnabar-950" />}>
+              <LandingScreen onOpenApp={leaveLanding} />
+            </Suspense>
+          ) : view === 'song' && songId ? (
+            <PlayerView
+              songId={songId}
+              autoAlignOnOpen={autoAlignOnOpen}
+              onBack={() => { setView('library'); setAutoAlignOnOpen(false) }}
+              onSettings={() => setSettingsOpen(true)}
+            />
+          ) : (
+            <>
+              <LibraryScreen
+                onOpen={openSong}
+                onAdd={() => setAddOpen(true)}
+                onSettings={() => setSettingsOpen(true)}
+                refreshKey={libraryRefreshKey}
+              />
+              <Onboarding />
+            </>
+          )}
+        </div>
       </div>
-      {view === 'landing' ? (
-        <Suspense fallback={<div className="h-[100dvh] bg-cinnabar-950" />}>
-          <LandingScreen onOpenApp={leaveLanding} />
-        </Suspense>
-      ) : view === 'song' && songId ? (
-        <PlayerView
-          songId={songId}
-          autoAlignOnOpen={autoAlignOnOpen}
-          onBack={() => { setView('library'); setAutoAlignOnOpen(false) }}
-          onSettings={() => setSettingsOpen(true)}
-        />
-      ) : (
-        <>
-          <LibraryScreen
-            onOpen={openSong}
-            onAdd={() => setAddOpen(true)}
-            onSettings={() => setSettingsOpen(true)}
-            refreshKey={libraryRefreshKey}
-          />
-          <Onboarding />
-        </>
-      )}
 
       {addOpen && (
         <AddSongSheet

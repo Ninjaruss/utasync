@@ -19,7 +19,7 @@ import { ConfirmDialog } from '../core/ui/ConfirmDialog'
 import { alignSteps, alignStepIndex, type AlignStage } from './alignProgress'
 import { preferredWhisperTimestampMode } from './alignTimestampMode'
 import { detectSheetLanguage } from './whisperLanguage'
-import { isRecoverableTranscriptionError } from './workerError'
+import { isRecoverableTranscriptionError, classifyAlignError } from './workerError'
 import { resetWhisperTranscriber, transcribeAudio, type LoadProgress, type TranscribeProgressStatus } from './whisperTranscriber'
 import { DEMUCS_OUTPUT_SAMPLE_RATE, isDemucsModelAvailable, refreshDemucsModelAvailability, separateVocals } from './demucsSeparator'
 import { useSettingsStore } from '../payment/SettingsStore'
@@ -103,6 +103,10 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
   const tier = getDeviceTier()
   const vocalSeparationDefault = useSettingsStore((s) => s.vocalSeparationEnabled)
   const setVocalSeparationEnabled = useSettingsStore((s) => s.setVocalSeparationEnabled)
+  // First-run download consent: the very first alignment pulls a ~240MB speech
+  // model. Gate that first download behind an explicit prompt, remembered once.
+  const modelDownloadConsented = useSettingsStore((s) => s.modelDownloadConsented)
+  const setModelDownloadConsented = useSettingsStore((s) => s.setModelDownloadConsented)
   const [vocalSeparation, setVocalSeparation] = useState(vocalSeparationDefault)
   const [demucsReady, setDemucsReady] = useState<boolean | null>(null)
   const [vocalSeparationRun, setVocalSeparationRun] = useState(false)
@@ -112,8 +116,12 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
   // D8: opt into whisper-medium (full tier only) for more accurate transcription
   // at the cost of a larger download and slower inference.
   const [highAccuracy, setHighAccuracy] = useState(false)
+  // Show the one-time first-run download prompt instead of auto-starting when the
+  // user has never consented to the model download.
+  const willAutoStart = autoStart && tier !== 'manual'
+  const [awaitingConsent, setAwaitingConsent] = useState(() => willAutoStart && !modelDownloadConsented)
   const [stage, setStage] = useState<Stage>(() =>
-    autoStart && tier !== 'manual' ? 'preparing' : 'idle',
+    willAutoStart && modelDownloadConsented ? 'preparing' : 'idle',
   )
   const [progress, setProgress] = useState(0)
   const [transcribeMerging, setTranscribeMerging] = useState(false)
@@ -129,6 +137,9 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
   const [loadPhase, setLoadPhase] = useState<'download' | 'init'>('download')
   const [lastLoadProgress, setLastLoadProgress] = useState<LoadProgress | null>(null)
   const [error, setError] = useState('')
+  // Raw exception text for the error stage's collapsible "details" disclosure —
+  // the user sees friendly copy, power users can still expand the real message.
+  const [errorDetail, setErrorDetail] = useState<string | null>(null)
   const [lowConfidence, setLowConfidence] = useState(false)
   const [confirmCancel, setConfirmCancel] = useState(false)
   const cancelledRef = useRef(false)
@@ -155,9 +166,10 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
     })
   }, [vocalSeparationSupported, stage])
 
-  const start = async () => {
+  const start = async (opts?: { forceVocalSeparation?: boolean }) => {
     cancelledRef.current = false
     setError('')
+    setErrorDetail(null)
     try {
       let audioData: Float32Array | null = null
       let sampleRate = 44100
@@ -168,7 +180,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
       setRetryNotice(null)
 
       const willSeparate =
-        vocalSeparation
+        (opts?.forceVocalSeparation || vocalSeparation)
         && vocalSeparationSupported
         && await isDemucsModelAvailable()
       setVocalSeparationRun(willSeparate)
@@ -442,14 +454,40 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
       onComplete(updated)
     } catch (e: unknown) {
       if (cancelledRef.current) return
-      setError(e instanceof Error ? e.message : 'Auto-align failed')
+      setError(classifyAlignError(e))
+      setErrorDetail(e instanceof Error ? e.message : String(e))
       setStage('error')
     }
   }
 
+  // Gate the first-ever model download behind an explicit prompt; every run after
+  // the flag is set proceeds straight to start().
+  const beginAlign = () => {
+    if (!modelDownloadConsented) {
+      setAwaitingConsent(true)
+      return
+    }
+    void start()
+  }
+
+  const consentAndStart = () => {
+    setModelDownloadConsented(true)
+    setAwaitingConsent(false)
+    void start()
+  }
+
+  // Low-confidence result → let the user re-run once with vocal isolation in a
+  // single tap (pre-selects the option so start() actually separates this time).
+  const rerunWithVocalIsolation = () => {
+    setVocalSeparation(true)
+    setVocalSeparationEnabled(true)
+    void start({ forceVocalSeparation: true })
+  }
+
   useEffect(() => {
+    // Skip when the first-run consent prompt is showing; consentAndStart() runs it.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: kick off alignment on mount
-    if (autoStart && tier !== 'manual') void start()
+    if (willAutoStart && modelDownloadConsented) void start()
     return () => { cancelledRef.current = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -568,7 +606,31 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         <h2 className="text-white font-semibold text-lg">Auto-Align Lyrics</h2>
         <p className="text-white/50 text-sm">{tierNote}</p>
 
-        {vocalSeparationSupported && stage === 'idle' && !autoStart && (
+        {awaitingConsent && (
+          <div className="space-y-3">
+            <p className="text-sm text-white/80 text-pretty">
+              <span className="font-medium text-white">First-song setup</span>
+              {' — '}
+              this downloads a ~240MB speech model once, then everything runs on your device.
+            </p>
+            <button
+              type="button"
+              onClick={consentAndStart}
+              className="w-full py-3 bg-cinnabar-accent text-white rounded-xl font-medium touch-manipulation"
+            >
+              Continue
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full text-white/40 text-sm text-center min-h-10 touch-manipulation"
+            >
+              Not now
+            </button>
+          </div>
+        )}
+
+        {vocalSeparationSupported && stage === 'idle' && !autoStart && !awaitingConsent && (
           <label className="flex items-start gap-3 rounded-xl bg-cinnabar-900/80 p-3 cursor-pointer touch-manipulation">
             <input
               type="checkbox"
@@ -589,7 +651,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           </label>
         )}
 
-        {stage === 'idle' && !autoStart && (
+        {stage === 'idle' && !autoStart && !awaitingConsent && (
           <label className="flex items-start gap-3 rounded-xl bg-cinnabar-900/80 p-3 cursor-pointer touch-manipulation">
             <input
               type="checkbox"
@@ -605,7 +667,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           </label>
         )}
 
-        {highAccuracySupported && stage === 'idle' && !autoStart && (
+        {highAccuracySupported && stage === 'idle' && !autoStart && !awaitingConsent && (
           <label className="flex items-start gap-3 rounded-xl bg-cinnabar-900/80 p-3 cursor-pointer touch-manipulation">
             <input
               type="checkbox"
@@ -623,8 +685,8 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           </label>
         )}
 
-        {stage === 'idle' && tier !== 'manual' && !autoStart && (
-          <button onClick={start} className="w-full py-3 bg-cinnabar-accent text-white rounded-xl font-medium">
+        {stage === 'idle' && tier !== 'manual' && !autoStart && !awaitingConsent && (
+          <button onClick={beginAlign} className="w-full py-3 bg-cinnabar-accent text-white rounded-xl font-medium">
             Start Auto-Align
           </button>
         )}
@@ -643,6 +705,12 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         {stage === 'error' && (
           <div className="space-y-3">
             <p className="text-red-400 text-sm">{error}</p>
+            {errorDetail && errorDetail !== error && (
+              <details className="text-white/40 text-xs">
+                <summary className="cursor-pointer touch-manipulation select-none">Technical details</summary>
+                <p className="mt-1 break-words font-mono text-white/50">{errorDetail}</p>
+              </details>
+            )}
             {tier !== 'manual' && (
               <button
                 type="button"
@@ -659,18 +727,31 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         )}
         {stage === 'done' && (
           lowConfidence
-            ? <p className="text-yellow-400 text-sm">
-                Alignment is approximate — the vocals were hard to transcribe, so per-line timings may be off.
-                {vocalSeparationSupported && demucsReady === true && !vocalSeparationRun
-                  ? ' Turn on “Isolate vocals first” and re-run for a cleaner result, or use Tap-through.'
-                  : ' Try Tap-through or double-check your lyrics.'}
-              </p>
+            ? <div className="space-y-3">
+                <p className="text-yellow-400 text-sm">
+                  Alignment is approximate — the vocals were hard to transcribe, so per-line timings may be off.
+                  {vocalSeparationSupported && demucsReady === true && !vocalSeparationRun
+                    ? ' Turn on “Isolate vocals first” and re-run for a cleaner result, or use Tap-through.'
+                    : ' Try Tap-through or double-check your lyrics.'}
+                </p>
+                {vocalSeparationSupported && demucsReady === true && !vocalSeparationRun && (
+                  <button
+                    type="button"
+                    onClick={rerunWithVocalIsolation}
+                    className="w-full py-3 bg-cinnabar-accent text-white rounded-xl font-medium touch-manipulation"
+                  >
+                    Re-run with vocal isolation
+                  </button>
+                )}
+              </div>
             : <p className="text-green-400 text-sm">Lyrics aligned successfully.</p>
         )}
 
-        <button onClick={requestClose} className="text-white/40 text-sm w-full text-center min-h-10 touch-manipulation">
-          {stage === 'done' ? 'Close' : 'Cancel'}
-        </button>
+        {!awaitingConsent && (
+          <button onClick={requestClose} className="text-white/40 text-sm w-full text-center min-h-10 touch-manipulation">
+            {stage === 'done' ? 'Close' : 'Cancel'}
+          </button>
+        )}
       </div>
     </div>
   )

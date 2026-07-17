@@ -21,7 +21,7 @@ export function OfflineBanner() {
   return (
     <div
       role="status"
-      className="w-full bg-yellow-900 text-white text-xs text-center py-1.5 px-3 pointer-events-auto"
+      className="w-full bg-yellow-900 text-white text-xs text-center py-1.5 px-3"
     >
       You're offline. Playback and editing still work — fetching new lyrics or models needs a connection.
     </div>

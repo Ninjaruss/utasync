@@ -18,8 +18,19 @@ vi.mock('../../src/ai-pipeline/capability', () => ({
 }))
 
 vi.mock('../../src/payment/SettingsStore', () => ({
-  useSettingsStore: (selector: (s: { vocalSeparationEnabled: boolean; setVocalSeparationEnabled: () => void }) => unknown) =>
-    selector({ vocalSeparationEnabled: true, setVocalSeparationEnabled: vi.fn() }),
+  useSettingsStore: (selector: (s: {
+    vocalSeparationEnabled: boolean
+    modelDownloadConsented: boolean
+    setVocalSeparationEnabled: () => void
+    setModelDownloadConsented: (v: boolean) => void
+  }) => unknown) =>
+    // Consent granted so autoStart proceeds straight into the run under test.
+    selector({
+      vocalSeparationEnabled: true,
+      modelDownloadConsented: true,
+      setVocalSeparationEnabled: vi.fn(),
+      setModelDownloadConsented: vi.fn(),
+    }),
 }))
 
 vi.mock('../../src/core/opfs/audio', () => ({

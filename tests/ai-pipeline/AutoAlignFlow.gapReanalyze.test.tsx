@@ -22,8 +22,19 @@ vi.mock('../../src/ai-pipeline/capability', () => ({
 }))
 
 vi.mock('../../src/payment/SettingsStore', () => ({
-  useSettingsStore: (selector: (s: { vocalSeparationEnabled: boolean; setVocalSeparationEnabled: () => void }) => unknown) =>
-    selector({ vocalSeparationEnabled: false, setVocalSeparationEnabled: vi.fn() }),
+  useSettingsStore: (selector: (s: {
+    vocalSeparationEnabled: boolean
+    modelDownloadConsented: boolean
+    setVocalSeparationEnabled: () => void
+    setModelDownloadConsented: (v: boolean) => void
+  }) => unknown) =>
+    // Consent granted so autoStart proceeds straight into the gap-recovery run.
+    selector({
+      vocalSeparationEnabled: false,
+      modelDownloadConsented: true,
+      setVocalSeparationEnabled: vi.fn(),
+      setModelDownloadConsented: vi.fn(),
+    }),
 }))
 
 vi.mock('../../src/core/opfs/audio', () => ({

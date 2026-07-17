@@ -46,11 +46,10 @@ export function LibraryScreen({ onOpen, onAdd, onSettings, refreshKey = 0 }: Pro
   }
 
   return (
-    <div className="relative h-[100dvh] overflow-hidden bg-cinnabar-950 flex flex-col">
+    <div className="relative h-full overflow-hidden bg-cinnabar-950 flex flex-col">
       <div className="w-full max-w-2xl mx-auto flex flex-col flex-1 min-h-0">
         <div
-          className="flex items-center justify-between px-4 pb-4 shrink-0"
-          style={{ paddingTop: 'max(env(safe-area-inset-top, 16px), 16px)' }}
+          className="flex items-center justify-between px-4 py-4 shrink-0"
         >
           <span className="text-cinnabar-accent font-semibold tracking-widest text-lg">歌sync</span>
           <button
