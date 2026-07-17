@@ -121,4 +121,21 @@ describe('SecondLanguagePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /attach/i }))
     expect(await screen.findByText(/align translations/i)).toBeTruthy()
   })
+
+  it('surfaces surplus pasted translation lines instead of dropping them', async () => {
+    const untimed: TimedLine[] = [
+      { original: 'line one', startTime: 0, endTime: 0, translation: '' },
+      { original: 'line two', startTime: 0, endTime: 0, translation: '' },
+    ]
+    render(<SecondLanguagePanel lines={untimed} title="t" artist="a" sourceLanguage="ja" onApply={vi.fn()} onClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /paste lyrics/i }))
+    const box = await screen.findByPlaceholderText(/english translation/i)
+    // Four pasted lines for two originals — the two surplus lines must appear
+    // in the editor's extra-lines section (previously silently discarded).
+    fireEvent.change(box, { target: { value: 'alpha\nbravo\ncharlie\ndelta' } })
+    fireEvent.click(screen.getByRole('button', { name: /attach/i }))
+    await screen.findByText(/align translations/i)
+    const discardButtons = await screen.findAllByRole('button', { name: /discard extra line/i })
+    expect(discardButtons).toHaveLength(2)
+  })
 })

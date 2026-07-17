@@ -82,7 +82,7 @@ export function TimestampPopover({ line, autoEnd, playhead: _playhead, onCommit,
           End
         </button>
       </div>
-      <p className="text-[10px] text-white/40 text-center">Drag to preview · Done to save · tap outside or another line to cancel</p>
+      <p className="text-xs text-white/60 text-center">Drag to preview · Done to save · tap outside or another line to cancel</p>
       <input
         type="range"
         min={min}

@@ -7,6 +7,14 @@ import { ProgressOverlay } from '../core/ui/ProgressOverlay'
 import { SECOND_LANGUAGE_ALIGN_STEPS } from '../sources/addSongProgress'
 import { getSecondLanguageSearchSection } from './lyricSiteLinks'
 
+// Secondary action on the cinnabar-900 panel: a lifted, bordered surface so the
+// button reads as a control instead of blending into the panel (accent stays
+// for the single primary action). rounded-lg variant is the default; the paste
+// phase overrides to rounded-xl inline.
+const secondaryPanelBtn =
+  'px-3 py-1.5 rounded-lg bg-cinnabar-950 border border-cinnabar-800 text-white/80 text-sm min-h-11 hover:bg-cinnabar-800 transition-colors'
+const accentPanelBtn = 'px-3 py-1.5 rounded-lg bg-cinnabar-accent text-white text-sm min-h-11'
+
 interface Props {
   lines: TimedLine[]
   title: string
@@ -91,11 +99,14 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
         setPhase({ kind: 'confirm', paired: result.lines, secondary })
         return
       }
+      // Surface translation lines beyond the primary count so the editor's
+      // "extra lines" section can appear (they were silently dropped before).
+      const rawTrans = extractSecondLanguageLines(secondary)
       setPhase({
         kind: 'align',
         originalLines: lines.map((l) => l.original),
         translationLines: result.lines.map((l) => l.translation),
-        extraLines: [],
+        extraLines: rawTrans.slice(lines.length),
       })
     } catch {
       const transLines = extractSecondLanguageLines(secondary)
@@ -103,7 +114,7 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
         kind: 'align',
         originalLines: lines.map((l) => l.original),
         translationLines: transLines,
-        extraLines: [],
+        extraLines: transLines.slice(lines.length),
       })
     }
   }
@@ -126,6 +137,11 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
           translationLines={phase.translationLines}
           extraLines={phase.extraLines}
           onConfirm={(pairs) => { onApply(pairsToTimedLines(lines, pairs)); onClose() }}
+          // Non-destructive exit: 'align' is only ever reached after a paste
+          // (route() runs from the paste phase; 'confirm' is downstream of it),
+          // so return to the paste step with the pasted text intact — nothing
+          // is applied, and the user can edit the paste, re-attach, or Back out.
+          onCancel={() => setPhase({ kind: 'paste' })}
         />
       </div>
     )
@@ -172,7 +188,7 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
               )}
               <button
                 onClick={openPaste}
-                className="px-3 py-1.5 rounded-lg bg-cinnabar-900 text-white/70 text-sm min-h-11"
+                className={translatedLines.length > 0 ? secondaryPanelBtn : accentPanelBtn}
               >
                 Paste lyrics
               </button>
@@ -201,9 +217,8 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
                 const origLines = phase.paired.map((l) => l.original)
                 const transLines = phase.paired.map((l) => l.translation)
                 setPhase({ kind: 'align', originalLines: origLines, translationLines: transLines, extraLines: [] })
-              }} className="px-3 py-1.5 rounded-lg bg-cinnabar-900 text-white/70 text-sm min-h-11">Fix pairings</button>
-              <button onClick={openPaste}
-                className="px-3 py-1.5 rounded-lg bg-cinnabar-900 text-white/70 text-sm min-h-11">Use different / paste</button>
+              }} className={secondaryPanelBtn}>Fix pairings</button>
+              <button onClick={openPaste} className={secondaryPanelBtn}>Use different / paste</button>
             </div>
           </div>
         )}
@@ -228,7 +243,7 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
               </button>
               <button
                 onClick={() => setPhase({ kind: 'current' })}
-                className="px-3 py-2.5 rounded-xl bg-cinnabar-900 text-white/70 text-sm min-h-11"
+                className="px-3 py-2.5 rounded-xl bg-cinnabar-950 border border-cinnabar-800 text-white/80 text-sm min-h-11 hover:bg-cinnabar-800 transition-colors"
               >
                 Back
               </button>
