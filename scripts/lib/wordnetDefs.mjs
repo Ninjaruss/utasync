@@ -14,7 +14,7 @@ export function parseWordnetDataLine(line) {
   for (let i = 0; i < wCnt; i++) {
     const w = head[4 + i * 2]
     if (!w) break
-    words.push(w.replace(/\([apr]\)$/, '').replace(/_/g, ' ').toLowerCase())
+    words.push(w.replace(/\([a-z]+\)$/, '').replace(/_/g, ' ').toLowerCase())
   }
   const gloss = line.slice(bar + 3)
   // Definition = gloss up to the first "; \"" (start of an example), else whole gloss.

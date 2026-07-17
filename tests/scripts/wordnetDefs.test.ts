@@ -13,6 +13,10 @@ describe('parseWordnetDataLine (Princeton data.*)', () => {
     const r = parseWordnetDataLine('00001740 03 a 01 able(p) 0 000 | having the power')
     expect(r.words).toEqual(['able'])
   })
+  it('strips the two-char (ip) postnominal marker as well as (p)', () => {
+    expect(parseWordnetDataLine('00001740 03 a 01 galore(ip) 0 000 | in great numbers').words).toEqual(['galore'])
+    expect(parseWordnetDataLine('00001740 03 a 01 able(p) 0 000 | having the power').words).toEqual(['able'])
+  })
 })
 
 describe('parseWnjaDefLine + indexWnjaDefs (Japanese WordNet)', () => {
