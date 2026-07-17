@@ -36,7 +36,7 @@ import { detectEnglishGrammar } from '../language/english/grammar'
 import { TapSyncEditor } from './TapSyncEditor'
 import { getDeviceTier } from '../ai-pipeline/capability'
 import { detectSheetLanguage } from '../ai-pipeline/whisperLanguage'
-import { suggestsWordLevelAlignment } from '../ai-pipeline/alignTimestampMode'
+import { accurateRealignReason } from '../ai-pipeline/alignTimestampMode'
 import { linesAreTimed, chooseAutoAlignment, type AlignMode } from './alignmentPolicy'
 import { EditMode } from '../lyrics/EditMode'
 import { computeSyncState } from '../core/db/migrations'
@@ -889,12 +889,19 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const phraseChanges =
     song?.lyrics.phrases?.length ? summarizePhraseChanges(phraseSheetRows, song.lyrics.phrases) : []
 
-  // The segment-mode transcript grouped multiple lines into shared chunks, so
-  // per-line timing is approximate — offer the word-level re-align for tighter sync.
-  const suggestWordLevelAlign =
-    !!song
-    && suggestsWordLevelAlignment(song.lyrics.lines, song.lyrics.transcriptWords, getDeviceTier())
-    && hasStoredAudio
+  // Why a more powerful re-align pass is recommended: 'segment-blocks' (the
+  // transcript grouped multiple lines into shared chunks) or 'weak-labels'
+  // (many lines could not be verified against the audio). Drives the Edit-mode
+  // hint; the Play-mode "Accurate readings" banner keys on segment-blocks only.
+  const realignReason = song
+    ? accurateRealignReason(
+        song.lyrics.lines,
+        song.lyrics.transcriptWords,
+        song.lyrics.lineAlignmentQuality,
+        getDeviceTier(),
+      )
+    : null
+  const suggestWordLevelAlign = realignReason === 'segment-blocks' && hasStoredAudio
 
   // Sync playback rate whenever speed changes or audio source becomes available.
   useEffect(() => {
@@ -1315,7 +1322,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               recoveringGaps={recoveringGaps}
               recoverGapsStatus={recoverGapsStatus}
               alignmentConfidence={song?.lyrics.alignmentConfidence}
-              suggestAccurateAlign={suggestWordLevelAlign}
+              accurateRealignReason={hasStoredAudio ? realignReason : null}
               onAutoAlignAccurate={() => beginAlignment('auto', true)}
             />
           )}

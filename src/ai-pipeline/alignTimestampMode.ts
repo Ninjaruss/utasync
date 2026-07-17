@@ -1,4 +1,4 @@
-import type { DeviceTier, TimedLine, TimedTranscriptWord } from '../core/types'
+import type { DeviceTier, LineAlignmentQuality, TimedLine, TimedTranscriptWord } from '../core/types'
 
 export interface TimestampModeOptions {
   /** User opted into the slower word-level pass for verified readings (D2). */
@@ -119,4 +119,47 @@ export function suggestsWordLevelAlignment(
 ): boolean {
   if (tier === 'manual' || !transcriptWords?.length) return false
   return countMergedTranscriptSegments(lines, transcriptWords) >= MERGED_SEGMENT_SUGGEST_THRESHOLD
+}
+
+/** Why the Edit-mode hint recommends a more powerful re-align pass. */
+export type AccurateRealignReason = 'segment-blocks' | 'weak-labels'
+
+/** Weak-label floors. Per the 2026-07 corpus measurement, per-line quality
+ * labels are honest but partial: ~1.5–3s transcript-timestamp skews are
+ * invisible to text evidence, and their rate tracks the share of lines the
+ * validator could NOT verify. When that share is large the song as a whole
+ * likely benefits from a more powerful pass (word-level timestamps and/or the
+ * whisper-medium "High accuracy" model). Floors are deliberately conservative —
+ * a handful of stray rows belongs to the off-timing banner, not this hint. */
+const WEAK_LABEL_MIN_LINES = 6
+const WEAK_LABEL_MIN_SHARE = 0.35
+
+/**
+ * Song-level "needs a more powerful pass" signal for the Edit-mode hint:
+ *  - 'segment-blocks': the stored transcript grouped multiple lines into shared
+ *    chunks — per-line timing is structurally approximate (existing hint).
+ *  - 'weak-labels': a large share of scoreable lines could not be verified
+ *    against the audio ('approximate'/'needs_review' after the label-honesty
+ *    pass) — recommend the accurate re-align even though no chunks are present.
+ */
+export function accurateRealignReason(
+  lines: TimedLine[],
+  transcriptWords: TimedTranscriptWord[] | undefined,
+  lineAlignmentQuality: readonly LineAlignmentQuality[] | undefined,
+  tier: DeviceTier,
+): AccurateRealignReason | null {
+  if (tier === 'manual') return null
+  if (suggestsWordLevelAlignment(lines, transcriptWords, tier)) return 'segment-blocks'
+  if (!lineAlignmentQuality?.length) return null
+  let scoreable = 0
+  let weak = 0
+  for (let i = 0; i < lines.length; i++) {
+    if (!(lines[i].original || lines[i].translation).trim()) continue
+    scoreable++
+    if (lineAlignmentQuality[i] !== 'good') weak++
+  }
+  if (weak >= WEAK_LABEL_MIN_LINES && scoreable > 0 && weak / scoreable >= WEAK_LABEL_MIN_SHARE) {
+    return 'weak-labels'
+  }
+  return null
 }

@@ -56,10 +56,11 @@ interface Props {
   recoverGapsStatus?: string | null
   /** Stored whole-song match confidence — drives the "lyrics may not match" hint. */
   alignmentConfidence?: number
-  /** The segment-mode transcript merged multiple lines into shared audio blocks,
-   * so line-end timing is approximate — offer a word-level ("Accurate readings")
-   * re-align for tighter tails (mirrors the Play-mode suggestion). */
-  suggestAccurateAlign?: boolean
+  /** Why a more powerful re-align pass is recommended (accurateRealignReason):
+   * 'segment-blocks' — the transcript merged multiple lines into shared audio
+   * chunks, so line-end timing is structurally approximate; 'weak-labels' — a
+   * large share of lines could not be verified against the audio at all. */
+  accurateRealignReason?: 'segment-blocks' | 'weak-labels' | null
   /** Re-run Auto-align in accurate (word-level) mode. */
   onAutoAlignAccurate?: () => void
 }
@@ -222,7 +223,7 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus, alignmentConfidence, suggestAccurateAlign = false, onAutoAlignAccurate }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus, alignmentConfidence, accurateRealignReason = null, onAutoAlignAccurate }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
@@ -366,16 +367,30 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
   //     word-level re-align tightens line ends (the tail-clipping cause). Shown
   //     even when no row is flagged off-timing, since clipped tails still score
   //     'good'.
-  //  3. off-timing       — a few stray rows to nudge by hand or re-align.
+  //  3. weak-labels      — many lines could not be verified against the audio;
+  //     the song likely needs a more powerful pass (word-level timestamps or
+  //     the High-accuracy model), not row-by-row nudging.
+  //  4. off-timing       — a few stray rows to nudge by hand or re-align.
   const likelyMismatch =
     showAlignmentQuality && likelyLyricsMismatch(lines, lineAlignmentQuality, alignmentConfidence)
-  const alignmentHint: 'lyrics-mismatch' | 'block-timing' | 'off-timing' | null = likelyMismatch
-    ? 'lyrics-mismatch'
-    : hasLocalAudio && suggestAccurateAlign
-      ? 'block-timing'
-      : offTimingCount > 0
-        ? 'off-timing'
-        : null
+  const unverifiedCount =
+    showAlignmentQuality && lineAlignmentQuality?.length
+      ? lines.reduce(
+          (n, l, i) =>
+            n + ((l.original || l.translation).trim() && lineAlignmentQuality[i] !== 'good' ? 1 : 0),
+          0,
+        )
+      : 0
+  const alignmentHint: 'lyrics-mismatch' | 'block-timing' | 'weak-labels' | 'off-timing' | null =
+    likelyMismatch
+      ? 'lyrics-mismatch'
+      : hasLocalAudio && accurateRealignReason === 'segment-blocks'
+        ? 'block-timing'
+        : hasLocalAudio && accurateRealignReason === 'weak-labels' && showAlignmentQuality
+          ? 'weak-labels'
+          : offTimingCount > 0
+            ? 'off-timing'
+            : null
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -447,6 +462,24 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
                 : ''}
               Line ends are approximate — this long track was analyzed in coarse blocks that group
               several lines together. Re-align with accurate timing for tighter per-line sync (slower).
+            </p>
+            {onAutoAlignAccurate && (
+              <button
+                type="button"
+                onClick={onAutoAlignAccurate}
+                className={`${toolbarActionBtn} self-start`}
+              >
+                Re-align accurately
+              </button>
+            )}
+          </div>
+        )}
+        {alignmentHint === 'weak-labels' && (
+          <div className="flex items-start gap-2 flex-wrap">
+            <p className="text-[10px] text-amber-400/80 text-pretty flex-1 min-w-[12rem]">
+              {unverifiedCount} line{unverifiedCount === 1 ? '' : 's'} couldn’t be verified against the
+              audio, so their timing may drift. This song likely needs a more powerful pass — re-align
+              with word-level timestamps or the High-accuracy model (slower), or fine-tune below.
             </p>
             {onAutoAlignAccurate && (
               <button
