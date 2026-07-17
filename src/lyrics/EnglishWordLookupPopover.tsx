@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { lookupEnglishWord, jishoSearchUrl, type EnWordLookupResult } from '../language/english/wordLookupEn'
+import { useSettingsStore } from '../payment/SettingsStore'
 import { LookupPopoverShell } from './LookupPopoverShell'
 
 interface Props {
@@ -12,12 +13,13 @@ export function EnglishWordLookupPopover({ word, anchorRect, onClose }: Props) {
   const [resolved, setResolved] = useState<{ word: string; result: EnWordLookupResult | null } | null>(null)
   const result: EnWordLookupResult | null | 'loading' = resolved && resolved.word === word ? resolved.result : 'loading'
 
-  // Phase 1: translation-only. The immersion flag is wired in a later task.
+  const immersion = useSettingsStore((s) => s.immersionDefinitions)
+
   useEffect(() => {
     let cancelled = false
-    void lookupEnglishWord(word).then((r) => { if (!cancelled) setResolved({ word, result: r }) })
+    void lookupEnglishWord(word, { immersion }).then((r) => { if (!cancelled) setResolved({ word, result: r }) })
     return () => { cancelled = true }
-  }, [word])
+  }, [word, immersion])
 
   useEffect(() => { if (result === null) onClose() }, [result, onClose])
   if (result === null) return null

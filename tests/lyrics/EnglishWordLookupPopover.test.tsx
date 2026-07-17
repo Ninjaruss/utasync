@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { EnglishWordLookupPopover } from '../../src/lyrics/EnglishWordLookupPopover'
+import { useSettingsStore } from '../../src/payment/SettingsStore'
 
 const lookupEnglishWord = vi.fn()
 vi.mock('../../src/language/english/wordLookupEn', async (importOriginal) => {
@@ -39,5 +40,14 @@ describe('EnglishWordLookupPopover', () => {
     const { container } = render(<EnglishWordLookupPopover word="…" anchorRect={null} onClose={onClose} />)
     await waitFor(() => expect(container.firstChild).toBeNull())
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it('passes immersion and shows English definitions when immersion is on', async () => {
+    useSettingsStore.setState({ immersionDefinitions: true })
+    lookupEnglishWord.mockResolvedValue({ headword: 'spring', definitionLang: 'en', equivalents: [], definitions: ['the season of growth'], dictionaryAvailable: true })
+    render(<EnglishWordLookupPopover word="spring" anchorRect={null} onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText('the season of growth')).toBeTruthy())
+    expect(lookupEnglishWord).toHaveBeenCalledWith('spring', { immersion: true })
+    useSettingsStore.setState({ immersionDefinitions: false })
   })
 })

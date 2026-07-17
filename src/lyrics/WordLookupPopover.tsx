@@ -14,12 +14,13 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
   const [resolved, setResolved] = useState<{ token: Token; result: WordLookupResult | null } | null>(null)
   const result: WordLookupResult | null | 'loading' = resolved && resolved.token === token ? resolved.result : 'loading'
   const readingMode = useSettingsStore((s) => s.readingMode)
+  const immersion = useSettingsStore((s) => s.immersionDefinitions)
 
   useEffect(() => {
     let cancelled = false
-    void lookupWord(token, readingMode).then((r) => { if (!cancelled) setResolved({ token, result: r }) })
+    void lookupWord(token, readingMode, { immersion }).then((r) => { if (!cancelled) setResolved({ token, result: r }) })
     return () => { cancelled = true }
-  }, [token, readingMode])
+  }, [token, readingMode, immersion])
 
   useEffect(() => { if (result === null) onClose() }, [result, onClose])
   if (result === null) return null
@@ -30,11 +31,15 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
   const pos = loading ? null : result.posLabel ?? result.pos
   const glosses = loading ? [] : result.glosses
 
+  const externalLink = immersion
+    ? { href: `https://www.weblio.jp/content/${encodeURIComponent(headword)}`, label: 'weblio 国語辞書 ↗' }
+    : { href: jishoSearchUrl(headword), label: 'jisho.org ↗' }
+
   return (
     <LookupPopoverShell
       ariaLabel={`Dictionary entry for ${headword}`}
       anchorRect={anchorRect}
-      externalLink={{ href: jishoSearchUrl(headword), label: 'jisho.org ↗' }}
+      externalLink={externalLink}
       onClose={onClose}
     >
       <div className="flex items-baseline gap-2 flex-wrap pr-9">
