@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { useState } from 'react'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { WordLookupPopover } from '../../src/lyrics/WordLookupPopover'
 import type { Token } from '../../src/core/types'
@@ -67,6 +68,74 @@ describe('WordLookupPopover', () => {
     expect(onClose).not.toHaveBeenCalled()
     fireEvent.pointerDown(document.body)
     expect(onClose).toHaveBeenCalledTimes(1)
+    // Consume the one-shot click swallower installed by the dismissal so it
+    // can't leak into later tests in this file.
+    fireEvent.click(document.body)
+  })
+
+  it('swallows the click that follows a dismissing outside pointerdown, one-shot', async () => {
+    lookupWord.mockResolvedValue({ headword: '躱す', reading: 'かわす', pos: '動詞', glosses: ['to dodge'], dictionaryAvailable: true })
+    const onClose = vi.fn()
+    const onSiblingClick = vi.fn()
+    render(
+      <div>
+        <button type="button" onClick={onSiblingClick}>seek row underneath</button>
+        <WordLookupPopover token={token} anchorRect={null} onClose={onClose} />
+      </div>,
+    )
+    await waitFor(() => expect(screen.getByText('to dodge')).toBeTruthy())
+    const sibling = screen.getByRole('button', { name: 'seek row underneath' })
+
+    fireEvent.pointerDown(sibling)
+    expect(onClose).toHaveBeenCalledTimes(1)
+    // The click completing the dismissing tap must not reach what's underneath.
+    fireEvent.click(sibling)
+    expect(onSiblingClick).not.toHaveBeenCalled()
+    // One-shot: the next independent click goes through normally.
+    fireEvent.click(sibling)
+    expect(onSiblingClick).toHaveBeenCalledTimes(1)
+  })
+
+  it('the click swallower survives the popover unmounting on dismiss', async () => {
+    lookupWord.mockResolvedValue({ headword: '躱す', reading: 'かわす', pos: '動詞', glosses: ['to dodge'], dictionaryAvailable: true })
+    const onSiblingClick = vi.fn()
+    function Harness() {
+      const [open, setOpen] = useState(true)
+      return (
+        <div>
+          <button type="button" onClick={onSiblingClick}>seek row underneath</button>
+          {open && <WordLookupPopover token={token} anchorRect={null} onClose={() => setOpen(false)} />}
+        </div>
+      )
+    }
+    render(<Harness />)
+    await waitFor(() => expect(screen.getByText('to dodge')).toBeTruthy())
+    const sibling = screen.getByRole('button', { name: 'seek row underneath' })
+
+    fireEvent.pointerDown(sibling)
+    await waitFor(() => expect(screen.queryByText('to dodge')).toBeNull())
+    fireEvent.click(sibling)
+    expect(onSiblingClick).not.toHaveBeenCalled()
+    // Consume/verify one-shot removal.
+    fireEvent.click(sibling)
+    expect(onSiblingClick).toHaveBeenCalledTimes(1)
+  })
+
+  it('has a Close button that dismisses the card', async () => {
+    lookupWord.mockResolvedValue({ headword: '躱す', reading: 'かわす', pos: '動詞', glosses: ['to dodge'], dictionaryAvailable: true })
+    const onClose = vi.fn()
+    render(<WordLookupPopover token={token} anchorRect={null} onClose={onClose} />)
+    await waitFor(() => expect(screen.getByText('to dodge')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('sits just above the player dock in the bottom-card layout', async () => {
+    lookupWord.mockResolvedValue({ headword: '躱す', reading: 'かわす', pos: '動詞', glosses: ['to dodge'], dictionaryAvailable: true })
+    render(<WordLookupPopover token={token} anchorRect={null} onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
+    const dialog = screen.getByRole('dialog') as HTMLElement
+    expect(dialog.style.bottom).toBe('calc(var(--player-dock-height, 96px) + 12px)')
   })
 
   it('renders nothing for a null lookup result', async () => {

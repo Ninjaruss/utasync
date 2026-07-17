@@ -51,13 +51,18 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
         ))}
       </div>
 
+      <p className="text-white/50 text-sm text-center text-pretty max-w-xs">
+        Play the song and tap when each line starts.
+      </p>
+
       <button
         onClick={handleTap}
         disabled={current >= plainLines.length}
+        aria-label="Mark line start"
         className="w-32 h-32 rounded-full bg-cinnabar-accent text-white text-4xl shadow-lg active:scale-95 transition-transform disabled:opacity-30"
         style={{ boxShadow: '0 0 30px rgba(248,113,113,0.4)' }}
       >
-        ⏎
+        <span aria-hidden>⏎</span>
       </button>
 
       <div className="flex gap-4">
@@ -68,7 +73,7 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
         {current >= plainLines.length && (
           <button onClick={handleFinish}
             className="px-6 py-2 bg-cinnabar-accent text-white rounded-full text-sm">
-            Save & Practice
+            Save timing
           </button>
         )}
       </div>
