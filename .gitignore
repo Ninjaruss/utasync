@@ -37,3 +37,6 @@ dist-ssr
 # local script caches (e.g. auto-align audit transcripts)
 .cache/
 tests/ai-pipeline/fixtures/*.wav
+
+# Local E2E harness assets (staged audio is copyrighted — never commit)
+public/e2e/

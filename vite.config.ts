@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config'
-import { readFileSync, readdirSync } from 'node:fs'
+import { appendFileSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
@@ -250,12 +250,47 @@ const serveLegal = {
   },
 }
 
+// Dev-only status sink for the self-driving E2E align harness
+// (src/dev/e2eAlignHarness.ts). The harness runs in browsers no automation can
+// reach (real Firefox), so it POSTs progress + its final report here; they land
+// in node_modules/.e2e-status.log for whoever launched the run to tail.
+function e2eStatusSink(
+  req: Connect.IncomingMessage,
+  res: import('node:http').ServerResponse,
+  next: Connect.NextFunction,
+) {
+  if (req.url?.split('?')[0] !== '/__e2e-status' || req.method !== 'POST') {
+    next()
+    return
+  }
+  const chunks: Buffer[] = []
+  req.on('data', (c: Buffer) => chunks.push(c))
+  req.on('end', () => {
+    try {
+      const line = `${new Date().toISOString()} ${Buffer.concat(chunks).toString('utf8')}\n`
+      appendFileSync(fileURLToPath(new URL('node_modules/.e2e-status.log', import.meta.url)), line)
+    } catch {
+      // best-effort sink; never fail the request
+    }
+    res.statusCode = 204
+    res.end()
+  })
+}
+
+const e2eStatus = {
+  name: 'e2e-status-sink',
+  configureServer(server: ViteDevServer) {
+    server.middlewares.use(e2eStatusSink)
+  },
+}
+
 export default defineConfig({
   plugins: [
     onnxRuntimeForTransformers,
     serveOnnxWasm,
     serveRawDict,
     serveLegal,
+    e2eStatus,
     kuromojiRollupShim,
     react(),
     VitePWA({
