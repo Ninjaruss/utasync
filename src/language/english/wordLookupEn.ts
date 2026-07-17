@@ -1,4 +1,5 @@
 import { loadEnjaDict, getEnjaEntries, enjaDictLoaded } from './enjaDict'
+import { loadEnDict, getEnDefinitions, enDictLoaded } from './enDict'
 
 export interface EnEquivalent { ja: string; reading: string | null }
 export interface EnWordLookupResult {
@@ -33,7 +34,13 @@ export function stemCandidates(word: string): string[] {
   if (word.endsWith('es') && word.length > 4) c.push(word.slice(0, -2))
   if (word.endsWith('s') && !word.endsWith('ss') && word.length > 3) c.push(word.slice(0, -1))
   if (word.endsWith('ed') && word.length > 4) { c.push(word.slice(0, -2)); c.push(word.slice(0, -1)) }
-  if (word.endsWith('ing') && word.length > 5) { c.push(word.slice(0, -3)); c.push(word.slice(0, -3) + 'e') }
+  if (word.endsWith('ing') && word.length > 5) {
+    const stem = word.slice(0, -3)
+    c.push(stem)
+    c.push(stem + 'e')
+    // CVC doubling: "running" -> "runn" -> "run" (drop the doubled final consonant).
+    if (stem.length > 1 && stem[stem.length - 1] === stem[stem.length - 2]) c.push(stem.slice(0, -1))
+  }
   if (word.endsWith('ly') && word.length > 4) c.push(word.slice(0, -2))
   return [...new Set(c)]
 }
@@ -52,9 +59,19 @@ export async function lookupEnglishWord(
   if (!headword) return null
 
   if (opts.immersion) {
-    // Filled in a later task. Until then, immersion has no data → treat as
-    // "definitions unavailable" so the popover degrades gracefully.
-    return { headword, definitionLang: 'en', equivalents: [], definitions: [], dictionaryAvailable: false }
+    await loadEnDict()
+    let defs: string[] | undefined
+    for (const cand of stemCandidates(headword)) {
+      defs = getEnDefinitions(cand)
+      if (defs) break
+    }
+    return {
+      headword,
+      definitionLang: 'en',
+      equivalents: [],
+      definitions: defs ?? [],
+      dictionaryAvailable: enDictLoaded(),
+    }
   }
 
   await loadEnjaDict()

@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { normalizeEnglishWord, hasLatinLetter, stemCandidates, lookupEnglishWord } from '../../../src/language/english/wordLookupEn'
 import { setEnjaDictForTests, resetEnjaDictCache } from '../../../src/language/english/enjaDict'
+import { setEnDictForTests, resetEnDictCache } from '../../../src/language/english/enDict'
 
 afterEach(() => resetEnjaDictCache())
 
@@ -50,5 +51,27 @@ describe('lookupEnglishWord (translation direction)', () => {
     const r = await lookupEnglishWord('xyzzy')
     expect(r!.equivalents).toEqual([])
     expect(r!.dictionaryAvailable).toBe(true)
+  })
+})
+
+describe('lookupEnglishWord (immersion / EN→EN)', () => {
+  afterEach(() => resetEnDictCache())
+  it('returns English definitions when immersion is on', async () => {
+    setEnDictForTests({ v: 1, source: 't', entries: { spring: ['the season of growth'] } })
+    const r = await lookupEnglishWord('Spring', { immersion: true })
+    expect(r).toMatchObject({ headword: 'spring', definitionLang: 'en' })
+    expect(r!.definitions).toEqual(['the season of growth'])
+    expect(r!.equivalents).toEqual([])
+  })
+  it('reports no definition (dictionaryAvailable true) for an unknown word in immersion', async () => {
+    setEnDictForTests({ v: 1, source: 't', entries: {} })
+    const r = await lookupEnglishWord('xyzzy', { immersion: true })
+    expect(r!.definitions).toEqual([])
+    expect(r!.dictionaryAvailable).toBe(true)
+  })
+  it('falls back to a stemmed match in immersion', async () => {
+    setEnDictForTests({ v: 1, source: 't', entries: { run: ['to move fast on foot'] } })
+    const r = await lookupEnglishWord('running', { immersion: true })
+    expect(r!.definitions).toEqual(['to move fast on foot'])
   })
 })
