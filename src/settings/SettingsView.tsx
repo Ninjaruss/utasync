@@ -77,7 +77,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
   const [clearingCache, setClearingCache] = useState(false)
   const [confirmClearCache, setConfirmClearCache] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  const { defaultSongLanguage, setDefaultSongLanguage, vocalSeparationEnabled, setVocalSeparationEnabled, readingMode, setReadingMode, tapLookupEnabled, setTapLookupEnabled } = useSettingsStore()
+  const { defaultSongLanguage, setDefaultSongLanguage, vocalSeparationEnabled, setVocalSeparationEnabled, readingMode, setReadingMode, tapLookupEnabled, setTapLookupEnabled, immersionDefinitions, setImmersionDefinitions } = useSettingsStore()
 
   const refreshStorage = async (library: Song[]) => {
     setStorage(await estimateStorageBreakdown())
@@ -187,6 +187,12 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
           description="Tap a Japanese word for its reading and meaning, or an English translation word for its Japanese meaning. Turn off if you use an extension like Yomitan."
           checked={tapLookupEnabled}
           onToggle={() => setTapLookupEnabled(!tapLookupEnabled)}
+        />
+        <SettingToggle
+          title="Immersion (monolingual) definitions"
+          description="Define words in their own language — Japanese words get Japanese definitions, English words get English. For advanced learners. Needs Tap word lookup on."
+          checked={immersionDefinitions}
+          onToggle={() => setImmersionDefinitions(!immersionDefinitions)}
         />
       </div>
 
