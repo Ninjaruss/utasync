@@ -124,6 +124,8 @@ describe('EditMode', () => {
     fireEvent.click(screen.getByRole('button', { name: /auto-align/i }))
     expect(onAutoAlign).not.toHaveBeenCalled()
     expect(screen.getByText(/replaces timing for all 2 lines/i)).toBeTruthy()
+    // Sets the expectation that this is a slow operation, not an instant toggle.
+    expect(screen.getByText(/takes a few minutes/i)).toBeTruthy()
     fireEvent.click(screen.getByText('Continue'))
     expect(onAutoAlign).toHaveBeenCalled()
   })
@@ -209,8 +211,9 @@ describe('EditMode', () => {
     expect(screen.queryByText(/mixed-language song/i)).toBeNull()
   })
 
-  it('opens the second-language panel from the toolbar', async () => {
+  it('opens the second-language panel from the More menu', async () => {
     renderEditMode()
+    fireEvent.click(screen.getByRole('button', { name: /more/i }))
     fireEvent.click(screen.getByRole('button', { name: /translation/i }))
     expect(await screen.findByRole('heading', { name: /second language/i })).toBeTruthy()
   })
@@ -218,6 +221,7 @@ describe('EditMode', () => {
   it('pauses playback when opening the second-language panel', async () => {
     const onPausePlayback = vi.fn()
     renderEditMode({ onPausePlayback })
+    fireEvent.click(screen.getByRole('button', { name: /more/i }))
     fireEvent.click(screen.getByRole('button', { name: /translation/i }))
     expect(onPausePlayback).toHaveBeenCalledTimes(1)
     expect(await screen.findByRole('heading', { name: /second language/i })).toBeTruthy()
@@ -519,5 +523,153 @@ describe('EditMode playhead centering on mount', () => {
     } finally {
       window.HTMLElement.prototype.scrollIntoView = original
     }
+  })
+})
+
+// Wave 2, item 1: the toolbar collapses to a single 44px row — Auto-align is the
+// primary action, Undo/Redo are icon buttons, and the secondary actions live in
+// a "More" overflow menu so nothing wraps on a 375px phone.
+describe('EditMode — single-row toolbar hierarchy', () => {
+  it('renders Auto-align as the visually primary (accent) action', () => {
+    renderEditMode()
+    const btn = screen.getByRole('button', { name: /auto-align/i })
+    expect(btn.className).toMatch(/bg-cinnabar-accent/)
+  })
+
+  it('renders Undo and Redo as icon-only buttons with accessible labels', () => {
+    renderEditMode()
+    const undo = screen.getByRole('button', { name: 'Undo' })
+    const redo = screen.getByRole('button', { name: 'Redo' })
+    expect(undo.querySelector('svg')).toBeTruthy()
+    expect(redo.querySelector('svg')).toBeTruthy()
+    // Icon only — no visible text label.
+    expect(undo.textContent?.trim()).toBe('')
+    expect(redo.textContent?.trim()).toBe('')
+  })
+
+  it('tucks Replace / Tap-through / Translation behind a collapsed More menu', () => {
+    renderEditMode({ onReplaceLyrics: vi.fn(), showTapSync: true, onTapSync: vi.fn() })
+    // Collapsed by default — none of the secondary actions are in the DOM yet.
+    expect(screen.queryByRole('button', { name: /replace lyrics/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /tap-through/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /translation/i })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /more/i }))
+
+    expect(screen.getByRole('button', { name: /replace lyrics/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /tap-through/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /translation/i })).toBeTruthy()
+  })
+
+  it('lists only applicable actions in the More menu', () => {
+    // No replace handler and no tap-sync — only the always-available Translation.
+    renderEditMode()
+    fireEvent.click(screen.getByRole('button', { name: /more/i }))
+    expect(screen.queryByRole('button', { name: /replace lyrics/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /tap-through/i })).toBeNull()
+    expect(screen.getByRole('button', { name: /translation/i })).toBeTruthy()
+  })
+
+  it('a More-menu action fires its handler and closes the menu', () => {
+    const onReplaceLyrics = vi.fn()
+    renderEditMode({ onReplaceLyrics })
+    fireEvent.click(screen.getByRole('button', { name: /more/i }))
+    fireEvent.click(screen.getByRole('button', { name: /replace lyrics/i }))
+    expect(onReplaceLyrics).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: /replace lyrics/i })).toBeNull()
+  })
+})
+
+// Wave 2, item 3: EditMode stays mounted while gap recovery or a completed
+// auto-align swaps in a new `lines` array from outside. Undo must never silently
+// revert that external result to a value the user never produced by hand.
+describe('EditMode — external-change undo guard', () => {
+  function editModeProps(over: Partial<Parameters<typeof EditMode>[0]>) {
+    return {
+      playhead: () => 9,
+      hasLocalAudio: true,
+      onAutoAlign: vi.fn(),
+      title: 't',
+      artist: 'a',
+      sourceLanguage: 'ja' as const,
+      ...over,
+    }
+  }
+
+  it('clears the undo history when lines are replaced externally', () => {
+    const onChangeLines = vi.fn()
+    const initial: TimedLine[] = [{ startTime: 0, endTime: 2, original: 'a', translation: '' }]
+    const { rerender } = render(<EditMode lines={initial} {...editModeProps({ onChangeLines })} />)
+
+    // A hand edit puts the pre-edit lines on the undo stack.
+    fireEvent.click(screen.getByText('a'))
+    const input = screen.getByLabelText('Original text')
+    fireEvent.change(input, { target: { value: 'hand edit' } })
+    fireEvent.blur(input)
+    expect(onChangeLines).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: 'Undo' })).not.toBeDisabled()
+
+    // An external replacement (gap recovery / completed auto-align) swaps in a
+    // brand-new array this component's stack never emitted.
+    const external: TimedLine[] = [{ startTime: 3, endTime: 6, original: 'recovered', translation: '' }]
+    rerender(<EditMode lines={external} {...editModeProps({ onChangeLines })} />)
+
+    // Undo is now a no-op — it must not restore the pre-external lines.
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled()
+    onChangeLines.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(onChangeLines).not.toHaveBeenCalled()
+  })
+
+  it('still supports undo for internal edits made after an external change', () => {
+    const onChangeLines = vi.fn()
+    const initial: TimedLine[] = [{ startTime: 0, endTime: 2, original: 'a', translation: '' }]
+    const { rerender } = render(<EditMode lines={initial} {...editModeProps({ onChangeLines })} />)
+
+    const external: TimedLine[] = [{ startTime: 3, endTime: 6, original: 'recovered', translation: '' }]
+    rerender(<EditMode lines={external} {...editModeProps({ onChangeLines })} />)
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled()
+
+    // A fresh hand edit after the external change is undoable again.
+    fireEvent.click(screen.getByText('recovered'))
+    const input = screen.getByLabelText('Original text')
+    fireEvent.change(input, { target: { value: 'edited' } })
+    fireEvent.blur(input)
+    expect(screen.getByRole('button', { name: 'Undo' })).not.toBeDisabled()
+
+    onChangeLines.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    const undone = onChangeLines.mock.calls[0][0] as TimedLine[]
+    expect(undone[0].original).toBe('recovered')
+  })
+
+  it('preserves undo history when an external change only adds enrichment (tokens/reading)', () => {
+    const onChangeLines = vi.fn()
+    const base: TimedLine[] = [{ startTime: 0, endTime: 2, original: 'a', translation: '' }]
+    const { rerender } = render(<EditMode lines={base} {...editModeProps({ onChangeLines })} />)
+
+    // Hand edit — pre-edit lines go on the undo stack.
+    fireEvent.click(screen.getByText('a'))
+    const input = screen.getByLabelText('Original text')
+    fireEvent.change(input, { target: { value: 'hand edit' } })
+    fireEvent.blur(input)
+    const edited = onChangeLines.mock.calls[0][0] as TimedLine[]
+    expect(screen.getByRole('button', { name: 'Undo' })).not.toBeDisabled()
+
+    // Parent commits the edit back by reference (as the store does).
+    rerender(<EditMode lines={edited} {...editModeProps({ onChangeLines })} />)
+    expect(screen.getByRole('button', { name: 'Undo' })).not.toBeDisabled()
+
+    // Async enrichment swaps in a NEW array — identical timing+text, plus
+    // reading/tokens. This must NOT wipe the user's undo history.
+    const enriched: TimedLine[] = edited.map((l) => ({ ...l, reading: 'よみ', tokens: [] }))
+    rerender(<EditMode lines={enriched} {...editModeProps({ onChangeLines })} />)
+    expect(screen.getByRole('button', { name: 'Undo' })).not.toBeDisabled()
+
+    // The manual edit is still undoable — reverts to the pre-edit text.
+    onChangeLines.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    const undone = onChangeLines.mock.calls[0][0] as TimedLine[]
+    expect(undone[0].original).toBe('a')
   })
 })

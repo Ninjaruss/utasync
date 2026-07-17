@@ -67,8 +67,39 @@ interface Props {
 
 const DELETE_CONFIRM_MS = 3000
 
+// Wave 2 toolbar hierarchy: one 44px row with a primary Auto-align, compact
+// icon Undo/Redo, and an overflow "More" menu for secondary actions.
+const toolbarIconBtn =
+  'min-w-11 min-h-11 flex items-center justify-center rounded-lg border border-cinnabar-800 text-white/60 hover:text-white hover:border-cinnabar-accent/50 touch-manipulation transition-[color,border-color,transform] duration-150 ease-out active:scale-[0.96]'
+
+const toolbarPrimaryBtn =
+  'min-h-11 px-3.5 py-2 rounded-lg bg-cinnabar-accent text-white text-xs font-semibold shadow-sm shadow-cinnabar-accent/20 hover:bg-cinnabar-accent/90 touch-manipulation transition-[background-color,transform] duration-150 ease-out active:scale-[0.96]'
+
+const moreMenuItem =
+  'min-h-11 px-3 py-2 text-left text-xs text-white/70 rounded-lg hover:bg-cinnabar-800/60 hover:text-white touch-manipulation whitespace-nowrap transition-colors'
+
 function isTimed(line: TimedLine, first: boolean): boolean {
   return line.startTime > 0 || (first && line.startTime === 0 && line.endTime > 0)
+}
+
+/** True when two line arrays differ in the fields a user actually edits —
+ * count, timing (start/end), or text (original/translation). Ignores
+ * enrichment-only fields (tokens/reading/furigana/grammarAnnotations) so an
+ * async reading/token pass that leaves timing+text untouched is NOT treated as
+ * a destructive external change. */
+function timingOrTextChanged(a: TimedLine[], b: TimedLine[]): boolean {
+  if (a.length !== b.length) return true
+  for (let i = 0; i < a.length; i++) {
+    if (
+      a[i].startTime !== b[i].startTime ||
+      a[i].endTime !== b[i].endTime ||
+      a[i].original !== b[i].original ||
+      a[i].translation !== b[i].translation
+    ) {
+      return true
+    }
+  }
+  return false
 }
 
 function fmtTime(t: number): string {
@@ -289,6 +320,30 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
 
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
+  const [showMore, setShowMore] = useState(false)
+
+  // External-change guard (item 3): EditMode stays mounted while a completed
+  // Auto-align or gap-recovery pass replaces `lines` from OUTSIDE this editor.
+  // Such a change arrives as a `lines` prop the undo stack never emitted —
+  // internal edits set currentLines.current to the exact array passed to
+  // onChangeLines, which the store round-trips back by reference, so an internal
+  // edit is never mistaken for an external one. On a genuine external
+  // replacement, adopt the new baseline so a later Undo can never revert past
+  // it; WIPE the undo/redo history only when the timing or text actually changed
+  // (gap recovery, completed auto-align) — an enrichment pass that only adds
+  // tokens/readings keeps the history so a manual edit made just before it stays
+  // undoable. Runs in an effect (not during render) so the refs are touched only
+  // after commit.
+  useEffect(() => {
+    if (lines === currentLines.current) return
+    if (timingOrTextChanged(currentLines.current, lines)) {
+      undoStack.current = []
+      redoStack.current = []
+      setCanUndo(false)
+      setCanRedo(false)
+    }
+    currentLines.current = lines
+  }, [lines])
 
   const applyChange = (next: TimedLine[]) => {
     undoStack.current.push(currentLines.current)
@@ -441,52 +496,79 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className={editToolbarRow}>
-        <div className="flex items-center gap-2 flex-wrap justify-end">
-          <p className={[toolbarSectionLabel, 'flex-1 min-w-[6rem]'].join(' ')}>Edit lyrics</p>
+        <div className="flex items-center gap-1.5">
+          <p className={[toolbarSectionLabel, 'flex-1 min-w-0 truncate'].join(' ')}>Edit lyrics</p>
           <button
             type="button"
             onClick={undo}
             disabled={!canUndo}
             aria-label="Undo"
-            className={`${toolbarActionBtn} disabled:opacity-30`}
+            className={`${toolbarIconBtn} disabled:opacity-30`}
           >
-            Undo
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 5 3 8l3 3" />
+              <path d="M3 8h6a3.5 3.5 0 0 1 0 7H7" />
+            </svg>
           </button>
           <button
             type="button"
             onClick={redo}
             disabled={!canRedo}
             aria-label="Redo"
-            className={`${toolbarActionBtn} disabled:opacity-30`}
+            className={`${toolbarIconBtn} disabled:opacity-30`}
           >
-            Redo
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 5 13 8l-3 3" />
+              <path d="M13 8H7a3.5 3.5 0 0 0 0 7h2" />
+            </svg>
           </button>
-          {onReplaceLyrics && (
-            <button type="button" onClick={onReplaceLyrics} className={toolbarActionBtn}>
-              Replace lyrics
+
+          {/* Overflow menu — secondary actions kept off the primary row so it
+              never wraps on a 375px phone. Only applicable items are listed. */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowMore((v) => !v)}
+              aria-haspopup="true"
+              aria-expanded={showMore}
+              className={`${toolbarActionBtn} inline-flex items-center gap-1`}
+            >
+              More
+              <svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 6l4 4 4-4" />
+              </svg>
             </button>
-          )}
-          {showTapSync && onTapSync && (
-            <button type="button" onClick={onTapSync} className={toolbarActionBtn}>
-              Tap-through
-            </button>
-          )}
-          {hasLocalAudio ? (
+            {showMore && (
+              <>
+                <div className="fixed inset-0 z-30" aria-hidden="true" onClick={() => setShowMore(false)} />
+                <div className="absolute right-0 top-full z-40 mt-1 flex min-w-[11rem] flex-col rounded-xl border border-cinnabar-800 bg-cinnabar-900 p-1 shadow-xl">
+                  {onReplaceLyrics && (
+                    <button type="button" onClick={() => { setShowMore(false); onReplaceLyrics() }} className={moreMenuItem}>
+                      Replace lyrics
+                    </button>
+                  )}
+                  {showTapSync && onTapSync && (
+                    <button type="button" onClick={() => { setShowMore(false); onTapSync() }} className={moreMenuItem}>
+                      Tap-through
+                    </button>
+                  )}
+                  <button type="button" onClick={() => { setShowMore(false); openSecondLang() }} className={moreMenuItem}>
+                    {hasSecondLang ? '2nd language' : '+ Translation'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {hasLocalAudio && (
             <button
               type="button"
               onClick={() => setConfirmAutoAlign(true)}
-              className={toolbarActionBtn}
+              className={toolbarPrimaryBtn}
             >
               Auto-align
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={openSecondLang}
-            className={toolbarActionBtn}
-          >
-            {hasSecondLang ? '2nd language' : '+ Translation'}
-          </button>
+          )}
         </div>
         {!hasLocalAudio && (
           <p className="text-xs text-white/30 text-pretty">
@@ -615,6 +697,7 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setConfirmAutoAlign(false)}>
           <div className="w-full max-w-sm rounded-2xl bg-cinnabar-900 border border-cinnabar-800 p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
             <p className="text-white text-sm">This replaces timing for all {lines.length} lines. Continue?</p>
+            <p className="text-white/50 text-xs">This takes a few minutes.</p>
             <div className="flex gap-2">
               <button onClick={() => setConfirmAutoAlign(false)} className="flex-1 py-2 rounded-lg bg-cinnabar-950 text-white/70 text-sm">Cancel</button>
               <button onClick={() => { setConfirmAutoAlign(false); onAutoAlign() }} className="flex-1 py-2 rounded-lg bg-cinnabar-accent text-white text-sm font-medium">Continue</button>
