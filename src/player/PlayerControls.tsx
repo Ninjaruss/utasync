@@ -399,6 +399,8 @@ function CollapsibleABLoopSection({
   forceCollapsed,
   canSave,
   onSave,
+  expanded: controlledExpanded,
+  onExpandedChange,
 }: {
   abLoop: ABLoop
   armingAB: 'a' | 'b' | null
@@ -411,9 +413,19 @@ function CollapsibleABLoopSection({
   forceCollapsed?: boolean
   canSave?: boolean
   onSave?: () => void
+  /** Controlled expansion (bottom-sheet drawer drives this so the section
+   * lands open); omit for the self-managing accordion (desktop column). */
+  expanded?: boolean
+  onExpandedChange?: (value: boolean) => void
 }) {
   const isDesktop = useMinWidthMd()
-  const [expanded, setExpanded] = useState(abActive)
+  const [uncontrolledExpanded, setUncontrolledExpanded] = useState(abActive)
+  const expanded = controlledExpanded ?? uncontrolledExpanded
+  const setExpanded = (value: boolean | ((prev: boolean) => boolean)) => {
+    const next = typeof value === 'function' ? value(expanded) : value
+    if (onExpandedChange) onExpandedChange(next)
+    else setUncontrolledExpanded(next)
+  }
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: auto-expand when a loop activates
@@ -560,6 +572,11 @@ const SWIPE_MIN_PX = 48
 
 const practiceChipBtn =
   'min-h-9 px-2.5 py-1 rounded-lg border text-[11px] touch-manipulation transition-[color,background-color,border-color,transform] duration-150 ease-out active:scale-[0.96] tabular-nums'
+
+// Mobile control-dock chips (Loop / Speed / Saved) — 44px touch target, same
+// visual family as practiceChipBtn but taller so the thumb has room on a phone.
+const mobileControlChipBtn =
+  'min-h-11 px-2.5 py-1 rounded-lg border text-[11px] font-medium touch-manipulation transition-[color,background-color,border-color,transform] duration-150 ease-out active:scale-[0.96] tabular-nums'
 
 
 function PlaylistCompactPlayer({
@@ -1336,6 +1353,69 @@ function SavedLoopsPanelSection({
   )
 }
 
+/**
+ * Mobile-only bottom sheet for the practice controls. Portaled to `document.body`
+ * so its fixed positioning is viewport-relative — the dock's `backdrop-blur`
+ * would otherwise make it the containing block and clip the sheet to the bar.
+ */
+function MobileControlsSheet({
+  title = 'Controls',
+  onClose,
+  children,
+}: {
+  title?: string
+  onClose: () => void
+  children: ReactNode
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return createPortal(
+    <>
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[1px] transition-opacity duration-150 ease-out"
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="fixed inset-x-0 bottom-0 z-40 rounded-t-2xl border-t border-cinnabar-900 bg-cinnabar-950 shadow-2xl shadow-black/50 max-h-[75dvh] overflow-y-auto overscroll-contain"
+        style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 12px), 12px)' }}
+      >
+        <button
+          type="button"
+          aria-label="Dismiss controls"
+          onClick={onClose}
+          className="w-full min-h-11 flex items-center justify-center touch-manipulation transition-transform duration-150 ease-out active:scale-[0.98]"
+        >
+          <span aria-hidden className="block h-1 w-10 rounded-full bg-white/20" />
+        </button>
+        <div className="flex items-center justify-between gap-2 px-4 pb-2">
+          <h2 className="text-[11px] font-medium uppercase tracking-wide text-white/55">{title}</h2>
+          <button
+            type="button"
+            aria-label="Close controls"
+            onClick={onClose}
+            className="min-h-11 min-w-11 -mr-2 flex items-center justify-center text-white/45 hover:text-white touch-manipulation transition-[color,transform] duration-150 ease-out active:scale-[0.94]"
+          >
+            <span aria-hidden className="text-lg leading-none">✕</span>
+          </button>
+        </div>
+        <div className="flex flex-col gap-2 px-3 pb-3">{children}</div>
+      </div>
+    </>,
+    document.body,
+  )
+}
+
 /** Playback dock — essential controls first; practice tools tucked in a collapsible section. */
 export function PlayerControls({
   mode,
@@ -1386,6 +1466,13 @@ export function PlayerControls({
   const isDesktop = useMinWidthMd()
   const [savedLoopsOpen, setSavedLoopsOpen] = useState(false)
   const [speedOpen, setSpeedOpen] = useState(false)
+  // Mobile bottom-sheet state. The sheet owns its own expansion flags so the
+  // Speed + Saved sections open by default inside it, independent of the
+  // desktop accordion wiring above.
+  const [controlsOpen, setControlsOpen] = useState(false)
+  const [sheetLoopOpen, setSheetLoopOpen] = useState(true)
+  const [sheetSpeedOpen, setSheetSpeedOpen] = useState(true)
+  const [sheetSavedOpen, setSheetSavedOpen] = useState(true)
   const dockRef = useRef<HTMLElement>(null)
 
   // Publish the dock's real height so fixed overlays (the word-lookup card)
@@ -1438,6 +1525,16 @@ export function PlayerControls({
     if (next && !isDesktop) setSavedLoopsOpen(false)
   }
 
+  const openControls = () => {
+    // Re-open all sections each time the sheet is summoned so it always lands
+    // fully expanded regardless of how it was left last time.
+    setSheetLoopOpen(true)
+    setSheetSpeedOpen(true)
+    setSheetSavedOpen(true)
+    setControlsOpen(true)
+  }
+  const closeControls = () => setControlsOpen(false)
+
   const hasPlaylistEntries = playlistEntries.length > 0
   const playlistHandlersReady = Boolean(
     onTogglePlaylist && onLoadPlaylistEntry && onPlaylistRepeatCountChange,
@@ -1450,6 +1547,62 @@ export function PlayerControls({
       : wrapPlaylistIndex(playlistIndex, playlistEntries.length)
     onLoadPlaylistEntry(playlistEntries[nextIndex], nextIndex)
   }
+
+  // Active-playlist mini player + Stop button. Stays inline on both layouts —
+  // never hidden behind the mobile sheet — so an active playlist is always visible.
+  const playlistBlock = playlistActive && hasPlaylistEntries && playlistHandlersReady ? (
+    <div className="shrink-0 space-y-1">
+      <PlaylistCompactPlayer
+        entries={playlistEntries}
+        playlistIndex={playlistIndex}
+        playlistRepeatCount={playlistRepeatCount}
+        onStep={stepPlaylist}
+        onRepeatChange={onPlaylistRepeatCountChange!}
+      />
+      <button
+        type="button"
+        onClick={onTogglePlaylist}
+        className={[
+          practiceChipBtn,
+          'w-full border-red-400/60 bg-red-500/15 text-red-200 font-semibold',
+        ].join(' ')}
+        aria-label={`Stop playlist (${playlistIndex + 1} of ${playlistEntries.length})`}
+      >
+        Stop ({playlistIndex + 1}/{playlistEntries.length})
+      </button>
+    </div>
+  ) : null
+
+  // Saved-loops list body, reused verbatim by the desktop stack and the sheet.
+  const savedLoopsChildren = onTogglePlaylist && onLoadPlaylistEntry && onMovePlaylistEntry && onRemovePlaylistEntry && onRenamePlaylistEntry && onClearPlaylist ? (
+    <ABLoopPlaylistControls
+      entries={playlistEntries}
+      playlistActive={playlistActive}
+      onTogglePlaylist={onTogglePlaylist}
+      onLoadEntry={onLoadPlaylistEntry}
+      onMoveEntry={onMovePlaylistEntry}
+      onRemoveEntry={onRemovePlaylistEntry}
+      onRenameEntry={onRenamePlaylistEntry}
+      onClear={onClearPlaylist}
+      canExport={showPlaylistExport}
+      onExport={onExportPlaylist}
+      exporting={playlistExporting}
+      exportError={playlistExportError}
+      compactMobile={!isDesktop}
+    />
+  ) : null
+
+  const moreMenu = (
+    <MoreMenu
+      showAbExport={showAbExport}
+      onExportAb={onExportAb}
+      exporting={abExporting}
+      exportError={abExportError}
+      canIncludeSrt={abExportCanIncludeSrt}
+      includeSrt={abExportIncludeSrt}
+      onIncludeSrtChange={onAbExportIncludeSrtChange}
+    />
+  )
 
   return (
     <aside
@@ -1481,12 +1634,12 @@ export function PlayerControls({
           playSize={mode === 'edit' || !isDesktop ? 'md' : 'lg'}
           compact={!isDesktop}
         />
-        {(!savedLoopsOpen || isDesktop) && (
+        {isDesktop && (
           <CompactVolume volumePct={volumePct} onVolumeChange={onVolumeChange} />
         )}
       </section>
 
-      {mode === 'play' && (
+      {mode === 'play' && (isDesktop ? (
         <div
           className={[
             'flex flex-col gap-1.5 md:gap-2 min-h-0',
@@ -1508,28 +1661,7 @@ export function PlayerControls({
             onSave={onSaveToPlaylist}
           />
 
-          {playlistActive && hasPlaylistEntries && playlistHandlersReady && (
-            <div className="shrink-0 space-y-1">
-              <PlaylistCompactPlayer
-                entries={playlistEntries}
-                playlistIndex={playlistIndex}
-                playlistRepeatCount={playlistRepeatCount}
-                onStep={stepPlaylist}
-                onRepeatChange={onPlaylistRepeatCountChange!}
-              />
-              <button
-                type="button"
-                onClick={onTogglePlaylist}
-                className={[
-                  practiceChipBtn,
-                  'w-full border-red-400/60 bg-red-500/15 text-red-200 font-semibold',
-                ].join(' ')}
-                aria-label={`Stop playlist (${playlistIndex + 1} of ${playlistEntries.length})`}
-              >
-                Stop ({playlistIndex + 1}/{playlistEntries.length})
-              </button>
-            </div>
-          )}
+          {playlistBlock}
 
           <CollapsibleSpeedSection
             speedPct={speedPct}
@@ -1548,36 +1680,106 @@ export function PlayerControls({
             playlistLength={playlistEntries.length}
             entryCount={playlistEntries.length}
           >
-            {onTogglePlaylist && onLoadPlaylistEntry && onMovePlaylistEntry && onRemovePlaylistEntry && onRenamePlaylistEntry && onClearPlaylist && (
-              <ABLoopPlaylistControls
-                entries={playlistEntries}
-                playlistActive={playlistActive}
-                onTogglePlaylist={onTogglePlaylist}
-                onLoadEntry={onLoadPlaylistEntry}
-                onMoveEntry={onMovePlaylistEntry}
-                onRemoveEntry={onRemovePlaylistEntry}
-                onRenameEntry={onRenamePlaylistEntry}
-                onClear={onClearPlaylist}
-                canExport={showPlaylistExport}
-                onExport={onExportPlaylist}
-                exporting={playlistExporting}
-                exportError={playlistExportError}
-                compactMobile={!isDesktop}
-              />
-            )}
+            {savedLoopsChildren}
           </SavedLoopsPanelSection>
 
-          <MoreMenu
-            showAbExport={showAbExport}
-            onExportAb={onExportAb}
-            exporting={abExporting}
-            exportError={abExportError}
-            canIncludeSrt={abExportCanIncludeSrt}
-            includeSrt={abExportIncludeSrt}
-            onIncludeSrtChange={onAbExportIncludeSrtChange}
-          />
+          {moreMenu}
         </div>
-      )}
+      ) : (
+        <>
+          <div className="flex flex-col gap-1.5 min-h-0 mt-1.5">
+            {playlistBlock}
+            <div role="group" aria-label="Playback shortcuts" className="flex items-stretch gap-1.5">
+              <button
+                type="button"
+                onClick={openControls}
+                aria-label="Loop"
+                aria-haspopup="dialog"
+                className={[
+                  mobileControlChipBtn,
+                  abActive ? toolbarChipBtnActive : toolbarChipBtnIdle,
+                  'flex-1 inline-flex items-center justify-center gap-1.5',
+                ].join(' ')}
+              >
+                Loop
+                {abActive && (
+                  <span
+                    data-testid="loop-active-dot"
+                    aria-hidden
+                    className="w-1.5 h-1.5 rounded-full bg-cinnabar-accent"
+                  />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={openControls}
+                aria-label={`Speed ${speedPct} percent`}
+                aria-haspopup="dialog"
+                className={[
+                  mobileControlChipBtn,
+                  speed !== NORMAL_SPEED ? toolbarChipBtnActive : toolbarChipBtnIdle,
+                  'flex-1 inline-flex items-center justify-center',
+                ].join(' ')}
+              >
+                Speed · {speedPct}%
+              </button>
+              <button
+                type="button"
+                onClick={openControls}
+                aria-label="Saved loops"
+                aria-haspopup="dialog"
+                className={[
+                  mobileControlChipBtn,
+                  playlistActive ? toolbarChipBtnActive : toolbarChipBtnIdle,
+                  'flex-1 inline-flex items-center justify-center',
+                ].join(' ')}
+              >
+                Saved
+              </button>
+            </div>
+          </div>
+
+          {controlsOpen && (
+            <MobileControlsSheet onClose={closeControls}>
+              <CompactVolume volumePct={volumePct} onVolumeChange={onVolumeChange} />
+              <CollapsibleABLoopSection
+                abLoop={abLoop}
+                armingAB={armingAB}
+                abLoopError={abLoopError}
+                abLooping={abLooping}
+                playlistActive={playlistActive}
+                abActive={abActive}
+                onToggleArm={onToggleArm}
+                onClearAB={onClearAB}
+                forceCollapsed={false}
+                expanded={sheetLoopOpen}
+                onExpandedChange={setSheetLoopOpen}
+                canSave={canSaveToPlaylist}
+                onSave={onSaveToPlaylist}
+              />
+              <CollapsibleSpeedSection
+                speedPct={speedPct}
+                speed={speed}
+                onSpeedChange={onSpeedChange}
+                forceCollapsed={false}
+                expanded={sheetSpeedOpen}
+                onExpandedChange={setSheetSpeedOpen}
+              />
+              <SavedLoopsPanelSection
+                open={sheetSavedOpen}
+                onToggle={() => setSheetSavedOpen((v) => !v)}
+                playlistActive={playlistActive}
+                playlistIndex={playlistIndex}
+                playlistLength={playlistEntries.length}
+                entryCount={playlistEntries.length}
+              >
+                {savedLoopsChildren}
+              </SavedLoopsPanelSection>
+              {moreMenu}
+            </MobileControlsSheet>
+          )}
+        </>
+      ))}
     </aside>
   )
 }

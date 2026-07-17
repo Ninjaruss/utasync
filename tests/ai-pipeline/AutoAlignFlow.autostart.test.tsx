@@ -7,6 +7,9 @@ import { db } from '../../src/core/db/schema'
 
 const deviceTier = vi.hoisted(() => ({ current: 'lite' as 'lite' | 'full' | 'manual' }))
 const vocalSepSupported = vi.hoisted(() => ({ current: false }))
+// First-run download consent flag. Defaults to already-consented so the existing
+// specs autostart straight into alignment; the consent-gate spec flips it off.
+const settings = vi.hoisted(() => ({ consented: true }))
 
 vi.mock('../../src/ai-pipeline/capability', () => ({
   getDeviceTier: () => deviceTier.current,
@@ -24,8 +27,18 @@ vi.mock('../../src/ai-pipeline/demucsSeparator', async (importOriginal) => {
 })
 
 vi.mock('../../src/payment/SettingsStore', () => ({
-  useSettingsStore: (selector: (s: { vocalSeparationEnabled: boolean; setVocalSeparationEnabled: () => void }) => unknown) =>
-    selector({ vocalSeparationEnabled: false, setVocalSeparationEnabled: vi.fn() }),
+  useSettingsStore: (selector: (s: {
+    vocalSeparationEnabled: boolean
+    modelDownloadConsented: boolean
+    setVocalSeparationEnabled: () => void
+    setModelDownloadConsented: (v: boolean) => void
+  }) => unknown) =>
+    selector({
+      vocalSeparationEnabled: false,
+      modelDownloadConsented: settings.consented,
+      setVocalSeparationEnabled: vi.fn(),
+      setModelDownloadConsented: (v: boolean) => { settings.consented = v },
+    }),
 }))
 
 vi.mock('../../src/core/opfs/audio', () => ({
@@ -102,6 +115,7 @@ beforeEach(async () => {
   transcribeAudio.mockClear()
   deviceTier.current = 'lite'
   vocalSepSupported.current = false
+  settings.consented = true
 })
 
 describe('AutoAlignFlow autoStart', () => {
@@ -338,5 +352,83 @@ describe('AutoAlignFlow user-facing copy', () => {
     expect(screen.queryByText(/DEPLOYMENT\.md/i)).toBeNull()
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('docs/DEPLOYMENT.md'))
     warn.mockRestore()
+  })
+})
+
+describe('AutoAlignFlow first-run download consent', () => {
+  it('gates the first-ever download behind a one-time prompt and only starts on Continue', async () => {
+    settings.consented = false
+    const onComplete = vi.fn()
+    render(<AutoAlignFlow song={song} autoStart onComplete={onComplete} onClose={vi.fn()} />)
+
+    // The consent prompt is shown and alignment has NOT auto-started.
+    expect(screen.getByText(/first-song setup/i)).toBeTruthy()
+    expect(screen.getByText(/~240MB speech model/i)).toBeTruthy()
+    expect(screen.queryByText(/preparing audio/i)).toBeNull()
+    expect(transcribeAudio).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+    await waitFor(() => expect(onComplete).toHaveBeenCalled())
+    expect(transcribeAudio).toHaveBeenCalled()
+    // Consent was remembered.
+    expect(settings.consented).toBe(true)
+  })
+
+  it('skips the prompt and autostarts directly once consent is remembered', async () => {
+    settings.consented = true
+    const onComplete = vi.fn()
+    render(<AutoAlignFlow song={song} autoStart onComplete={onComplete} onClose={vi.fn()} />)
+
+    expect(screen.queryByText(/first-song setup/i)).toBeNull()
+    expect(screen.getByText(/preparing audio/i)).toBeTruthy()
+    await waitFor(() => expect(onComplete).toHaveBeenCalled())
+  })
+
+  it('closes without downloading when the user picks "Not now"', () => {
+    settings.consented = false
+    const onClose = vi.fn()
+    render(<AutoAlignFlow song={song} autoStart onComplete={vi.fn()} onClose={onClose} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /not now/i }))
+    expect(onClose).toHaveBeenCalled()
+    expect(transcribeAudio).not.toHaveBeenCalled()
+    expect(settings.consented).toBe(false)
+  })
+})
+
+describe('AutoAlignFlow friendly errors', () => {
+  it('shows friendly copy for an unclassified failure, with the raw message in a details disclosure', async () => {
+    // Lite tier has no downgrade ladder, so a thrown error reaches the error stage
+    // directly (no retry) — see the crash-downgrade suite for the word/high-acc path.
+    transcribeAudio.mockImplementationOnce(async (_audio, _rate, opts) => {
+      opts?.onModelLoaded?.()
+      throw new Error('Unexpected token < in JSON at position 0')
+    })
+    render(<AutoAlignFlow song={song} autoStart onComplete={vi.fn()} onClose={vi.fn()} />)
+
+    await waitFor(() =>
+      expect(screen.getByText(/something went wrong during auto-align\. your song is saved/i)).toBeTruthy(),
+    )
+    // The raw exception text is NOT the primary message…
+    expect(screen.queryByText((_c, el) =>
+      el?.tagName === 'P' && /^Unexpected token < in JSON at position 0$/.test(el.textContent ?? '')
+      && !el.closest('details'),
+    )).toBeNull()
+    // …but IS available under a collapsible "details" disclosure.
+    expect(screen.getByText(/technical details/i)).toBeTruthy()
+    const detail = screen.getByText(/unexpected token < in json at position 0/i)
+    expect(detail.closest('details')).not.toBeNull()
+  })
+
+  it('maps a model-download failure to connection guidance', async () => {
+    transcribeAudio.mockImplementationOnce(async (_audio, _rate, opts) => {
+      opts?.onModelLoaded?.()
+      throw new Error('Failed to fetch model weights')
+    })
+    render(<AutoAlignFlow song={song} autoStart onComplete={vi.fn()} onClose={vi.fn()} />)
+
+    await waitFor(() =>
+      expect(screen.getByText(/couldn't download the speech model/i)).toBeTruthy(),
+    )
   })
 })

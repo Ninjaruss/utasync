@@ -68,6 +68,30 @@ describe('AlignmentEditor', () => {
     }
   })
 
+  // Mobile layout: at phone widths each pair is a stacked card whose original
+  // renders full-width and WRAPPING so a stranger can read the line they must
+  // match. jsdom has no layout, so we assert structure: the original text
+  // element must not carry the bare `truncate` class (it only truncates via the
+  // distinct `sm:truncate` token on desktop), and each pair still renders both
+  // the original text and its translation input.
+  it('renders each original wrapping (not truncated) alongside its translation input', () => {
+    renderEditor()
+    const originals = ['line one', 'line two', 'line three']
+    const inputs = screen.getAllByPlaceholderText('—')
+    expect(inputs).toHaveLength(originals.length)
+
+    for (const text of originals) {
+      const el = screen.getByText(text)
+      // `truncate` (the bare Tailwind token) must be absent — its class list may
+      // still contain `sm:truncate`, which is a different token.
+      const tokens = el.className.split(/\s+/)
+      expect(tokens).not.toContain('truncate')
+      expect(tokens).toContain('whitespace-normal')
+      expect(tokens).toContain('break-words')
+      expect(tokens).toContain('sm:truncate')
+    }
+  })
+
   // Regression: the confirm path still applies the pairs.
   it('Confirm pairings applies the row pairs and does not cancel', () => {
     const { onConfirm, onCancel } = renderEditor()

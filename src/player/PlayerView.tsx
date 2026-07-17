@@ -1154,7 +1154,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
 
   return (
     <div
-      className="h-[100dvh] overflow-hidden bg-cinnabar-950 flex flex-col w-full max-w-7xl mx-auto md:border-x border-cinnabar-900/80"
+      className="h-full overflow-hidden bg-cinnabar-950 flex flex-col w-full max-w-7xl mx-auto md:border-x border-cinnabar-900/80"
       onClick={() => { if (armingAB) armAB(null) }}
     >
       {lyricsLoading && <LoadingOverlay message={lyricsLoading.message} detail={lyricsLoading.detail} />}
