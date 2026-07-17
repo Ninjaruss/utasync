@@ -71,7 +71,7 @@ export default function App() {
 
   return (
     <>
-      <div className="fixed top-0 inset-x-0 z-[65] flex flex-col">
+      <div className="fixed top-0 inset-x-0 z-[65] flex flex-col pointer-events-none" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
         <OfflineBanner />
         <UpdateBanner />
       </div>
