@@ -163,6 +163,24 @@ export function resolveTrackMetadata(
   }
 }
 
+// Extensions we treat as plausibly playable audio when the browser doesn't
+// supply an `audio/*` MIME type (some pickers report an empty or generic type).
+const AUDIO_EXTENSIONS = ['mp3', 'm4a', 'aac', 'wav', 'ogg', 'flac', 'opus', 'webm']
+
+/**
+ * Cheap, synchronous check that a picked file is plausibly playable audio.
+ * Accepts anything with an `audio/*` MIME type OR a known audio extension —
+ * enough to catch an obviously-wrong pick (a .txt, a PDF) up front without a
+ * full decode probe.
+ */
+export function isPlausibleAudioFile(file: File): boolean {
+  if (file.type && file.type.toLowerCase().startsWith('audio/')) return true
+  const dot = file.name.lastIndexOf('.')
+  if (dot < 0) return false
+  const ext = file.name.slice(dot + 1).toLowerCase()
+  return AUDIO_EXTENSIONS.includes(ext)
+}
+
 // Best-effort read of embedded title/artist tags. Lazily loads music-metadata
 // so it never affects initial page load, and never throws — a parse failure
 // yields {} and the caller falls back (e.g. to the filename).

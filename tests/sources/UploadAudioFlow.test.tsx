@@ -201,4 +201,33 @@ describe('UploadAudioFlow', () => {
     // Translations stay empty — the second-language search was removed from import.
     expect(song?.lyrics.lines.every((l) => !l.translation)).toBe(true)
   })
+
+  it('rejects a non-audio file with an inline error and does not begin ingest', async () => {
+    vi.mocked(extractAudioMetadata).mockClear()
+    const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'notes.txt', { type: 'text/plain' })] } })
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/doesn't look like playable audio/i)
+    // Bailed before touching the file — no metadata decode, no lyric search.
+    expect(extractAudioMetadata).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: /paste lyrics/i })).not.toBeInTheDocument()
+  })
+
+  it('warns about a very large audio file but still proceeds', async () => {
+    vi.mocked(extractAudioMetadata).mockClear()
+    const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
+
+    const big = new File(['x'], 'long-live.mp3', { type: 'audio/mpeg' })
+    Object.defineProperty(big, 'size', { value: 150 * 1024 * 1024 })
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(fileInput, { target: { files: [big] } })
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/very large/i)
+    // Soft warning only — the file is still accepted and metadata still decodes.
+    await waitFor(() => expect(extractAudioMetadata).toHaveBeenCalled())
+  })
 })

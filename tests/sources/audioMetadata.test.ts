@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   deriveTitle,
   extractAudioMetadata,
+  isPlausibleAudioFile,
   parseFilename,
   unpackCombinedTags,
   resolveTrackMetadata,
@@ -9,6 +10,27 @@ import {
 
 const parseBlob = vi.fn()
 vi.mock('music-metadata', () => ({ parseBlob: (...args: unknown[]) => parseBlob(...args) }))
+
+describe('isPlausibleAudioFile', () => {
+  const make = (name: string, type = '') => new File(['x'], name, { type })
+
+  it('accepts an audio/* MIME type regardless of extension', () => {
+    expect(isPlausibleAudioFile(make('clip', 'audio/mpeg'))).toBe(true)
+    expect(isPlausibleAudioFile(make('clip.bin', 'audio/x-wav'))).toBe(true)
+  })
+
+  it('accepts a known audio extension when the type is missing or generic', () => {
+    expect(isPlausibleAudioFile(make('song.mp3'))).toBe(true)
+    expect(isPlausibleAudioFile(make('song.FLAC', 'application/octet-stream'))).toBe(true)
+    expect(isPlausibleAudioFile(make('song.opus'))).toBe(true)
+  })
+
+  it('rejects non-audio types and unknown/absent extensions', () => {
+    expect(isPlausibleAudioFile(make('notes.txt', 'text/plain'))).toBe(false)
+    expect(isPlausibleAudioFile(make('doc.pdf', 'application/pdf'))).toBe(false)
+    expect(isPlausibleAudioFile(make('noextension'))).toBe(false)
+  })
+})
 
 describe('deriveTitle', () => {
   it('strips a file extension', () => {

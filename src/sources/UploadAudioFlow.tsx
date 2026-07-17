@@ -12,9 +12,11 @@ import { LyricsFoundConfirm, lyricsFoundReadyToApply } from '../lyrics/LyricsFou
 import {
   extractAudioMetadata,
   resolveTrackMetadata,
+  isPlausibleAudioFile,
   type MetadataFieldSource,
 } from './audioMetadata'
 import type { TimedLine } from '../core/types'
+import { InlineError } from '../core/ui/InlineError'
 import { ProgressOverlay } from '../core/ui/ProgressOverlay'
 import { ProcessProgress } from '../core/ui/ProcessProgress'
 import {
@@ -35,6 +37,12 @@ type ManualLyricSource = 'paste' | 'subtitle'
 
 /** Wait for title/artist edits to settle before firing a network search. */
 const LYRIC_SEARCH_DEBOUNCE_MS = 800
+
+/**
+ * Soft ceiling for a warning (not a hard block): valid songs can be long/large,
+ * but files past this size are likely to strain on-device decoding/alignment.
+ */
+const LARGE_FILE_WARN_BYTES = 100 * 1024 * 1024
 
 type LyricsPhase =
   | { kind: 'idle' }
@@ -81,6 +89,8 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
   const [saveProgress, setSaveProgress] = useState<{ phase: UploadSavePhase; taskProgress?: number | null } | null>(null)
   const [lyricSearchStage, setLyricSearchStage] = useState<FindLyricsStage | null>(null)
   const [error, setError] = useState('')
+  /** Inline notice about the picked file itself (wrong type, or very large). */
+  const [fileWarning, setFileWarning] = useState('')
   const [matchConfirmed, setMatchConfirmed] = useState(false)
   const searchGenRef = useRef(0)
 
@@ -96,6 +106,19 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
 
   async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0] ?? null
+    // Cheap up-front validation so an obviously-wrong pick fails here, loudly,
+    // rather than silently later during save.
+    if (f && !isPlausibleAudioFile(f)) {
+      setFile(null)
+      setFileWarning("This file doesn't look like playable audio. Pick an MP3, M4A, WAV, or similar.")
+      return
+    }
+    // Very large files still process, but warn — long songs can strain the device.
+    setFileWarning(
+      f && f.size > LARGE_FILE_WARN_BYTES
+        ? `This file is very large (${Math.round(f.size / (1024 * 1024))} MB) and may fail to process on this device.`
+        : '',
+    )
     setFile(f)
     if (!f) return
     // Block the lyrics-search effect from firing off a stale `file`+`title`
@@ -313,6 +336,8 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
             onChange={handleFileChange} />
         </label>
 
+        {fileWarning && <InlineError>{fileWarning}</InlineError>}
+
         <p className="text-white/40 text-xs text-pretty">
           Check the song title and artist — lyrics search starts once a file and title are set. Adding artist improves matches.
         </p>
@@ -448,7 +473,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
         >
           Add song
         </button>
-        {error && <p className="text-red-400 text-sm text-center">{error}</p>}
+        {error && <InlineError>{error}</InlineError>}
         </div>
       </div>
     </div>

@@ -8,6 +8,7 @@ import { ingestAudioFile } from './audioIngest'
 import { resolveCoverArt } from './coverArt'
 import type { TimedLine, Language } from '../core/types'
 import { parseSubtitle } from '../lyrics/subtitle-parser'
+import { InlineError } from '../core/ui/InlineError'
 import { ProgressOverlay } from '../core/ui/ProgressOverlay'
 import { ProcessProgress } from '../core/ui/ProcessProgress'
 import { LyricsFoundConfirm, lyricsFoundReadyToApply } from '../lyrics/LyricsFoundConfirm'
@@ -444,7 +445,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
           </div>
         )}
 
-        {error && <p className="text-red-400 text-sm text-center shrink-0">{error}</p>}
+        {error && <InlineError className="shrink-0">{error}</InlineError>}
       </div>
     </div>
   )

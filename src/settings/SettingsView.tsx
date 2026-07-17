@@ -9,6 +9,7 @@ import { exportLRC, downloadFile } from '../lyrics/exporter'
 import { useSettingsStore } from '../payment/SettingsStore'
 import { useAbLoopPlaylistStore } from '../player/abLoopPlaylistStore'
 import { LegalLinks } from '../core/ui/LegalLinks'
+import { InlineError } from '../core/ui/InlineError'
 import { LEGAL_LAST_UPDATED, SUPPORT_URL } from '../core/legal'
 import { getDeviceTier, canUseVocalSeparation } from '../ai-pipeline/capability'
 import { refreshDemucsModelAvailability } from '../ai-pipeline/demucsSeparator'
@@ -216,7 +217,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
             )}
           </dl>
           {storage.ratio > 0.8 && (
-            <p className="text-red-400 text-xs">Storage nearly full. Delete songs to free space.</p>
+            <InlineError>Storage nearly full. Delete songs to free space.</InlineError>
           )}
           {orphanedAudio > 0 && (
             <p className="text-white/40 text-xs">
