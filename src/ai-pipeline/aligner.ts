@@ -365,6 +365,11 @@ export interface AlignLyricsOptions {
    * mixed-language sheet can only ever reach that script's share of the sheet —
    * the mixed two-pass aligner scales the gate by that share. */
   contentConfidenceThreshold?: number
+  /** Skip the final label-honesty demotion pass (applyLabelHonesty). Set by the
+   * mixed two-pass aligner on its INNER per-language passes: the merge picks
+   * lines by quality rank, so demoting labels per pass would flip merge picks;
+   * honesty runs once on the merged result instead. */
+  skipLabelHonesty?: boolean
 }
 
 export function alignLyrics(

@@ -12,6 +12,7 @@ import {
   syncPhrasesFromValidatedLines,
   type RefinedAlignment,
 } from '../lyrics/phraseAlignment'
+import { applyLabelHonesty } from '../lyrics/labelHonesty'
 
 const JA_SCRIPT_RE = /[぀-ヿ㐀-鿿]/
 
@@ -213,11 +214,16 @@ export function refineMixedLanguageAlignment(
   const frac = scriptCharFractions(lineTexts)
   // Each pass aligns the FULL sheet (row indices and monotonicity must line
   // up), with the confidence gate scaled to the share it can possibly match.
+  // Inner passes skip the label-honesty demotion: the merge below picks lines
+  // by quality rank, so demoting per pass would flip merge picks. Honesty runs
+  // once on the merged result against the merged transcript instead.
   const jaPass = refineAlignmentWithPhrases(sheetRows, jaWords, 'mixed', undefined, {
     contentConfidenceThreshold: scopedConfidenceThreshold(frac.ja),
+    skipLabelHonesty: true,
   })
   const enPass = refineAlignmentWithPhrases(sheetRows, enWords, 'mixed', undefined, {
     contentConfidenceThreshold: scopedConfidenceThreshold(frac.en),
+    skipLabelHonesty: true,
   })
   const { refined, pickedFrom } = mergeMixedRefinedAlignments(jaPass, enPass, lineTexts)
   const transcriptWords = mergeMixedTranscripts(jaWords, enWords, refined.lines, pickedFrom)
@@ -230,5 +236,15 @@ export function refineMixedLanguageAlignment(
   const cappedLines = capUnanchoredGapFillTails(refined.lines, transcriptWords, lineTexts, 'mixed')
   refined.lines = cappedLines
   refined.phrases = syncPhrasesFromValidatedLines(refined.phrases, cappedLines)
+  // Label-honesty demotion on the merged result (skipped per pass above): the
+  // merged transcript reads true cross-language coverage, so chunk-sharing,
+  // clipped-tail, and contested-occurrence 'good' labels demote here.
+  refined.lineAlignmentQuality = applyLabelHonesty({
+    lines: cappedLines,
+    lineTexts,
+    quality: refined.lineAlignmentQuality ?? [],
+    words: sanitizeTranscript(transcriptWords),
+    mode: refined.mode,
+  })
   return { refined, transcriptWords, pickedFrom }
 }
