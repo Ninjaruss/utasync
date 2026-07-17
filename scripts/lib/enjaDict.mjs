@@ -63,6 +63,7 @@ export function reverseIndex(words, { cap = 6 } = {}) {
       let bucket = acc.get(key)
       if (!bucket) { bucket = new Map(); acc.set(key, bucket) }
       const prev = bucket.get(w)
+      // Same headword from two entries: keep only the higher-scoring one; the other's alternate reading is dropped (compact-index trade-off).
       if (!prev || score > prev.score) bucket.set(w, { w, r, score })
     }
   }

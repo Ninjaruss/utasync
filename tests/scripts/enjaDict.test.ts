@@ -39,4 +39,15 @@ describe('reverseIndex', () => {
     }))
     expect(reverseIndex(many, { cap: 6 })['thing'].length).toBe(6)
   })
+  it('keeps only the higher-scoring entry when two share a headword', () => {
+    const shared = [
+      // lower score: kanji common only (+2)
+      { kanji: [{ text: '生', common: true }], kana: [{ text: 'なま', common: false }],
+        sense: [{ partOfSpeech: ['n'], gloss: [{ lang: 'eng', text: 'raw' }] }] },
+      // higher score: kana common + kanji common (+6), different reading
+      { kanji: [{ text: '生', common: true }], kana: [{ text: 'せい', common: true }],
+        sense: [{ partOfSpeech: ['n'], gloss: [{ lang: 'eng', text: 'raw' }] }] },
+    ]
+    expect(reverseIndex(shared, { cap: 6 })['raw']).toEqual([{ w: '生', r: 'せい' }])
+  })
 })
