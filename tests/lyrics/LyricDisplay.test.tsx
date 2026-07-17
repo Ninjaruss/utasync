@@ -476,6 +476,25 @@ describe('English tap-to-look-up wiring', () => {
     expect(onLineClick).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('dialog')).toBeNull()
   })
+
+  it('seeks the line instead of opening the English popover for a non-Latin translation word', () => {
+    useLyricsStore.setState({
+      lines: [{
+        original: '君', startTime: 0, endTime: 2, translation: '君 spring',
+        tokens: [{ surface: '君', pos: '名詞', startIndex: 0, endIndex: 1, alignmentIndices: [0] }],
+      }],
+      activeLine: 0,
+    })
+    const onLineClick = vi.fn()
+    render(<LyricDisplay onLineClick={onLineClick} />)
+    // The translation contains a CJK "word" (君) and an English word (spring).
+    // Tapping the non-Latin one must fall through to seek, not open a popover.
+    const cjkTranslationWord = screen.getAllByText('君').find((el) => el.getAttribute('lang') !== 'ja' && el.tagName === 'SPAN' && el.closest('[lang="en"]'))
+      ?? screen.getAllByText('君').at(-1)!
+    fireEvent.click(cjkTranslationWord)
+    expect(onLineClick).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
 })
 
 describe('LyricDisplay active-line centering', () => {
