@@ -42,13 +42,50 @@ describe('ProcessProgress', () => {
   it('shows status text instead of a fake task bar when progress is unknown', () => {
     render(
       <ProcessProgress
-        steps={[{ label: 'Searching LRCLIB', detail: 'Looking for synced lyrics' }]}
+        steps={[
+          { label: 'Searching lyrics', detail: 'Looking for time-synced lyrics' },
+          { label: 'Saving song', detail: 'Writing to your library' },
+        ]}
         currentStepIndex={0}
-        taskStatus="Checking LRCLIB for an exact match…"
+        taskStatus="Checking the lyrics database for an exact match…"
       />,
     )
-    expect(screen.getByText('Checking LRCLIB for an exact match…')).toBeTruthy()
+    expect(screen.getByText('Checking the lyrics database for an exact match…')).toBeTruthy()
     expect(screen.queryByRole('progressbar', { name: 'Current task progress' })).toBeNull()
+    expect(screen.getByRole('progressbar', { name: 'Overall progress' })).toBeTruthy()
+  })
+
+  it('hides the pinned Overall bar and step counter for single-step indeterminate work', () => {
+    render(
+      <ProcessProgress
+        steps={[{ label: 'Searching lyrics', detail: 'Looking for time-synced lyrics' }]}
+        currentStepIndex={0}
+        taskStatus="Checking the lyrics database for an exact match…"
+        taskSubsteps={[
+          { label: 'Exact match', state: 'active' },
+          { label: 'Catalog search', state: 'pending' },
+        ]}
+      />,
+    )
+    expect(screen.queryByText('Overall')).toBeNull()
+    expect(screen.queryByText('1/1')).toBeNull()
+    expect(screen.queryByRole('progressbar', { name: 'Overall progress' })).toBeNull()
+    // Status, substep checklist, and the step label stay.
+    expect(screen.getByText('Searching lyrics')).toBeTruthy()
+    expect(screen.getByText('Checking the lyrics database for an exact match…')).toBeTruthy()
+    expect(screen.getByText('Exact match')).toBeTruthy()
+    expect(screen.getByRole('status')).toHaveAttribute('aria-busy', 'true')
+  })
+
+  it('keeps the Overall bar for a single-step task with known progress', () => {
+    render(
+      <ProcessProgress
+        steps={[{ label: 'Fetching song info' }]}
+        currentStepIndex={0}
+        taskProgress={40}
+      />,
+    )
+    expect(screen.getByText('Overall')).toBeTruthy()
     expect(screen.getByRole('progressbar', { name: 'Overall progress' })).toBeTruthy()
   })
 })

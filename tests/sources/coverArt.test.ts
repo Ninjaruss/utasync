@@ -83,6 +83,23 @@ describe('fetchItunesCoverArt', () => {
     })
     expect(await fetchItunesCoverArt('Sparkle', 'Radwimps')).toBeNull()
   })
+
+  it('gives up with no art when the lookup hangs past the 5s timeout', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.mocked(fetch).mockImplementation((_url, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('Aborted', 'AbortError')))
+        }),
+      )
+      const pending = fetchItunesCoverArt('Sparkle', 'Radwimps')
+      await vi.advanceTimersByTimeAsync(5_000)
+      await expect(pending).resolves.toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('resolveCoverArt', () => {

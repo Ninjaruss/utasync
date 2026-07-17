@@ -123,7 +123,7 @@ export function LyricsImportPanel({
   }
 
   const manualTabClass = (s: ManualLyricSource) =>
-    `px-3 py-1.5 rounded-lg text-xs touch-manipulation ${lyricsPhase.kind === 'manual' && lyricsPhase.source === s ? 'bg-cinnabar-accent text-white' : 'bg-cinnabar-900 text-white/50'}`
+    `px-3 py-1.5 rounded-lg text-xs min-h-11 touch-manipulation ${lyricsPhase.kind === 'manual' && lyricsPhase.source === s ? 'bg-cinnabar-accent text-white' : 'bg-cinnabar-900 text-white/50'}`
 
   const lyricsReady =
     (lyricsPhase.kind === 'found'
@@ -141,7 +141,7 @@ export function LyricsImportPanel({
       </button>
       <button
         type="button"
-        className="px-3 py-1.5 rounded-lg text-xs bg-cinnabar-900 text-white/50 touch-manipulation"
+        className="px-3 py-1.5 rounded-lg text-xs min-h-11 touch-manipulation bg-cinnabar-900 text-white/50"
         onClick={runSearch}
       >
         Search again
@@ -153,8 +153,8 @@ export function LyricsImportPanel({
     <div className="space-y-3">
       <p className="text-[11px] text-white/40 text-pretty">
         {videoId
-          ? 'Checks YouTube captions first, then LRCLIB.'
-          : 'Searches LRCLIB for synced or plain lyrics.'}
+          ? 'Checks YouTube captions first, then the lyrics database.'
+          : 'Searches the lyrics database for time-synced or text-only lyrics.'}
       </p>
 
       <div className="rounded-xl border border-cinnabar-800 bg-cinnabar-900/50 p-4 space-y-3">
@@ -165,9 +165,9 @@ export function LyricsImportPanel({
         {lyricsPhase.kind === 'searching' && (
           <div className="space-y-2">
             <p className="text-white/35 text-xs text-center py-1">
-              {videoId ? 'Checking YouTube captions & LRCLIB…' : 'Searching LRCLIB…'}
+              {videoId ? 'Checking YouTube captions & the lyrics database…' : 'Searching the lyrics database…'}
             </p>
-            <p className="text-white/25 text-[10px] text-center">Or add lyrics manually:</p>
+            <p className="text-xs text-white/60 text-center">Or add lyrics manually:</p>
             {skipSearchButtons}
           </div>
         )}

@@ -51,6 +51,9 @@ export function ProcessProgress({
   const overall = overallPercent(currentStepIndex, stepCount, taskProgress)
   const taskPct = taskProgress == null ? null : Math.round(taskProgress)
   const hasTaskBar = taskPct != null
+  // A single indeterminate step has no meaningful "Overall" percent or step
+  // counter — a bar pinned at 0% and "1/1" just read as stalled work.
+  const soloIndeterminate = stepCount === 1 && !hasTaskBar
   const statusText = taskStatus ?? step.detail ?? 'Working…'
   const elapsed = useElapsedSeconds(!hasTaskBar && showElapsed)
 
@@ -64,7 +67,9 @@ export function ProcessProgress({
       role="status"
       aria-live="polite"
       aria-busy="true"
-      aria-label={`${step.label}, step ${currentStepIndex + 1} of ${stepCount}, ${overall}% overall`}
+      aria-label={soloIndeterminate
+        ? `${step.label}, in progress`
+        : `${step.label}, step ${currentStepIndex + 1} of ${stepCount}, ${overall}% overall`}
     >
       <div className={compact ? 'space-y-0.5' : 'space-y-1'}>
         <div className="flex items-baseline justify-between gap-3">
@@ -74,9 +79,11 @@ export function ProcessProgress({
           ].join(' ')}>
             {step.label}
           </p>
-          <span className="text-[11px] text-white/40 tabular-nums shrink-0">
-            {currentStepIndex + 1}/{stepCount}
-          </span>
+          {!soloIndeterminate && (
+            <span className="text-[11px] text-white/40 tabular-nums shrink-0">
+              {currentStepIndex + 1}/{stepCount}
+            </span>
+          )}
         </div>
         {step.detail && hasTaskBar && (
           <p className={[
@@ -88,13 +95,15 @@ export function ProcessProgress({
         )}
       </div>
 
-      <div className={compact ? 'space-y-1' : 'space-y-1.5'}>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] uppercase tracking-wide text-white/30">Overall</span>
-          <span className="text-[11px] text-white/45 tabular-nums">{overall}%</span>
+      {!soloIndeterminate && (
+        <div className={compact ? 'space-y-1' : 'space-y-1.5'}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] uppercase tracking-wide text-white/30">Overall</span>
+            <span className="text-[11px] text-white/45 tabular-nums">{overall}%</span>
+          </div>
+          <ProgressBar value={overall} size={compact ? 'sm' : 'md'} aria-label="Overall progress" />
         </div>
-        <ProgressBar value={overall} size={compact ? 'sm' : 'md'} aria-label="Overall progress" />
-      </div>
+      )}
 
       <div className={compact ? 'space-y-1' : 'space-y-1.5'}>
         <div className="flex items-center justify-between gap-2">

@@ -115,7 +115,7 @@ describe('UploadAudioFlow', () => {
     expect(screen.getByLabelText(/^artist$/i)).toHaveValue('Itte')
   })
 
-  it('auto-searches LRCLIB when file and title are set', async () => {
+  it('auto-searches the lyrics database when file and title are set', async () => {
     const lrclib = await import('../../src/sources/lrclib')
     vi.mocked(lrclib.findLyrics).mockResolvedValue({
       lrc: '[00:01.00]Line one\n[00:02.00]Line two',
@@ -124,28 +124,54 @@ describe('UploadAudioFlow', () => {
     const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
     await pickFileAndTitle(container)
 
-    await waitFor(() => expect(screen.getByText(/found synced lyrics/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/found time-synced lyrics/i)).toBeInTheDocument(), { timeout: 3000 })
     expect(lrclib.findLyrics).toHaveBeenCalledWith('My Song', '', expect.any(Function), undefined, 'ja')
   })
 
-  it('forwards the decoded track duration to LRCLIB lookup', async () => {
+  it('forwards the decoded track duration to the lyrics lookup', async () => {
     vi.mocked(extractAudioMetadata).mockResolvedValue({ durationSec: 184.32 })
     const lrclib = await import('../../src/sources/lrclib')
     const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
     await pickFileAndTitle(container)
 
-    await waitFor(() => expect(lrclib.findLyrics).toHaveBeenCalledWith('My Song', '', expect.any(Function), 184.32, 'ja'))
+    await waitFor(() => expect(lrclib.findLyrics).toHaveBeenCalledWith('My Song', '', expect.any(Function), 184.32, 'ja'), { timeout: 3000 })
   })
 
-  it('lets the user skip LRCLIB search and paste lyrics instead', async () => {
+  it('lets the user skip the lyrics search and paste lyrics instead', async () => {
     const lrclib = await import('../../src/sources/lrclib')
     vi.mocked(lrclib.findLyrics).mockImplementation(() => new Promise(() => {}))
     const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
     await pickFileAndTitle(container)
-    await waitFor(() => expect(screen.getByText(/checking lrclib for an exact match/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/checking the lyrics database for an exact match/i)).toBeInTheDocument(), { timeout: 3000 })
     fireEvent.click(screen.getByRole('button', { name: /paste lyrics/i }))
     await waitFor(() => expect(screen.getByPlaceholderText(/paste lyrics/i)).toBeInTheDocument())
     expect(lrclib.findLyrics).toHaveBeenCalled()
+  })
+
+  it('offers Search again after a failed search and re-runs the lookup', async () => {
+    const lrclib = await import('../../src/sources/lrclib')
+    const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
+    await pickFileAndTitle(container)
+    await waitFor(() => expect(screen.getByText(/no match in the lyrics database/i)).toBeInTheDocument(), { timeout: 3000 })
+    expect(lrclib.findLyrics).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: /search again/i }))
+    await waitFor(() => expect(lrclib.findLyrics).toHaveBeenCalledTimes(2), { timeout: 3000 })
+  })
+
+  it('debounces the lyric search while the title is being edited', async () => {
+    const lrclib = await import('../../src/sources/lrclib')
+    const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
+    await pickFileAndTitle(container)
+
+    // Rapid edits inside the debounce window must not each fire a search.
+    fireEvent.change(screen.getByLabelText(/song title/i), { target: { value: 'My Son' } })
+    fireEvent.change(screen.getByLabelText(/song title/i), { target: { value: 'My Song 2' } })
+    fireEvent.change(screen.getByLabelText(/song title/i), { target: { value: 'My Song 23' } })
+    expect(lrclib.findLyrics).not.toHaveBeenCalled()
+
+    await waitFor(() => expect(lrclib.findLyrics).toHaveBeenCalledTimes(1), { timeout: 3000 })
+    expect(lrclib.findLyrics).toHaveBeenCalledWith('My Song 23', '', expect.any(Function), undefined, 'ja')
   })
 
   it('does not render a manual second-language paste textarea', () => {
@@ -156,7 +182,7 @@ describe('UploadAudioFlow', () => {
   async function submitWithPastedLyrics(onSongReady: (songId: string) => void) {
     const { container } = render(<UploadAudioFlow onSongReady={onSongReady} />)
     await pickFileAndTitle(container)
-    await waitFor(() => expect(screen.queryByText(/checking lrclib/i)).not.toBeInTheDocument(), { timeout: 3000 })
+    await waitFor(() => expect(screen.queryByText(/checking the lyrics database/i)).not.toBeInTheDocument(), { timeout: 3000 })
     if (!screen.queryByPlaceholderText(/paste lyrics/i)) {
       fireEvent.click(screen.getByRole('button', { name: /paste lyrics/i }))
     }

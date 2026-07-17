@@ -33,6 +33,9 @@ import { inferPreferredLyricsLanguage } from './lyricsMatch'
 
 type ManualLyricSource = 'paste' | 'subtitle'
 
+/** Wait for title/artist edits to settle before firing a network search. */
+const LYRIC_SEARCH_DEBOUNCE_MS = 800
+
 type LyricsPhase =
   | { kind: 'idle' }
   | { kind: 'searching' }
@@ -45,6 +48,8 @@ interface Props {
   embedded?: boolean
   /** Called when lyric search or save is in progress — parent can guard dismiss. */
   onBusyChange?: (busy: boolean) => void
+  /** Called when the user has unsaved input (pasted lyrics, chosen file, typed title). */
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 const SOURCE_LABEL: Record<MetadataFieldSource, string> = {
@@ -61,10 +66,11 @@ function FieldSourceBadge({ source }: { source: MetadataFieldSource | null }) {
   )
 }
 
-export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }: Props) {
+export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, onDirtyChange }: Props) {
   const [file, setFile] = useState<File | null>(null)
   const [title, setTitle] = useState('')
   const [artist, setArtist] = useState('')
+  const [titleEdited, setTitleEdited] = useState(false)
   const [durationSec, setDurationSec] = useState<number | undefined>(undefined)
   const [titleSource, setTitleSource] = useState<MetadataFieldSource | null>(null)
   const [artistSource, setArtistSource] = useState<MetadataFieldSource | null>(null)
@@ -82,6 +88,11 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
   useEffect(() => {
     onBusyChange?.(isBusy)
   }, [isBusy, onBusyChange])
+
+  const isDirty = !!pasted.trim() || !!file || (titleEdited && !!title.trim())
+  useEffect(() => {
+    onDirtyChange?.(isDirty)
+  }, [isDirty, onDirtyChange])
 
   async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0] ?? null
@@ -122,35 +133,45 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
 
   const useDifferentLyrics = () => skipLyricSearch('paste')
 
+  const searchAgain = () => {
+    searchGenRef.current++
+    setMatchConfirmed(false)
+    setError('')
+    setLyricsPhase({ kind: 'idle' })
+  }
+
   useEffect(() => {
     if (!file || !title.trim() || lyricsPhase.kind !== 'idle') return
 
-    const gen = ++searchGenRef.current
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: start lyric search when inputs settle
-    setLyricsPhase({ kind: 'searching' })
-    setLyricSearchStage('exact')
-    setError('')
+    // Debounced so each title/artist keystroke doesn't fire a network search.
+    const timer = setTimeout(() => {
+      const gen = ++searchGenRef.current
+      setLyricsPhase({ kind: 'searching' })
+      setLyricSearchStage('exact')
+      setError('')
 
-    findLyrics(title.trim(), artist.trim(), (stage) => {
-      if (gen !== searchGenRef.current) return
-      setLyricSearchStage(stage)
-    }, durationSec, inferPreferredLyricsLanguage(title.trim(), artist.trim(), getDefaultSongLanguage()))
-      .then((found) => {
+      findLyrics(title.trim(), artist.trim(), (stage) => {
         if (gen !== searchGenRef.current) return
-        setLyricSearchStage(null)
-        if (found) {
-          const lines = found.synced ? parseLRC(found.lrc) : linesFromPlainText(found.lrc)
-          setMatchConfirmed(false)
-          setLyricsPhase({ kind: 'found', lines, synced: found.synced, match: found.match })
-        } else {
+        setLyricSearchStage(stage)
+      }, durationSec, inferPreferredLyricsLanguage(title.trim(), artist.trim(), getDefaultSongLanguage()))
+        .then((found) => {
+          if (gen !== searchGenRef.current) return
+          setLyricSearchStage(null)
+          if (found) {
+            const lines = found.synced ? parseLRC(found.lrc) : linesFromPlainText(found.lrc)
+            setMatchConfirmed(false)
+            setLyricsPhase({ kind: 'found', lines, synced: found.synced, match: found.match })
+          } else {
+            setLyricsPhase({ kind: 'manual', source: 'paste' })
+          }
+        })
+        .catch(() => {
+          if (gen !== searchGenRef.current) return
+          setLyricSearchStage(null)
           setLyricsPhase({ kind: 'manual', source: 'paste' })
-        }
-      })
-      .catch(() => {
-        if (gen !== searchGenRef.current) return
-        setLyricSearchStage(null)
-        setLyricsPhase({ kind: 'manual', source: 'paste' })
-      })
+        })
+    }, LYRIC_SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
   }, [file, title, artist, lyricsPhase.kind, durationSec])
 
   async function resolveLines(): Promise<TimedLine[] | null> {
@@ -191,6 +212,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
 
       setSaveProgress({ phase: 'saving-audio' })
       const { songId, audioStoredPath } = await ingestAudioFile(file)
+      setSaveProgress({ phase: 'saving-song' })
       const albumArtUrl = await resolveCoverArt({
         title: title.trim(),
         artist: artist.trim(),
@@ -200,7 +222,6 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
         id: songId, title: title.trim(), artist: artist.trim(), audioStoredPath,
         lines: finalLines, sourceLanguage, translationLanguage, albumArtUrl,
       })
-      setSaveProgress({ phase: 'saving-song' })
       await db.songs.put(song)
       setSaveProgress(null)
       onSongReady(song.id)
@@ -221,7 +242,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
   }
 
   const manualTabClass = (s: ManualLyricSource) =>
-    `px-3 py-1.5 rounded-lg text-xs ${lyricsPhase.kind === 'manual' && lyricsPhase.source === s ? 'bg-cinnabar-accent text-white' : 'bg-cinnabar-900 text-white/50'}`
+    `px-3 py-1.5 rounded-lg text-xs min-h-11 touch-manipulation ${lyricsPhase.kind === 'manual' && lyricsPhase.source === s ? 'bg-cinnabar-accent text-white' : 'bg-cinnabar-900 text-white/50'}`
 
   const lyricsReady =
     (lyricsPhase.kind === 'found'
@@ -257,6 +278,13 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
       <button type="button" className={manualTabClass('subtitle')} onClick={() => skipLyricSearch('subtitle')}>
         Subtitle file
       </button>
+      <button
+        type="button"
+        className="px-3 py-1.5 rounded-lg text-xs min-h-11 touch-manipulation bg-cinnabar-900 text-white/50"
+        onClick={searchAgain}
+      >
+        Search again
+      </button>
     </div>
   )
 
@@ -286,7 +314,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
         </label>
 
         <p className="text-white/40 text-xs text-pretty">
-          Check the song title and artist — LRCLIB search starts once a file and title are set. Adding artist improves matches.
+          Check the song title and artist — lyrics search starts once a file and title are set. Adding artist improves matches.
         </p>
 
         <div className="space-y-1.5 md:space-y-2">
@@ -301,6 +329,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
             value={title}
             onChange={(e) => {
               setTitle(e.target.value)
+              setTitleEdited(true)
               setTitleSource(null)
               setFilenameAmbiguous(false)
               resetLyricsOnMetadataEdit()
@@ -363,7 +392,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
             {lyricsPhase.kind === 'searching' && (
               <div className="space-y-2">
                 {lyricSearchProgress(lyricSearchPanelClass)}
-                <p className="text-white/25 text-[10px] text-center text-pretty">Skip search and add lyrics manually:</p>
+                <p className="text-xs text-white/60 text-center text-pretty">Skip search and add lyrics manually:</p>
                 {skipSearchButtons}
               </div>
             )}
@@ -384,7 +413,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange }:
 
             {lyricsPhase.kind === 'manual' && (
               <>
-                <p className="text-white/35 text-xs">No LRCLIB match — paste lyrics or choose a subtitle file.</p>
+                <p className="text-white/35 text-xs">No match in the lyrics database — paste lyrics or choose a subtitle file.</p>
                 {skipSearchButtons}
 
                 {lyricsPhase.source === 'paste' && (

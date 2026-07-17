@@ -9,14 +9,14 @@ export interface TaskSubstep {
 }
 
 export const FIND_LYRICS_STATUS = {
-  exact: 'Checking LRCLIB for an exact match…',
-  search: 'Searching LRCLIB catalog…',
+  exact: 'Checking the lyrics database for an exact match…',
+  search: 'Searching the lyrics database catalog…',
 } as const
 
 export const RESOLVE_LYRICS_STATUS = {
   youtube: 'Fetching YouTube captions…',
-  'lrclib-exact': 'Checking LRCLIB for an exact match…',
-  'lrclib-search': 'Searching LRCLIB catalog…',
+  'lrclib-exact': 'Checking the lyrics database for an exact match…',
+  'lrclib-search': 'Searching the lyrics database catalog…',
 } as const
 
 export function resolveLyricsSubsteps(
@@ -26,12 +26,12 @@ export function resolveLyricsSubsteps(
   const steps: Array<{ key: keyof typeof RESOLVE_LYRICS_STATUS; label: string }> = includeYouTube
     ? [
         { key: 'youtube', label: 'YouTube captions' },
-        { key: 'lrclib-exact', label: 'LRCLIB exact match' },
-        { key: 'lrclib-search', label: 'LRCLIB catalog search' },
+        { key: 'lrclib-exact', label: 'Exact match' },
+        { key: 'lrclib-search', label: 'Catalog search' },
       ]
     : [
-        { key: 'lrclib-exact', label: 'LRCLIB exact match' },
-        { key: 'lrclib-search', label: 'LRCLIB catalog search' },
+        { key: 'lrclib-exact', label: 'Exact match' },
+        { key: 'lrclib-search', label: 'Catalog search' },
       ]
   const order = steps.map((s) => s.key)
   const activeIdx = stage ? Math.max(0, order.indexOf(stage)) : 0
@@ -43,8 +43,8 @@ export function resolveLyricsSubsteps(
 
 export function findLyricsSubsteps(stage: keyof typeof FIND_LYRICS_STATUS | null): TaskSubstep[] {
   const steps: Array<{ key: keyof typeof FIND_LYRICS_STATUS; label: string }> = [
-    { key: 'exact', label: 'LRCLIB exact match' },
-    { key: 'search', label: 'LRCLIB catalog search' },
+    { key: 'exact', label: 'Exact match' },
+    { key: 'search', label: 'Catalog search' },
   ]
   const order = steps.map((s) => s.key)
   const activeIdx = stage ? Math.max(0, order.indexOf(stage)) : 0

@@ -1,7 +1,10 @@
 import { artistSimilarity, titleSimilarity } from './lyricsMatch'
+import { fetchJson } from './fetchJson'
 
 const MAX_EMBEDDED_COVER_BYTES = 512 * 1024
 const ITUNES_MATCH_THRESHOLD = 0.55
+/** Cover art is a nice-to-have — never let a slow lookup stall the save overlay. */
+const ITUNES_LOOKUP_TIMEOUT_MS = 5_000
 
 export interface ResolveCoverArtInput {
   title: string
@@ -52,31 +55,32 @@ function scoreItunesMatch(result: ItunesTrackResult, title: string, artist: stri
   return titleScore * 0.65 + artistScore * 0.35
 }
 
-/** Look up cover art from the iTunes Search API (no API key required). */
+/**
+ * Look up cover art from the iTunes Search API (no API key required).
+ * Bounded by a short timeout — resolves null instead of hanging the caller.
+ */
 export async function fetchItunesCoverArt(title: string, artist: string): Promise<string | null> {
   const term = `${artist} ${title}`.trim()
   if (!term) return null
 
-  try {
-    const params = new URLSearchParams({ term, entity: 'song', limit: '8' })
-    const res = await fetch(`https://itunes.apple.com/search?${params}`)
-    if (!res.ok) return null
-    const data = await res.json() as { results?: ItunesTrackResult[] }
-    const results = data.results ?? []
-    if (results.length === 0) return null
+  const params = new URLSearchParams({ term, entity: 'song', limit: '8' })
+  const data = await fetchJson<{ results?: ItunesTrackResult[] }>(
+    `https://itunes.apple.com/search?${params}`,
+    undefined,
+    ITUNES_LOOKUP_TIMEOUT_MS,
+  )
+  const results = data?.results ?? []
+  if (results.length === 0) return null
 
-    let best: { url: string; score: number } | null = null
-    for (const result of results) {
-      const score = scoreItunesMatch(result, title, artist)
-      if (score < ITUNES_MATCH_THRESHOLD || !result.artworkUrl100) continue
-      if (!best || score > best.score) {
-        best = { url: itunesArtworkUrl(result.artworkUrl100), score }
-      }
+  let best: { url: string; score: number } | null = null
+  for (const result of results) {
+    const score = scoreItunesMatch(result, title, artist)
+    if (score < ITUNES_MATCH_THRESHOLD || !result.artworkUrl100) continue
+    if (!best || score > best.score) {
+      best = { url: itunesArtworkUrl(result.artworkUrl100), score }
     }
-    return best?.url ?? null
-  } catch {
-    return null
   }
+  return best?.url ?? null
 }
 
 /**

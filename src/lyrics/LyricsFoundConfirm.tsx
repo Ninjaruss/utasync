@@ -34,7 +34,8 @@ export function LyricsFoundConfirm({
   return (
     <div className="space-y-2.5">
       <p className="text-green-400/90 text-sm text-pretty">
-        Found {synced ? 'synced' : 'plain'} lyrics from {sourceLabel} ({lines.length} lines)
+        Found {synced ? 'time-synced' : 'text-only'} lyrics ({lines.length} lines)
+        <span className="text-white/40 text-[11px]"> · via {sourceLabel}</span>
       </p>
 
       <div className="rounded-lg border border-cinnabar-800 bg-cinnabar-950/80 p-2.5 space-y-2 text-xs">
@@ -50,11 +51,11 @@ export function LyricsFoundConfirm({
 
         {fromVideoCaptions ? (
           <p className="text-white/50 text-pretty leading-snug">
-            Lyrics come from this video&apos;s captions — they should match the video you linked, not a separate LRCLIB entry.
+            Lyrics come from this video&apos;s captions — they should match the video you linked, not a separate lyrics database entry.
           </p>
         ) : match ? (
           <div>
-            <p className="text-white/40 uppercase tracking-wide text-[10px] mb-0.5">Matched in {sourceLabel}</p>
+            <p className="text-white/40 uppercase tracking-wide text-[10px] mb-0.5">Matched lyrics entry</p>
             <p className="text-white/80 text-pretty">
               <span className="font-medium">{match.track}</span>
               <span className="text-white/50"> · {match.artist}</span>
