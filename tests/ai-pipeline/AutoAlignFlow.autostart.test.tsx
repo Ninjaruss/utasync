@@ -6,11 +6,22 @@ import type { Song } from '../../src/core/types'
 import { db } from '../../src/core/db/schema'
 
 const deviceTier = vi.hoisted(() => ({ current: 'lite' as 'lite' | 'full' | 'manual' }))
+const vocalSepSupported = vi.hoisted(() => ({ current: false }))
 
 vi.mock('../../src/ai-pipeline/capability', () => ({
   getDeviceTier: () => deviceTier.current,
-  canUseVocalSeparation: () => false,
+  canUseVocalSeparation: () => vocalSepSupported.current,
 }))
+
+// Only reached when vocalSepSupported is flipped on (the demucs-missing copy test).
+vi.mock('../../src/ai-pipeline/demucsSeparator', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/ai-pipeline/demucsSeparator')>()
+  return {
+    ...real,
+    isDemucsModelAvailable: vi.fn(async () => false),
+    refreshDemucsModelAvailability: vi.fn(async () => false),
+  }
+})
 
 vi.mock('../../src/payment/SettingsStore', () => ({
   useSettingsStore: (selector: (s: { vocalSeparationEnabled: boolean; setVocalSeparationEnabled: () => void }) => unknown) =>
@@ -90,6 +101,7 @@ beforeEach(async () => {
   await db.songs.clear()
   transcribeAudio.mockClear()
   deviceTier.current = 'lite'
+  vocalSepSupported.current = false
 })
 
 describe('AutoAlignFlow autoStart', () => {
@@ -229,5 +241,102 @@ describe('AutoAlignFlow high accuracy toggle', () => {
     render(<AutoAlignFlow song={song} onComplete={onComplete} onClose={vi.fn()} />)
 
     expect(screen.queryByRole('checkbox', { name: /high accuracy/i })).toBeNull()
+  })
+})
+
+describe('AutoAlignFlow crash-downgrade retry visibility', () => {
+  const RECOVERABLE_CRASH =
+    'The on-device speech model crashed (WASM error 1261431424) — this usually means the browser ran out of memory.'
+
+  it('shows the downgrade notice while the segment retry runs, then clears it', async () => {
+    deviceTier.current = 'full' // short song on full tier defaults to word mode
+    transcribeAudio.mockImplementationOnce(async (_audio, _rate, opts) => {
+      opts?.onModelLoaded?.()
+      throw new Error(RECOVERABLE_CRASH)
+    })
+    let resolveRetry!: (v: { chunks: { text: string; timestamp: [number, number] }[] }) => void
+    transcribeAudio.mockImplementationOnce((_audio, _rate, opts) => {
+      opts?.onModelLoaded?.()
+      return new Promise((resolve) => { resolveRetry = resolve })
+    })
+
+    const onComplete = vi.fn()
+    render(<AutoAlignFlow song={song} autoStart onComplete={onComplete} onClose={vi.fn()} />)
+
+    // Without the notice the bar just snaps to 0 with no explanation.
+    await waitFor(() =>
+      expect(screen.getByText(/word-level pass failed.*retrying with segment timestamps/i)).toBeTruthy(),
+    )
+
+    resolveRetry({ chunks: [{ text: 'hello', timestamp: [0, 1] }] })
+    await waitFor(() => expect(onComplete).toHaveBeenCalled())
+    expect(screen.queryByText(/retrying with segment timestamps/i)).toBeNull()
+    expect(transcribeAudio.mock.calls[1][2]?.timestampMode).toBe('segment')
+  })
+
+  it('flips back to the loading stage on the high-accuracy fallback so the model load is visible', async () => {
+    deviceTier.current = 'full'
+    transcribeAudio.mockImplementationOnce(async (_audio, _rate, opts) => {
+      opts?.onModelLoaded?.()
+      throw new Error(RECOVERABLE_CRASH)
+    })
+    // The fallback (standard) model is still loading: hold the retry open and
+    // do NOT announce the model yet.
+    let finishRetry!: () => void
+    transcribeAudio.mockImplementationOnce((_audio, _rate, opts) =>
+      new Promise((resolve) => {
+        finishRetry = () => {
+          opts?.onModelLoaded?.()
+          resolve({ chunks: [{ text: 'hello', timestamp: [0, 1] as [number, number] }] })
+        }
+      }),
+    )
+
+    const onComplete = vi.fn()
+    render(<AutoAlignFlow song={song} onComplete={onComplete} onClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('checkbox', { name: /high accuracy/i }))
+    fireEvent.click(screen.getByRole('button', { name: /start auto-align/i }))
+
+    await waitFor(() =>
+      expect(screen.getByText(/high-accuracy model failed.*retrying with the standard model/i)).toBeTruthy(),
+    )
+    // Back on the loading step (not a dead transcribe bar) while the standard
+    // model downloads/initializes.
+    expect(screen.getByText('Loading AI model')).toBeTruthy()
+
+    finishRetry()
+    await waitFor(() => expect(onComplete).toHaveBeenCalled())
+    expect(transcribeAudio.mock.calls[1][2]?.highAccuracy).toBe(false)
+    expect(screen.queryByText(/retrying with the standard model/i)).toBeNull()
+  })
+})
+
+describe('AutoAlignFlow user-facing copy', () => {
+  it('labels the word-level pass "Accurate timing (slower)"', () => {
+    render(<AutoAlignFlow song={song} onComplete={vi.fn()} onClose={vi.fn()} />)
+    expect(screen.getByRole('checkbox', { name: /accurate timing \(slower\)/i })).toBeTruthy()
+    expect(screen.queryByText(/word-level timestamps/i)).toBeNull()
+  })
+
+  it('describes the lite tier as a plain outcome, not "Transcription only"', () => {
+    deviceTier.current = 'lite'
+    render(<AutoAlignFlow song={song} onComplete={vi.fn()} onClose={vi.fn()} />)
+    expect(screen.getByText(/listens to your song on this device and times each lyric line/i)).toBeTruthy()
+    expect(screen.queryByText(/transcription only/i)).toBeNull()
+  })
+
+  it('shows user copy when the vocal-separation model is missing and logs the dev detail', async () => {
+    deviceTier.current = 'full'
+    vocalSepSupported.current = true
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    render(<AutoAlignFlow song={song} onComplete={vi.fn()} onClose={vi.fn()} />)
+
+    await waitFor(() =>
+      expect(screen.getByText(/vocal isolation isn't available right now/i)).toBeTruthy(),
+    )
+    // The deployment-docs pointer is operator info: console, not UI.
+    expect(screen.queryByText(/DEPLOYMENT\.md/i)).toBeNull()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('docs/DEPLOYMENT.md'))
+    warn.mockRestore()
   })
 })

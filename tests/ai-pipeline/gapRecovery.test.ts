@@ -123,7 +123,7 @@ describe('reconstructRefinedFromLyrics', () => {
   it('round-trips: the reconstructed refined view yields the same gap holes', () => {
     const lyrics = storedWithHole()
     const refined = reconstructRefinedFromLyrics(lyrics)
-    const holes = enumerateGapHoles(refined)
+    const holes = enumerateGapHoles(refined, lyrics.transcriptWords ?? [])
     expect(holes).toHaveLength(1)
     expect(holes[0].from).toBe(1)
     expect(holes[0].to).toBe(2)
@@ -148,7 +148,7 @@ describe('reconstructRefinedFromLyrics', () => {
     const refined = reconstructRefinedFromLyrics(lyrics)
     expect(refined.lines).toBe(sheet)
     // Quality is 1:1 with the sheet rows → the hole is still findable.
-    expect(enumerateGapHoles(refined)).toHaveLength(1)
+    expect(enumerateGapHoles(refined, lyrics.transcriptWords ?? [])).toHaveLength(1)
   })
 })
 

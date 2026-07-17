@@ -114,7 +114,7 @@ function SourceTile({
 
 export function AddSongSheet({ onSongReady, onClose }: Props) {
   const [source, setSource] = useState<Source>('upload')
-  const { setBusy, confirming, requestClose, confirm, cancel } = useConfirmedClose(onClose)
+  const { setBusy, setDirty, confirming, requestClose, confirm, cancel } = useConfirmedClose(onClose)
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col justify-end md:justify-center md:items-center md:p-6">
@@ -133,7 +133,9 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
         {confirming && (
           <ConfirmDialog
             title="Discard this song?"
-            message="Lyric search or saving is still in progress. Closing now will lose your progress."
+            message={confirming === 'busy'
+              ? 'Lyric search or saving is still in progress. Closing now will lose your progress.'
+              : 'Your pasted lyrics will be lost.'}
             confirmLabel="Discard"
             cancelLabel="Keep working"
             onConfirm={confirm}
@@ -165,8 +167,8 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
 
         <div className="flex-1 min-h-0 flex flex-col border-t border-cinnabar-900/80 pt-3 md:pt-4">
           {source === 'upload'
-            ? <UploadAudioFlow embedded onSongReady={onSongReady} onBusyChange={setBusy} />
-            : <LinkParser embedded onSongReady={onSongReady} onBusyChange={setBusy} />}
+            ? <UploadAudioFlow embedded onSongReady={onSongReady} onBusyChange={setBusy} onDirtyChange={setDirty} />
+            : <LinkParser embedded onSongReady={onSongReady} onBusyChange={setBusy} onDirtyChange={setDirty} />}
         </div>
       </div>
     </div>

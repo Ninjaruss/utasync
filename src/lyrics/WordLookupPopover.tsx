@@ -35,12 +35,32 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
     return () => { cancelled = true }
   }, [token, readingMode])
 
+  // Dismiss on pointerdown outside (capture phase so nothing re-routes it),
+  // and swallow the click that completes the dismissing tap: without this the
+  // gesture lands on the lyric row underneath, whose onClick seeks playback.
+  // The swallower is deliberately detached from this effect's cleanup — the
+  // popover unmounts on onClose() before the click event fires, so tying it
+  // to the component lifetime would defeat the fix. It is one-shot and also
+  // self-removes on a short timer in case no click follows (e.g. a drag).
   useEffect(() => {
     const onPointerDown = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+      if (!ref.current || ref.current.contains(e.target as Node)) return
+      let timer = 0
+      function remove() {
+        document.removeEventListener('click', swallow, true)
+        window.clearTimeout(timer)
+      }
+      function swallow(ce: MouseEvent) {
+        ce.stopPropagation()
+        ce.preventDefault()
+        remove()
+      }
+      document.addEventListener('click', swallow, true)
+      timer = window.setTimeout(remove, 400)
+      onClose()
     }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
+    document.addEventListener('pointerdown', onPointerDown, true)
+    return () => document.removeEventListener('pointerdown', onPointerDown, true)
   }, [onClose])
 
   // A null lookup (punctuation-only token) renders nothing, so ask the parent
@@ -71,7 +91,10 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
           ? { top: anchorRect.bottom + 8 }
           : { bottom: window.innerHeight - anchorRect.top + 8 }),
       }
-    : undefined
+    : // Bottom-card layout: sit just above the playback dock. PlayerControls
+      // publishes --player-dock-height on mobile; the fallback matches the
+      // old fixed offset (bottom-24 = 96px).
+      { bottom: 'calc(var(--player-dock-height, 96px) + 12px)' }
 
   return (
     <div
@@ -81,11 +104,19 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
       onClick={(e) => e.stopPropagation()}
       style={style}
       className={[
-        anchored ? 'fixed w-72' : 'fixed inset-x-3 bottom-24 mx-auto max-w-sm',
+        anchored ? 'fixed w-72' : 'fixed inset-x-3 mx-auto max-w-sm',
         'z-30 rounded-xl border border-cinnabar-accent/60 bg-cinnabar-900 p-3 space-y-1.5 shadow-xl text-left',
       ].join(' ')}
     >
-      <div className="flex items-baseline gap-2 flex-wrap">
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close"
+        className="absolute top-0 right-0 w-11 h-11 flex items-center justify-center text-white/40 hover:text-white/80 touch-manipulation transition-colors duration-150 ease-out"
+      >
+        <span aria-hidden className="text-sm leading-none">✕</span>
+      </button>
+      <div className="flex items-baseline gap-2 flex-wrap pr-9">
         <span lang="ja" className="font-jp text-lg font-semibold text-white">{headword}</span>
         {reading && reading !== headword && (
           <span lang="ja" className="font-jp text-sm text-cinnabar-accent/90">{reading}</span>

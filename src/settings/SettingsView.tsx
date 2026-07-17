@@ -9,7 +9,7 @@ import { exportLRC, downloadFile } from '../lyrics/exporter'
 import { useSettingsStore } from '../payment/SettingsStore'
 import { useAbLoopPlaylistStore } from '../player/abLoopPlaylistStore'
 import { LegalLinks } from '../core/ui/LegalLinks'
-import { LEGAL_LAST_UPDATED, KOFI_URL } from '../core/legal'
+import { LEGAL_LAST_UPDATED, SUPPORT_URL } from '../core/legal'
 import { getDeviceTier, canUseVocalSeparation } from '../ai-pipeline/capability'
 import { refreshDemucsModelAvailability } from '../ai-pipeline/demucsSeparator'
 import type { Language, Song } from '../core/types'
@@ -74,6 +74,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
   const [orphanedAudio, setOrphanedAudio] = useState(0)
   const [cacheMessage, setCacheMessage] = useState<string | null>(null)
   const [clearingCache, setClearingCache] = useState(false)
+  const [confirmClearCache, setConfirmClearCache] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const { defaultSongLanguage, setDefaultSongLanguage, vocalSeparationEnabled, setVocalSeparationEnabled, readingMode, setReadingMode, tapLookupEnabled, setTapLookupEnabled } = useSettingsStore()
 
@@ -101,7 +102,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
       useAbLoopPlaylistStore.getState().clearPlaylist(song.id)
       const next = songs.filter((s) => s.id !== song.id)
       if (audioDeleteFailed) {
-        toast('Song removed, but the audio file could not be deleted. Use "Clean up orphaned audio" below to reclaim space.', 'warning')
+        toast('Song removed, but the audio file could not be deleted. Use "Remove orphaned audio" below to reclaim space.', 'warning')
       }
       setSongs(next)
       await refreshStorage(next)
@@ -132,7 +133,10 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
 
   return (
     <div className={embedded ? 'bg-cinnabar-950 text-white px-4 py-4 space-y-5' : 'min-h-screen bg-cinnabar-950 text-white px-4 py-4 space-y-6 max-w-2xl mx-auto'}>
-      <div className="flex items-center justify-between gap-3">
+      {/* Sticky within the scroll container (embedded sheet) / page (standalone)
+          so the only Close button stays reachable; -mx/-mt cancel the root
+          padding so the opaque bar sits flush and content scrolls under it. */}
+      <div className="sticky top-0 z-10 -mx-4 -mt-4 px-4 pt-4 pb-2 bg-cinnabar-950 flex items-center justify-between gap-3">
         <h1 className="text-xl font-semibold text-balance">Settings</h1>
         <button onClick={onClose} className="min-h-11 min-w-11 flex items-center justify-center text-white/40 hover:text-white text-xl touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]" aria-label="Close settings">✕</button>
       </div>
@@ -165,8 +169,8 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
       <div className="bg-cinnabar-900 rounded-xl p-4 divide-y divide-cinnabar-800/60">
         {canUseVocalSeparation(getDeviceTier()) && (
           <SettingToggle
-            title="Auto-align vocal separation"
-            description="Isolate vocals before speech recognition on busy mixes. Downloads the Demucs model."
+            title="Isolate vocals for timing"
+            description="Improves lyric timing on songs with loud instrumentals. Downloads an extra AI model the next time a song is aligned."
             checked={vocalSeparationEnabled}
             onToggle={() => setVocalSeparationEnabled(!vocalSeparationEnabled)}
           />
@@ -220,16 +224,39 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
             </p>
           )}
           <div className="flex flex-wrap gap-x-4 gap-y-1 items-center">
-            <button
-              type="button"
-              onClick={clearModelCache}
-              disabled={clearingCache}
-              className="text-xs text-white/30 hover:text-white underline disabled:opacity-50"
-            >
-              {clearingCache ? 'Clearing…' : 'Clear AI model cache'}
-            </button>
+            {confirmClearCache ? (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="text-xs text-white/60 text-pretty">
+                  Models re-download next time you align{storage.modelCache > 0 ? ` (${formatBytes(storage.modelCache)})` : ''}. Clear?
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setConfirmClearCache(false)}
+                  className="min-h-11 flex items-center text-xs text-white/60 hover:text-white touch-manipulation"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setConfirmClearCache(false); void clearModelCache() }}
+                  disabled={clearingCache}
+                  className="min-h-11 flex items-center text-xs text-red-400 hover:text-red-300 font-medium touch-manipulation disabled:opacity-50"
+                >
+                  {clearingCache ? 'Clearing…' : 'Clear'}
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmClearCache(true)}
+                disabled={clearingCache}
+                className="min-h-11 flex items-center text-xs text-white/60 hover:text-white underline disabled:opacity-50 touch-manipulation"
+              >
+                {clearingCache ? 'Clearing…' : 'Clear AI model cache'}
+              </button>
+            )}
             {orphanedAudio > 0 && (
-              <button onClick={clearOrphanedAudio} className="text-xs text-white/30 hover:text-white underline">
+              <button onClick={clearOrphanedAudio} className="min-h-11 flex items-center text-xs text-white/60 hover:text-white underline touch-manipulation">
                 Remove orphaned audio
               </button>
             )}
@@ -242,7 +269,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
 
       <div className="space-y-2">
         <p className="text-sm font-medium">Song Library</p>
-        {songs.length === 0 && <p className="text-white/30 text-sm">No songs saved.</p>}
+        {songs.length === 0 && <p className="text-white/50 text-sm">No songs saved.</p>}
         {songs.map((song) => {
           const confirming = confirmDeleteId === song.id
           return (
@@ -271,15 +298,15 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
                   </button>
                 </div>
               ) : (
-                <div className="flex gap-1 shrink-0">
+                <div className="flex gap-2 shrink-0">
                   <button
                     type="button"
                     onClick={() => downloadFile(exportLRC(song.lyrics.lines), `${song.title}.lrc`, 'text/plain')}
                     className="min-h-11 px-3 text-xs text-white/40 hover:text-white touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]"
-                    aria-label={`Export LRC for ${song.title}`}
+                    aria-label={`Export lyrics as an LRC file for ${song.title}`}
                     title="Export lyrics as LRC file"
                   >
-                    LRC
+                    Export
                   </button>
                   <button
                     type="button"
@@ -304,12 +331,12 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
           </p>
         </div>
         <a
-          href={KOFI_URL}
+          href={SUPPORT_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="w-full min-h-11 rounded-lg bg-cinnabar-accent hover:bg-cinnabar-accent/90 text-white text-sm font-medium flex items-center justify-center gap-2 touch-manipulation transition-[background-color,transform] duration-150 ease-out active:scale-[0.98]"
         >
-          ☕ Support on Ko-fi
+          ♥ Support on Patreon
         </a>
       </div>
 

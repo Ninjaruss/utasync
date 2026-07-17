@@ -30,6 +30,16 @@ describe('DisplayMenu', () => {
     expect(btn.className).toMatch(/cinnabar-accent/)
   })
 
+  it('shows a hint row instead of hiding the Translation section when no translation is attached', () => {
+    render(<DisplayMenu {...baseProps} hasTranslation={false} />)
+    fireEvent.click(screen.getByRole('button', { name: /lyrics display options/i }))
+    expect(screen.getByText('Translation')).toBeTruthy()
+    expect(screen.getByText(/no translation attached — add one in edit mode/i)).toBeTruthy()
+    // The interactive controls stay hidden — there is nothing to toggle yet.
+    expect(screen.queryByRole('checkbox', { name: /show translation/i })).toBeNull()
+    expect(screen.queryByRole('checkbox', { name: /side by side/i })).toBeNull()
+  })
+
   it('omits the phrasing section when no regroupings are available', () => {
     render(<DisplayMenu {...baseProps} phrasingAvailable={false} />)
     fireEvent.click(screen.getByRole('button', { name: /lyrics display options/i }))

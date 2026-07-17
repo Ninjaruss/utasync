@@ -1,3 +1,5 @@
+import { LegalLinks } from '../core/ui/LegalLinks'
+
 interface Props {
   onOpenApp: () => void
 }
@@ -12,13 +14,13 @@ const FEATURES = [
   {
     badge: '02',
     title: 'Furigana readings',
-    body: 'Dictionary furigana on every kanji, then verified against how the words are actually sung — alternate readings get adopted, uncertain ones flagged.',
+    body: 'Dictionary furigana on every kanji, then checked against how the singer actually pronounces each word — so you read what you hear.',
     glyph: 'ふ',
   },
   {
     badge: '03',
     title: 'Word pairing',
-    body: 'Each Japanese word is colour-matched to its English counterpart, so you can see exactly which part means what — across flipped SOV/SVO word order.',
+    body: 'Each Japanese word is colour-matched to its English counterpart, so you can see exactly which part means what — even when Japanese and English put words in opposite order.',
     glyph: '⇄',
   },
 ]
@@ -93,8 +95,11 @@ export function LandingScreen({ onOpenApp }: Props) {
           </button>
         </section>
 
-        <footer className="mt-10 text-center text-[11px] text-white/25 text-pretty">
-          Runs entirely in your browser. Audio streams from YouTube — nothing is uploaded.
+        <footer className="mt-10 text-center">
+          <p className="text-[11px] text-white/45 text-pretty">
+            Runs entirely in your browser. Audio streams from YouTube — nothing is uploaded.
+          </p>
+          <LegalLinks className="mt-3" />
         </footer>
       </div>
     </div>

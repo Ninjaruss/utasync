@@ -27,6 +27,9 @@ import { getDefaultSongLanguage } from '../payment/SettingsStore'
 
 type ManualLyricSource = 'paste' | 'subtitle'
 
+/** Wait for title/artist edits to settle before firing a network search. */
+const LYRIC_SEARCH_DEBOUNCE_MS = 800
+
 type LyricsPhase =
   | { kind: 'idle' }
   | { kind: 'searching' }
@@ -38,13 +41,16 @@ interface Props {
   /** When true, renders inside AddSongSheet without standalone page chrome. */
   embedded?: boolean
   onBusyChange?: (busy: boolean) => void
+  /** Called when the user has unsaved input (pasted lyrics, attached audio, typed title). */
+  onDirtyChange?: (dirty: boolean) => void
 }
 
-export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Props) {
+export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirtyChange }: Props) {
   const [url, setUrl] = useState('')
   const [audioFile, setAudioFile] = useState<File | null>(null)
   const [title, setTitle] = useState('')
   const [artist, setArtist] = useState('')
+  const [titleEdited, setTitleEdited] = useState(false)
   const [videoId, setVideoId] = useState<string | null>(null)
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null)
   const [metaLoaded, setMetaLoaded] = useState(false)
@@ -63,6 +69,11 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
     onBusyChange?.(isBusy)
   }, [isBusy, onBusyChange])
 
+  const isDirty = !!pasted.trim() || !!audioFile || (titleEdited && !!title.trim())
+  useEffect(() => {
+    onDirtyChange?.(isDirty)
+  }, [isDirty, onDirtyChange])
+
   const loadMetadata = async () => {
     if (!url.trim()) return
     setError('')
@@ -70,6 +81,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
     try {
       const meta = await fetchYouTubeMeta(url)
       setTitle(meta.title)
+      setTitleEdited(false)
       setArtist(meta.artist)
       setVideoId(meta.videoId)
       setThumbnailUrl(meta.thumbnailUrl)
@@ -97,48 +109,58 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
     setError('')
   }
 
+  const searchAgain = () => {
+    searchGenRef.current++
+    setMatchConfirmed(false)
+    setError('')
+    setLyricsPhase({ kind: 'idle' })
+  }
+
   useEffect(() => {
     if (!metaLoaded || !title.trim() || lyricsPhase.kind !== 'idle') return
 
-    const gen = ++searchGenRef.current
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: start lyric search when inputs settle
-    setLyricsPhase({ kind: 'searching' })
-    setLyricSearchStage(videoId ? 'youtube' : 'lrclib-exact')
-    setError('')
+    // Debounced so each title/artist keystroke doesn't fire a network search.
+    const timer = setTimeout(() => {
+      const gen = ++searchGenRef.current
+      setLyricsPhase({ kind: 'searching' })
+      setLyricSearchStage(videoId ? 'youtube' : 'lrclib-exact')
+      setError('')
 
-    resolveLyricsForSong({
-      title: title.trim(),
-      artist: artist.trim(),
-      videoId,
-      sourceLanguage: getDefaultSongLanguage(),
-      onStage: (stage) => {
-        if (gen !== searchGenRef.current) return
-        setLyricSearchStage(stage)
-      },
-    })
-      .then((result) => {
-        if (gen !== searchGenRef.current) return
-        setLyricSearchStage(null)
-        if (result.lines.length > 0 && result.source !== 'none') {
-          setMatchConfirmed(false)
-          setLyricsPhase({
-            kind: 'found',
-            lines: result.lines,
-            synced: result.synced,
-            sourceLabel: lyricsSourceLabel(result.source),
-            source: result.source,
-            match: result.match,
-          })
-        } else {
+      resolveLyricsForSong({
+        title: title.trim(),
+        artist: artist.trim(),
+        videoId,
+        sourceLanguage: getDefaultSongLanguage(),
+        onStage: (stage) => {
+          if (gen !== searchGenRef.current) return
+          setLyricSearchStage(stage)
+        },
+      })
+        .then((result) => {
+          if (gen !== searchGenRef.current) return
+          setLyricSearchStage(null)
+          if (result.lines.length > 0 && result.source !== 'none') {
+            setMatchConfirmed(false)
+            setLyricsPhase({
+              kind: 'found',
+              lines: result.lines,
+              synced: result.synced,
+              sourceLabel: lyricsSourceLabel(result.source),
+              source: result.source,
+              match: result.match,
+            })
+          } else {
+            setLyricsPhase({ kind: 'manual', source: 'paste' })
+          }
+        })
+        .catch(() => {
+          if (gen !== searchGenRef.current) return
+          setLyricSearchStage(null)
           setLyricsPhase({ kind: 'manual', source: 'paste' })
-        }
-      })
-      .catch(() => {
-        if (gen !== searchGenRef.current) return
-        setLyricSearchStage(null)
-        setLyricsPhase({ kind: 'manual', source: 'paste' })
-      })
-  }, [metaLoaded, title, artist, lyricsPhase.kind])
+        })
+    }, LYRIC_SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [metaLoaded, title, artist, lyricsPhase.kind, videoId])
 
   async function resolveLines(): Promise<TimedLine[] | null> {
     if (lyricsPhase.kind === 'found') return lyricsPhase.lines
@@ -204,7 +226,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
   }
 
   const manualTabClass = (s: ManualLyricSource) =>
-    `px-3 py-1.5 rounded-lg text-xs ${lyricsPhase.kind === 'manual' && lyricsPhase.source === s ? 'bg-cinnabar-accent text-white' : 'bg-cinnabar-900 text-white/50'}`
+    `px-3 py-1.5 rounded-lg text-xs min-h-11 touch-manipulation ${lyricsPhase.kind === 'manual' && lyricsPhase.source === s ? 'bg-cinnabar-accent text-white' : 'bg-cinnabar-900 text-white/50'}`
 
   const lyricsReady =
     (lyricsPhase.kind === 'found'
@@ -243,6 +265,13 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
       </button>
       <button type="button" className={manualTabClass('subtitle')} onClick={() => skipLyricSearch('subtitle')}>
         Subtitle file
+      </button>
+      <button
+        type="button"
+        className="px-3 py-1.5 rounded-lg text-xs min-h-11 touch-manipulation bg-cinnabar-900 text-white/50"
+        onClick={searchAgain}
+      >
+        Search again
       </button>
     </div>
   )
@@ -311,7 +340,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
         ) : (
           <>
             <p className="text-white/40 text-xs text-pretty">
-              Verify title and artist — YouTube captions and LRCLIB are checked automatically.
+              Verify title and artist — YouTube captions and the lyrics database are checked automatically.
             </p>
 
             <div className="space-y-1.5 md:space-y-2">
@@ -356,7 +385,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
               {lyricsPhase.kind === 'searching' && (
                 <div className="space-y-2">
                   {lyricSearchProgress}
-                  <p className="text-white/25 text-[10px] text-center text-pretty">Skip search and add lyrics manually:</p>
+                  <p className="text-xs text-white/60 text-center text-pretty">Skip search and add lyrics manually:</p>
                   {skipSearchButtons}
                 </div>
               )}
@@ -378,7 +407,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange }: Prop
 
               {lyricsPhase.kind === 'manual' && (
                 <>
-                  <p className="text-white/35 text-xs text-pretty">No captions or LRCLIB match — paste lyrics or choose a subtitle file.</p>
+                  <p className="text-white/35 text-xs text-pretty">No match in captions or the lyrics database — paste lyrics or choose a subtitle file.</p>
                   {skipSearchButtons}
                   {lyricsPhase.source === 'paste' && (
                     <textarea

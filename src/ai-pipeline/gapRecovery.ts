@@ -31,8 +31,12 @@ import { getAudioFile } from '../core/opfs/audio'
  * this gates the (expensive, audio-decoding) once-on-open re-transcription so a
  * song is auto-recovered at most once. Stamped regardless of whether any hole was
  * actually filled, so an unrecoverable song doesn't re-load Whisper every open.
+ * 2: round-11 focused re-pass — holes now include disguised approximate runs
+ * bounded by verified anchors, slices aim at un-transcribed spans, and splices
+ * can be accepted on placed-coverage improvement; previously-stamped songs get
+ * one more automatic pass with the wider detection.
  */
-export const GAP_RECOVERY_VERSION = 1
+export const GAP_RECOVERY_VERSION = 2
 
 /**
  * Build a `RefinedAlignment` "alignment view" from the persisted lyrics fields the
@@ -74,7 +78,9 @@ function buildGapContext(lyrics: LyricsData) {
   const sheetRows = sheetRowsForAlignment(lyrics)
   const sheetTexts = sheetRows.map(lineText)
   const words = transcriptWordsToAlignInput(lyrics.transcriptWords)
-  const holes = enumerateGapHoles(refined).filter((h) => holeWorthRetrying(h, words, sheetTexts))
+  const holes = enumerateGapHoles(refined, words).filter((h) =>
+    holeWorthRetrying(h, words, sheetTexts),
+  )
   return { refined, sheetRows, sheetTexts, words, holes }
 }
 

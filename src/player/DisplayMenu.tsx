@@ -105,10 +105,10 @@ function DisplayMenuPanel({
         </section>
       )}
 
-      {hasTranslation && (
-        <section className={compact ? 'space-y-1' : 'space-y-2'} aria-label="Translation layout">
-          {isJapanese && <div className={compact ? 'border-t border-cinnabar-800/80 pt-1.5' : 'border-t border-cinnabar-800/80 pt-3'} />}
-          <p className={toolbarSectionLabel}>Translation</p>
+      <section className={compact ? 'space-y-1' : 'space-y-2'} aria-label="Translation layout">
+        {isJapanese && <div className={compact ? 'border-t border-cinnabar-800/80 pt-1.5' : 'border-t border-cinnabar-800/80 pt-3'} />}
+        <p className={toolbarSectionLabel}>Translation</p>
+        {hasTranslation ? (
           <div className="space-y-1.5">
             <label className={[
               'flex items-center justify-between gap-3 px-2.5 py-2 rounded-lg border cursor-pointer touch-manipulation',
@@ -143,12 +143,16 @@ function DisplayMenuPanel({
               </p>
             )}
           </div>
-        </section>
-      )}
+        ) : (
+          <p className="text-[11px] text-white/40 px-1 py-0.5 text-pretty leading-snug">
+            No translation attached — add one in Edit mode.
+          </p>
+        )}
+      </section>
 
       {phrasingAvailable && (
         <section className={compact ? 'space-y-1' : 'space-y-2'} aria-label="Phrasing">
-          {(isJapanese || hasTranslation) && <div className={compact ? 'border-t border-cinnabar-800/80 pt-1.5' : 'border-t border-cinnabar-800/80 pt-3'} />}
+          <div className={compact ? 'border-t border-cinnabar-800/80 pt-1.5' : 'border-t border-cinnabar-800/80 pt-3'} />
           <p className={toolbarSectionLabel}>Phrasing</p>
           <div className="space-y-1.5">
             <label className={[

@@ -16,17 +16,21 @@ import { isRepetitionOnlyLine } from './lineAligner'
 import { redistributeDegenerateRuns } from './redistributeDegenerateRuns'
 import { findPhoneticAnchorEn } from '../ai-pipeline/phoneticEn'
 import { expectedLineDuration, minLineDuration } from './lineDegeneracy'
+import { applyLabelHonesty } from './labelHonesty'
 import { detectSheetLanguage } from '../ai-pipeline/whisperLanguage'
 
 const REPETITION_REF_MIN_SPAN_S = 1.4
 
 /** Bump when auto-align timing logic changes — triggers one-time re-refine from the
- * persisted Whisper transcript on song open (no re-transcription). 21: round-7
- * placement fixes (run-coverage gate stops verse-on-instrumental;
- * capUnanchoredGapFillTails caps over-long tails) reach round-6-aligned (v20)
- * stored songs. Separate from GAP_RECOVERY_VERSION (gapRecovery.ts), which gates
- * the audio-re-transcription recovery pass. */
-export const ALIGNMENT_PIPELINE_VERSION = 21
+ * persisted Whisper transcript on song open (no re-transcription). 22: label-honesty
+ * demotion (applyLabelHonesty) — stored songs re-label 'good' lines whose timing
+ * the evidence can't verify (shared segment chunks, clipped tails, contested
+ * repeated-line occurrences, proportional mode). 21: round-7 placement fixes
+ * (run-coverage gate stops verse-on-instrumental; capUnanchoredGapFillTails caps
+ * over-long tails) reach round-6-aligned (v20) stored songs. Separate from
+ * GAP_RECOVERY_VERSION (gapRecovery.ts), which gates the audio-re-transcription
+ * recovery pass. */
+export const ALIGNMENT_PIPELINE_VERSION = 22
 
 const ENTWINED_ROLLING_RE = /心絡まって.*ローリング/
 const RUN_LINE_RE = /凍てつく(?:世界|地面).*走り出した/
@@ -2084,6 +2088,23 @@ export function refineAlignmentWithPhrases(
     tunedLines = capUnanchoredGapFillTails(tunedLines, words, lineTexts, sourceLanguage, upgradeSpans)
   }
 
+  // Final label-honesty demotion (2026-07 line-accuracy audit): 'good' labels
+  // the evidence can't vouch for — shared-chunk boundaries, clipped tails,
+  // contested repeated-line occurrences, proportional mode — read approximate.
+  // Runs on FINAL timings (after the tail cap), label-only, never produces
+  // needs_review (gap-hole detection is unaffected). The mixed two-pass path
+  // skips this per pass and applies it to the merged result instead.
+  const honestQuality = options?.skipLabelHonesty
+    ? lineAlignmentQuality
+    : applyLabelHonesty({
+        lines: tunedLines,
+        lineTexts,
+        quality: lineAlignmentQuality,
+        words: transcriptWords,
+        mode: pass1.mode,
+        spans: upgradeSpans,
+      })
+
   const syncedPhrases = syncPhrasesFromValidatedLines(phrases, tunedLines)
 
   return {
@@ -2093,7 +2114,7 @@ export function refineAlignmentWithPhrases(
     mode: pass1.mode,
     confidence: pass1.confidence,
     anchorSources: quality.anchorSources,
-    lineAlignmentQuality,
+    lineAlignmentQuality: honestQuality,
     phraseLayout: 'sheet',
     sheetLinesSnapshot: undefined,
   }

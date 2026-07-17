@@ -11,23 +11,32 @@ interface Props {
   onOpen: (songId: string) => void
   onAdd: () => void
   onSettings: () => void
+  /** Bump to refetch songs — e.g. after a delete in the Settings overlay while this screen stays mounted. */
+  refreshKey?: number
 }
 
-export function LibraryScreen({ onOpen, onAdd, onSettings }: Props) {
-  const [songs, setSongs] = useState<Song[]>([])
+export function LibraryScreen({ onOpen, onAdd, onSettings, refreshKey = 0 }: Props) {
+  // null = query still loading; keeps the empty state from flashing for returning users.
+  const [songs, setSongs] = useState<Song[] | null>(null)
   const [pendingDelete, setPendingDelete] = useState<Song | null>(null)
   const toast = useToast()
 
   useEffect(() => {
-    db.songs.orderBy('createdAt').reverse().toArray().then(setSongs)
-  }, [])
+    // Cancellation guards against rapid refreshKey bumps racing (a stale result
+    // could resurrect a deleted card) and against setState after unmount.
+    let cancelled = false
+    db.songs.orderBy('createdAt').reverse().toArray().then((rows) => {
+      if (!cancelled) setSongs(rows)
+    })
+    return () => { cancelled = true }
+  }, [refreshKey])
 
   const handleDelete = async (song: Song) => {
     setPendingDelete(null)
     try {
       const { audioDeleteFailed } = await deleteSong(song)
       useAbLoopPlaylistStore.getState().clearPlaylist(song.id)
-      setSongs((prev) => prev.filter((s) => s.id !== song.id))
+      setSongs((prev) => prev && prev.filter((s) => s.id !== song.id))
       if (audioDeleteFailed) {
         toast('Song removed, but the audio file could not be deleted. Open Settings → Storage to reclaim space.', 'warning')
       }
@@ -39,7 +48,10 @@ export function LibraryScreen({ onOpen, onAdd, onSettings }: Props) {
   return (
     <div className="relative h-[100dvh] overflow-hidden bg-cinnabar-950 flex flex-col">
       <div className="w-full max-w-2xl mx-auto flex flex-col flex-1 min-h-0">
-        <div className="flex items-center justify-between px-4 py-4 shrink-0">
+        <div
+          className="flex items-center justify-between px-4 pb-4 shrink-0"
+          style={{ paddingTop: 'max(env(safe-area-inset-top, 16px), 16px)' }}
+        >
           <span className="text-cinnabar-accent font-semibold tracking-widest text-lg">歌sync</span>
           <button
             type="button"
@@ -61,7 +73,16 @@ export function LibraryScreen({ onOpen, onAdd, onSettings }: Props) {
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-2">
-          {songs.length === 0 && (
+          {songs === null && (
+            <>
+              <p role="status" className="sr-only">Loading songs…</p>
+              <div aria-hidden="true" className="space-y-2 animate-pulse">
+                <div className="bg-cinnabar-900/50 rounded-xl min-h-[3.75rem]" />
+                <div className="bg-cinnabar-900/50 rounded-xl min-h-[3.75rem]" />
+              </div>
+            </>
+          )}
+          {songs?.length === 0 && (
             <div className="flex flex-col items-center justify-center text-center gap-2 py-24 px-6 animate-[progress-enter_220ms_ease-out_both]">
               <div className="w-12 h-12 rounded-2xl bg-cinnabar-900 border border-cinnabar-800 flex items-center justify-center text-cinnabar-accent/70 text-xl mb-1">♪</div>
               <p className="text-white/55 text-sm font-medium text-balance">Your library is empty</p>
@@ -70,7 +91,7 @@ export function LibraryScreen({ onOpen, onAdd, onSettings }: Props) {
               </p>
             </div>
           )}
-          {songs.map((song) => {
+          {(songs ?? []).map((song) => {
             const sync = song.syncState ?? computeSyncState(song)
             return (
               <div

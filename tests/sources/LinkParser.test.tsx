@@ -45,7 +45,7 @@ async function continueToLyricsFound(onSongReady: (id: string) => void) {
   fireEvent.change(screen.getByPlaceholderText(/paste a youtube link/i), { target: { value: 'https://youtu.be/abc123' } })
   fireEvent.click(screen.getByRole('button', { name: /continue/i }))
   await waitFor(() => expect(screen.getByLabelText(/song title/i)).toHaveValue('Test Song'))
-  await waitFor(() => expect(screen.getByText(/found plain lyrics/i)).toBeInTheDocument())
+  await waitFor(() => expect(screen.getByText(/found text-only lyrics/i)).toBeInTheDocument(), { timeout: 3000 })
   fireEvent.click(screen.getByRole('button', { name: /add song/i }))
   await waitFor(() => expect(onSongReady).toHaveBeenCalled(), { timeout: 5000 })
 }
@@ -91,10 +91,23 @@ describe('LinkParser', () => {
     render(<LinkParser onSongReady={onSongReady} />)
     fireEvent.change(screen.getByPlaceholderText(/paste a youtube link/i), { target: { value: 'https://youtu.be/abc123' } })
     fireEvent.click(screen.getByRole('button', { name: /continue/i }))
-    await waitFor(() => expect(screen.getByText(/fetching youtube captions/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/fetching youtube captions/i)).toBeInTheDocument(), { timeout: 3000 })
     fireEvent.click(screen.getByRole('button', { name: /paste lyrics/i }))
     await waitFor(() => expect(screen.getByPlaceholderText(/paste lyrics/i)).toBeInTheDocument())
     expect(resolver.resolveLyricsForSong).toHaveBeenCalled()
+  })
+
+  it('offers Search again after a failed search and re-runs the lookup', async () => {
+    const resolver = await import('../../src/sources/lyricsResolver')
+    vi.mocked(resolver.resolveLyricsForSong).mockResolvedValue({ lines: [], synced: false, source: 'none' })
+    render(<LinkParser onSongReady={vi.fn()} />)
+    fireEvent.change(screen.getByPlaceholderText(/paste a youtube link/i), { target: { value: 'https://youtu.be/abc123' } })
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+    await waitFor(() => expect(screen.getByText(/no match in captions or the lyrics database/i)).toBeInTheDocument(), { timeout: 3000 })
+    expect(resolver.resolveLyricsForSong).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: /search again/i }))
+    await waitFor(() => expect(resolver.resolveLyricsForSong).toHaveBeenCalledTimes(2), { timeout: 3000 })
   })
 
   it('attaches uploaded audio to the built song when provided', async () => {
@@ -105,7 +118,7 @@ describe('LinkParser', () => {
     const fileInput = screen.getAllByLabelText(/add audio file/i).find((el) => el.tagName === 'INPUT') as HTMLInputElement
     fireEvent.change(fileInput, { target: { files: [file] } })
     fireEvent.click(screen.getByRole('button', { name: /continue/i }))
-    await waitFor(() => expect(screen.getByText(/found plain lyrics/i)).toBeInTheDocument(), { timeout: 3000 })
+    await waitFor(() => expect(screen.getByText(/found text-only lyrics/i)).toBeInTheDocument(), { timeout: 3000 })
     fireEvent.click(screen.getByRole('button', { name: /add song/i }))
     await waitFor(() => expect(onSongReady).toHaveBeenCalled())
     const songId = onSongReady.mock.calls[0][0]

@@ -2,6 +2,13 @@ import React, { createContext, useContext, useState, useCallback } from 'react'
 
 interface ToastItem { id: number; message: string; type: 'info' | 'warning' | 'error' }
 
+// Instructional warning/error toasts stay up long enough to actually be read;
+// info toasts stay snappy. Manual ✕ dismissal always works.
+const INFO_DURATION_MS = 4000
+const STICKY_FLOOR_MS = 8000
+const STICKY_CAP_MS = 15000
+const MS_PER_CHAR = 60
+
 const ToastContext = createContext<(msg: string, type?: ToastItem['type']) => void>(() => {})
 
 // eslint-disable-next-line react-refresh/only-export-components -- hook co-located with its provider
@@ -13,7 +20,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const show = useCallback((message: string, type: ToastItem['type'] = 'info') => {
     const id = Date.now()
     setToasts((prev) => [...prev, { id, message, type }])
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000)
+    const duration = type === 'info'
+      ? INFO_DURATION_MS
+      : Math.min(STICKY_CAP_MS, Math.max(STICKY_FLOOR_MS, message.length * MS_PER_CHAR))
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), duration)
   }, [])
 
   const dismiss = (id: number) => setToasts((prev) => prev.filter((t) => t.id !== id))
@@ -27,7 +37,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={show}>
       {children}
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 flex flex-col gap-2 z-50 w-full max-w-sm px-4 pointer-events-none">
+      <div
+        className="fixed left-1/2 -translate-x-1/2 flex flex-col gap-2 z-50 w-full max-w-sm px-4 pointer-events-none"
+        style={{ bottom: 'max(env(safe-area-inset-bottom, 16px), 16px)' }}
+      >
         {toasts.map((t) => (
           <div
             key={t.id}

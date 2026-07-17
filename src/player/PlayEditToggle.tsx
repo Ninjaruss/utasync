@@ -14,7 +14,7 @@ export function PlayEditToggle({ mode, onChange }: Props) {
     <div
       role="group"
       aria-label="Play or edit mode"
-      className="relative grid grid-cols-2 bg-white/8 rounded-full p-1 min-w-[8.25rem]"
+      className="relative grid grid-cols-2 bg-white/[0.08] rounded-full p-1 min-w-[8.25rem]"
     >
       <div
         aria-hidden

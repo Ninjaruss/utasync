@@ -83,9 +83,74 @@ function formatTime(s: number): string {
   return `${m}:${sec.toString().padStart(2, '0')}`
 }
 
+// Inline monochrome transport glyphs. The previous ⏮ ▶ ⏸ ⏭ 🔊 ⏩ characters
+// render as full-colour emoji on iOS, clashing with the monochrome dock.
+// All are decorative (aria-hidden); the wrapping buttons carry the labels.
+
+function SkipBackIcon({ className = 'w-[1.1em] h-[1.1em]' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+      <path d="M6 5h2.2v14H6z" />
+      <path d="M20 5v14L9.2 12z" />
+    </svg>
+  )
+}
+
+function SkipForwardIcon({ className = 'w-[1.1em] h-[1.1em]' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+      <path d="M15.8 5H18v14h-2.2z" />
+      <path d="M4 5v14l10.8-7z" />
+    </svg>
+  )
+}
+
+function PlayIcon({ className = 'w-[1em] h-[1em]' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+      <path d="M8 5.2v13.6L18.6 12z" />
+    </svg>
+  )
+}
+
+function PauseIcon({ className = 'w-[1em] h-[1em]' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+      <path d="M7 5h3.4v14H7z" />
+      <path d="M13.6 5H17v14h-3.4z" />
+    </svg>
+  )
+}
+
+function FastForwardIcon({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+      <path d="M3.5 6.5v11l7.8-5.5z" />
+      <path d="M12.2 6.5v11l7.8-5.5z" />
+    </svg>
+  )
+}
+
+function VolumeIcon({ level, className = 'w-4 h-4' }: { level: 'mute' | 'low' | 'high'; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className}>
+      <path fill="currentColor" d="M3 9.2v5.6h3.8L12 19.4V4.6L6.8 9.2z" />
+      {level === 'mute' ? (
+        <path stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill="none" d="M15.2 9.6l4.8 4.8m0-4.8l-4.8 4.8" />
+      ) : (
+        <path stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill="none" d="M15.4 8.6a5 5 0 0 1 0 6.8" />
+      )}
+      {level === 'high' && (
+        <path stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill="none" d="M18.2 6.2a9 9 0 0 1 0 11.6" />
+      )}
+    </svg>
+  )
+}
+
 function SeekBar({ progress, duration, onSeek }: { progress: number; duration: number; onSeek: (t: number) => void }) {
   const trackRef = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
+  const position = progress * duration
 
   const seekFromClientX = (clientX: number) => {
     const rect = trackRef.current?.getBoundingClientRect()
@@ -96,7 +161,14 @@ function SeekBar({ progress, duration, onSeek }: { progress: number; duration: n
   return (
     <div
       ref={trackRef}
-      className="group py-2 -my-1 touch-manipulation cursor-pointer"
+      role="slider"
+      aria-label="Seek"
+      aria-valuemin={0}
+      aria-valuemax={Math.round(duration)}
+      aria-valuenow={Math.round(position)}
+      aria-valuetext={formatTime(position)}
+      tabIndex={0}
+      className="group py-4 -my-2 touch-manipulation cursor-pointer"
       onPointerDown={(e) => {
         dragging.current = true
         ;(e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId)
@@ -105,6 +177,16 @@ function SeekBar({ progress, duration, onSeek }: { progress: number; duration: n
       onPointerMove={(e) => { if (dragging.current) seekFromClientX(e.clientX) }}
       onPointerUp={() => { dragging.current = false }}
       onPointerCancel={() => { dragging.current = false }}
+      onKeyDown={(e) => {
+        // role="slider" + tabIndex must be keyboard-operable, not just announced.
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+          e.preventDefault()
+          onSeek(Math.max(0, position - 5))
+        } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+          e.preventDefault()
+          onSeek(Math.min(duration, position + 5))
+        }
+      }}
     >
       <div className="relative h-2.5 md:h-2 bg-cinnabar-900 rounded-full">
         <div
@@ -113,7 +195,7 @@ function SeekBar({ progress, duration, onSeek }: { progress: number; duration: n
         />
         <div
           aria-hidden
-          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow-sm opacity-0 group-hover:opacity-100 transition-opacity duration-150 ease-out pointer-events-none"
+          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow-sm opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-150 ease-out pointer-events-none"
           style={{ left: `calc(${progress * 100}% - 6px)` }}
         />
       </div>
@@ -151,7 +233,7 @@ function TransportButtons({
         className={`${skipClass} flex items-center justify-center text-white/45 hover:text-white touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]`}
         aria-label="Rewind 5 seconds"
       >
-        ⏮
+        <SkipBackIcon />
       </button>
       <button
         type="button"
@@ -161,7 +243,7 @@ function TransportButtons({
         aria-label={playbackState === 'playing' ? 'Pause playback' : 'Start playback'}
       >
         <span className={playbackState === 'playing' ? '' : 'pl-0.5'} aria-hidden>
-          {playbackState === 'playing' ? '⏸' : '▶'}
+          {playbackState === 'playing' ? <PauseIcon /> : <PlayIcon />}
         </span>
       </button>
       <button
@@ -170,7 +252,7 @@ function TransportButtons({
         className={`${skipClass} flex items-center justify-center text-white/45 hover:text-white touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]`}
         aria-label="Forward 5 seconds"
       >
-        ⏭
+        <SkipForwardIcon />
       </button>
     </div>
   )
@@ -179,8 +261,8 @@ function TransportButtons({
 function CompactVolume({ volumePct, onVolumeChange }: { volumePct: number; onVolumeChange: (v: number) => void }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="text-white/35 text-sm w-4 shrink-0" aria-hidden>
-        {volumePct === 0 ? '🔇' : volumePct < 50 ? '🔉' : '🔊'}
+      <span className="text-white/35 w-4 shrink-0 flex items-center justify-center" aria-hidden>
+        <VolumeIcon level={volumePct === 0 ? 'mute' : volumePct < 50 ? 'low' : 'high'} />
       </span>
       <input
         type="range"
@@ -901,7 +983,9 @@ function SpeedControl({
   return (
     <div className={compact ? 'space-y-1.5' : 'space-y-2'}>
       <div className="flex items-center gap-2">
-        <span className="text-white/35 text-sm shrink-0 w-4 text-center" aria-hidden>⏩</span>
+        <span className="text-white/35 shrink-0 w-4 flex items-center justify-center" aria-hidden>
+          <FastForwardIcon />
+        </span>
         <input
           type="range"
           min={50}
@@ -1302,6 +1386,34 @@ export function PlayerControls({
   const isDesktop = useMinWidthMd()
   const [savedLoopsOpen, setSavedLoopsOpen] = useState(false)
   const [speedOpen, setSpeedOpen] = useState(false)
+  const dockRef = useRef<HTMLElement>(null)
+
+  // Publish the dock's real height so fixed overlays (the word-lookup card)
+  // can sit just above it instead of floating mid-dock at a guessed offset.
+  // Mobile only: on md+ the dock is a full-height side column and overlays
+  // anchor to the tapped word instead, so the fallback value applies.
+  useEffect(() => {
+    const el = dockRef.current
+    const root = document.documentElement
+    if (!el || isDesktop) {
+      root.style.removeProperty('--player-dock-height')
+      return
+    }
+    const update = () => {
+      const height = el.offsetHeight
+      if (height > 0) root.style.setProperty('--player-dock-height', `${height}px`)
+    }
+    update()
+    if (typeof ResizeObserver === 'undefined') {
+      return () => root.style.removeProperty('--player-dock-height')
+    }
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => {
+      observer.disconnect()
+      root.style.removeProperty('--player-dock-height')
+    }
+  }, [isDesktop])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reveal saved loops when a loop activates
@@ -1341,10 +1453,11 @@ export function PlayerControls({
 
   return (
     <aside
+      ref={dockRef}
       className={[
         'shrink-0 min-h-0 flex flex-col',
         'border-t md:border-t-0 md:border-l border-cinnabar-900',
-        'bg-cinnabar-950/98 md:bg-cinnabar-950 backdrop-blur-sm md:backdrop-blur-none',
+        'bg-cinnabar-950/95 md:bg-cinnabar-950 backdrop-blur-sm md:backdrop-blur-none',
         'px-3 pt-2 md:pt-4 md:px-5 md:w-72 lg:w-80',
         'md:overflow-y-auto md:overscroll-contain',
       ].join(' ')}

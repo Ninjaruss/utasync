@@ -3,6 +3,8 @@ import {
   reanalyzeGaps,
   MAX_HOLES_PER_PASS,
   MAX_SLICE_S,
+  chooseSliceWindow,
+  UNTRANSCRIBED_AIM_MIN_S,
 } from '../../src/ai-pipeline/gapReanalyze'
 import type { RefinedAlignment } from '../../src/lyrics/phraseAlignment'
 import type { LineAlignmentQuality, SungPhrase, TimedLine } from '../../src/core/types'
@@ -444,5 +446,58 @@ describe('reanalyzeGaps', () => {
 
     expect(transcribeSlice).toHaveBeenCalledTimes(1)
     expect(transcribeSlice.mock.calls[0][2]).toBe('en')
+  })
+})
+
+describe('chooseSliceWindow', () => {
+  const w = (word: string, startTime: number, endTime: number): TranscriptWord => ({
+    word,
+    startTime,
+    endTime,
+  })
+  /** Continuous filler words over [start, end], one per second. */
+  const filler = (start: number, end: number): TranscriptWord[] => {
+    const out: TranscriptWord[] = []
+    for (let t = start; t < end; t += 1) out.push(w('la', t, Math.min(end, t + 1)))
+    return out
+  }
+
+  it('uses the whole window for a <=30s hole', () => {
+    expect(chooseSliceWindow({ t0: 10, t1: 35 }, filler(10, 35))).toEqual({
+      sliceStart: 10,
+      sliceEnd: 35,
+      aimed: false,
+    })
+  })
+
+  it('clamps a wide hole to its first 30s when the transcript covers the window', () => {
+    expect(chooseSliceWindow({ t0: 10, t1: 90 }, filler(10, 90))).toEqual({
+      sliceStart: 10,
+      sliceEnd: 10 + MAX_SLICE_S,
+      aimed: false,
+    })
+  })
+
+  it('AIMS the slice at a large un-transcribed span beyond the default clamp', () => {
+    // Words cover [10,55]; nothing at all in [55,90] — a 35s void the first-30s
+    // clamp ([10,40]) never reaches. The slice opens ~2s before the void.
+    const res = chooseSliceWindow({ t0: 10, t1: 90 }, filler(10, 55))
+    expect(res.aimed).toBe(true)
+    expect(res.sliceStart).toBeCloseTo(53, 5)
+    expect(res.sliceEnd).toBeCloseTo(53 + MAX_SLICE_S, 5)
+  })
+
+  it('does not aim at a void that starts at the hole front (default already covers it)', () => {
+    // Void [10,45] then words: the default clamp [10,40] transcribes the void
+    // front — round-9 behavior preserved.
+    const res = chooseSliceWindow({ t0: 10, t1: 90 }, filler(45, 90))
+    expect(res).toEqual({ sliceStart: 10, sliceEnd: 10 + MAX_SLICE_S, aimed: false })
+  })
+
+  it('ignores voids shorter than the aim threshold', () => {
+    // 6s void at [40,46] (< UNTRANSCRIBED_AIM_MIN_S) — default clamp stands.
+    expect(UNTRANSCRIBED_AIM_MIN_S).toBeGreaterThan(6)
+    const res = chooseSliceWindow({ t0: 10, t1: 90 }, [...filler(10, 40), ...filler(46, 90)])
+    expect(res).toEqual({ sliceStart: 10, sliceEnd: 10 + MAX_SLICE_S, aimed: false })
   })
 })

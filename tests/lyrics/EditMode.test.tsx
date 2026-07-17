@@ -396,6 +396,94 @@ describe('EditMode — gap recovery (R9-2)', () => {
     fireEvent.click(btn)
     expect(onRecoverGaps).not.toHaveBeenCalled()
   })
+
+  // UI pass item 5: the bare button needs a plain-language explainer.
+  it('explains what gap recovery does alongside the button (plural)', () => {
+    renderEditMode({ recoverableGapCount: 2, onRecoverGaps: vi.fn() })
+    expect(screen.getByText(/2 parts of the song couldn.t be timed/i)).toBeTruthy()
+    expect(screen.getByText(/your edits are kept/i)).toBeTruthy()
+  })
+
+  it('singularizes the explainer for one recoverable section', () => {
+    renderEditMode({ recoverableGapCount: 1, onRecoverGaps: vi.fn() })
+    expect(screen.getByText(/1 part of the song couldn.t be timed/i)).toBeTruthy()
+  })
+
+  it('shows an inline spinner only while recovering', () => {
+    const { container, rerender } = renderEditMode({
+      recoverableGapCount: 2,
+      onRecoverGaps: vi.fn(),
+      recoveringGaps: true,
+      recoverGapsStatus: 'Recovering 2 sections…',
+    })
+    expect(container.querySelector('.animate-spin')).toBeTruthy()
+    rerender(
+      <EditMode
+        lines={lines}
+        playhead={() => 9}
+        hasLocalAudio
+        onChangeLines={vi.fn()}
+        onAutoAlign={vi.fn()}
+        title="t"
+        artist="a"
+        sourceLanguage="ja"
+        recoverableGapCount={2}
+        onRecoverGaps={vi.fn()}
+        recoveringGaps={false}
+      />,
+    )
+    expect(container.querySelector('.animate-spin')).toBeNull()
+  })
+})
+
+describe('EditMode — readable guidance + tintable icons (UI pass)', () => {
+  // Item 4: hint paragraphs must be text-xs, not the illegible text-[10px].
+  it('renders the no-audio hint at text-xs', () => {
+    renderEditMode({ hasLocalAudio: false })
+    const hint = screen.getByText(/tap-through to time lyrics/i)
+    expect(hint.className).toContain('text-xs')
+    expect(hint.className).not.toContain('text-[10px]')
+  })
+
+  it('renders the off-timing hint at text-xs', () => {
+    renderEditMode({ lineAlignmentQuality: ['good', 'needs_review'], showAlignmentQuality: true })
+    const hint = screen.getByText(/adjust the timestamps below/i)
+    expect(hint.className).toContain('text-xs')
+    expect(hint.className).not.toContain('text-[10px]')
+  })
+
+  it('renders the timestamp popover instruction at text-xs text-white/60', () => {
+    renderEditMode()
+    fireEvent.click(screen.getByRole('button', { name: /edit timestamp for line 1/i }))
+    const instruction = screen.getByText(/drag to preview/i)
+    expect(instruction.className).toContain('text-xs')
+    expect(instruction.className).toContain('text-white/60')
+    expect(instruction.className).not.toContain('text-[10px]')
+  })
+
+  // Item 6: emoji render as untintable color glyphs on iOS — must be SVG.
+  it('timestamp pill uses a tintable SVG icon instead of the ⏱ emoji', () => {
+    renderEditMode()
+    const pill = screen.getByRole('button', { name: /edit timestamp for line 1/i })
+    const svg = pill.querySelector('svg')
+    expect(svg).toBeTruthy()
+    expect(svg?.getAttribute('aria-hidden')).toBe('true')
+    expect(pill.textContent).not.toContain('⏱')
+  })
+
+  it('add and delete controls use tintable SVG icons instead of emoji', () => {
+    renderEditMode()
+    fireEvent.click(screen.getByText('b'))
+    const add = screen.getByLabelText('Add line after 2')
+    const del = screen.getByLabelText('Delete line 2')
+    for (const btn of [add, del]) {
+      const svg = btn.querySelector('svg')
+      expect(svg).toBeTruthy()
+      expect(svg?.getAttribute('aria-hidden')).toBe('true')
+    }
+    expect(add.textContent).not.toContain('⊕')
+    expect(del.textContent).not.toContain('🗑')
+  })
 })
 
 describe('EditMode playhead centering on mount', () => {

@@ -21,11 +21,11 @@ export const LYRIC_SEARCH_STEPS: ProcessStep[] = [
 ]
 
 export const UPLOAD_LYRIC_SEARCH_STEPS: ProcessStep[] = [
-  { label: 'Searching LRCLIB', detail: 'Looking for synced or plain lyrics by title and artist' },
+  { label: 'Searching lyrics', detail: 'Looking for time-synced or text-only lyrics by title and artist' },
 ]
 
 export const LINK_LYRIC_SEARCH_STEPS: ProcessStep[] = [
-  { label: 'Searching for lyrics', detail: 'Checking YouTube captions and LRCLIB' },
+  { label: 'Searching for lyrics', detail: 'Checking YouTube captions and the lyrics database' },
 ]
 
 export const SECOND_LANGUAGE_ALIGN_STEPS: ProcessStep[] = [

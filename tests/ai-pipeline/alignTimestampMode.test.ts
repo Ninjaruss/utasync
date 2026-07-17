@@ -4,9 +4,11 @@ import {
   preferredWhisperTimestampMode,
   accurateReadingsAvailable,
   accurateReadingsEstimate,
+  accurateRealignReason,
   countMergedTranscriptSegments,
   suggestsWordLevelAlignment,
 } from '../../src/ai-pipeline/alignTimestampMode'
+import type { LineAlignmentQuality } from '../../src/core/types'
 
 const line = (startTime: number, endTime: number): TimedLine => ({
   original: 'x',
@@ -100,5 +102,52 @@ describe('suggestsWordLevelAlignment', () => {
     const clean = [line(0, 3), line(3, 6)]
     const cleanWords = [seg('a', 0, 1.4), seg('b', 3, 4.4)]
     expect(suggestsWordLevelAlignment(clean, cleanWords, 'full')).toBe(false)
+  })
+})
+
+describe('accurateRealignReason', () => {
+  const merged = [line(0, 3), line(3, 5), line(6, 9), line(9, 11)]
+  const mergedWords = [seg('a b', 0, 5.5), seg('c d', 6, 11.5)]
+  const wordWords = [seg('a', 0, 1.4), seg('b', 3, 4.4)]
+  const q = (labels: string): LineAlignmentQuality[] =>
+    [...labels].map((c) => (c === 'g' ? 'good' : c === 'a' ? 'approximate' : 'needs_review'))
+
+  it('reports segment-blocks when the transcript merged multiple lines (existing hint)', () => {
+    expect(accurateRealignReason(merged, mergedWords, q('gggg'), 'full')).toBe('segment-blocks')
+  })
+
+  it('reports weak-labels when a large share of lines could not be verified', () => {
+    // 12 lines, 7 not-good (58%) — well past the 35% / 6-line floor.
+    const lines = Array.from({ length: 12 }, (_, i) => line(i * 3, i * 3 + 3))
+    expect(accurateRealignReason(lines, wordWords, q('gggggaaannnn'), 'full')).toBe('weak-labels')
+  })
+
+  it('stays quiet for a mostly-verified song (off-timing banner owns stray rows)', () => {
+    // 12 lines, 3 not-good (25%) — below both floors.
+    const lines = Array.from({ length: 12 }, (_, i) => line(i * 3, i * 3 + 3))
+    expect(accurateRealignReason(lines, wordWords, q('gggggggggann'), 'full')).toBe(null)
+  })
+
+  it('needs the absolute line floor, not just the share', () => {
+    // 5 not-good of 8 (63%) but under the 6-line floor.
+    const lines = Array.from({ length: 8 }, (_, i) => line(i * 3, i * 3 + 3))
+    expect(accurateRealignReason(lines, wordWords, q('gggaaann'), 'full')).toBe(null)
+  })
+
+  it('is null on manual tier and without labels', () => {
+    const lines = Array.from({ length: 12 }, (_, i) => line(i * 3, i * 3 + 3))
+    expect(accurateRealignReason(lines, wordWords, q('gggggaaannnn'), 'manual')).toBe(null)
+    expect(accurateRealignReason(lines, wordWords, undefined, 'full')).toBe(null)
+  })
+
+  it('ignores blank rows when computing the share', () => {
+    // 7 real lines + 5 blanks; 6 of 7 real lines unverified -> fires even
+    // though the not-good share of ALL 12 rows (50%) would also pass — the
+    // blanks (all 'good') must not dilute the scoreable share.
+    const lines = [
+      ...Array.from({ length: 7 }, (_, i) => line(i * 3, i * 3 + 3)),
+      ...Array.from({ length: 5 }, (_, i) => ({ original: '', translation: '', startTime: 50 + i, endTime: 51 + i })),
+    ]
+    expect(accurateRealignReason(lines, wordWords, q('gaaannnggggg'), 'full')).toBe('weak-labels')
   })
 })
