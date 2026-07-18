@@ -424,12 +424,26 @@ function checkBaseline(scorecard) {
   const base = JSON.parse(readFileSync(BASELINE, 'utf8'))
   const regressions = []
   const numeric = (v) => (typeof v === 'number' ? v : null)
+  // Fixed synthetic guard values (not lower-is-better defect counts): they must
+  // match the baseline EXACTLY. acoustic_demoted is the demotion count a
+  // committed vocal-activity envelope produces — an increase = the gate
+  // over-demotes, a decrease (e.g. 1→0) = the gate silently broke or the
+  // fixture regressed; both must fail. Blank rows (songs without an envelope)
+  // have a non-numeric baseline and are skipped like any other string cell.
+  const EXACT_MATCH_METRICS = new Set(['acoustic_demoted'])
   for (const [name, row] of Object.entries(scorecard)) {
     const b = base[name]
     if (!b) continue
     for (const [k, v] of Object.entries(row)) {
       const cur = numeric(v)
       const prev = numeric(b[k])
+      if (EXACT_MATCH_METRICS.has(k)) {
+        // Only guard songs whose baseline recorded a numeric guard value; a
+        // mismatch in EITHER direction (including cur going non-numeric when the
+        // fixture is removed) is a regression.
+        if (prev != null && cur !== prev) regressions.push(`${name}.${k}: ${prev} -> ${cur ?? v} (exact-match guard)`)
+        continue
+      }
       if (cur != null && prev != null && cur > prev) regressions.push(`${name}.${k}: ${prev} -> ${cur}`)
     }
   }
