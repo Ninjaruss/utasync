@@ -40,6 +40,9 @@ export interface LabelHonestyInput {
    * lineTexts × words); recomputed when omitted. Pass the caller's copy when
    * one is already at hand to avoid a second LCS. */
   spans?: ReadonlyArray<LineMatchedSpan | null>
+  /** Audio-derived vocal-activity envelope (fresh-align only); enables the
+   * acoustic gate. Absent → no acoustic demotion. */
+  vocalActivity?: import('../ai-pipeline/vocalActivity').VocalActivitySignal
 }
 
 /** A transcript word longer than this is a segment-mode phrase chunk, not a

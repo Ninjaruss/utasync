@@ -370,6 +370,10 @@ export interface AlignLyricsOptions {
    * lines by quality rank, so demoting labels per pass would flip merge picks;
    * honesty runs once on the merged result instead. */
   skipLabelHonesty?: boolean
+  /** Audio-derived vocal-activity envelope (fresh-align only). When present,
+   * applyLabelHonesty demotes confident lines that sit on non-vocal audio.
+   * Absent → text-only behavior, byte-identical to before. */
+  vocalActivity?: import('./vocalActivity').VocalActivitySignal
 }
 
 export function alignLyrics(

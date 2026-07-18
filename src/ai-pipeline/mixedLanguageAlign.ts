@@ -209,6 +209,7 @@ export function refineMixedLanguageAlignment(
   sheetRows: TimedLine[],
   jaWords: TranscriptWord[],
   enWords: TranscriptWord[],
+  vocalActivity?: import('./vocalActivity').VocalActivitySignal,
 ): MixedAlignmentResult {
   const lineTexts = sheetRows.map((l) => l.original || l.translation)
   const frac = scriptCharFractions(lineTexts)
