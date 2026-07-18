@@ -160,6 +160,30 @@ async function main() {
       refined = refineAlignmentWithPhrases(sheetRows, words, song.lang)
     }
 
+    // Acoustic pass: when a committed vocal-activity envelope exists for this
+    // song, re-run alignment WITH the signal and count the good→approximate
+    // demotions it produces (the false-positive catches). Signal-absent columns
+    // above are untouched.
+    let acoustic_demoted = ''
+    const vaPath = join(FIXTURES, 'vocal-activity', `${song.name}.json`)
+    if (existsSync(vaPath)) {
+      const va = JSON.parse(readFileSync(vaPath, 'utf8'))
+      const sig = { hopSec: va.hopSec, source: va.source, activity: Float32Array.from(va.activity), onset: Float32Array.from(va.onset ?? []) }
+      const acoustic = song.transcriptEn
+        ? refineMixedLanguageAlignment(
+            sheetRows,
+            loadTranscriptWords(join(FIXTURES, song.transcript)),
+            loadTranscriptWords(join(FIXTURES, song.transcriptEn)),
+            sig,
+          ).refined
+        : refineAlignmentWithPhrases(sheetRows, loadTranscriptWords(join(FIXTURES, song.transcript)), song.lang, undefined, {
+            vocalActivity: sig,
+          })
+      const baseGood = (refined.lineAlignmentQuality ?? []).filter((q) => q === 'good').length
+      const acGood = (acoustic.lineAlignmentQuality ?? []).filter((q) => q === 'good').length
+      acoustic_demoted = baseGood - acGood
+    }
+
     // --- boundary metrics, attributed per pass ---
     const sanitized = sanitizeTranscript(words)
     const spans = computeLineMatchedSpans(lineTexts, sanitized)
@@ -257,6 +281,7 @@ async function main() {
       read_adopt: adopt,
       read_mismatch: mismatch,
       read_ruby_wrong: rubyWrong,
+      acoustic_demoted,
       ...(pairing ? { pair_unpaired: pairing.unpaired, pair_magnet: pairing.magnet, pair_wrong: pairing.wrong } : {}),
     }
   }
