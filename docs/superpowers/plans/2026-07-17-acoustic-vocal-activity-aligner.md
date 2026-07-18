@@ -126,7 +126,7 @@ export function computeVocalActivity(
   sampleRate: number,
   opts: { source: 'stem' | 'mix' },
 ): VocalActivitySignal {
-  // ~46ms window, ~23ms hop — enough vocal-band resolution, ~43 fps.
+  // window ≈46ms; hop = nFft/2 (≈23ms at 44.1kHz, ≈32ms at 16kHz).
   const nFft = Math.max(256, nextPow2(Math.round(0.046 * sampleRate)))
   const hop = Math.max(1, Math.round(nFft / 2))
   const hopSec = hop / sampleRate
@@ -137,23 +137,39 @@ export function computeVocalActivity(
   const binLo = Math.max(1, Math.floor((VOCAL_LO_HZ * nFft) / sampleRate))
   const binHi = Math.min(real.length - 1, Math.ceil((VOCAL_HI_HZ * nFft) / sampleRate))
 
-  const raw = new Float32Array(frames)
+  // Per-frame vocal-band and total power.
+  const vocalPow = new Float32Array(frames)
+  const totalPow = new Float32Array(frames)
+  const totalMag = new Float32Array(frames)
   for (let f = 0; f < frames; f++) {
-    let e = 0
-    for (let b = binLo; b <= binHi; b++) e += real[b][f] * real[b][f] + imag[b][f] * imag[b][f]
-    raw[f] = Math.sqrt(e) // magnitude-domain energy
+    let vp = 0, tp = 0
+    for (let b = 0; b < real.length; b++) {
+      const p = real[b][f] * real[b][f] + imag[b][f] * imag[b][f]
+      tp += p
+      if (b >= binLo && b <= binHi) vp += p
+    }
+    vocalPow[f] = vp
+    totalPow[f] = tp
+    totalMag[f] = Math.sqrt(tp)
   }
 
-  // Robust-normalize by a high percentile, then clamp to 0..1.
-  const norm = percentile(raw, 0.95) || 1e-9
+  // activity = vocal-band concentration × loudness.
+  //  - concentration (vocalPow/totalPow, 0..1) distinguishes vocal-band-dominant
+  //    energy from bass/percussion — amplitude-invariant.
+  //  - loudness (totalMag vs a high percentile) is an ABSOLUTE-energy anchor so
+  //    faint out-of-band leakage in near-silence can't read as "fully voiced"
+  //    (which a bare percentile-of-positives normalization does).
+  const loudNorm = percentile(totalMag, 0.95) || 1e-9
+  const EPS = 1e-9
   const activity = new Float32Array(frames)
-  const onset = new Float32Array(frames)
   for (let f = 0; f < frames; f++) {
-    activity[f] = Math.min(1, raw[f] / norm)
-    const flux = f > 0 ? raw[f] - raw[f - 1] : 0
-    onset[f] = Math.max(0, flux) / norm
+    const concentration = vocalPow[f] / (totalPow[f] + EPS)
+    const loudness = Math.min(1, totalMag[f] / loudNorm)
+    activity[f] = concentration * loudness
   }
-  for (let f = 0; f < frames; f++) onset[f] = Math.min(1, onset[f])
+  // Onset strength (phase 2): half-wave rise in activity.
+  const onset = new Float32Array(frames)
+  for (let f = 1; f < frames; f++) onset[f] = Math.max(0, activity[f] - activity[f - 1])
 
   return { hopSec, activity, onset, source: opts.source }
 }
