@@ -112,3 +112,31 @@ describe('backfillLateStartsToAcousticOnset', () => {
     expect(out[1].startTime).toBeGreaterThanOrEqual(out[0].startTime + 0.3)
   })
 })
+
+import { refineAlignmentWithPhrases } from '../../src/lyrics/phraseAlignment'
+
+describe('refineAlignmentWithPhrases threads vocalActivity to acoustic onset-snapping', () => {
+  const sheet: TimedLine[] = [
+    { original: 'いちぎょうめ', translation: '', startTime: 0, endTime: 0 },
+    { original: 'にぎょうめここで', translation: '', startTime: 0, endTime: 0 },
+  ]
+  const tw = (word: string, s: number, e: number): TranscriptWord => ({ word, startTime: s, endTime: e } as TranscriptWord)
+  const words = [tw('いちぎょうめ', 1, 4), tw('にぎょうめここで', 9, 13)]
+  function sig(): VocalActivitySignal {
+    const hopSec = 0.02, frames = Math.ceil(20 / hopSec)
+    const activity = new Float32Array(frames), onset = new Float32Array(frames)
+    for (let f = Math.floor(8.5 / hopSec); f < frames; f++) activity[f] = 1
+    onset[Math.floor(8.5 / hopSec)] = 1
+    return { hopSec, activity, onset, source: 'stem' }
+  }
+
+  it('never pushes a start later, and only fires with the signal present', () => {
+    const base = refineAlignmentWithPhrases(sheet, words, 'ja')
+    const withSig = refineAlignmentWithPhrases(sheet, words, 'ja', undefined, { vocalActivity: sig() })
+    expect(withSig.lines.length).toBe(base.lines.length)
+    // The acoustic tuner can only move a start EARLIER; it never pushes it later.
+    for (let i = 0; i < base.lines.length; i++) {
+      expect(withSig.lines[i].startTime).toBeLessThanOrEqual(base.lines[i].startTime + 1e-6)
+    }
+  })
+})

@@ -2052,6 +2052,9 @@ export function refineAlignmentWithPhrases(
     )
     tunedLines = backfillLineStartsToVocalOnset(tunedLines, clean, spans)
     tunedLines = backfillLateStartsToMatchedSpan(tunedLines, clean, spans)
+    if (options?.vocalActivity) {
+      tunedLines = backfillLateStartsToAcousticOnset(tunedLines, clean, spans, options.vocalActivity)
+    }
   }
   // Phonetic recovery presumes the lexical aligner mostly worked (content
   // mode) and only THIS line was misheard. In the proportional fallback the
