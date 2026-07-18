@@ -289,7 +289,8 @@ function signal(source: 'stem' | 'mix', breakStart: number, breakEnd: number, du
 }
 
 const line = (original: string, startTime: number, endTime: number): TimedLine => ({ original, translation: '', startTime, endTime })
-const word = (text: string, s: number, e: number): TranscriptWord => ({ text, startTime: s, endTime: e } as TranscriptWord)
+// NOTE: TranscriptWord's field is `word`, not `text`.
+const word = (text: string, s: number, e: number): TranscriptWord => ({ word: text, startTime: s, endTime: e } as TranscriptWord)
 
 describe('applyLabelHonesty acoustic gate', () => {
   const lines = [line('歌ってる', 1, 4), line('ここは無音', 10, 14), line('また歌う', 20, 23)]
@@ -420,7 +421,8 @@ function allSilent(durSec = 120): VocalActivitySignal {
   return { hopSec, activity: new Float32Array(frames), onset: new Float32Array(frames), source: 'stem' }
 }
 
-const w = (text: string, s: number, e: number): TranscriptWord => ({ text, startTime: s, endTime: e } as TranscriptWord)
+// NOTE: TranscriptWord's field is `word`, not `text`.
+const w = (text: string, s: number, e: number): TranscriptWord => ({ word: text, startTime: s, endTime: e } as TranscriptWord)
 
 describe('refineAlignmentWithPhrases threads vocalActivity to label honesty', () => {
   const sheet: TimedLine[] = [
