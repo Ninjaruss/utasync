@@ -55,4 +55,26 @@ describe('applyLabelHonesty acoustic gate', () => {
     const q = applyLabelHonesty({ lines, lineTexts, quality: ['good', 'good', 'good'], words, mode: 'content' })
     expect(q).toEqual(['good', 'good', 'good'])
   })
+
+  it('does NOT demote a correctly-placed quiet verse (graded low-but-present energy) on a stem', () => {
+    // Line 1's window (10–14s) has quiet-but-present vocal energy (0.08) — far below
+    // the loud chorus but clearly not silence. It must be SPARED; only true silence
+    // (a break/intro, activity ≈ 0) should demote.
+    const hopSec = 0.02
+    const frames = Math.ceil(30 / hopSec)
+    const activity = new Float32Array(frames).fill(1)
+    for (let f = Math.floor(10 / hopSec); f < Math.ceil(14 / hopSec); f++) activity[f] = 0.08
+    const va = { hopSec, activity, onset: new Float32Array(frames), source: 'stem' as const }
+    const q = applyLabelHonesty({ lines, lineTexts, quality: ['good', 'good', 'good'], words, mode: 'content', vocalActivity: va })
+    expect(q[1]).toBe('good') // quiet-but-present verse spared
+  })
+
+  it('STILL demotes a good line on true silence (stem)', () => {
+    // Regression guard: a genuinely silent window (activity 0) must still demote.
+    const q = applyLabelHonesty({
+      lines, lineTexts, quality: ['good', 'good', 'good'], words, mode: 'content',
+      vocalActivity: signal('stem', 10, 15),
+    })
+    expect(q[1]).toBe('approximate')
+  })
 })

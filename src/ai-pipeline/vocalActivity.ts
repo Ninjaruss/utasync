@@ -20,8 +20,13 @@ export interface VocalActivitySignal {
 
 const VOCAL_LO_HZ = 150
 const VOCAL_HI_HZ = 4000
-/** A frame counts as voiced when its normalized activity exceeds this. */
-export const VOICED_THRESHOLD = 0.15
+/** A frame counts as voiced when its normalized activity exceeds this. Set low
+ * (relative to the track-loudest p95 anchor) so genuinely-sung but quiet/breathy
+ * passages — commonly 12–20 dB below a loud chorus — still register as voiced;
+ * only near-silence (a true instrumental break/intro on a clean vocal stem)
+ * falls below it. Conservative by design: prefer missing a break over demoting a
+ * correctly-aligned quiet line. */
+export const VOICED_THRESHOLD = 0.04
 
 /** Nearest power of two ≥ n. */
 function nextPow2(n: number): number { let p = 1; while (p < n) p <<= 1; return p }

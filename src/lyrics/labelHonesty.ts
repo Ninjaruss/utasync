@@ -67,11 +67,12 @@ const DESERT_LOCAL_COVERAGE = 0.15
 const DESERT_WINDOW = 3
 const DESERT_MIN_NEIGHBORS = 2
 /** A 'good' line whose window is voiced below this fraction is acoustically
- * unsupported (intro / instrumental break / Whisper hallucination). */
-const STEM_MIN_VOICED_FRAC = 0.2
-/** On a raw-mix signal the prior is weaker: require a lower bar AND spare lines
- * with strong lexical coverage (quiet vocals under loud instruments). */
-const MIX_MIN_VOICED_FRAC = 0.1
+ * unsupported (intro / instrumental break / Whisper hallucination). Low +
+ * conservative: only near-silent windows demote (see VOICED_THRESHOLD). */
+const STEM_MIN_VOICED_FRAC = 0.1
+/** On a raw-mix signal the prior is weaker: require an even lower bar AND spare
+ * lines with strong lexical coverage (quiet vocals under loud instruments). */
+const MIX_MIN_VOICED_FRAC = 0.05
 
 /**
  * Whether a line is part of an "evidence desert" — a stretch the aligner could
