@@ -441,7 +441,17 @@ function checkBaseline(scorecard) {
         // Only guard songs whose baseline recorded a numeric guard value; a
         // mismatch in EITHER direction (including cur going non-numeric when the
         // fixture is removed) is a regression.
-        if (prev != null && cur !== prev) regressions.push(`${name}.${k}: ${prev} -> ${cur ?? v} (exact-match guard)`)
+        if (prev != null && cur !== prev) {
+          regressions.push(`${name}.${k}: ${prev} -> ${cur ?? v} (exact-match guard)`)
+        } else if (prev == null && cur != null) {
+          // Baseline cell is blank/non-numeric while the current run produced a
+          // NUMBER: a vocal-activity fixture now exists for this song but the
+          // baseline predates it, so the exact-match guard above is silently
+          // skipped with no warning. Flag it instead of letting the guard go dark.
+          regressions.push(
+            `${name}.${k}: baseline is blank but current run produced ${cur} — re-snapshot with --write-baseline`,
+          )
+        }
         continue
       }
       if (cur != null && prev != null && cur > prev) regressions.push(`${name}.${k}: ${prev} -> ${cur}`)

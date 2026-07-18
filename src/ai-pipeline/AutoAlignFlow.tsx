@@ -428,7 +428,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           sourceLanguage: song.lyrics.sourceLanguage,
           transcribeSlice: sliceTx.transcribe,
           isCancelled: () => cancelledRef.current,
-          refineOpts: { lyricsBase: song.lyrics },
+          refineOpts: { lyricsBase: song.lyrics, options: { vocalActivity } },
           onProgress: (n) => {
             setGapRecovery(
               n > 0 ? `Recovering ${n} unaligned section${n === 1 ? '' : 's'}…` : null,
