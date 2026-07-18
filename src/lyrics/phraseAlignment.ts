@@ -18,6 +18,7 @@ import { findPhoneticAnchorEn } from '../ai-pipeline/phoneticEn'
 import { expectedLineDuration, minLineDuration } from './lineDegeneracy'
 import { applyLabelHonesty } from './labelHonesty'
 import { detectSheetLanguage } from '../ai-pipeline/whisperLanguage'
+import { nearestOnset, hasPreOnsetDip, voicedFraction, type VocalActivitySignal } from '../ai-pipeline/vocalActivity'
 
 const REPETITION_REF_MIN_SPAN_S = 1.4
 
@@ -608,6 +609,68 @@ function backfillLateStartsToMatchedSpan(
     if (boundary >= out[i].startTime) continue
     out[i].startTime = boundary
     if (i > 0 && out[i - 1].endTime > boundary) out[i - 1].endTime = boundary
+  }
+  return out
+}
+
+const ACOUSTIC_MAX_PULL_S = 2.0
+const ACOUSTIC_MIN_PULL_S = 0.3
+const ACOUSTIC_SLACK_S = 0.15
+const ACOUSTIC_ONSET_MIN_STRENGTH = 0.15
+const ACOUSTIC_DIP_WINDOW_S = 0.5
+const ACOUSTIC_DIP_MAX_ACTIVITY = 0.1
+const ACOUSTIC_VOICED_RUN_MIN = 0.6
+const ACOUSTIC_SNAP_MIN_COVERAGE = 0.3
+const ACOUSTIC_MIX_CORROBORATE_TOL_S = 0.5
+
+/**
+ * Acoustic late-start corrector: pull a line's start back to the real
+ * vocal-energy onset from the phase-1 envelope. The complement to the lexical
+ * backfills (backfillLineStartsToVocalOnset / backfillLateStartsToMatchedSpan),
+ * for cases they can't handle — garbled transcripts and interpolated segment
+ * chunks. Late-starts-only, endTime-preserving, never crosses the previous line.
+ * Stem-decisive; on a raw mix the onset must agree with the line's lexical onset
+ * (span.firstTime) so a drum/synth transient can't move a boundary.
+ */
+export function backfillLateStartsToAcousticOnset(
+  lines: TimedLine[],
+  clean: TranscriptWord[],
+  spans: LineSpans,
+  sig: VocalActivitySignal,
+): TimedLine[] {
+  const out = lines.map((l) => ({ ...l }))
+  for (let i = 0; i < out.length; i++) {
+    const span = spans[i]
+    if (!span) continue
+    const coverage = span.matchedChars / Math.max(1, span.totalChars)
+    if (coverage < ACOUSTIC_SNAP_MIN_COVERAGE) continue
+
+    const start = out[i].startTime
+    const onset = nearestOnset(sig, start, {
+      maxBefore: ACOUSTIC_MAX_PULL_S,
+      slackAfter: ACOUSTIC_SLACK_S,
+      minStrength: ACOUSTIC_ONSET_MIN_STRENGTH,
+    })
+    if (onset == null || start - onset < ACOUSTIC_MIN_PULL_S) continue
+    if (!hasPreOnsetDip(sig, onset, { dipWindow: ACOUSTIC_DIP_WINDOW_S, dipMaxActivity: ACOUSTIC_DIP_MAX_ACTIVITY })) continue
+    if (voicedFraction(sig, onset, start) < ACOUSTIC_VOICED_RUN_MIN) continue
+
+    if (sig.source === 'mix' && Math.abs(span.firstTime - onset) > ACOUSTIC_MIX_CORROBORATE_TOL_S) continue
+
+    const prevSpanEnd = i > 0 ? spans[i - 1]?.lastEndTime ?? -Infinity : -Infinity
+    const prevFloor = i > 0 ? out[i - 1].startTime + 0.3 : 0
+    const prevEdge = Math.max(prevSpanEnd, prevFloor)
+    const newStart = Math.max(onset, prevEdge)
+    if (newStart >= start) continue
+    if (out[i].endTime - newStart < MIN_HIGHLIGHT_S) continue
+    // Prevent overlap: if the previous line's displayed end overshoots the new
+    // boundary, trim it (mirrors backfillLateStartsToMatchedSpan). Skip the snap
+    // if trimming would squash the previous line below MIN_HIGHLIGHT.
+    if (i > 0 && out[i - 1].endTime > newStart) {
+      if (newStart - out[i - 1].startTime < MIN_HIGHLIGHT_S) continue
+      out[i - 1].endTime = newStart
+    }
+    out[i].startTime = newStart
   }
   return out
 }
@@ -1989,6 +2052,9 @@ export function refineAlignmentWithPhrases(
     )
     tunedLines = backfillLineStartsToVocalOnset(tunedLines, clean, spans)
     tunedLines = backfillLateStartsToMatchedSpan(tunedLines, clean, spans)
+    if (options?.vocalActivity) {
+      tunedLines = backfillLateStartsToAcousticOnset(tunedLines, clean, spans, options.vocalActivity)
+    }
   }
   // Phonetic recovery presumes the lexical aligner mostly worked (content
   // mode) and only THIS line was misheard. In the proportional fallback the
