@@ -663,6 +663,13 @@ export function backfillLateStartsToAcousticOnset(
     const newStart = Math.max(onset, prevEdge)
     if (newStart >= start) continue
     if (out[i].endTime - newStart < MIN_HIGHLIGHT_S) continue
+    // Prevent overlap: if the previous line's displayed end overshoots the new
+    // boundary, trim it (mirrors backfillLateStartsToMatchedSpan). Skip the snap
+    // if trimming would squash the previous line below MIN_HIGHLIGHT.
+    if (i > 0 && out[i - 1].endTime > newStart) {
+      if (newStart - out[i - 1].startTime < MIN_HIGHLIGHT_S) continue
+      out[i - 1].endTime = newStart
+    }
     out[i].startTime = newStart
   }
   return out

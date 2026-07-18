@@ -69,10 +69,37 @@ describe('backfillLateStartsToAcousticOnset', () => {
   })
 
   it('does NOT snap a poorly-anchored line (coverage below floor)', () => {
-    const noMatch = [w('まったく', 6, 8), w('ちがう', 8, 10)]
-    const lines = mk(8)
-    const out = backfillLateStartsToAcousticOnset(lines, sanitizeTranscript(noMatch), computeLineMatchedSpans(lines.map((l) => l.original), sanitizeTranscript(noMatch)), dipOnsetVoiced(6, 'stem'))
+    // Partial match: 'ここ' covers 2 of the 8-char line = 0.25 coverage —
+    // strictly between 0 and the 0.3 floor, so the span is NON-null and this
+    // exercises the numeric `coverage < ACOUSTIC_SNAP_MIN_COVERAGE` gate rather
+    // than the `if (!span) continue` guard. All other gates would pass (onset at
+    // 6 with a pre-onset dip and a voiced run), so coverage is the sole reason
+    // the line is not snapped.
+    const lines: TimedLine[] = [{ original: 'ここで歌うのだよ', translation: '', startTime: 8, endTime: 12 }]
+    const partial = [w('ここ', 6, 8)]
+    const out = backfillLateStartsToAcousticOnset(lines, sanitizeTranscript(partial), computeLineMatchedSpans(lines.map((l) => l.original), sanitizeTranscript(partial)), dipOnsetVoiced(6, 'stem'))
     expect(out[0].startTime).toBe(8)
+  })
+
+  it('trims the previous line end to avoid overlap when snapping', () => {
+    const lines: TimedLine[] = [
+      { original: 'まえ', translation: '', startTime: 4, endTime: 9 }, // padded end
+      { original: 'ここで歌う', translation: '', startTime: 8, endTime: 12 },
+    ]
+    const two = [w('まえ', 4, 5), w('ここで', 6, 8), w('歌う', 8, 10)]
+    const out = backfillLateStartsToAcousticOnset(lines, sanitizeTranscript(two), computeLineMatchedSpans(lines.map((l) => l.original), sanitizeTranscript(two)), dipOnsetVoiced(6.5, 'stem'))
+    expect(out[1].startTime).toBeLessThan(8)                     // snapped earlier
+    expect(out[0].endTime).toBeLessThanOrEqual(out[1].startTime) // no overlap (prev end trimmed)
+  })
+
+  it('does not snap if trimming the previous line would squash it below MIN_HIGHLIGHT', () => {
+    const lines: TimedLine[] = [
+      { original: 'まえ', translation: '', startTime: 6, endTime: 9 },
+      { original: 'ここで歌う', translation: '', startTime: 8, endTime: 12 },
+    ]
+    const two = [w('まえ', 6, 6.8), w('ここで', 6.9, 8), w('歌う', 8, 10)]
+    const out = backfillLateStartsToAcousticOnset(lines, sanitizeTranscript(two), computeLineMatchedSpans(lines.map((l) => l.original), sanitizeTranscript(two)), dipOnsetVoiced(6.9, 'stem'))
+    expect(out[1].startTime).toBe(8) // skipped: trimming prev to 6.9 → prev = 0.9s < 1.2
   })
 
   it('never moves a start across the previous line', () => {
