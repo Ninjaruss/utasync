@@ -437,7 +437,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           // on the next open — it would re-decode + re-load Whisper to re-attempt the
           // exact same audio/text. applyRefinedAlignment doesn't carry it, so pass it
           // in the lyrics arg (mirrors transcriptWords).
-          { ...song.lyrics, alignmentMode: 'auto', transcriptWords, gapRecoveryVersion: GAP_RECOVERY_VERSION },
+          { ...song.lyrics, alignmentMode: 'auto', transcriptWords, gapRecoveryVersion: GAP_RECOVERY_VERSION, vocalSeparationUsed: willSeparate },
           refined,
         ),
         syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines: refined.lines } }),

@@ -105,6 +105,10 @@ export interface LyricsData {
   // Confidence of the last auto-alignment (0–1, content-match coverage). When
   // low, auto-align fell back to the proportional method; the UI warns the user.
   alignmentConfidence?: number
+  /** Whether Demucs vocal separation was used for the last auto-align. Drives the
+   * EditMode "Isolate vocals" nudge (shown only when it wasn't used). Undefined on
+   * songs aligned before this field existed (treated as not-used). */
+  vocalSeparationUsed?: boolean
   /** Bump when auto-align timing logic changes; songs below this re-refine from the
    * stored Whisper transcript on open (no re-transcription). */
   alignmentPipelineVersion?: number
