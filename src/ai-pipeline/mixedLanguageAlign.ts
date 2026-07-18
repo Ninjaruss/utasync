@@ -246,6 +246,7 @@ export function refineMixedLanguageAlignment(
     quality: refined.lineAlignmentQuality ?? [],
     words: sanitizeTranscript(transcriptWords),
     mode: refined.mode,
+    vocalActivity,
   })
   return { refined, transcriptWords, pickedFrom }
 }
