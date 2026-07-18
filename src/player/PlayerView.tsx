@@ -34,7 +34,8 @@ import { tokenizeEnglish } from '../language/english/tokenizer'
 import { sentenceToIPA } from '../language/english/phonetics'
 import { detectEnglishGrammar } from '../language/english/grammar'
 import { TapSyncEditor } from './TapSyncEditor'
-import { getDeviceTier } from '../ai-pipeline/capability'
+import { getDeviceTier, canUseVocalSeparation } from '../ai-pipeline/capability'
+import { useSettingsStore } from '../payment/SettingsStore'
 import { detectSheetLanguage } from '../ai-pipeline/whisperLanguage'
 import { accurateRealignReason } from '../ai-pipeline/alignTimestampMode'
 import { linesAreTimed, chooseAutoAlignment, type AlignMode } from './alignmentPolicy'
@@ -283,6 +284,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const scrubStartedPlayRef = useRef(false)
   const { playbackState, position, duration, speed, volume, abLoop, armingAB, currentSongId, setPlaybackState, setPosition, setDuration, setSpeed, setVolume, setABLoop, armAB, setCurrentSong } = usePlayerStore()
   const { lines, syncPosition, setLines, furiganaMode, showTranslation, lyricsLayout, setFuriganaMode, setShowTranslation, setLyricsLayout } = useLyricsStore()
+  const setVocalSeparationEnabled = useSettingsStore((s) => s.setVocalSeparationEnabled)
+  const vocalSeparationSupported = canUseVocalSeparation(getDeviceTier())
   const [song, setSong] = useState<Song | null>(null)
   const [alignMode, setAlignMode] = useState<AlignMode | null>(null)
   const [alignAccurateReadings, setAlignAccurateReadings] = useState(false)
@@ -1324,6 +1327,9 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               alignmentConfidence={song?.lyrics.alignmentConfidence}
               accurateRealignReason={hasStoredAudio ? realignReason : null}
               onAutoAlignAccurate={() => beginAlignment('auto', true)}
+              vocalSeparationUsed={song?.lyrics.vocalSeparationUsed}
+              vocalSeparationSupported={vocalSeparationSupported}
+              onAutoAlignWithVocals={() => { setVocalSeparationEnabled(true); beginAlignment('auto') }}
             />
           )}
         </div>
