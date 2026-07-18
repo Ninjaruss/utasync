@@ -566,8 +566,9 @@ git commit --no-gpg-sign -m "feat(align): compute the vocal-activity envelope at
 /**
  * Derive a committed vocal-activity envelope fixture from a local MP3.
  * The output is a lossy energy curve (NOT the audio) → not a copyrighted
- * reproduction. Run once per corpus song you have locally:
- *   node scripts/make-vocal-activity.mjs <input.mp3> <song-name> [--stem]
+ * reproduction. Run once per corpus song you have locally (via tsx, since it
+ * imports the TS DSP module):
+ *   npx tsx scripts/make-vocal-activity.mjs <input.mp3> <song-name> [--stem]
  * Writes tests/ai-pipeline/fixtures/vocal-activity/<song-name>.json.
  * Use --stem only if <input.mp3> is already a Demucs vocal isolate.
  */
