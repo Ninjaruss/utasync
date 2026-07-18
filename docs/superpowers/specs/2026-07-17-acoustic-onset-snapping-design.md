@@ -20,9 +20,11 @@
 - `hasPreOnsetDip(sig, onsetSec, opts): boolean` — true when a genuine low-activity gap precedes `onsetSec` (mean/voiced activity in `[onsetSec - dipWindow, onsetSec)` is low): confirms this is a real **phrase** onset emerging from a lull, not a mid-word syllable bump.
 - `voicedFraction` (existing) reused to confirm sustained voiced activity between the onset and the current start.
 
-### 2. New tuner `snapLateStartsToVocalOnset` in `src/lyrics/phraseAlignment.ts`
+### 2. New tuner `backfillLateStartsToAcousticOnset` in `src/lyrics/phraseAlignment.ts`
 
-Runs in the tuner chain **immediately after `backfillLateStartsToMatchedSpan`** (so lexical correction runs first; the acoustic tuner handles the residue). No-op unless `options?.vocalActivity` is present. It has the same signature style as the other tuners and receives `lines`, the sanitized `words`, the per-line matched `spans`, and the signal.
+**Related existing code:** the tuner chain already has TWO lexical late-start correctors — `backfillLineStartsToVocalOnset` (snaps to a transcript-WORD onset that follows a transcript silence gap) and `backfillLateStartsToMatchedSpan` (snaps to the transcript word containing the first matched char). Both need reliable transcript words, so they're weakest exactly on garbled/messy audio and skip long interpolated segment chunks. The new tuner uses the acoustic **energy** onset instead, so it catches what they can't. Named `backfillLateStartsToAcousticOnset` to stay distinct from the lexical `backfillLineStartsToVocalOnset`.
+
+Runs in the tuner chain **immediately after both lexical correctors** (so lexical correction runs first; the acoustic tuner handles the residue — a line the lexical pass already fixed is no longer late, so this one won't re-move it). No-op unless `options?.vocalActivity` is present. It has the same signature style as the other tuners and receives `lines`, the sanitized `words`, the per-line matched `spans`, and the signal.
 
 For each line, snap `startTime` back to a vocal onset `T` only when ALL hold:
 1. **A qualifying onset exists:** `T = nearestOnset(sig, line.startTime, { maxBefore: MAX_PULL, slackAfter: SLACK })` is non-null and `T < line.startTime - MIN_PULL` (the start is meaningfully late vs the onset).
