@@ -9,7 +9,9 @@ import { YouTubePlayer, type YouTubePlayerHandle } from './YouTubePlayer'
 import { youtubeErrorMessage, youtubeNeedsVisibleEmbed } from './youtubeEmbedPolicy'
 import { resolveYouTubeVideoId } from '../sources/youtube'
 import { ABLoopController } from './ABLoop'
-import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase } from '../core/types'
+import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, AlignmentLanguage } from '../core/types'
+import { TapAnchorPrompt } from './TapAnchorPrompt'
+import { refitAroundAnchors, type TimingAnchor } from '../lyrics/anchorRefit'
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
 import { projectPhraseTokensToLines } from '../lyrics/phraseProjection'
 import { repairPhraseTranslationOrder, remapPhraseTranslations } from '../lyrics/phraseNormalize'
@@ -284,6 +286,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const { playbackState, position, duration, speed, volume, abLoop, armingAB, currentSongId, setPlaybackState, setPosition, setDuration, setSpeed, setVolume, setABLoop, armAB, setCurrentSong } = usePlayerStore()
   const { lines, syncPosition, setLines, furiganaMode, showTranslation, lyricsLayout, setFuriganaMode, setShowTranslation, setLyricsLayout } = useLyricsStore()
   const [song, setSong] = useState<Song | null>(null)
+  const activeLine = useLyricsStore((s) => s.activeLine)
   const [alignMode, setAlignMode] = useState<AlignMode | null>(null)
   const [alignAccurateReadings, setAlignAccurateReadings] = useState(false)
   const [accurateReadingsDismissed, setAccurateReadingsDismissed] = useState(false)
@@ -903,6 +906,35 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     : null
   const suggestWordLevelAlign = realignReason === 'segment-blocks' && hasStoredAudio
 
+  // Tap-to-anchor: in Play mode, when the active line is a needs_review row,
+  // offer a one-tap anchor. One tap captures the playhead, pins that line, and
+  // re-fits the surrounding lines around it (never the per-line scrub editor).
+  const flaggedActiveLine =
+    mode === 'play' && song?.lyrics.alignmentMode === 'auto' && song.lyrics.lineAlignmentQuality
+      && activeLine >= 0 && song.lyrics.lineAlignmentQuality[activeLine] === 'needs_review'
+      ? activeLine
+      : null
+  const handleTapAnchor = async (lineIndex: number, time: number) => {
+    if (!song) return
+    const anchors: TimingAnchor[] = [
+      ...(song.lyrics.timingAnchors ?? []).filter((a) => a.lineIndex !== lineIndex),
+      { lineIndex, time, source: 'user' },
+    ]
+    const newLines = refitAroundAnchors(song.lyrics.lines, anchors, song.lyrics.sourceLanguage as AlignmentLanguage)
+    const quality = song.lyrics.lineAlignmentQuality ? [...song.lyrics.lineAlignmentQuality] : undefined
+    if (quality) quality[lineIndex] = 'good'
+    const lyrics = {
+      ...song.lyrics,
+      lines: newLines,
+      timingAnchors: anchors,
+      ...(quality ? { lineAlignmentQuality: quality } : {}),
+    }
+    const updated: Song = { ...song, lyrics, syncState: computeSyncState({ ...song, lyrics }) }
+    setLines(newLines)
+    setSong(updated)
+    await db.songs.put(updated)
+  }
+
   // Sync playback rate whenever speed changes or audio source becomes available.
   useEffect(() => {
     if (isYouTube) {
@@ -1240,6 +1272,14 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
             </button>
           </div>
         </div>
+      )}
+
+      {mode === 'play' && (
+        <TapAnchorPrompt
+          lineIndex={flaggedActiveLine}
+          getTime={() => (isYouTube ? position : engine.position)}
+          onAnchor={handleTapAnchor}
+        />
       )}
 
       {mode === 'play' && (isJapanese || hasTranslation || phraseChanges.length > 0) && (
