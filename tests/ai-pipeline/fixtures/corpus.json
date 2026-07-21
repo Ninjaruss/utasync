@@ -90,6 +90,20 @@
       "transcriptEn": "stranger-than-heaven/transcript.segment.forced-en.json"
     },
     {
+      "name": "recollect-mixed-segment",
+      "lang": "mixed",
+      "lyrics": "recollect/lyrics.txt",
+      "transcript": "recollect/transcript.segment.json",
+      "transcriptEn": "recollect/transcript.segment.forced-en.json"
+    },
+    {
+      "name": "recollect-mixed-word",
+      "lang": "mixed",
+      "lyrics": "recollect/lyrics.txt",
+      "transcript": "recollect/transcript.word.json",
+      "transcriptEn": "recollect/transcript.segment.forced-en.json"
+    },
+    {
       "name": "guitar-loneliness-word",
       "lang": "ja",
       "lyrics": "guitar-loneliness/lyrics.ja.txt",
