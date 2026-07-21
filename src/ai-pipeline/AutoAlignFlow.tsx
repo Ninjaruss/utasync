@@ -7,6 +7,7 @@ import { getAudioFile } from '../core/opfs/audio'
 import type { Song } from '../core/types'
 import { sanitizeTranscript, LOW_CONFIDENCE_WARN_THRESHOLD, type TranscriptWord } from './aligner'
 import { refineAlignmentWithPhrases, sheetRowsForAlignment, applyRefinedAlignment, type RefinedAlignment } from '../lyrics/phraseAlignment'
+import { refitAroundAnchors, detectEdgeAnchors } from '../lyrics/anchorRefit'
 import { refineMixedLanguageAlignment } from './mixedLanguageAlign'
 import { reanalyzeGaps } from './gapReanalyze'
 import { GAP_RECOVERY_VERSION } from './gapRecovery'
@@ -426,6 +427,23 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         setGapRecovery(null)
         refined = gap.refined
         transcriptWords = gap.transcriptWords
+      }
+
+      // Auto start/end: pin the first/last strongly-matched line's onset so the
+      // song edges don't drift, and re-fit the lines around those anchors plus
+      // any sticky user anchors. applyRefinedAlignment below re-fits once more
+      // around the user anchors only (idempotent: already-pinned lines stay put)
+      // and persists just the user anchors — edge anchors are re-derived here on
+      // every align, so they are not stored.
+      const anchorsToFit = [
+        ...(song.lyrics.timingAnchors ?? []).filter((a) => a.source === 'user'),
+        ...detectEdgeAnchors(
+          sheetRows.map((r) => r.original || r.translation),
+          sanitizeTranscript(transcriptWords),
+        ),
+      ]
+      if (anchorsToFit.length) {
+        refined.lines = refitAroundAnchors(refined.lines, anchorsToFit, alignmentLanguage)
       }
 
       const updated: Song = {
