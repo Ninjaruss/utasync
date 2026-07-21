@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { refineAlignmentWithPhrases } from '../../src/lyrics/phraseAlignment'
@@ -168,6 +168,44 @@ describe('audit corpus — alignment non-regression', () => {
           )
           expect(val, `${song.name} ${key} regressed: ${val} > ${cap}`).toBeLessThanOrEqual(cap)
         }
+      }
+
+      // Acoustic guard — EXACT match, not lower-is-better. When a committed
+      // vocal-activity envelope exists for this song, the number of
+      // good→approximate demotions the acoustic gate produces is a fixed
+      // synthetic guard value. A drop (e.g. 1→0) means the gate silently broke
+      // or the envelope regressed to all-voiced; an increase means it
+      // over-demotes. Both must fail. Mirrors audit-corpus.mjs's acoustic pass.
+      if (typeof base.acoustic_demoted === 'number') {
+        const vaPath = join(FIXTURES, 'vocal-activity', `${song.name}.json`)
+        expect(existsSync(vaPath), `${song.name} baseline has acoustic_demoted but no envelope fixture`).toBe(true)
+        const va = JSON.parse(readFileSync(vaPath, 'utf8'))
+        const sig = {
+          hopSec: va.hopSec,
+          source: va.source,
+          activity: Float32Array.from(va.activity),
+          onset: Float32Array.from(va.onset ?? []),
+        }
+        const acoustic = song.transcriptEn
+          ? refineMixedLanguageAlignment(
+              sheetRows,
+              loadTranscriptWords(join(FIXTURES, song.transcript)),
+              loadTranscriptWords(join(FIXTURES, song.transcriptEn)),
+              sig,
+            ).refined
+          : refineAlignmentWithPhrases(
+              sheetRows,
+              loadTranscriptWords(join(FIXTURES, song.transcript)),
+              song.lang,
+              undefined,
+              { vocalActivity: sig },
+            )
+        const baseGood = (refined.lineAlignmentQuality ?? []).filter((q) => q === 'good').length
+        const acGood = (acoustic.lineAlignmentQuality ?? []).filter((q) => q === 'good').length
+        expect(
+          baseGood - acGood,
+          `${song.name} acoustic_demoted must match baseline exactly (${base.acoustic_demoted})`,
+        ).toBe(base.acoustic_demoted)
       }
     })
   }

@@ -6,6 +6,7 @@ import {
   type LineMatchedSpan,
 } from '../ai-pipeline/contentAligner'
 import { minLineDuration, COMPRESSION_FRACTION } from './lineDegeneracy'
+import { voicedFraction } from '../ai-pipeline/vocalActivity'
 
 /**
  * Label-honesty pass (2026-07 line-accuracy audit): demote 'good' per-line
@@ -40,6 +41,9 @@ export interface LabelHonestyInput {
    * lineTexts × words); recomputed when omitted. Pass the caller's copy when
    * one is already at hand to avoid a second LCS. */
   spans?: ReadonlyArray<LineMatchedSpan | null>
+  /** Audio-derived vocal-activity envelope (fresh-align only); enables the
+   * acoustic gate. Absent → no acoustic demotion. */
+  vocalActivity?: import('../ai-pipeline/vocalActivity').VocalActivitySignal
 }
 
 /** A transcript word longer than this is a segment-mode phrase chunk, not a
@@ -62,6 +66,13 @@ const DESERT_LOCAL_COVERAGE = 0.15
  * DESERT_MIN_NEIGHBORS must be desert lines. */
 const DESERT_WINDOW = 3
 const DESERT_MIN_NEIGHBORS = 2
+/** A 'good' line whose window is voiced below this fraction is acoustically
+ * unsupported (intro / instrumental break / Whisper hallucination). Low +
+ * conservative: only near-silent windows demote (see VOICED_THRESHOLD). */
+const STEM_MIN_VOICED_FRAC = 0.1
+/** On a raw-mix signal the prior is weaker: require an even lower bar AND spare
+ * lines with strong lexical coverage (quiet vocals under loud instruments). */
+const MIX_MIN_VOICED_FRAC = 0.05
 
 /**
  * Whether a line is part of an "evidence desert" — a stretch the aligner could
@@ -200,6 +211,25 @@ export function applyLabelHonesty(input: LabelHonestyInput): LineAlignmentQualit
         (i === members[members.length - 1] && spans[i]!.firstTime === maxT)
       if (endpointClaim) continue
       if (inDesertContext(i)) demote(i)
+    }
+  }
+
+  // Gate 5 — acoustic vocal-activity. When an audio-derived envelope is present,
+  // demote a 'good' line whose window carries almost no vocal energy (placed on
+  // an intro / instrumental break / Whisper break-hallucination). This is an
+  // INDEPENDENT signal from the lexical gates above. Corroborate-don't-override:
+  // on a raw-mix envelope, spare a line with strong lexical coverage (quiet
+  // vocals under loud instruments read as low band energy); a Demucs-stem
+  // envelope is decisive.
+  const va = input.vocalActivity
+  if (va) {
+    const strict = va.source === 'stem'
+    const minVoiced = strict ? STEM_MIN_VOICED_FRAC : MIX_MIN_VOICED_FRAC
+    for (let i = 0; i < lines.length; i++) {
+      if (quality[i] !== 'good') continue
+      if (voicedFraction(va, lines[i].startTime, lines[i].endTime) >= minVoiced) continue
+      if (!strict && coverage(i) >= SPAN_MIN_COVERAGE) continue
+      demote(i)
     }
   }
 

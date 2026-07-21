@@ -24,6 +24,7 @@ import { resetWhisperTranscriber, transcribeAudio, type LoadProgress, type Trans
 import { DEMUCS_OUTPUT_SAMPLE_RATE, isDemucsModelAvailable, refreshDemucsModelAvailability, separateVocals } from './demucsSeparator'
 import { useSettingsStore } from '../payment/SettingsStore'
 import { yieldToMainThread } from '../core/idle'
+import { computeVocalActivity } from './vocalActivity'
 
 interface Props {
   song: Song
@@ -218,6 +219,17 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         if (cancelledRef.current) return
       }
 
+      // Vocal-activity envelope for the aligner's acoustic label-honesty gate.
+      // Uses the Demucs vocal stem when separation ran (clean VAD), else the mix
+      // (weaker prior). Defensive: a DSP failure degrades to today's text-only
+      // behavior (the gate simply won't fire).
+      let vocalActivity: ReturnType<typeof computeVocalActivity> | undefined
+      try {
+        vocalActivity = computeVocalActivity(audioData, sampleRate, { source: willSeparate ? 'stem' : 'mix' })
+      } catch {
+        vocalActivity = undefined
+      }
+
       // First run downloads the Whisper model
       // as its own phase so the progress bar resetting per file isn't mistaken
       // for transcription stalling.
@@ -362,7 +374,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         setStage('aligning')
         setProgress(0)
         await yieldToMainThread()
-        const mixed = refineMixedLanguageAlignment(sheetRows, chunksToWords(jaTranscript), chunksToWords(enTranscript))
+        const mixed = refineMixedLanguageAlignment(sheetRows, chunksToWords(jaTranscript), chunksToWords(enTranscript), vocalActivity)
         refined = mixed.refined
         transcriptWords = mixed.transcriptWords
       } else {
@@ -381,6 +393,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           words,
           alignmentLanguage,
           song.lyrics,
+          { vocalActivity },
         )
       }
 
@@ -415,7 +428,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           sourceLanguage: song.lyrics.sourceLanguage,
           transcribeSlice: sliceTx.transcribe,
           isCancelled: () => cancelledRef.current,
-          refineOpts: { lyricsBase: song.lyrics },
+          refineOpts: { lyricsBase: song.lyrics, options: { vocalActivity } },
           onProgress: (n) => {
             setGapRecovery(
               n > 0 ? `Recovering ${n} unaligned section${n === 1 ? '' : 's'}…` : null,

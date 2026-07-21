@@ -2103,6 +2103,7 @@ export function refineAlignmentWithPhrases(
         words: transcriptWords,
         mode: pass1.mode,
         spans: upgradeSpans,
+        vocalActivity: options?.vocalActivity,
       })
 
   const syncedPhrases = syncPhrasesFromValidatedLines(phrases, tunedLines)

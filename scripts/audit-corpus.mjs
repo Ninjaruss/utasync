@@ -160,6 +160,30 @@ async function main() {
       refined = refineAlignmentWithPhrases(sheetRows, words, song.lang)
     }
 
+    // Acoustic pass: when a committed vocal-activity envelope exists for this
+    // song, re-run alignment WITH the signal and count the good→approximate
+    // demotions it produces (the false-positive catches). Signal-absent columns
+    // above are untouched.
+    let acoustic_demoted = ''
+    const vaPath = join(FIXTURES, 'vocal-activity', `${song.name}.json`)
+    if (existsSync(vaPath)) {
+      const va = JSON.parse(readFileSync(vaPath, 'utf8'))
+      const sig = { hopSec: va.hopSec, source: va.source, activity: Float32Array.from(va.activity), onset: Float32Array.from(va.onset ?? []) }
+      const acoustic = song.transcriptEn
+        ? refineMixedLanguageAlignment(
+            sheetRows,
+            loadTranscriptWords(join(FIXTURES, song.transcript)),
+            loadTranscriptWords(join(FIXTURES, song.transcriptEn)),
+            sig,
+          ).refined
+        : refineAlignmentWithPhrases(sheetRows, loadTranscriptWords(join(FIXTURES, song.transcript)), song.lang, undefined, {
+            vocalActivity: sig,
+          })
+      const baseGood = (refined.lineAlignmentQuality ?? []).filter((q) => q === 'good').length
+      const acGood = (acoustic.lineAlignmentQuality ?? []).filter((q) => q === 'good').length
+      acoustic_demoted = baseGood - acGood
+    }
+
     // --- boundary metrics, attributed per pass ---
     const sanitized = sanitizeTranscript(words)
     const spans = computeLineMatchedSpans(lineTexts, sanitized)
@@ -257,6 +281,7 @@ async function main() {
       read_adopt: adopt,
       read_mismatch: mismatch,
       read_ruby_wrong: rubyWrong,
+      acoustic_demoted,
       ...(pairing ? { pair_unpaired: pairing.unpaired, pair_magnet: pairing.magnet, pair_wrong: pairing.wrong } : {}),
     }
   }
@@ -399,12 +424,36 @@ function checkBaseline(scorecard) {
   const base = JSON.parse(readFileSync(BASELINE, 'utf8'))
   const regressions = []
   const numeric = (v) => (typeof v === 'number' ? v : null)
+  // Fixed synthetic guard values (not lower-is-better defect counts): they must
+  // match the baseline EXACTLY. acoustic_demoted is the demotion count a
+  // committed vocal-activity envelope produces — an increase = the gate
+  // over-demotes, a decrease (e.g. 1→0) = the gate silently broke or the
+  // fixture regressed; both must fail. Blank rows (songs without an envelope)
+  // have a non-numeric baseline and are skipped like any other string cell.
+  const EXACT_MATCH_METRICS = new Set(['acoustic_demoted'])
   for (const [name, row] of Object.entries(scorecard)) {
     const b = base[name]
     if (!b) continue
     for (const [k, v] of Object.entries(row)) {
       const cur = numeric(v)
       const prev = numeric(b[k])
+      if (EXACT_MATCH_METRICS.has(k)) {
+        // Only guard songs whose baseline recorded a numeric guard value; a
+        // mismatch in EITHER direction (including cur going non-numeric when the
+        // fixture is removed) is a regression.
+        if (prev != null && cur !== prev) {
+          regressions.push(`${name}.${k}: ${prev} -> ${cur ?? v} (exact-match guard)`)
+        } else if (prev == null && cur != null) {
+          // Baseline cell is blank/non-numeric while the current run produced a
+          // NUMBER: a vocal-activity fixture now exists for this song but the
+          // baseline predates it, so the exact-match guard above is silently
+          // skipped with no warning. Flag it instead of letting the guard go dark.
+          regressions.push(
+            `${name}.${k}: baseline is blank but current run produced ${cur} — re-snapshot with --write-baseline`,
+          )
+        }
+        continue
+      }
       if (cur != null && prev != null && cur > prev) regressions.push(`${name}.${k}: ${prev} -> ${cur}`)
     }
   }
