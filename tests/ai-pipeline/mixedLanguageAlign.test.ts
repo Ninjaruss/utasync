@@ -9,6 +9,7 @@ import {
   linePassPreference,
   scriptCharFractions,
   scopedConfidenceThreshold,
+  placementConfidence,
   mergeMixedRefinedAlignments,
   mergeMixedTranscripts,
   refineMixedLanguageAlignment,
@@ -58,6 +59,15 @@ describe('linePassPreference / scriptCharFractions', () => {
   it('scales the confidence gate by script share, with a noise floor', () => {
     expect(scopedConfidenceThreshold(0.5)).toBeCloseTo(0.25)
     expect(scopedConfidenceThreshold(0.05)).toBeCloseTo(0.08)
+  })
+})
+
+describe('placementConfidence', () => {
+  it('scores by how many lines landed good/approximate, not just content coverage', () => {
+    expect(placementConfidence(['good', 'good', 'good'])).toBe(1)
+    expect(placementConfidence(['needs_review', 'needs_review'])).toBe(0)
+    expect(placementConfidence(['good', 'approximate', 'needs_review', 'needs_review'])).toBeCloseTo((1 + 0.5) / 4)
+    expect(placementConfidence([])).toBe(0)
   })
 })
 
@@ -126,12 +136,45 @@ describe('mergeMixedRefinedAlignments', () => {
     expect(starts).toEqual([...starts].sort((a, b) => a - b))
   })
 
+  it('repairs a forward cross-pass leap by preferring the closer ordered pass', () => {
+    // JA pass latched line 2 (a JA line) onto a distant chorus reprise at 133s
+    // (the Recollect failure: a verse line stolen by its repeated hook).
+    const ja = fakeRefined(
+      [line(texts[0], 10, 13), line(texts[1], 13, 14), line(texts[2], 133, 135)],
+      ['good', 'needs_review', 'approximate'],
+    )
+    // EN pass places line 2 plausibly close (still after line 1) with real
+    // content evidence — the correct occurrence.
+    const en = fakeRefined(
+      [line(texts[0], 0, 1), line(texts[1], 15, 18), line(texts[2], 30, 33)],
+      ['needs_review', 'good', 'approximate'],
+    )
+    const { refined } = mergeMixedRefinedAlignments(ja, en, texts)
+    // Without a forward guard line 2 lands at 133 — a 118s leap from line 1 @15.
+    expect(refined.lines[2].startTime).toBeLessThan(60)
+    const starts = refined.lines.map((l) => l.startTime)
+    expect(starts).toEqual([...starts].sort((a, b) => a - b))
+  })
+
   it('sums the two near-disjoint pass confidences', () => {
     const ja = fakeRefined([line(texts[0], 0, 1), line(texts[1], 1, 2), line(texts[2], 2, 3)], ['good', 'good', 'good'], 'content', 0.5)
     const en = fakeRefined([line(texts[0], 0, 1), line(texts[1], 1, 2), line(texts[2], 2, 3)], ['good', 'good', 'good'], 'content', 0.4)
     const { refined } = mergeMixedRefinedAlignments(ja, en, texts)
     expect(refined.confidence).toBeCloseTo(0.9)
     expect(refined.mode).toBe('content')
+  })
+
+  it('reports low confidence when placement collapsed to needs_review despite content coverage', () => {
+    const five = ['あ', 'い', 'う', 'え', 'お']
+    // Both passes "matched" their content (summed confidence clamps to 1.0) but
+    // only one of five lines actually anchored — the Recollect symptom, where a
+    // fake confidence of 1.0 hid a mostly-mis-placed song.
+    const quality = ['needs_review', 'needs_review', 'needs_review', 'needs_review', 'good'] as const
+    const rows = five.map((t, i) => line(t, i, i + 1))
+    const ja = fakeRefined(rows, [...quality], 'content', 0.6)
+    const en = fakeRefined(rows, [...quality], 'content', 0.5)
+    const { refined } = mergeMixedRefinedAlignments(ja, en, five)
+    expect(refined.confidence).toBeLessThan(0.5)
   })
 })
 

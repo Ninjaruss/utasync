@@ -44,8 +44,27 @@ export function scriptCharFractions(lineTexts: string[]): { ja: number; en: numb
 /** Never accept a pass on noise alone, however small its script share. */
 const MIN_SCOPED_THRESHOLD = 0.08
 
+/** A cross-pass pick whose start leaps more than this past the previous line is
+ * treated as a possible wrong-occurrence anchor (a verse line stolen onto its
+ * distant chorus reprise). Well above any plausible instrumental gap between two
+ * consecutive sung lines, so a legitimately late line is never second-guessed. */
+const FORWARD_LEAP_S = 30
+
 export function scopedConfidenceThreshold(scriptFraction: number): number {
   return Math.max(MIN_SCOPED_THRESHOLD, CONTENT_CONFIDENCE_THRESHOLD * scriptFraction)
+}
+
+/** How much of the song actually anchored, as a 0–1 score: fully-anchored
+ * ('good') lines count 1, roughly-placed ('approximate') 0.5, unplaced
+ * ('needs_review') 0. Unlike content confidence (matched chars — blind to WHERE
+ * a line landed), this collapses when a song is mostly mis-placed, so a merged
+ * alignment can no longer report a falsely-perfect confidence over two passes
+ * that each matched their own script's chars but landed in the wrong places. */
+export function placementConfidence(quality: readonly LineAlignmentQuality[]): number {
+  if (!quality.length) return 0
+  let score = 0
+  for (const q of quality) score += q === 'good' ? 1 : q === 'approximate' ? 0.5 : 0
+  return score / quality.length
 }
 
 const QUALITY_RANK: Record<LineAlignmentQuality, number> = {
@@ -113,6 +132,22 @@ export function mergeMixedRefinedAlignments(
           endTime: Math.max(line.endTime, prevStart),
         }
       }
+    } else if (li > 0 && line.startTime - prevStart > FORWARD_LEAP_S) {
+      // Forward repair (symmetric to the backward guard above, which only
+      // catches inversions): a pick that leaps far past the previous line while
+      // the OTHER pass places it much closer and still in order is a
+      // wrong-occurrence anchor — the Recollect failure, where the JA pass stole
+      // a verse line onto its distant chorus reprise. The monotonic timeline hid
+      // it (29s → 133s is still "increasing"). Prefer the closer, still-ordered
+      // alternative when it carries real content evidence (approximate or good,
+      // not an interpolated guess) and is at least twice as close.
+      const other: MixedPassSource = src === 'ja' ? 'en' : 'ja'
+      const alt = passOf(other).lines[li]
+      const altLeap = alt.startTime - prevStart
+      if (altLeap >= 0 && altLeap < (line.startTime - prevStart) / 2 && lineRank(passOf(other), li) >= 1) {
+        src = other
+        line = alt
+      }
     }
 
     pickedFrom.push(src)
@@ -143,8 +178,12 @@ export function mergeMixedRefinedAlignments(
   const phrases = syncPhrasesFromValidatedLines(base.phrases, floored)
 
   // The passes match near-disjoint char sets (each ~its script's share), so the
-  // sheet-wide matched fraction is approximately the sum.
-  const confidence = Math.min(1, ja.confidence + en.confidence)
+  // sheet-wide matched CONTENT fraction is approximately the sum. But content
+  // coverage is blind to placement: two passes can each match their script's
+  // chars while landing most lines in the wrong place (repeated hooks steal
+  // anchors). Cap the reported confidence by how much of the song actually
+  // anchored, so a collapsed merge can't advertise a falsely-perfect 1.0.
+  const confidence = Math.min(Math.min(1, ja.confidence + en.confidence), placementConfidence(quality))
   const mode = ja.mode === 'content' || en.mode === 'content' ? 'content' : 'proportional'
 
   return {
@@ -246,5 +285,11 @@ export function refineMixedLanguageAlignment(
     words: sanitizeTranscript(transcriptWords),
     mode: refined.mode,
   })
+  // Re-tighten confidence against the FINAL (post-honesty) labels. The merge
+  // capped confidence by placement, but label honesty then demotes over-confident
+  // 'good' lines to needs_review — so the truly honest anchored fraction (the
+  // number the low-confidence warning and mismatch banner trust) is only known
+  // now. Never raises confidence; only lowers it toward the demoted reality.
+  refined.confidence = Math.min(refined.confidence, placementConfidence(refined.lineAlignmentQuality))
   return { refined, transcriptWords, pickedFrom }
 }
