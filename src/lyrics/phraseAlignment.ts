@@ -17,6 +17,7 @@ import { redistributeDegenerateRuns } from './redistributeDegenerateRuns'
 import { findPhoneticAnchorEn } from '../ai-pipeline/phoneticEn'
 import { expectedLineDuration, minLineDuration } from './lineDegeneracy'
 import { applyLabelHonesty } from './labelHonesty'
+import { refitAroundAnchors } from './anchorRefit'
 import { detectSheetLanguage } from '../ai-pipeline/whisperLanguage'
 
 const REPETITION_REF_MIN_SPAN_S = 1.4
@@ -1404,9 +1405,16 @@ export function transcriptWordsToAlignInput(
 
 /** Merge a refine pass into persisted lyrics (timings, phrases, pipeline version). */
 export function applyRefinedAlignment(lyrics: LyricsData, refined: RefinedAlignment): LyricsData {
+  // Sticky user anchors: re-fit fresh timing around surviving user pins so a
+  // re-align never discards manual work. Auto-detected edge anchors are
+  // re-derivable and are NOT carried forward (they are re-detected each align).
+  const userAnchors = (lyrics.timingAnchors ?? []).filter((a) => a.source === 'user')
+  const lines = userAnchors.length
+    ? refitAroundAnchors(refined.lines, userAnchors, lyrics.sourceLanguage as AlignmentLanguage)
+    : refined.lines
   return {
     ...lyrics,
-    lines: refined.lines,
+    lines,
     phrases: refined.phrases,
     phraseLayout: refined.phraseLayout,
     sheetLinesSnapshot:
@@ -1415,6 +1423,7 @@ export function applyRefinedAlignment(lyrics: LyricsData, refined: RefinedAlignm
     lineAlignmentQuality: refined.lineAlignmentQuality,
     alignmentConfidence: refined.confidence,
     alignmentPipelineVersion: ALIGNMENT_PIPELINE_VERSION,
+    timingAnchors: userAnchors.length ? userAnchors : undefined,
   }
 }
 
