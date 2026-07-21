@@ -10,6 +10,8 @@ import { isABLoopActive, lyricLoopHighlight, type LyricLoopHighlight } from '../
 import { lyricRowLoopRegion, lyricRowPlayheadActive, lyricRowPlaylistCurrent, lyricRowPlaylistRegion } from '../core/ui/toolbarClasses'
 import { WordLookupPopover } from './WordLookupPopover'
 import { hasJapanese } from '../language/japanese/wordLookup'
+import { EnglishWordLookupPopover } from './EnglishWordLookupPopover'
+import { hasLatinLetter } from '../language/english/wordLookupEn'
 
 const lyricTextTransition =
   'transition-[color,font-size,font-weight,text-shadow] duration-300 ease-out'
@@ -22,6 +24,10 @@ interface WordTap {
   token: Token
   rect: DOMRect
 }
+
+type ActiveTap =
+  | { kind: 'ja'; token: Token; rect: DOMRect }
+  | { kind: 'en'; word: string; rect: DOMRect }
 
 const tokenBorderStyle = (color: string | null, highlighted = false) => {
   if (!color && !highlighted) return undefined
@@ -176,10 +182,12 @@ function ColoredTranslation({
   line,
   hovered,
   onHover,
+  onEnglishWordTap,
 }: {
   line: TimedLine
   hovered: HoveredPair | null
   onHover: (pair: HoveredPair | null) => void
+  onEnglishWordTap?: (tap: { word: string; rect: DOMRect }) => void
 }) {
   const translationLineWords = splitTranslationLines(line.translation)
   if (!line.tokens) return <>{line.translation}</>
@@ -204,6 +212,11 @@ function ColoredTranslation({
               style={tokenBorderStyle(color, highlighted)}
               onMouseEnter={() => onHover({ target: globalIndex })}
               onMouseLeave={() => onHover(null)}
+              onClick={onEnglishWordTap ? (e) => {
+                if (!hasLatinLetter(word)) return
+                e.stopPropagation()
+                onEnglishWordTap({ word, rect: e.currentTarget.getBoundingClientRect() })
+              } : undefined}
             >
               {word}{i < words.length - 1 ? ' ' : ''}
             </span>
@@ -230,13 +243,14 @@ function loopHighlightClass(highlight: LyricLoopHighlight | null, isActive: bool
   }
 }
 
-function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap }: {
+function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, onEnglishWordTap }: {
   line: TimedLine
   isActive: boolean
   loopHighlight: LyricLoopHighlight | null
   onLineClick: (line: TimedLine) => void
   lineRef?: React.Ref<HTMLDivElement>
   onWordTap?: (tap: WordTap) => void
+  onEnglishWordTap?: (tap: { word: string; rect: DOMRect }) => void
 }) {
   const { furiganaMode, showTranslation, lyricsLayout } = useLyricsStore()
   const readingMode = useSettingsStore((s) => s.readingMode)
@@ -262,7 +276,7 @@ function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap }
       line.translation.includes('\n') ? 'whitespace-pre-line' : '',
     ].join(' ')}>
       {colored && line.tokens ? (
-        <ColoredTranslation line={line} hovered={hoveredPair} onHover={setHoveredPair} />
+        <ColoredTranslation line={line} hovered={hoveredPair} onHover={setHoveredPair} onEnglishWordTap={onEnglishWordTap} />
       ) : (
         line.translation
       )}
@@ -326,7 +340,7 @@ export function LyricDisplay({
 }: Props) {
   const { lines, activeLine } = useLyricsStore()
   const tapLookupEnabled = useSettingsStore((s) => s.tapLookupEnabled)
-  const [wordTap, setWordTap] = useState<WordTap | null>(null)
+  const [tap, setTap] = useState<ActiveTap | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const activeRef = useRef<HTMLDivElement>(null)
   const loopActive = abLoop ? isABLoopActive(abLoop) : false
@@ -381,16 +395,16 @@ export function LyricDisplay({
             loopHighlight={loopHighlight}
             onLineClick={onLineClick}
             lineRef={isActive ? activeRef : undefined}
-            onWordTap={tapLookupEnabled ? setWordTap : undefined}
+            onWordTap={tapLookupEnabled && isActive ? (t) => setTap({ kind: 'ja', token: t.token, rect: t.rect }) : undefined}
+            onEnglishWordTap={tapLookupEnabled && isActive ? (t) => setTap({ kind: 'en', word: t.word, rect: t.rect }) : undefined}
           />
         )
       })}
-      {wordTap && (
-        <WordLookupPopover
-          token={wordTap.token}
-          anchorRect={wordTap.rect}
-          onClose={() => setWordTap(null)}
-        />
+      {tap?.kind === 'ja' && (
+        <WordLookupPopover token={tap.token} anchorRect={tap.rect} onClose={() => setTap(null)} />
+      )}
+      {tap?.kind === 'en' && (
+        <EnglishWordLookupPopover word={tap.word} anchorRect={tap.rect} onClose={() => setTap(null)} />
       )}
     </div>
   )

@@ -13,6 +13,11 @@ vi.mock('../../src/language/japanese/wordLookup', async (importOriginal) => {
   }
 })
 
+vi.mock('../../src/language/english/wordLookupEn', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/language/english/wordLookupEn')>()
+  return { ...actual, lookupEnglishWord: vi.fn().mockResolvedValue({ headword: 'spring', definitionLang: 'ja', equivalents: [{ ja: '春', reading: 'はる' }], definitions: [], dictionaryAvailable: true }) }
+})
+
 const setStore = (lines: TimedLine[], patch: Partial<ReturnType<typeof useLyricsStore.getState>> = {}) => {
   useLyricsStore.setState({ lines, activeLine: 0, ...patch })
 }
@@ -412,6 +417,81 @@ describe('tap-to-look-up wiring', () => {
     const onLineClick = vi.fn()
     render(<LyricDisplay onLineClick={onLineClick} />)
     fireEvent.click(screen.getByText('躱し'))
+    expect(onLineClick).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('does not open the popover for a word on a non-active line; it seeks instead', () => {
+    useLyricsStore.setState({
+      lines: [
+        { original: '一行目', startTime: 0, endTime: 2, translation: '',
+          tokens: [{ surface: '一行目', reading: 'イチギョウメ', pos: '名詞', startIndex: 0, endIndex: 3 }] },
+        { original: '躱し', startTime: 2, endTime: 4, translation: '',
+          tokens: [{ surface: '躱し', reading: 'カワシ', pos: '動詞', baseForm: '躱す', startIndex: 0, endIndex: 2 }] },
+      ],
+      activeLine: 0, furiganaMode: 'none', showTranslation: false, lyricsLayout: 'stacked',
+    })
+    const onLineClick = vi.fn()
+    render(<LyricDisplay onLineClick={onLineClick} />)
+    fireEvent.click(screen.getByText('躱し')) // word on the NON-active (second) line
+    expect(onLineClick).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+})
+
+describe('English tap-to-look-up wiring', () => {
+  const enLine = (activeLine: number) => ({
+    lines: [{
+      original: '君', startTime: 0, endTime: 2, translation: 'you spring',
+      tokens: [{ surface: '君', pos: '名詞', startIndex: 0, endIndex: 1, alignmentIndices: [0] }],
+    }],
+    activeLine,
+  })
+
+  beforeEach(() => {
+    useLyricsStore.setState({ furiganaMode: 'none', showTranslation: true, lyricsLayout: 'stacked' })
+    useSettingsStore.setState({ tapLookupEnabled: true, readingMode: 'dictionary' })
+  })
+
+  it('opens the English popover when a translation word on the active line is tapped', async () => {
+    useLyricsStore.setState(enLine(0))
+    const onLineClick = vi.fn()
+    render(<LyricDisplay onLineClick={onLineClick} />)
+    fireEvent.click(screen.getByText('spring'))
+    expect(onLineClick).not.toHaveBeenCalled()
+    expect(await screen.findByRole('dialog')).toBeTruthy()
+  })
+
+  it('does not open the English popover for a translation word on a non-active line', () => {
+    useLyricsStore.setState({
+      lines: [
+        { original: '一', startTime: 0, endTime: 2, translation: 'one', tokens: [{ surface: '一', pos: '名詞', startIndex: 0, endIndex: 1, alignmentIndices: [0] }] },
+        { original: '二', startTime: 2, endTime: 4, translation: 'two', tokens: [{ surface: '二', pos: '名詞', startIndex: 0, endIndex: 1, alignmentIndices: [0] }] },
+      ],
+      activeLine: 0,
+    })
+    const onLineClick = vi.fn()
+    render(<LyricDisplay onLineClick={onLineClick} />)
+    fireEvent.click(screen.getByText('two')) // translation word on the non-active line
+    expect(onLineClick).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('seeks the line instead of opening the English popover for a non-Latin translation word', () => {
+    useLyricsStore.setState({
+      lines: [{
+        original: '君', startTime: 0, endTime: 2, translation: '君 spring',
+        tokens: [{ surface: '君', pos: '名詞', startIndex: 0, endIndex: 1, alignmentIndices: [0] }],
+      }],
+      activeLine: 0,
+    })
+    const onLineClick = vi.fn()
+    render(<LyricDisplay onLineClick={onLineClick} />)
+    // The translation contains a CJK "word" (君) and an English word (spring).
+    // Tapping the non-Latin one must fall through to seek, not open a popover.
+    const cjkTranslationWord = screen.getAllByText('君').find((el) => el.getAttribute('lang') !== 'ja' && el.tagName === 'SPAN' && el.closest('[lang="en"]'))
+      ?? screen.getAllByText('君').at(-1)!
+    fireEvent.click(cjkTranslationWord)
     expect(onLineClick).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('dialog')).toBeNull()
   })

@@ -3,11 +3,12 @@ import { useState } from 'react'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { WordLookupPopover } from '../../src/lyrics/WordLookupPopover'
 import type { Token } from '../../src/core/types'
+import { useSettingsStore } from '../../src/payment/SettingsStore'
 
 const lookupWord = vi.fn()
 vi.mock('../../src/language/japanese/wordLookup', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/language/japanese/wordLookup')>()
-  return { ...actual, lookupWord: (token: Token) => lookupWord(token) }
+  return { ...actual, lookupWord: (token: Token, mode?: unknown, opts?: unknown) => lookupWord(token, mode, opts) }
 })
 
 const token: Token = { surface: '躱し', reading: 'カワシ', pos: '動詞', baseForm: '躱す', startIndex: 0, endIndex: 2 }
@@ -171,5 +172,17 @@ describe('WordLookupPopover', () => {
     const dialog = screen.getByRole('dialog') as HTMLElement
     expect(dialog.style.bottom).toBe('76px') // 768 - 700 + 8
     expect(dialog.style.top).toBe('')
+  })
+
+  it('passes the immersion flag and links to weblio 国語辞書 when immersion is on', async () => {
+    useSettingsStore.setState({ immersionDefinitions: true })
+    lookupWord.mockResolvedValue({ headword: '走る', reading: 'はしる', pos: '動詞', posLabel: 'verb', glosses: ['速く移動する'], dictionaryAvailable: true, definitionLang: 'ja' })
+    render(<WordLookupPopover token={token} anchorRect={null} onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText('速く移動する')).toBeTruthy())
+    expect(screen.getByRole('link').getAttribute('href')).toBe(`https://www.weblio.jp/content/${encodeURIComponent('走る')}`)
+    const def = screen.getByText('速く移動する')
+    expect(def.getAttribute('lang')).toBe('ja')
+    expect(def.className).toContain('font-jp')
+    useSettingsStore.setState({ immersionDefinitions: false })
   })
 })

@@ -175,6 +175,8 @@ export interface UserSettings {
   readingMode: ReadingMode
   /** Tap a lyric word to open the built-in dictionary popover. Off lets desktop Yomitan users avoid double popups. */
   tapLookupEnabled: boolean
+  /** Show definitions in the word's own language (JA→JA, EN→EN) for immersion. */
+  immersionDefinitions: boolean
   /** The user consented once to the first ~240MB speech-model download. Gates the
    * first-run download prompt in Auto-Align so a fresh install can't silently pull
    * a large model on the first song. */

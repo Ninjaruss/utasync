@@ -6,6 +6,7 @@ import { getJmdictKanjiGloss, jmdictGlossLoaded, prepareJmdictStemIndex } from '
 import { loadJmdictReadings, readingInventory } from './jmdictReadings'
 import { grammarGloss, isGrammarToken } from './grammarGlosses'
 import { shouldPromoteSungReading } from '../../lyrics/readingDisplay'
+import { loadJaMonolingual, lookupJaDefinition, jaMonolingualLoaded } from './jaMonolingual'
 import type { ReadingMode, Token } from '../../core/types'
 
 export interface WordLookupResult {
@@ -25,6 +26,10 @@ export interface WordLookupResult {
   glosses: string[]
   /** False when the JMdict gloss map failed to load (offline) — the popup says "definitions unavailable" instead of "no definition found". */
   dictionaryAvailable: boolean
+  /** Language the `glosses` are written in: 'en' for the JMdict/curated English
+   * gloss chain, 'ja' when immersion mode substitutes a Japanese monolingual
+   * definition. */
+  definitionLang: 'en' | 'ja'
 }
 
 const HAS_JA_CHAR = /[぀-ヿ一-鿿々]/
@@ -123,7 +128,11 @@ function subsidiaryVerbLexicalGloss(token: Token, headword: string, kana: string
  * curated-first lemmaGloss chain. Null only for tokens with no Japanese
  * characters (punctuation, latin interjections).
  */
-export async function lookupWord(token: Token, readingMode: ReadingMode = 'dictionary'): Promise<WordLookupResult | null> {
+export async function lookupWord(
+  token: Token,
+  readingMode: ReadingMode = 'dictionary',
+  opts: { immersion?: boolean } = {},
+): Promise<WordLookupResult | null> {
   if (!hasJapanese(token.surface)) return null
 
   // Loads the JMdict maps + stem index once; resolves (with curated-only
@@ -145,6 +154,21 @@ export async function lookupWord(token: Token, readingMode: ReadingMode = 'dicti
     : null
   const reading = sung ?? dictReading
 
+  if (opts.immersion) {
+    await loadJaMonolingual()
+    const defs = lookupJaDefinition(token)
+    return {
+      headword,
+      reading,
+      dictionaryReading: sung && dictReading && dictReading !== sung ? dictReading : null,
+      pos: token.pos ?? null,
+      posLabel: posLabelFor(token),
+      glosses: defs ?? [],
+      dictionaryAvailable: jaMonolingualLoaded(),
+      definitionLang: 'ja',
+    }
+  }
+
   // Function words (particles, auxiliaries, 非自立) carry grammatical meaning,
   // not lexical: the kana homophone chain would gloss は as 端 "edge" or た as
   // 田 "rice". They only ever take the curated grammar glossary — an uncurated
@@ -161,5 +185,6 @@ export async function lookupWord(token: Token, readingMode: ReadingMode = 'dicti
     posLabel: posLabelFor(token),
     glosses: gloss ? gloss.split(/\s*;\s*/).filter(Boolean) : [],
     dictionaryAvailable: jmdictGlossLoaded(),
+    definitionLang: 'en',
   }
 }
