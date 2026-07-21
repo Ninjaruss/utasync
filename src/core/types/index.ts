@@ -130,6 +130,9 @@ export interface LyricsData {
   /** The pasted-layout rows captured when switching to 'sung', so the user can
    * one-tap restore their original sheet (Phase 3). */
   sheetLinesSnapshot?: TimedLine[]
+  /** Hard timing pins (user taps + auto-detected start/end). Line timing is
+   * re-fit around these; they survive re-align. Absent ⇒ legacy behavior. */
+  timingAnchors?: { lineIndex: number; time: number; source: 'user' | 'auto-start' | 'auto-end' }[]
 }
 
 export interface WordAlignment {
