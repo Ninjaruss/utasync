@@ -63,6 +63,12 @@ interface Props {
   accurateRealignReason?: 'segment-blocks' | 'weak-labels' | null
   /** Re-run Auto-align in accurate (word-level) mode. */
   onAutoAlignAccurate?: () => void
+  /** Whether Demucs vocal separation was used for the stored alignment. */
+  vocalSeparationUsed?: boolean
+  /** Whether this device can run vocal separation (gates the nudge). */
+  vocalSeparationSupported?: boolean
+  /** Enable "Isolate vocals for timing" and re-run Auto-align. */
+  onAutoAlignWithVocals?: () => void
 }
 
 const DELETE_CONFIRM_MS = 3000
@@ -300,7 +306,7 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus, alignmentConfidence, accurateRealignReason = null, onAutoAlignAccurate }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus, alignmentConfidence, accurateRealignReason = null, onAutoAlignAccurate, vocalSeparationUsed, vocalSeparationSupported = false, onAutoAlignWithVocals }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
@@ -640,6 +646,21 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
           <p className="text-xs text-amber-400/80 text-pretty">
             {offTimingCount} line{offTimingCount === 1 ? '' : 's'} off-timing — adjust the timestamps below or re-run Auto-align.
           </p>
+        )}
+        {onAutoAlignWithVocals && !vocalSeparationUsed && vocalSeparationSupported &&
+          (alignmentHint === 'weak-labels' || alignmentHint === 'block-timing' || alignmentHint === 'off-timing') && (
+          <div className="flex items-start gap-2 flex-wrap">
+            <p className="text-xs text-white/45 text-pretty flex-1 min-w-[12rem]">
+              Isolating the vocals first often sharpens timing on busy or live recordings.
+            </p>
+            <button
+              type="button"
+              onClick={onAutoAlignWithVocals}
+              className={`${toolbarActionBtn} self-start`}
+            >
+              Isolate vocals &amp; re-align
+            </button>
+          </div>
         )}
         {hasLocalAudio && recoverableGapCount > 0 && onRecoverGaps && (
           <div className="flex flex-col items-start gap-1">
