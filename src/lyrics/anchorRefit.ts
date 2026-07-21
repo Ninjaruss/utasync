@@ -1,6 +1,8 @@
 import type { TimedLine, AlignmentLanguage } from '../core/types'
 import { lineWeight } from '../ai-pipeline/aligner'
+import type { TranscriptWord } from '../ai-pipeline/aligner'
 import { enforceLineMonotonicity } from './phraseAlignment'
+import { computeLineMatchedSpans } from '../ai-pipeline/contentAligner'
 
 /** A hard timing pin: line `lineIndex` starts exactly at `time` (seconds). */
 export interface TimingAnchor {
@@ -62,4 +64,31 @@ export function refitAroundAnchors(
 
   enforceLineMonotonicity(out)
   return out
+}
+
+/**
+ * Transcript-based auto start/end anchors: the first and last lines whose
+ * matched-char coverage clears `minCoverage` become 'auto-start' / 'auto-end'
+ * pins at their onset (`firstTime`). Weak edges emit no anchor (never a wrong
+ * one). Returns 0–2 anchors; never both on the same line index.
+ */
+export function detectEdgeAnchors(
+  lineTexts: string[],
+  words: TranscriptWord[],
+  minCoverage = 0.5,
+): TimingAnchor[] {
+  const spans = computeLineMatchedSpans(lineTexts, words)
+  const strong = (i: number) => {
+    const s = spans[i]
+    return !!s && s.totalChars > 0 && s.matchedChars / s.totalChars >= minCoverage && Number.isFinite(s.firstTime)
+  }
+  const anchors: TimingAnchor[] = []
+  let startIdx = -1
+  for (let i = 0; i < spans.length; i++) {
+    if (strong(i)) { startIdx = i; anchors.push({ lineIndex: i, time: spans[i]!.firstTime, source: 'auto-start' }); break }
+  }
+  for (let i = spans.length - 1; i > startIdx; i--) {
+    if (strong(i)) { anchors.push({ lineIndex: i, time: spans[i]!.firstTime, source: 'auto-end' }); break }
+  }
+  return anchors
 }

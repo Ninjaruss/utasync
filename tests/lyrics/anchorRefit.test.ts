@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { TimedLine } from '../../src/core/types'
-import { refitAroundAnchors, type TimingAnchor } from '../../src/lyrics/anchorRefit'
+import { refitAroundAnchors, detectEdgeAnchors, type TimingAnchor } from '../../src/lyrics/anchorRefit'
+import type { TranscriptWord } from '../../src/ai-pipeline/aligner'
 
 const line = (original: string, startTime: number, endTime: number): TimedLine => ({
   original, translation: '', startTime, endTime,
@@ -41,5 +42,29 @@ describe('refitAroundAnchors', () => {
     ], 'en')
     expect(out[0].startTime).toBe(10)
     expect(out.map((l) => l.startTime)).toEqual([...out.map((l) => l.startTime)].sort((a, b) => a - b))
+  })
+})
+
+describe('detectEdgeAnchors', () => {
+  const texts = ['first line here', 'middle noise', 'last line here']
+  const words: TranscriptWord[] = [
+    { word: 'first', startTime: 5, endTime: 5.4 },
+    { word: 'line', startTime: 5.4, endTime: 5.8 },
+    { word: 'here', startTime: 5.8, endTime: 6.2 },
+    { word: 'last', startTime: 40, endTime: 40.4 },
+    { word: 'line', startTime: 40.4, endTime: 40.8 },
+    { word: 'here', startTime: 40.8, endTime: 41.2 },
+  ]
+
+  it('emits a start anchor on the first strong line and an end anchor on the last', () => {
+    const anchors = detectEdgeAnchors(texts, words, 0.5)
+    expect(anchors.find((a) => a.source === 'auto-start')?.lineIndex).toBe(0)
+    expect(anchors.find((a) => a.source === 'auto-start')?.time).toBeCloseTo(5, 0)
+    expect(anchors.find((a) => a.source === 'auto-end')?.lineIndex).toBe(2)
+    expect(anchors.find((a) => a.source === 'auto-end')?.time).toBeCloseTo(40, 0)
+  })
+
+  it('emits nothing when no line clears the coverage gate', () => {
+    expect(detectEdgeAnchors(texts, [{ word: 'zzz', startTime: 1, endTime: 2 }], 0.5)).toEqual([])
   })
 })
