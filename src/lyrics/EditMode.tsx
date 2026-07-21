@@ -461,7 +461,15 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
     showAlignmentQuality && lineAlignmentQuality?.length
       ? offTimingLineCount(lines, lineAlignmentQuality)
       : 0
-  // A single prioritized alignment hint (below the toolbar), most-actionable first:
+  // The "Recover N sections" block (further down) already names and re-times the
+  // untimed parts, so a generic off-timing nudge alongside it just duplicates it.
+  const recoverBlockShown = hasLocalAudio && recoverableGapCount > 0 && !!onRecoverGaps
+  // A single prioritized alignment hint (below the toolbar), most-actionable
+  // first — exactly one ever renders, so guidance never stacks:
+  //  0. mixed-realign    — a stale mixed-language song the on-open re-refine
+  //     can't repair; only a fresh Auto-align re-times it. Supersedes the
+  //     quality hints below (re-running is the first step and clears them if it
+  //     works), rather than stacking a second amber banner beside them.
   //  1. lyrics-mismatch  — the recording likely doesn't match these lyrics; no
   //     re-align fixes that, so point at Replace lyrics.
   //  2. block-timing     — segment-mode merged lines into shared blocks; a
@@ -471,7 +479,8 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
   //  3. weak-labels      — many lines could not be verified against the audio;
   //     the song likely needs a more powerful pass (word-level timestamps or
   //     the High-accuracy model), not row-by-row nudging.
-  //  4. off-timing       — a few stray rows to nudge by hand or re-align.
+  //  4. off-timing       — a few stray rows to nudge by hand or re-align, unless
+  //     the Recover block already owns them.
   const likelyMismatch =
     showAlignmentQuality && likelyLyricsMismatch(lines, lineAlignmentQuality, alignmentConfidence)
   const unverifiedCount =
@@ -482,16 +491,18 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
           0,
         )
       : 0
-  const alignmentHint: 'lyrics-mismatch' | 'block-timing' | 'weak-labels' | 'off-timing' | null =
-    likelyMismatch
-      ? 'lyrics-mismatch'
-      : hasLocalAudio && accurateRealignReason === 'segment-blocks'
-        ? 'block-timing'
-        : hasLocalAudio && accurateRealignReason === 'weak-labels' && showAlignmentQuality
-          ? 'weak-labels'
-          : offTimingCount > 0
-            ? 'off-timing'
-            : null
+  const alignmentHint: 'mixed-realign' | 'lyrics-mismatch' | 'block-timing' | 'weak-labels' | 'off-timing' | null =
+    needsMixedRealign
+      ? 'mixed-realign'
+      : likelyMismatch
+        ? 'lyrics-mismatch'
+        : hasLocalAudio && accurateRealignReason === 'segment-blocks'
+          ? 'block-timing'
+          : hasLocalAudio && accurateRealignReason === 'weak-labels' && showAlignmentQuality
+            ? 'weak-labels'
+            : offTimingCount > 0 && !recoverBlockShown
+              ? 'off-timing'
+              : null
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -575,6 +586,11 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             No audio file — use Tap-through to time lyrics while the song plays.
           </p>
         )}
+        {alignmentHint === 'mixed-realign' && (
+          <p className="text-xs text-amber-400/80 text-pretty">
+            Mixed-language song aligned before recent timing fixes — re-run Auto-align to re-time it (older mixed songs can't be re-timed automatically on open).
+          </p>
+        )}
         {alignmentHint === 'lyrics-mismatch' && (
           <p className="text-xs text-amber-400/80 text-pretty">
             Many lines couldn’t be matched to the audio — these lyrics may not match this recording
@@ -648,11 +664,6 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
               be timed — re-scan just those parts. Your edits are kept.
             </p>
           </div>
-        )}
-        {needsMixedRealign && (
-          <p className="text-xs text-amber-400/80 text-pretty">
-            Mixed-language song aligned before recent timing fixes — re-run Auto-align to re-time it (older mixed songs can't be re-timed automatically on open).
-          </p>
         )}
       </div>
 

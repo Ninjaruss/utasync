@@ -94,4 +94,28 @@ describe('EditMode alignment hint', () => {
     expect(screen.queryByText(/may not match this recording/i)).toBeNull()
     expect(screen.queryByText(/analyzed in coarse blocks/i)).toBeNull()
   })
+
+  it('does not stack the mixed-realign banner with a quality hint', () => {
+    renderHint({
+      lineAlignmentQuality: ['needs_review', 'good'],
+      alignmentConfidence: 0.9,
+      needsMixedRealign: true,
+    })
+    expect(screen.getByText(/mixed-language song.*re-run Auto-align/i)).toBeTruthy()
+    // The generic off-timing nudge must not also render beneath it.
+    expect(screen.queryByText(/adjust the timestamps below/i)).toBeNull()
+  })
+
+  it('suppresses the plain off-timing nudge when Recover sections owns those lines', () => {
+    renderHint({
+      lineAlignmentQuality: ['needs_review', 'good'],
+      alignmentConfidence: 0.9,
+      recoverableGapCount: 1,
+      onRecoverGaps: vi.fn(),
+    })
+    // The targeted Recover action already names and re-times the untimed line…
+    expect(screen.getByRole('button', { name: /recover 1 section/i })).toBeTruthy()
+    // …so the duplicate generic off-timing banner is gone.
+    expect(screen.queryByText(/adjust the timestamps below/i)).toBeNull()
+  })
 })
