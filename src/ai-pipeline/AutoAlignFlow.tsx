@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { canUseVocalSeparation, getDeviceTier } from './capability'
 import { canUseHighAccuracy } from './inferenceBackend'
 import { getWhisperDownloadHint } from './models'
@@ -101,13 +101,28 @@ function loadTaskProgress(p: LoadProgress | null, phase: 'download' | 'init'): n
 
 export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, accurateReadings: accurateReadingsInitial = false }: Props) {
   const tier = getDeviceTier()
+  const vocalSeparationSupported = canUseVocalSeparation(tier)
   const vocalSeparationDefault = useSettingsStore((s) => s.vocalSeparationEnabled)
   const setVocalSeparationEnabled = useSettingsStore((s) => s.setVocalSeparationEnabled)
   // First-run download consent: the very first alignment pulls a ~240MB speech
   // model. Gate that first download behind an explicit prompt, remembered once.
   const modelDownloadConsented = useSettingsStore((s) => s.modelDownloadConsented)
   const setModelDownloadConsented = useSettingsStore((s) => s.setModelDownloadConsented)
-  const [vocalSeparation, setVocalSeparation] = useState(vocalSeparationDefault)
+  // Code-switching (mixed JA/EN) songs transcribe poorly on the full mix — their
+  // dense bilingual sections are exactly the coverage-bound regions that hurt
+  // alignment accuracy most. Default vocal isolation ON for them on capable
+  // devices (highest-impact accuracy lever); the user can still uncheck it.
+  const isMixedSong = useMemo(
+    () =>
+      detectSheetLanguage(
+        sheetRowsForAlignment(song.lyrics).map((r) => r.original || r.translation),
+        song.lyrics.sourceLanguage,
+      ) === 'mixed',
+    [song.lyrics],
+  )
+  const [vocalSeparation, setVocalSeparation] = useState(
+    vocalSeparationDefault || (isMixedSong && vocalSeparationSupported),
+  )
   const [demucsReady, setDemucsReady] = useState<boolean | null>(null)
   const [vocalSeparationRun, setVocalSeparationRun] = useState(false)
   // D2: opt into the slower word-level Whisper pass for more reliable readings on
@@ -144,7 +159,6 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
   const [confirmCancel, setConfirmCancel] = useState(false)
   const cancelledRef = useRef(false)
 
-  const vocalSeparationSupported = canUseVocalSeparation(tier)
   const highAccuracySupported = canUseHighAccuracy(tier)
   // Reflect the selected model so the download-progress copy shows ~1.5GB during
   // a high-accuracy (medium) download, not the small model's ~240MB.
