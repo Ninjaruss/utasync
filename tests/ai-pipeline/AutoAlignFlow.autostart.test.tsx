@@ -4,6 +4,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { AutoAlignFlow } from '../../src/ai-pipeline/AutoAlignFlow'
 import type { Song } from '../../src/core/types'
 import { db } from '../../src/core/db/schema'
+import { isDemucsModelAvailable, refreshDemucsModelAvailability } from '../../src/ai-pipeline/demucsSeparator'
 
 const deviceTier = vi.hoisted(() => ({ current: 'lite' as 'lite' | 'full' | 'manual' }))
 const vocalSepSupported = vi.hoisted(() => ({ current: false }))
@@ -116,6 +117,8 @@ beforeEach(async () => {
   deviceTier.current = 'lite'
   vocalSepSupported.current = false
   settings.consented = true
+  vi.mocked(refreshDemucsModelAvailability).mockResolvedValue(false)
+  vi.mocked(isDemucsModelAvailable).mockResolvedValue(false)
 })
 
 describe('AutoAlignFlow autoStart', () => {
@@ -134,6 +137,39 @@ describe('AutoAlignFlow autoStart', () => {
   it('shows Start Auto-Align when autoStart is false', () => {
     render(<AutoAlignFlow song={song} onComplete={vi.fn()} onClose={vi.fn()} />)
     expect(screen.getByRole('button', { name: /start auto-align/i })).toBeTruthy()
+  })
+
+  it('defaults vocal isolation ON for a mixed-language song on a capable device', () => {
+    deviceTier.current = 'full'
+    vocalSepSupported.current = true
+    vi.mocked(refreshDemucsModelAvailability).mockResolvedValue(true)
+    vi.mocked(isDemucsModelAvailable).mockResolvedValue(true)
+    const mixedSong: Song = {
+      ...song,
+      lyrics: {
+        lines: [
+          { startTime: 0, endTime: 0, original: '青空に溶けていく', translation: '' },
+          { startTime: 0, endTime: 0, original: 'You make me so happy today', translation: '' },
+          { startTime: 0, endTime: 0, original: '君の声が聞こえる', translation: '' },
+          { startTime: 0, endTime: 0, original: 'Running through the endless night', translation: '' },
+          { startTime: 0, endTime: 0, original: '光の中で踊りだす', translation: '' },
+          { startTime: 0, endTime: 0, original: 'Everything I do for you now', translation: '' },
+        ],
+        sourceLanguage: 'ja',
+        translationLanguage: 'en',
+      },
+    }
+    render(<AutoAlignFlow song={mixedSong} onComplete={vi.fn()} onClose={vi.fn()} />)
+    expect((screen.getByRole('checkbox', { name: /isolate vocals/i }) as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('leaves vocal isolation OFF by default for a single-language song', () => {
+    deviceTier.current = 'full'
+    vocalSepSupported.current = true
+    vi.mocked(refreshDemucsModelAvailability).mockResolvedValue(true)
+    vi.mocked(isDemucsModelAvailable).mockResolvedValue(true)
+    render(<AutoAlignFlow song={song} onComplete={vi.fn()} onClose={vi.fn()} />)
+    expect((screen.getByRole('checkbox', { name: /isolate vocals/i }) as HTMLInputElement).checked).toBe(false)
   })
 
   it('discards results that resolve after the user cancels mid-run', async () => {
