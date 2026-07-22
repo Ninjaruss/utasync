@@ -101,6 +101,32 @@ export function voicedFraction(sig: VocalActivitySignal, startSec: number, endSe
   return voiced / (b - a)
 }
 
+/** The first vocal onset AFTER an instrumental intro: the earliest time where a
+ * sustained voiced run begins that is preceded by a genuine quiet region. Returns
+ * null when there is no such intro→onset transition (voicing from the start), on a
+ * 'mix' source (too noisy for a leading-edge decision — stem only), or empty signal. */
+export function firstVocalOnset(
+  sig: VocalActivitySignal,
+  opts?: { minOnsetSec?: number; sustainSec?: number; preDipSec?: number },
+): number | null {
+  if (sig.source !== 'stem' || sig.activity.length === 0) return null
+  const minOnset = opts?.minOnsetSec ?? 2.0
+  const sustain = opts?.sustainSec ?? 1.0
+  const preDip = opts?.preDipSec ?? 1.5
+  const VOICED_RUN = 0.5
+  const QUIET = 0.12
+  const totalDur = sig.activity.length * sig.hopSec
+  for (let t = minOnset; t + sustain <= totalDur; t += sig.hopSec) {
+    if (
+      voicedFraction(sig, t, t + sustain) >= VOICED_RUN &&
+      voicedFraction(sig, Math.max(0, t - preDip), t) <= QUIET
+    ) {
+      return t
+    }
+  }
+  return null
+}
+
 /** Mean activity over [startSec, endSec). */
 export function meanActivity(sig: VocalActivitySignal, startSec: number, endSec: number): number {
   if (sig.activity.length === 0 || endSec <= startSec) return 0
