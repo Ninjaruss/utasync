@@ -157,3 +157,40 @@ Every failure degrades to today's behavior.
 - Worker/threading: forced alignment is heavy inference; runs in a worker like Whisper.
 - Model download UX: a hard song triggers a new model download — reuse the existing
   consent/progress affordances.
+
+## Phase 1 spike result
+
+**Verdict: GO (approach A — CTC forced alignment).** transformers.js (`@huggingface/transformers`
+v3.8.1) can load a CTC model in this repo's Node environment and expose per-frame emission logits
+plus a readable character vocab.
+
+**Spike:** `scripts/spike-ctc-emissions.mjs` (throwaway, deleted after this note). Fed a 10s
+16 kHz mono slice through `AutoProcessor` + `AutoModelForCTC`, read `out.logits`.
+
+**Model that loaded:** `Xenova/wav2vec2-base-960h`
+- `out.logits.dims = [1, 499, 32]` — `[batch=1, T=499 frames, V=32 vocab]` for 10s of audio
+  (~50 frames/s → ~20 ms/frame, the expected wav2vec2 stride). Emissions are directly accessible.
+- Vocab size **32**. `ctc.config.id2label` is **null** (normal for wav2vec2 CTC — labels live in
+  the tokenizer's `vocab.json`, not the model config). Loading `AutoTokenizer.from_pretrained(...)`
+  exposes the id→token map.
+- **Vocab labels** (id → token): `0:<pad> 1:<s> 2:</s> 3:<unk> 4:| 5:E 6:T 7:A 8:O 9:N 10:I 11:H
+  12:S 13:R 14:D 15:L 16:U 17:M 18:W 19:C 20:F 21:G 22:Y 23:P 24:B 25:V 26:K 27:' 28:X 29:J 30:Q
+  31:Z`. These are exactly what later tasks need: single **characters** (uppercase A–Z + apostrophe),
+  a CTC blank (`<pad>`, id 0), and the **`|` word-separator** (id 4). Lyrics can be uppercased and
+  mapped char-by-char onto this vocab for the Viterbi forced-alignment pass.
+
+**Other candidates:**
+- `Xenova/mms-300m` — FAILED: `out.logits` was `undefined` (`Cannot read properties of undefined
+  (reading 'dims')`). Pretrained MMS base is not a ready-to-use CTC head via `AutoModelForCTC`
+  here; a fine-tuned MMS CTC checkpoint (e.g. `mms-1b-all` / `mms-fa`) would need its own ONNX port
+  check.
+- `Xenova/wav2vec2-large-xlsr-53` — FAILED: `Unauthorized access to file ... preprocessor_config.json`
+  (repo not resolvable/ported). Not a feasibility blocker — a GO needs only one working model.
+
+**Caveat for design (not a blocker to the GO gate):** `wav2vec2-base-960h` is **English-only**
+(Latin-uppercase vocab, no Japanese graphemes). It proves emissions are accessible but is not the
+production model for mixed JA/EN songs — the JA portions have no character tokens. The
+model-selection open question stays open: for JA we need a multilingual/phonetic CTC model (romanize
+JA readings onto a Latin/IPA vocab, or adopt an MMS CTC checkpoint that ports to ONNX). That is a
+Task-2+ concern; the transformers.js CTC-emissions capability that approach A depends on is
+**confirmed present**.
