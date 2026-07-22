@@ -50,16 +50,15 @@ export async function forceAlignLines(
   const model: any = await (modelP ??= AutoModelForCTC.from_pretrained(CTC_MODEL) as Promise<unknown>)
 
   const emissions: number[][] = []
-  try {
+  if (audio16k.length <= CHUNK_SAMPLES) {
     const inputs = await processor(audio16k)
     const out = await model(inputs)
     logitsToEmissions(out, emissions)
-  } catch (err) {
-    // Whole-song forward pass failed (known "too big" limit) — fall back to
-    // chunked inference, concatenating per-chunk emission rows. Frames are
-    // contiguous across chunks, so a plain append preserves the time axis.
-    emissions.length = 0
-    console.warn(`forceAlignLines: whole-song pass failed (${(err as Error).message}); falling back to ${CHUNK_SAMPLES}-sample chunks`)
+  } else {
+    // Whole-song self-attention is O(frames^2) — for a full song (~10k frames)
+    // it hangs rather than erroring, so chunk PROACTIVELY (not just on a thrown
+    // OOM). ~30s chunks, concatenating per-chunk emission rows; frames are
+    // contiguous across chunks so a plain append preserves the time axis.
     for (let off = 0; off < audio16k.length; off += CHUNK_SAMPLES) {
       const chunk = audio16k.subarray(off, Math.min(off + CHUNK_SAMPLES, audio16k.length))
       const inputs = await processor(chunk)

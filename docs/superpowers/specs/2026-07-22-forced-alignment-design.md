@@ -194,3 +194,35 @@ model-selection open question stays open: for JA we need a multilingual/phonetic
 JA readings onto a Latin/IPA vocab, or adopt an MMS CTC checkpoint that ports to ONNX). That is a
 Task-2+ concern; the transformers.js CTC-emissions capability that approach A depends on is
 **confirmed present**.
+
+### Bake-off result — NO-GO (approach A with the English CTC model)
+
+Built `forceAlignLines` (chunked CTC inference — whole-song self-attention is O(frames²) and
+hangs on a full song, so it processes ~30s chunks and concatenates emissions) and measured it vs
+human-synced LRC truth on the readable in-repo audio. Offset-normalized per-line start error,
+split by language:
+
+| song | forced EN p50 | forced JA p50 | baseline p50 |
+|---|---|---|---|
+| stranger (mixed) | **0.50s** (p90 5.61, 9 lines >3s) | **2.25s** | app-path 0.56s |
+| veil (pure JA)   | — | **10.79s** (p90 40.4) | 0.24s |
+
+**Verdict: NO-GO.** With the only loadable CTC model (`wav2vec2-base-960h`, English):
+1. It does **not beat** transcribe-then-match even on English (0.50s ≈ baseline 0.56s, with a
+   worse tail).
+2. It is **catastrophic on Japanese** — an English acoustic model cannot align JA audio, even
+   with romaji targets (veil p50 10.79s ≈ random). Since mixed songs are JA-heavy, this alone
+   kills the approach.
+3. A JA-capable / multilingual CTC model does not load via `AutoModelForCTC` in transformers.js
+   here (MMS base has no CTC head; xlsr-53 unauthorized).
+
+The cores (`viterbi.ts`, `normalize.ts`, `forcedAligner.ts`) and the harness are kept — they are
+correct and immediately reusable if a portable multilingual CTC model appears. But **approach A is
+not shippable now.**
+
+**Recommended next step:** the remaining candidate is **approach B (Whisper cross-attention forced
+alignment)**, which is inherently multilingual (the JA problem that killed A) and reuses the
+already-loaded Whisper model — but its transformers.js feasibility (teacher-forced decode +
+cross-attention extraction) is unspiked. That is a separate spike / Phase-1B before any app work.
+Alternatively, stop here: the shipped mixed-song improvements (forward-collapse fix, honest
+confidence, cross-pass consensus, default vocal isolation) stand on their own.
