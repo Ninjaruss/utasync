@@ -137,3 +137,36 @@ export function meanActivity(sig: VocalActivitySignal, startSec: number, endSec:
   for (let f = a; f < b; f++) sum += sig.activity[f]
   return sum / (b - a)
 }
+
+/** The strongest onset-envelope peak near targetSec. Searches
+ * [targetSec - maxBefore, targetSec + slackAfter) and returns the time of the
+ * frame with the highest onset strength >= minStrength, or null if none clears
+ * the bar. Used to pull a late line start back to the nearest genuine acoustic
+ * vocal onset, so the search reaches back before the target. */
+export function nearestOnset(
+  sig: VocalActivitySignal,
+  targetSec: number,
+  opts: { maxBefore: number; slackAfter: number; minStrength: number },
+): number | null {
+  if (sig.onset.length === 0) return null
+  const a = Math.max(0, Math.floor((targetSec - opts.maxBefore) / sig.hopSec))
+  const b = Math.min(sig.onset.length, Math.ceil((targetSec + opts.slackAfter) / sig.hopSec))
+  let bestF = -1
+  let best = opts.minStrength
+  for (let f = a; f < b; f++) {
+    if (sig.onset[f] >= best) { best = sig.onset[f]; bestF = f }
+  }
+  return bestF < 0 ? null : bestF * sig.hopSec
+}
+
+/** True when a genuine low-activity lull precedes onsetSec (a real phrase onset
+ * emerging from silence, not a mid-word bump): mean activity in
+ * [onsetSec - dipWindow, onsetSec) is below dipMaxActivity. */
+export function hasPreOnsetDip(
+  sig: VocalActivitySignal,
+  onsetSec: number,
+  opts: { dipWindow: number; dipMaxActivity: number },
+): boolean {
+  if (onsetSec - opts.dipWindow < 0) return false
+  return meanActivity(sig, onsetSec - opts.dipWindow, onsetSec) < opts.dipMaxActivity
+}

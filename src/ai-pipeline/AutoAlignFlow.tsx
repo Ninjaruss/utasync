@@ -23,7 +23,8 @@ import { isRecoverableTranscriptionError, classifyAlignError } from './workerErr
 import { resetWhisperTranscriber, transcribeAudio, type LoadProgress, type TranscribeProgressStatus } from './whisperTranscriber'
 import { DEMUCS_OUTPUT_SAMPLE_RATE, isDemucsModelAvailable, refreshDemucsModelAvailability, separateVocals } from './demucsSeparator'
 import { computeVocalActivity, firstVocalOnset } from './vocalActivity'
-import { anchorLeadingEdge } from '../lyrics/leadingEdgeAnchor'
+import { anchorLeadingEdge, backfillLateStartsToAcousticOnset } from '../lyrics/leadingEdgeAnchor'
+import { computeLineMatchedSpans } from './contentAligner'
 import { useSettingsStore } from '../payment/SettingsStore'
 import { yieldToMainThread } from '../core/idle'
 
@@ -458,6 +459,13 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           if (onset != null) {
             refined = { ...refined, lines: anchorLeadingEdge(refined.lines, onset, alignmentLanguage) }
           }
+          // Late-start complement: after fixing a crammed opening, pull any line
+          // whose start sits AFTER its true vocal onset back to the acoustic onset.
+          const spans = computeLineMatchedSpans(
+            refined.lines.map((l) => l.original || l.translation),
+            sanitizeTranscript(transcriptWords),
+          )
+          refined = { ...refined, lines: backfillLateStartsToAcousticOnset(refined.lines, spans, vocalSig) }
         } catch {
           /* acoustic anchor is best-effort — never fail the align over it */
         }
