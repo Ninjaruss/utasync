@@ -22,6 +22,8 @@ import { detectSheetLanguage } from './whisperLanguage'
 import { isRecoverableTranscriptionError, classifyAlignError } from './workerError'
 import { resetWhisperTranscriber, transcribeAudio, type LoadProgress, type TranscribeProgressStatus } from './whisperTranscriber'
 import { DEMUCS_OUTPUT_SAMPLE_RATE, isDemucsModelAvailable, refreshDemucsModelAvailability, separateVocals } from './demucsSeparator'
+import { computeVocalActivity, firstVocalOnset } from './vocalActivity'
+import { anchorLeadingEdge } from '../lyrics/leadingEdgeAnchor'
 import { useSettingsStore } from '../payment/SettingsStore'
 import { yieldToMainThread } from '../core/idle'
 
@@ -440,6 +442,25 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         setGapRecovery(null)
         refined = gap.refined
         transcriptWords = gap.transcriptWords
+      }
+
+      // Leading-edge onset anchor: if the aligner crammed the opening lines onto
+      // an instrumental intro (no content anchor there, so they interpolate to
+      // t=0), pull them forward to where the vocals actually begin. Stem-only —
+      // a mis-heard intro transcript can't locate the onset (round-7 early-start
+      // pull off transcript firstTime regressed; the acoustic envelope is the
+      // signal that was missing then). Best-effort and a no-op without a vocal
+      // stem, so non-isolated runs are byte-identical.
+      if (audioData && willSeparate) {
+        try {
+          const vocalSig = computeVocalActivity(audioData, sampleRate, { source: 'stem' })
+          const onset = firstVocalOnset(vocalSig)
+          if (onset != null) {
+            refined = { ...refined, lines: anchorLeadingEdge(refined.lines, onset, alignmentLanguage) }
+          }
+        } catch {
+          /* acoustic anchor is best-effort — never fail the align over it */
+        }
       }
 
       const updated: Song = {
