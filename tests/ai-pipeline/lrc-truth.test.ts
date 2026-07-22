@@ -128,4 +128,21 @@ describe('alignment vs human-synced LRC ground truth', () => {
     expect(m.p90).toBeLessThanOrEqual(7.8)   // measured 6.48 round 6 (was 7.86 → 9.5)
     expect(m.over1s).toBeLessThanOrEqual(24) // measured 20 round 6 (was 22 → 27)
   })
+
+  // Recollect (Re:Zero S4 OP, Konomi Suzuki feat. Ashnikko) — dense within-line
+  // JA/EN code-switching. Non-vocal-isolated transcripts, so error is high and
+  // transcription-bound; the consensus pass-selection recovered whole-section
+  // drift (mean 3.38 → 2.89s). Thresholds lock the current state as a ratchet.
+  it('recollect segment two-pass (mixed) stays within measured truth error', { timeout: 30_000 }, () => {
+    const { lineTexts, truthTime } = loadTruth('lrc-truth/recollect.json', 'recollect/lyrics.txt')
+    const ja = loadWords(join(FIXTURES, 'recollect/transcript.segment.json'))
+    const en = loadWords(join(FIXTURES, 'recollect/transcript.segment.forced-en.json'))
+    const sheetRows = lineTexts.map((original) => ({ original, translation: '', startTime: 0, endTime: 0 }))
+    const mixed = refineMixedLanguageAlignment(sheetRows, ja, en)
+    const m = truthMetrics(mixed.refined.lines, lineTexts, mixed.transcriptWords, truthTime)
+    expect(m.n).toBeGreaterThanOrEqual(40)         // measured 47
+    expect(m.p50).toBeLessThanOrEqual(2.2)         // measured 1.89 (consensus pass-selection; 2.1 without)
+    expect(m.p90).toBeLessThanOrEqual(7.0)         // measured 6.18
+    expect(m.over1s).toBeLessThanOrEqual(35)       // measured 32 — high: non-isolated transcript, transcription-bound
+  })
 })
