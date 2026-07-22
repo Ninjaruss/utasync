@@ -129,6 +129,21 @@ describe('alignment vs human-synced LRC ground truth', () => {
     expect(m.over1s).toBeLessThanOrEqual(24) // measured 20 round 6 (was 22 → 27)
   })
 
+  // veil — pure Japanese; the aligner's clean-JA case. Very accurate; tight
+  // thresholds lock it so a change tuned for hard mixed songs can't quietly
+  // regress the common single-language path.
+  it('veil (pure Japanese) stays within measured truth error', { timeout: 20_000 }, () => {
+    const { lineTexts, truthTime } = loadTruth('lrc-truth/veil.json', 'veil/lyrics.ja.txt')
+    const words = loadWords(join(FIXTURES, 'veil/transcript.words.json'))
+    const sheetRows = lineTexts.map((original) => ({ original, translation: '', startTime: 0, endTime: 0 }))
+    const refined = refineAlignmentWithPhrases(sheetRows, words, 'ja')
+    const m = truthMetrics(refined.lines, lineTexts, words, truthTime)
+    expect(m.n).toBeGreaterThanOrEqual(45)   // measured 48
+    expect(m.p50).toBeLessThanOrEqual(0.45)  // measured 0.24 — pure JA is very accurate
+    expect(m.p90).toBeLessThanOrEqual(1.3)   // measured 0.96
+    expect(m.over1s).toBeLessThanOrEqual(6)  // measured 4
+  })
+
   // Recollect (Re:Zero S4 OP, Konomi Suzuki feat. Ashnikko) — dense within-line
   // JA/EN code-switching. Non-vocal-isolated transcripts, so error is high and
   // transcription-bound; the consensus pass-selection recovered whole-section
