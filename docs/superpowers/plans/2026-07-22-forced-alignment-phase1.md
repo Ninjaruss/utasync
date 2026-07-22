@@ -10,6 +10,18 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-22-forced-alignment-design.md`
 
+> **Execution note (2026-07-22, after Task 1 spike):** GO on the mechanism, but the only
+> loadable CTC model is `Xenova/wav2vec2-base-960h` (English; uppercase A–Z vocab, blank id 0,
+> `|` word-sep id 4). Adaptations carried in the subagent dispatches: (a) `normalize`
+> **uppercases** text (the vocab is A–Z, not lowercase); JA lines are romanized (`toRomaji`,
+> a–z) → uppercased → fed to the *same* model — its quality on JA audio is **measured by the
+> bake-off, not assumed**; (b) Task 4 `CTC_MODEL = 'Xenova/wav2vec2-base-960h'`; (c) the
+> bake-off (Task 5) runs on the readable in-repo `public/e2e/stranger.mp3` (mixed JA/EN) +
+> `veil.mp3` (JA), since the sandbox blocks the Downloads mp3 and stranger has committed LRC
+> truth. If EN forced-align validates, resolve the multilingual/JA model (a portable MMS/JA
+> CTC checkpoint, or pivot to the inherently-multilingual Whisper-attention approach B) in a
+> follow-on.
+
 ---
 
 ## File Structure
