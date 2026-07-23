@@ -110,6 +110,116 @@ function align(em, frames, tokens) {
   return { tokFrame, unaligned: j }
 }
 
+/**
+ * Windowed alignment: align groups of lines sequentially inside BOUNDED audio
+ * windows advanced by a cursor, so a seam where the lyrics don't cover the audio
+ * can only corrupt its own group instead of cascading through the rest of the song
+ * (the failure this scorecard's monolithic baseline exhibits: p50 fine, p90 blown).
+ * Each window opens slightly before the cursor and is generous enough to absorb an
+ * instrumental break before the group's first sung line.
+ */
+function alignWindowed(em, frames, lineTokens, fps, opts) {
+  const GROUP = opts?.group ?? 4
+  const totalTokens = lineTokens.reduce((a, t) => a + t.length, 0)
+  const secPerTok = frames / fps / Math.max(1, totalTokens)
+  const lineTime = new Array(lineTokens.length).fill(null)
+  let cursor = 0
+  for (let g = 0; g < lineTokens.length; g += GROUP) {
+    const groupLines = lineTokens.slice(g, g + GROUP)
+    const toks = groupLines.flat()
+    if (!toks.length) continue
+    const expectedFrames = toks.length * secPerTok * fps
+    const startF = Math.max(0, cursor - Math.round(2 * fps))
+    const span = Math.max(Math.round(30 * fps), Math.round(expectedFrames * 4))
+    const endF = Math.min(frames, startF + span)
+    if (endF - startF < toks.length) continue
+    const sub = em.subarray(startF * V, endF * V)
+    const { tokFrame } = align(sub, endF - startF, toks)
+    let k = 0
+    for (let li = 0; li < groupLines.length; li++) {
+      if (groupLines[li].length && tokFrame[k] >= 0) lineTime[g + li] = (startF + tokFrame[k]) / fps
+      k += groupLines[li].length
+    }
+    const last = tokFrame[toks.length - 1]
+    cursor = last >= 0 ? startF + last + 1 : endF
+    if (opts?.debug) {
+      const first = tokFrame[0]
+      console.log(
+        `  grp${String(g).padStart(3)} toks=${String(toks.length).padStart(4)} ` +
+        `win=[${(startF / fps).toFixed(1)},${(endF / fps).toFixed(1)}]s ` +
+        `firstTok=${first >= 0 ? ((startF + first) / fps).toFixed(1) : '—'}s ` +
+        `lastTok=${last >= 0 ? ((startF + last) / fps).toFixed(1) : '—'}s ` +
+        `-> cursor=${(cursor / fps).toFixed(1)}s`,
+      )
+    }
+  }
+  return lineTime
+}
+
+/**
+ * Anchor-bounded re-alignment. Monolithic CTC nails the median but cascades at
+ * seams; naive cursor-windowing is WORSE because an open-ended window lets CTC
+ * smear tokens across it (blanks cost nothing) — the global token/audio density is
+ * exactly what makes the monolithic pass work. So keep that pass, score every line
+ * by how strongly the model actually saw its characters, then RE-ALIGN each run of
+ * low-confidence lines inside the frame range BOUNDED ON BOTH SIDES by trusted
+ * lines. Bounding both ends preserves the density constraint while containing a
+ * bad seam so it cannot cascade.
+ */
+function alignAnchored(em, frames, lineTokens, fps, opts) {
+  const flat = lineTokens.flat()
+  const lineStart = []
+  { let acc = 0; for (const lt of lineTokens) { lineStart.push(acc); acc += lt.length } }
+  const { tokFrame } = align(em, frames, flat)
+  const score = lineTokens.map((lt, i) => {
+    if (!lt.length) return -Infinity
+    let s = 0, n = 0
+    for (let k = 0; k < lt.length; k++) {
+      const f = tokFrame[lineStart[i] + k]
+      if (f >= 0) { s += em[f * V + lt[k]]; n++ }
+    }
+    return n ? s / n : -Infinity
+  })
+  const valid = score.filter((s) => Number.isFinite(s)).sort((a, b) => a - b)
+  const q = opts?.suspectQuantile ?? 0.4
+  const thresh = valid.length ? valid[Math.floor(q * valid.length)] : -Infinity
+  const trusted = score.map((s) => Number.isFinite(s) && s >= thresh)
+  const lineTime = lineTokens.map((lt, i) => (lt.length && tokFrame[lineStart[i]] >= 0 ? tokFrame[lineStart[i]] / fps : null))
+
+  let i = 0
+  let repaired = 0
+  while (i < lineTokens.length) {
+    if (trusted[i]) { i++; continue }
+    let a = i - 1
+    while (a >= 0 && !trusted[a]) a--
+    let b = i
+    while (b < lineTokens.length && !trusted[b]) b++
+    if (a < 0 || b >= lineTokens.length) { i = b + 1; continue } // unbracketed — leave alone
+    const f0 = tokFrame[lineStart[a]]
+    const f1 = tokFrame[lineStart[b]]
+    if (f0 >= 0 && f1 > f0) {
+      const seg = []
+      for (let li = a; li < b; li++) seg.push(...lineTokens[li])
+      if (seg.length && f1 - f0 >= seg.length) {
+        const sub = em.subarray(f0 * V, f1 * V)
+        const r = align(sub, f1 - f0, seg)
+        let k = 0
+        for (let li = a; li < b; li++) {
+          if (lineTokens[li].length && r.tokFrame[k] >= 0) lineTime[li] = (f0 + r.tokFrame[k]) / fps
+          k += lineTokens[li].length
+        }
+        repaired++
+      }
+    }
+    i = b + 1
+  }
+  if (opts?.debug) console.log(`  anchored: ${trusted.filter(Boolean).length}/${lineTokens.length} trusted, ${repaired} run(s) repaired`)
+  return lineTime
+}
+
+const ANCHORED = process.argv.includes('--anchored')
+const WINDOWED = process.argv.includes('--windowed')
+const GROUP_N = process.argv.indexOf('--group') >= 0 ? Number(process.argv[process.argv.indexOf('--group') + 1]) : 4
 const rows = []
 for (const s of SONGS) {
   if (only && s.name !== only) continue
@@ -117,10 +227,13 @@ for (const s of SONGS) {
   const lineTexts = readFileSync(s.lyrics, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean)
   const tokens = []
   const lineStart = []
+  const lineTokens = []
   for (const t of lineTexts) {
     const r = await romanize(t)
     lineStart.push(tokens.length)
-    for (const ch of r) { const id = CHAR2ID.get(ch); if (id != null) tokens.push(id) }
+    const per = []
+    for (const ch of r) { const id = CHAR2ID.get(ch); if (id != null) { tokens.push(id); per.push(id) } }
+    lineTokens.push(per)
   }
   const dec = await decodeMp3ToMono(s.audio)
   const ratio = dec.sampleRate / TARGET_SR
@@ -133,8 +246,17 @@ for (const s of SONGS) {
   const { em, frames } = await emissionsFor(audio)
   const fps = frames / (audio.length / TARGET_SR)
   if (frames < tokens.length) { console.log(`skip ${s.name} (audio shorter than token count)`); continue }
-  const { tokFrame, unaligned } = align(em, frames, tokens)
-  const lineTime = lineStart.map((k) => (tokFrame[k] >= 0 ? tokFrame[k] / fps : null))
+  let lineTime
+  let unaligned = 0
+  if (ANCHORED) {
+    lineTime = alignAnchored(em, frames, lineTokens, fps, { debug: process.argv.includes('--debug') })
+  } else if (WINDOWED) {
+    lineTime = alignWindowed(em, frames, lineTokens, fps, { group: GROUP_N, debug: process.argv.includes("--debug") })
+  } else {
+    const r = align(em, frames, tokens)
+    unaligned = r.unaligned
+    lineTime = lineStart.map((k) => (r.tokFrame[k] >= 0 ? r.tokFrame[k] / fps : null))
+  }
 
   const tj = JSON.parse(readFileSync(s.truth, 'utf8'))
   const truth = tj.syncedLyrics ? matchSheetToLrc(lineTexts, parseLrc(tj.syncedLyrics)) : lineTexts.map(() => null)
