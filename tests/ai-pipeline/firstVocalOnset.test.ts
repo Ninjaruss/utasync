@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { firstVocalOnset, detectInstrumentalGaps, type VocalActivitySignal } from '../../src/ai-pipeline/vocalActivity'
+import { firstVocalOnset, type VocalActivitySignal } from '../../src/ai-pipeline/vocalActivity'
 
 function makeSignal(
   activity: Float32Array,
@@ -42,41 +42,5 @@ describe('firstVocalOnset', () => {
   it('returns null on an empty signal', () => {
     const sig = makeSignal(new Float32Array(0), 'stem')
     expect(firstVocalOnset(sig)).toBeNull()
-  })
-})
-
-describe('detectInstrumentalGaps', () => {
-  it('detects an instrumental break between two voiced sections', () => {
-    // 0–3s voiced, 3–12s quiet (a 9s break), 12–20s voiced. hopSec 0.1.
-    const a = new Float32Array(200)
-    for (let f = 0; f < 30; f++) a[f] = 0.6
-    for (let f = 120; f < 200; f++) a[f] = 0.6
-    const gaps = detectInstrumentalGaps(makeSignal(a, 'stem'))
-    expect(gaps.length).toBe(1)
-    expect(gaps[0].start).toBeCloseTo(3, 1)
-    expect(gaps[0].end).toBeCloseTo(12, 1)
-  })
-
-  it('ignores breaks shorter than minGapSec (default 4s)', () => {
-    const a = filled(200, 0.6)
-    for (let f = 50; f < 70; f++) a[f] = 0 // 2s quiet
-    expect(detectInstrumentalGaps(makeSignal(a, 'stem')).length).toBe(0)
-  })
-
-  it('honors a custom minGapSec', () => {
-    const a = filled(200, 0.6)
-    for (let f = 50; f < 70; f++) a[f] = 0 // 2s quiet
-    expect(detectInstrumentalGaps(makeSignal(a, 'stem'), { minGapSec: 1.5 }).length).toBe(1)
-  })
-
-  it('finds multiple breaks', () => {
-    const a = filled(300, 0.6)
-    for (let f = 30; f < 90; f++) a[f] = 0 // 6s
-    for (let f = 180; f < 240; f++) a[f] = 0 // 6s
-    expect(detectInstrumentalGaps(makeSignal(a, 'stem')).length).toBe(2)
-  })
-
-  it('empty signal → no gaps', () => {
-    expect(detectInstrumentalGaps(makeSignal(new Float32Array(0), 'stem'))).toEqual([])
   })
 })

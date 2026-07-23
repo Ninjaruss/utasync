@@ -127,36 +127,6 @@ export function firstVocalOnset(
   return null
 }
 
-/**
- * Instrumental gaps: contiguous spans where vocal activity stays below
- * VOICED_THRESHOLD for at least `minGapSec`. Each gap's `end` is the acoustic
- * onset of the vocal section that follows it — the anchor for a focused re-pass of
- * that section. Distinct from firstVocalOnset (which returns only the FIRST, gated
- * by a sustained voiced run): this enumerates EVERY instrumental break so an
- * interior verse/chorus re-entry can be re-anchored too. Trustworthy on a 'stem'
- * source; callers gate on that. Empty signal → no gaps.
- */
-export function detectInstrumentalGaps(
-  sig: VocalActivitySignal,
-  opts?: { minGapSec?: number },
-): { start: number; end: number }[] {
-  const minGap = opts?.minGapSec ?? 4.0
-  const gaps: { start: number; end: number }[] = []
-  if (sig.activity.length === 0) return gaps
-  let runStart = -1
-  for (let f = 0; f <= sig.activity.length; f++) {
-    const quiet = f < sig.activity.length && sig.activity[f] < VOICED_THRESHOLD
-    if (quiet && runStart < 0) runStart = f
-    else if (!quiet && runStart >= 0) {
-      const t0 = runStart * sig.hopSec
-      const t1 = f * sig.hopSec
-      if (t1 - t0 >= minGap) gaps.push({ start: t0, end: t1 })
-      runStart = -1
-    }
-  }
-  return gaps
-}
-
 /** Mean activity over [startSec, endSec). */
 export function meanActivity(sig: VocalActivitySignal, startSec: number, endSec: number): number {
   if (sig.activity.length === 0 || endSec <= startSec) return 0

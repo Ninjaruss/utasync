@@ -22,8 +22,7 @@ import { detectSheetLanguage } from './whisperLanguage'
 import { isRecoverableTranscriptionError, classifyAlignError } from './workerError'
 import { resetWhisperTranscriber, transcribeAudio, type LoadProgress, type TranscribeProgressStatus } from './whisperTranscriber'
 import { DEMUCS_OUTPUT_SAMPLE_RATE, isDemucsModelAvailable, refreshDemucsModelAvailability, separateVocals } from './demucsSeparator'
-import { computeVocalActivity, firstVocalOnset, type VocalActivitySignal } from './vocalActivity'
-import { reanalyzeLateSections } from '../lyrics/lateSectionReanchor'
+import { computeVocalActivity, firstVocalOnset } from './vocalActivity'
 import { anchorLeadingEdge, backfillLateStartsToAcousticOnset } from '../lyrics/leadingEdgeAnchor'
 import { computeLineMatchedSpans } from './contentAligner'
 import { applyLrcPrior } from '../lyrics/lrcPrior'
@@ -409,9 +408,6 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
       // it, keeping the result only if it strictly improves. Both the mixed and
       // single-language branches above feed their assigned refined/transcriptWords
       // here. Fresh-Auto-align only (re-refine in PlayerView has no audioData).
-      // Shared by the gap re-pass and the stem-only late-section re-anchor below,
-      // so the slice Whisper model loads at most once.
-      let sliceTx: ReturnType<typeof createSliceTranscriber> | null = null
       if (!cancelledRef.current) {
         // Re-use the main pass's exact progress callbacks (language-independent) so
         // the slice transcriber updates the UI the same way the main passes do. It
@@ -420,7 +416,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         // main passes.
         const { onLoadProgress: sliceLoadProgress, onTranscribeProgress: sliceTranscribeProgress } =
           transcribeOptions(alignmentLanguage, (p) => p)
-        sliceTx = createSliceTranscriber({
+        const sliceTx = createSliceTranscriber({
           audioData,
           sampleRate,
           isCancelled: () => cancelledRef.current,
@@ -478,18 +474,9 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
       // pull off transcript firstTime regressed; the acoustic envelope is the
       // signal that was missing then). Best-effort and a no-op without a vocal
       // stem, so non-isolated runs are byte-identical.
-      // The stem vocal-activity envelope, computed once and shared by the acoustic
-      // anchors and the late-section re-pass. Null without a vocal stem.
-      let vocalSig: VocalActivitySignal | null = null
       if (audioData && willSeparate) {
         try {
-          vocalSig = computeVocalActivity(audioData, sampleRate, { source: 'stem' })
-        } catch {
-          vocalSig = null
-        }
-      }
-      if (audioData && willSeparate && vocalSig) {
-        try {
+          const vocalSig = computeVocalActivity(audioData, sampleRate, { source: 'stem' })
           const onset = firstVocalOnset(vocalSig)
           // Content-match spans double as the leading-edge anchor's trust signal
           // (which opening lines are real content vs interpolated filler) and the
@@ -507,34 +494,6 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           refined = { ...refined, lines: backfillLateStartsToAcousticOnset(refined.lines, spans, vocalSig) }
         } catch {
           /* acoustic anchor is best-effort — never fail the align over it */
-        }
-      }
-
-      // Late section-entry re-anchor: a section whose lines content-match but sit
-      // several seconds LATE (Whisper's one full-song pass mis-timed the segment
-      // coming out of an instrumental break) is invisible to the gap re-pass, which
-      // only chases needs_review holes. For each instrumental gap the envelope
-      // reports, re-transcribe a focused ≤30s window that opens inside the break and
-      // pull the section's late starts to the fresh word onsets (accept-if-earlier
-      // only — can never make a start worse). Stem-only and best-effort.
-      if (audioData && willSeparate && vocalSig && sliceTx && !cancelledRef.current) {
-        try {
-          const late = await reanalyzeLateSections({
-            refined,
-            sheetRows,
-            alignmentLanguage,
-            sourceLanguage: song.lyrics.sourceLanguage,
-            vocalSig,
-            transcribeSlice: sliceTx.transcribe,
-            isCancelled: () => cancelledRef.current,
-            onProgress: (n) =>
-              setGapRecovery(n > 0 ? `Refining ${n} section${n === 1 ? '' : 's'}…` : null),
-          })
-          if (cancelledRef.current) return
-          setGapRecovery(null)
-          refined = late.refined
-        } catch {
-          /* best-effort — never fail the align over the late-section re-pass */
         }
       }
 
