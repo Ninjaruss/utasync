@@ -91,4 +91,18 @@ describe('anchorLeadingEdge', () => {
     const out = anchorLeadingEdge(lines, 2.2, 'en')
     expect(out[0].startTime).toBe(14.8)
   })
+
+  it('does not re-spread a content-matched early opening onto a later re-entry onset', () => {
+    // Real case ("Going My Way"): the song starts singing at ~0.5s (line 0 has a
+    // strong content match there), breaks to an instrumental, then the verse
+    // enters at ~23s. firstVocalOnset reports the *verse* entry as the onset, but
+    // the opening is genuine early vocals — NOT an interpolated intro-cram — so it
+    // must be left where its content match placed it, not yanked forward onto 23s.
+    // Symmetric to the displacement>0 content-trust guard above.
+    const lines = [line('opening', 0.5, 6), line('bridge', 6.7, 10), line('verse', 29, 31)]
+    const spans = [span(6, 6, 0.5, 6), span(1, 6, 6.7, 10), span(6, 6, 29, 31)]
+    const out = anchorLeadingEdge(lines, 23.15, 'ja', { spans })
+    expect(out[0].startTime).toBeCloseTo(0.5)
+    expect(out[1].startTime).toBeCloseTo(6.7)
+  })
 })

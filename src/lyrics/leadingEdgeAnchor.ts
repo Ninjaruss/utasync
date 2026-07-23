@@ -42,6 +42,15 @@ export function anchorLeadingEdge(
 
   let boundIdx = -1
   if (displacement < 0) {
+    // Crammed BEFORE the onset. But a content-matched opening is genuine early
+    // vocals — the song starts singing, breaks to an instrumental, then re-enters
+    // at `onset` — NOT interpolated intro-cram, so leave it where its content match
+    // placed it. Symmetric to the displacement>0 content-trust guard below; without
+    // it, a song that opens on vocals and then has a mid-intro instrumental gets its
+    // opening yanked forward onto the later re-entry onset (e.g. line 0 pulled from
+    // 0.5s to 23s when firstVocalOnset reports the verse entry rather than the true
+    // leading edge).
+    if (spans && coverage(firstIdx) >= MIN_COV) return lines
     // Crammed BEFORE the onset: bound with the first line at/after the onset.
     for (let j = firstIdx + 1; j < lines.length; j++) {
       if (lines[j].startTime >= onsetTime) {
