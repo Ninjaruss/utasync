@@ -44,6 +44,23 @@ export function parseLRC(lrc: string): TimedLine[] {
   }))
 }
 
+/**
+ * True when the text looks like a timed LRC: at least two lines begin with a
+ * valid [mm:ss.xx] time tag. Reuses TIMESTAMP_RE so detection and parseLRC can
+ * never disagree. The >=2 threshold avoids false-triggering on a single stray
+ * bracketed timecode inside otherwise plain lyrics.
+ */
+export function hasLrcTimestamps(text: string): boolean {
+  let count = 0
+  for (const raw of text.split('\n')) {
+    if (TIMESTAMP_RE.test(raw.trim())) {
+      count += 1
+      if (count >= 2) return true
+    }
+  }
+  return false
+}
+
 export function parseLRCPair(originalLRC: string, translationLRC: string): TimedLine[] {
   const origLines = parseLRC(originalLRC)
   const transLines = parseLRC(translationLRC)

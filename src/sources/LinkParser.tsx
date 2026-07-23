@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, type ChangeEvent } from 'react'
 import { fetchYouTubeMeta } from './youtube'
 import { resolveLyricsForSong, lyricsSourceLabel, type LyricsResolveFoundSource, type ResolveLyricsStage } from './lyricsResolver'
 import { db } from '../core/db/schema'
-import { buildSong, linesFromPlainText, type BuildSongInput } from './songBuilder'
+import { buildSong, linesFromPaste, type BuildSongInput } from './songBuilder'
+import { LrcTimingNotice } from '../lyrics/LrcTimingNotice'
 import { detectLanguage } from '../lyrics/bilingual'
 import { ingestAudioFile } from './audioIngest'
 import { resolveCoverArt } from './coverArt'
@@ -57,6 +58,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
   const [metaLoaded, setMetaLoaded] = useState(false)
   const [lyricsPhase, setLyricsPhase] = useState<LyricsPhase>({ kind: 'idle' })
   const [pasted, setPasted] = useState('')
+  const [ignoreLrcTimings, setIgnoreLrcTimings] = useState(false)
   const [subtitleFile, setSubtitleFile] = useState<File | null>(null)
   const [metadataLoading, setMetadataLoading] = useState(false)
   const [saveProgress, setSaveProgress] = useState<{ phase: LinkSavePhase; includeAudio: boolean; taskProgress?: number | null } | null>(null)
@@ -166,7 +168,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
   async function resolveLines(): Promise<TimedLine[] | null> {
     if (lyricsPhase.kind === 'found') return lyricsPhase.lines
     if (lyricsPhase.kind === 'manual') {
-      if (lyricsPhase.source === 'paste') return linesFromPlainText(pasted)
+      if (lyricsPhase.source === 'paste') return linesFromPaste(pasted, { ignoreLrcTimings })
       if (!subtitleFile) {
         setError('Choose a subtitle file or paste lyrics instead.')
         return null
@@ -411,13 +413,20 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
                   <p className="text-white/35 text-xs text-pretty">No match in captions or the lyrics database — paste lyrics or choose a subtitle file.</p>
                   {skipSearchButtons}
                   {lyricsPhase.source === 'paste' && (
-                    <textarea
-                      value={pasted}
-                      onChange={(e) => setPasted(e.target.value)}
-                      placeholder="Paste lyrics, one line per row…"
-                      rows={embedded ? 8 : 6}
-                      className={[fieldClass, embedded ? 'flex-1 min-h-[7rem] resize-none' : ''].join(' ')}
-                    />
+                    <>
+                      <textarea
+                        value={pasted}
+                        onChange={(e) => { setPasted(e.target.value); setIgnoreLrcTimings(false) }}
+                        placeholder="Paste lyrics, one line per row…"
+                        rows={embedded ? 8 : 6}
+                        className={[fieldClass, embedded ? 'flex-1 min-h-[7rem] resize-none' : ''].join(' ')}
+                      />
+                      <LrcTimingNotice
+                        pasted={pasted}
+                        ignored={ignoreLrcTimings}
+                        onAlignFromScratch={() => setIgnoreLrcTimings(true)}
+                      />
+                    </>
                   )}
                   {lyricsPhase.source === 'subtitle' && (
                     <label className={fileLabelClass}>

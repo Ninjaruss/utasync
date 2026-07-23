@@ -2,7 +2,8 @@
 import { useState, useEffect, useRef, type ChangeEvent } from 'react'
 import { db } from '../core/db/schema'
 import { ingestAudioFile } from './audioIngest'
-import { buildSong, linesFromPlainText } from './songBuilder'
+import { buildSong, linesFromPlainText, linesFromPaste } from './songBuilder'
+import { LrcTimingNotice } from '../lyrics/LrcTimingNotice'
 import { findLyrics, type FindLyricsStage, type LyricsLookupMatch } from './lrclib'
 import { detectLanguage } from '../lyrics/bilingual'
 import type { Language } from '../core/types'
@@ -85,6 +86,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
   const [filenameAmbiguous, setFilenameAmbiguous] = useState(false)
   const [lyricsPhase, setLyricsPhase] = useState<LyricsPhase>({ kind: 'idle' })
   const [pasted, setPasted] = useState('')
+  const [ignoreLrcTimings, setIgnoreLrcTimings] = useState(false)
   const [subtitleFile, setSubtitleFile] = useState<File | null>(null)
   const [saveProgress, setSaveProgress] = useState<{ phase: UploadSavePhase; taskProgress?: number | null } | null>(null)
   const [lyricSearchStage, setLyricSearchStage] = useState<FindLyricsStage | null>(null)
@@ -200,7 +202,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
   async function resolveLines(): Promise<TimedLine[] | null> {
     if (lyricsPhase.kind === 'found') return lyricsPhase.lines
     if (lyricsPhase.kind === 'manual') {
-      if (lyricsPhase.source === 'paste') return linesFromPlainText(pasted)
+      if (lyricsPhase.source === 'paste') return linesFromPaste(pasted, { ignoreLrcTimings })
       if (!subtitleFile) {
         setError('Choose a subtitle file or paste lyrics instead.')
         return null
@@ -442,13 +444,20 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
                 {skipSearchButtons}
 
                 {lyricsPhase.source === 'paste' && (
-                  <textarea
-                    value={pasted}
-                    onChange={(e) => setPasted(e.target.value)}
-                    placeholder="Paste lyrics, one line per row…"
-                    rows={embedded ? 8 : 6}
-                    className={[fieldClass, embedded ? 'flex-1 min-h-[7rem] resize-none' : ''].join(' ')}
-                  />
+                  <>
+                    <textarea
+                      value={pasted}
+                      onChange={(e) => { setPasted(e.target.value); setIgnoreLrcTimings(false) }}
+                      placeholder="Paste lyrics, one line per row…"
+                      rows={embedded ? 8 : 6}
+                      className={[fieldClass, embedded ? 'flex-1 min-h-[7rem] resize-none' : ''].join(' ')}
+                    />
+                    <LrcTimingNotice
+                      pasted={pasted}
+                      ignored={ignoreLrcTimings}
+                      onAlignFromScratch={() => setIgnoreLrcTimings(true)}
+                    />
+                  </>
                 )}
 
                 {lyricsPhase.source === 'subtitle' && (
