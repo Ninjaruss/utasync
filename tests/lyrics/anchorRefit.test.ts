@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { refitAroundAnchors, type TimingAnchor } from '../../src/lyrics/anchorRefit'
+import { refitAroundAnchors, selectAnchorTargets, type TimingAnchor } from '../../src/lyrics/anchorRefit'
 import type { TimedLine } from '../../src/core/types'
 
 const line = (original: string, startTime: number, endTime = startTime + 2): TimedLine => ({
@@ -75,5 +75,33 @@ describe('refitAroundAnchors', () => {
     ]
     const out = refitAroundAnchors(lines, anchors, 'ja')
     expect(out[1].startTime).toBe(5)
+  })
+})
+
+describe('selectAnchorTargets', () => {
+  const L = (n: number) => Array.from({ length: n }, (_, i) => line(`L${i}`, i))
+
+  it('picks uncertain lines worst-first, capped', () => {
+    const lines = L(5)
+    const q = ['good', 'approximate', 'needs_review', 'good', 'approximate'] as const
+    // needs_review (#2) before approximate (#1,#4); capped at 2, returned in order
+    expect(selectAnchorTargets(lines, [...q], { max: 2 })).toEqual([1, 2])
+  })
+
+  it('skips blank rows, good lines, and already-anchored lines', () => {
+    const lines = [line('A', 0), line('', 1), line('C', 2), line('D', 3)]
+    const q = ['approximate', 'needs_review', 'approximate', 'good'] as const
+    expect(selectAnchorTargets(lines, [...q], { alreadyAnchored: [2] })).toEqual([0]) // #1 blank, #2 anchored, #3 good
+  })
+
+  it('promotes section entries within a tier', () => {
+    const lines = L(4)
+    const q = ['approximate', 'approximate', 'approximate', 'good'] as const
+    // all approximate; #2 is a section entry → it ranks first, so with max=1 it wins
+    expect(selectAnchorTargets(lines, [...q], { max: 1, sectionEntry: [2] })).toEqual([2])
+  })
+
+  it('returns [] when there is no quality signal', () => {
+    expect(selectAnchorTargets(L(3), undefined)).toEqual([])
   })
 })

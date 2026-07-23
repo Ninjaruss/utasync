@@ -80,3 +80,30 @@ export function refitAroundAnchors(
   enforceLineMonotonicity(out)
   return out
 }
+
+/**
+ * The few lines to ask the user to tap: the ones the aligner is least sure of,
+ * worst first (`needs_review` before `approximate`), skipping blank rows and any
+ * line already user-anchored. Capped so the ask stays small — the point is
+ * "tap 3 spots", not "re-time the song". Returns line indices in playback order.
+ *
+ * A `sectionEntry` set (line indices that open a vocal section after an
+ * instrumental break — the high-leverage spots) promotes those within each tier,
+ * since anchoring a section entry is what most tightens the surrounding lines.
+ */
+export function selectAnchorTargets(
+  lines: TimedLine[],
+  quality: (LineAlignmentQuality | undefined)[] | undefined,
+  opts?: { max?: number; alreadyAnchored?: Iterable<number>; sectionEntry?: Iterable<number> },
+): number[] {
+  if (!quality?.length) return []
+  const max = opts?.max ?? 4
+  const anchored = new Set(opts?.alreadyAnchored ?? [])
+  const entries = new Set(opts?.sectionEntry ?? [])
+  const tier = (q: LineAlignmentQuality | undefined) => (q === 'needs_review' ? 0 : q === 'approximate' ? 1 : 2)
+  const cand = lines
+    .map((l, i) => ({ i, t: tier(quality[i]), text: (l.original || l.translation).trim() }))
+    .filter((c) => c.text.length > 0 && c.t < 2 && !anchored.has(c.i))
+    .sort((a, b) => a.t - b.t || (entries.has(b.i) ? 1 : 0) - (entries.has(a.i) ? 1 : 0) || a.i - b.i)
+  return cand.slice(0, max).map((c) => c.i).sort((a, b) => a - b)
+}
