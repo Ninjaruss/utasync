@@ -540,7 +540,7 @@ const LATESTART_MAX_CONTAINER_S = 8
  * well-covered line whose assigned start sits well after its first matched
  * glyph is late, full stop. Ownership guard: never pull into audio the
  * previous line's own matched span still claims. */
-function backfillLateStartsToMatchedSpan(
+export function backfillLateStartsToMatchedSpan(
   lines: TimedLine[],
   clean: TranscriptWord[],
   spans: LineSpans,

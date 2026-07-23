@@ -43,9 +43,11 @@ const { reanalyzeGaps } = await imp('src/ai-pipeline/gapReanalyze.ts')
 const { detectSheetLanguage } = await imp('src/ai-pipeline/whisperLanguage.ts')
 const { chunksToWords } = await imp('src/ai-pipeline/transcriptChunks.ts')
 const { computeLineMatchedSpans } = await imp('src/ai-pipeline/contentAligner.ts')
-const { computeVocalActivity, firstVocalOnset } = await imp('src/ai-pipeline/vocalActivity.ts')
+const { computeVocalActivity, firstVocalOnset, detectInstrumentalGaps } = await imp('src/ai-pipeline/vocalActivity.ts')
 const { anchorLeadingEdge, backfillLateStartsToAcousticOnset, snapLeadingVerseToOnset } = await imp('src/lyrics/leadingEdgeAnchor.ts')
+const { reanalyzeLateSections } = await imp('src/lyrics/lateSectionReanchor.ts')
 const SNAP_VERSE = process.argv.includes('--snap-verse') // EXPERIMENTAL: not wired into AutoAlignFlow
+const NO_LATE = process.argv.includes('--no-late') // disable the late-section re-pass
 const { parseLrc, matchSheetToLrc } = await imp('scripts/lib/lrcTruth.mjs')
 
 const langName = (l) => (l === 'ja' ? 'japanese' : l === 'en' ? 'english' : 'auto')
@@ -77,12 +79,12 @@ if (alignmentLanguage === 'mixed') {
   refined = refineAlignmentWithPhrases(sheetRows, words, alignmentLanguage)
 }
 
+const transcribeSlice = async (s0, s1, lang, promptText) => {
+  const slice = vocals.subarray(Math.floor(s0 * STEM_SR), Math.floor(s1 * STEM_SR))
+  const tr = await transcribeAudio(slice, STEM_SR, { language: langName(lang), timestampMode: 'segment', model, promptText })
+  return chunksToWords(tr).map((w) => ({ ...w, startTime: w.startTime + s0, endTime: w.endTime + s0 }))
+}
 if (!NO_GAP) {
-  const transcribeSlice = async (s0, s1, lang, promptText) => {
-    const slice = vocals.subarray(Math.floor(s0 * STEM_SR), Math.floor(s1 * STEM_SR))
-    const tr = await transcribeAudio(slice, STEM_SR, { language: langName(lang), timestampMode: 'segment', model, promptText })
-    return chunksToWords(tr).map((w) => ({ ...w, startTime: w.startTime + s0, endTime: w.endTime + s0 }))
-  }
   const gap = await reanalyzeGaps({
     refined, transcriptWords, sheetRows, alignmentLanguage, sourceLanguage: 'ja',
     transcribeSlice, onProgress: (n) => n > 0 && console.log(`  gap re-pass: ${n} section(s)…`),
@@ -105,7 +107,20 @@ if (!NO_ANCHOR) {
   refined = { ...refined, lines: backfillLateStartsToAcousticOnset(refined.lines, spans, vocalSig) }
   onsetInfo = onset == null ? 'null (no clean intro→onset)' : `${onset.toFixed(2)}s`
 }
-console.log(`firstVocalOnset=${onsetInfo}; total ${(performance.now() - t0).toFixed(0)}ms`)
+console.log(`firstVocalOnset=${onsetInfo}`)
+
+if (!NO_LATE) {
+  const vocalSig = computeVocalActivity(vocals, STEM_SR, { source: 'stem' })
+  const gaps = detectInstrumentalGaps(vocalSig)
+  console.log(`late-section re-pass: gaps=${gaps.map((g) => `${g.start.toFixed(0)}-${g.end.toFixed(0)}`).join(',')}`)
+  const late = await reanalyzeLateSections({
+    refined, sheetRows, alignmentLanguage, sourceLanguage: 'ja', vocalSig, transcribeSlice,
+    onProgress: (n) => n > 0 && console.log(`  re-timing ${n} gap section(s)…`),
+  })
+  refined = late.refined
+  console.log(`late-section starts pulled earlier: ${late.changedCount}`)
+}
+console.log(`total ${(performance.now() - t0).toFixed(0)}ms`)
 
 // --- score vs truth (synced LRC {syncedLyrics} or caption onsets {onsets:[{idx,onset,shared?}]}) ---
 const truthJson = JSON.parse(readFileSync(truthPath, 'utf8'))
