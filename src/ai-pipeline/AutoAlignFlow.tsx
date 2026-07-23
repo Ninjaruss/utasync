@@ -25,6 +25,7 @@ import { DEMUCS_OUTPUT_SAMPLE_RATE, isDemucsModelAvailable, refreshDemucsModelAv
 import { computeVocalActivity, firstVocalOnset } from './vocalActivity'
 import { anchorLeadingEdge, backfillLateStartsToAcousticOnset } from '../lyrics/leadingEdgeAnchor'
 import { computeLineMatchedSpans } from './contentAligner'
+import { applyLrcPrior } from '../lyrics/lrcPrior'
 import { useSettingsStore } from '../payment/SettingsStore'
 import { yieldToMainThread } from '../core/idle'
 
@@ -443,6 +444,27 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         setGapRecovery(null)
         refined = gap.refined
         transcriptWords = gap.transcriptWords
+      }
+
+      // LRC-prior guardrail: when the song already carries timing (a pasted LRC,
+      // a subtitle, or a prior alignment), use it as a monotonic prior so a
+      // confident-but-wrong transcript match can't drop a line onto entirely
+      // different content. Pure — needs no audio/stem — and a no-op for
+      // plain-text songs (all startTimes 0), so freshly-added untimed songs and
+      // the offline corpus are byte-identical. Runs before the acoustic onset
+      // anchor so that pass sharpens the opening within the prior.
+      {
+        const priorTimes = song.lyrics.lines.map((l) => l.startTime)
+        const hasPrior =
+          priorTimes.length === refined.lines.length &&
+          priorTimes.filter((t) => t > 0).length >= Math.ceil(priorTimes.length / 2)
+        if (hasPrior) {
+          const priorSpans = computeLineMatchedSpans(
+            refined.lines.map((l) => l.original || l.translation),
+            sanitizeTranscript(transcriptWords),
+          )
+          refined = { ...refined, lines: applyLrcPrior(refined.lines, priorSpans, priorTimes) }
+        }
       }
 
       // Leading-edge onset anchor: if the aligner crammed the opening lines onto
