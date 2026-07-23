@@ -68,8 +68,29 @@ export function stripInlineFurigana(line: string): string {
  * block runs from its marker to the next section header (bounded to a short
  * lookahead so a stray marker can never eat the rest of the song).
  */
+/**
+ * A run of leading LRC time tags: [mm:ss], [mm:ss.xx], [mm:ss.xxx] (also a
+ * lone-digit variant like [m:s]), optionally several in a row and with
+ * surrounding spaces — the standard karaoke/LRC line prefix. Only the
+ * digit:digit shape matches, so word-metadata tags ([ar:...], [ti:...]) are left
+ * for the whole-line header filter, and a mid-line bracket like "[midnight]" is
+ * untouched because the match is anchored to the start of the line.
+ */
+const LEADING_LRC_TAGS_RE = /^(?:\s*\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\]\s*)+/
+
+/**
+ * Strip the LRC time tag(s) that prefix a lyric line, keeping the lyric text so
+ * a pasted `.lrc` file aligns from scratch like any plain-text paste. A line that
+ * is ONLY a time tag (an LRC anchor/blank line) collapses to empty and is dropped
+ * downstream. Lines without a leading time tag are returned unchanged.
+ */
+export function stripLrcTimestamps(line: string): string {
+  const m = line.match(LEADING_LRC_TAGS_RE)
+  return m ? line.slice(m[0].length) : line
+}
+
 export function cleanPastedLyrics(text: string): string {
-  const lines = text.split('\n')
+  const lines = text.split('\n').map(stripLrcTimestamps)
   const kept: string[] = []
   const RECOMMENDATION_LOOKAHEAD = 12
 
