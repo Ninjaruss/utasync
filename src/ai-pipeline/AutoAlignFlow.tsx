@@ -456,15 +456,19 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         try {
           const vocalSig = computeVocalActivity(audioData, sampleRate, { source: 'stem' })
           const onset = firstVocalOnset(vocalSig)
-          if (onset != null) {
-            refined = { ...refined, lines: anchorLeadingEdge(refined.lines, onset, alignmentLanguage) }
-          }
-          // Late-start complement: after fixing a crammed opening, pull any line
-          // whose start sits AFTER its true vocal onset back to the acoustic onset.
+          // Content-match spans double as the leading-edge anchor's trust signal
+          // (which opening lines are real content vs interpolated filler) and the
+          // late-start snapper's coverage gate. Text→transcript matching only, so
+          // position-independent — computing once before either pass is correct.
           const spans = computeLineMatchedSpans(
             refined.lines.map((l) => l.original || l.translation),
             sanitizeTranscript(transcriptWords),
           )
+          if (onset != null) {
+            refined = { ...refined, lines: anchorLeadingEdge(refined.lines, onset, alignmentLanguage, { spans }) }
+          }
+          // Late-start complement: after fixing a crammed opening, pull any line
+          // whose start sits AFTER its true vocal onset back to the acoustic onset.
           refined = { ...refined, lines: backfillLateStartsToAcousticOnset(refined.lines, spans, vocalSig) }
         } catch {
           /* acoustic anchor is best-effort — never fail the align over it */

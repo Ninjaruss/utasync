@@ -6,36 +6,63 @@ import { computeLineMatchedSpans } from '../ai-pipeline/contentAligner'
 
 const MIN_HIGHLIGHT_S = 1.2
 
-/** When the aligner has crammed the opening lines onto an instrumental intro
- * (first sung line starts well BEFORE the detected vocal onset), pin the opening
- * to `onsetTime` and re-spread the crammed leading lines forward, by singing
- * weight, up to the first line already placed at/after the onset. Start-only;
- * conservative — no-op unless the first line is at least MIN_GAP before the onset
- * AND there is a later line to bound the re-spread. Returns a new lines array. */
+/** Pin the opening lines to the detected first vocal onset and re-spread the
+ * displaced leading lines (by singing weight) into the gap. Bidirectional:
+ *  - Opening crammed BEFORE the onset (onto an instrumental intro): bound the
+ *    re-spread with the first line already placed at/after the onset.
+ *  - Opening shifted well AFTER the onset (interpolated late because the aligner
+ *    found no content anchor for the intro): bound it with the first
+ *    content-trusted line (a matched span) — REQUIRES `opts.spans`, since without
+ *    them a displaced late opening is indistinguishable from a song that
+ *    genuinely starts singing late. A first line that itself carries a content
+ *    match is treated as trustworthy and left alone (never yanked to a false
+ *    early onset). Start-only; conservative — no-op unless the first line is at
+ *    least MIN_GAP off the onset AND a bounding line exists. Returns a new array. */
 export function anchorLeadingEdge(
   lines: TimedLine[],
   onsetTime: number,
   sourceLanguage: AlignmentLanguage,
-  opts?: { minGapSec?: number },
+  opts?: { minGapSec?: number; spans?: ReturnType<typeof computeLineMatchedSpans>; minCoverage?: number },
 ): TimedLine[] {
   const MIN_GAP = opts?.minGapSec ?? 3.0
+  const MIN_COV = opts?.minCoverage ?? 0.5
+  const spans = opts?.spans
   const lineText = (l: TimedLine) => (l.original || l.translation).trim()
+  const coverage = (i: number) => {
+    const s = spans?.[i]
+    return s ? s.matchedChars / Math.max(1, s.totalChars) : 0
+  }
 
   const firstIdx = lines.findIndex((l) => lineText(l).length > 0)
   if (firstIdx === -1) return lines
 
-  // Not crammed before the onset — leave it alone.
-  if (onsetTime - lines[firstIdx].startTime < MIN_GAP) return lines
+  const displacement = lines[firstIdx].startTime - onsetTime // <0 crammed early, >0 late
+  // First line already sits near the onset — nothing displaced.
+  if (Math.abs(displacement) < MIN_GAP) return lines
 
-  // Find the first line already placed at/after the onset to bound the re-spread.
   let boundIdx = -1
-  for (let j = firstIdx + 1; j < lines.length; j++) {
-    if (lines[j].startTime >= onsetTime) {
-      boundIdx = j
-      break
+  if (displacement < 0) {
+    // Crammed BEFORE the onset: bound with the first line at/after the onset.
+    for (let j = firstIdx + 1; j < lines.length; j++) {
+      if (lines[j].startTime >= onsetTime) {
+        boundIdx = j
+        break
+      }
+    }
+  } else {
+    // Shifted AFTER the onset. Needs content trust to separate a displaced
+    // interpolated opening from a genuinely-late first sung line.
+    if (!spans) return lines
+    // A content-matched first line is trustworthy where it is — don't pull it back.
+    if (coverage(firstIdx) >= MIN_COV) return lines
+    for (let j = firstIdx + 1; j < lines.length; j++) {
+      if (coverage(j) >= MIN_COV && lines[j].startTime >= onsetTime + MIN_GAP) {
+        boundIdx = j
+        break
+      }
     }
   }
-  if (boundIdx === -1) return lines // degenerate: whole song before onset
+  if (boundIdx === -1) return lines // no bounding line — leave it alone
 
   const out = lines.map((l) => ({ ...l }))
   const span = out[boundIdx].startTime - onsetTime
