@@ -154,3 +154,90 @@ export function backfillLateStartsToAcousticOnset(
   }
   return out
 }
+
+/**
+ * Snap the first sung line at/after a high-confidence post-intro vocal onset back
+ * to that onset when the transcript placed it several seconds late.
+ *
+ * The complement to anchorLeadingEdge (which anchors the OPENING) and
+ * backfillLateStartsToAcousticOnset (capped at 2s, and its nearestOnset picks the
+ * LOUDEST onset in-window — the late verse body — not this earliest one). It
+ * targets a specific, common failure: after an instrumental intro, Whisper's
+ * segment locks onto the verse a few seconds late, so the first verse line — even
+ * though it content-matches — starts well after where singing actually began.
+ * `firstVocalOnset` is a singular, hard-gated acoustic detection (a sustained
+ * voiced run after a genuine quiet intro), so when the first content-matched line
+ * that follows it is 3–8s late, trust the acoustic onset over the transcript and
+ * re-spread the crammed lines forward from it (by singing weight), bounded by the
+ * next content line already placed later.
+ *
+ * NOTE: this deliberately moves a content-matched line, unlike anchorLeadingEdge's
+ * late branch which trusts one. That is only safe because the driving `onset` is
+ * firstVocalOnset (not a generic envelope peak). Stem-only via that onset;
+ * conservative — no-op unless the gap is in [minGap, maxGap] and a bound exists.
+ * Returns a new array.
+ */
+export function snapLeadingVerseToOnset(
+  lines: TimedLine[],
+  onsetTime: number,
+  sourceLanguage: AlignmentLanguage,
+  opts: {
+    spans: ReturnType<typeof computeLineMatchedSpans>
+    minGapSec?: number
+    maxGapSec?: number
+    minCoverage?: number
+  },
+): TimedLine[] {
+  const MIN_GAP = opts.minGapSec ?? 3.0
+  const MAX_GAP = opts.maxGapSec ?? 8.0
+  const MIN_COV = opts.minCoverage ?? 0.5
+  const spans = opts.spans
+  if (!spans) return lines
+  const lineText = (l: TimedLine) => (l.original || l.translation).trim()
+  const coverage = (i: number) => {
+    const s = spans[i]
+    return s ? s.matchedChars / Math.max(1, s.totalChars) : 0
+  }
+
+  // First content-matched line at/after the onset. Lines before it (the opening)
+  // are anchorLeadingEdge's job — leave them here.
+  let firstIdx = -1
+  for (let k = 0; k < lines.length; k++) {
+    if (lines[k].startTime >= onsetTime - 0.25 && coverage(k) >= MIN_COV) {
+      firstIdx = k
+      break
+    }
+  }
+  if (firstIdx === -1) return lines
+  const gap = lines[firstIdx].startTime - onsetTime
+  if (gap < MIN_GAP || gap > MAX_GAP) return lines
+  // Never cross the previous line (the tail of the opening).
+  if (firstIdx > 0 && onsetTime <= lines[firstIdx - 1].startTime) return lines
+
+  // Bound with the next content line already placed at/after the crammed one.
+  let boundIdx = -1
+  for (let j = firstIdx + 1; j < lines.length; j++) {
+    if (coverage(j) >= MIN_COV && lines[j].startTime >= lines[firstIdx].startTime) {
+      boundIdx = j
+      break
+    }
+  }
+  if (boundIdx === -1) return lines
+
+  const out = lines.map((l) => ({ ...l }))
+  const span = out[boundIdx].startTime - onsetTime
+  const weights: number[] = []
+  let totalWeight = 0
+  for (let i = firstIdx; i < boundIdx; i++) {
+    const w = Math.max(1e-3, lineWeight(lineText(out[i]) || out[i].original || out[i].translation, sourceLanguage))
+    weights.push(w)
+    totalWeight += w
+  }
+  let cursor = onsetTime
+  for (let i = firstIdx; i < boundIdx; i++) {
+    out[i].startTime = cursor
+    cursor += (span * weights[i - firstIdx]) / totalWeight
+  }
+  enforceLineMonotonicity(out)
+  return out
+}

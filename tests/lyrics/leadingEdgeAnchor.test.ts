@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { anchorLeadingEdge } from '../../src/lyrics/leadingEdgeAnchor'
+import { anchorLeadingEdge, snapLeadingVerseToOnset } from '../../src/lyrics/leadingEdgeAnchor'
 import type { TimedLine } from '../../src/core/types'
 
 const line = (original: string, startTime: number, endTime: number): TimedLine => ({
@@ -90,6 +90,43 @@ describe('anchorLeadingEdge', () => {
     const lines = [line('a', 14.8, 16), line('b', 18, 19), line('c', 25, 27)]
     const out = anchorLeadingEdge(lines, 2.2, 'en')
     expect(out[0].startTime).toBe(14.8)
+  })
+
+  it('snapLeadingVerseToOnset: pulls a late first verse line back to the post-intro onset', () => {
+    // Opening sings early (untouched by this pass), instrumental, then the verse
+    // enters at onset=23 but Whisper placed its first line ~6s late at 29.
+    const lines = [
+      line('opening', 0.5, 6),
+      line('verse0', 29, 31.8),
+      line('verse1', 31.8, 34),
+      line('verse2', 34, 37), // correctly placed — the bound
+    ]
+    const spans = [span(6, 6, 0.5, 6), span(4, 6, 29, 31.8), span(4, 6, 31.8, 34), span(6, 6, 34, 37)]
+    const out = snapLeadingVerseToOnset(lines, 23, 'ja', { spans })
+    expect(out[0].startTime).toBe(0.5) // opening untouched
+    expect(out[1].startTime).toBeCloseTo(23, 1) // late verse entry snapped to the onset
+    for (let i = 1; i < out.length; i++) {
+      expect(out[i].startTime).toBeGreaterThanOrEqual(out[i - 1].startTime)
+    }
+  })
+
+  it('snapLeadingVerseToOnset: no-op when the gap to the onset exceeds maxGap', () => {
+    // A 12s gap is too large to trust the onset for this line (could be a genuinely
+    // late-entering verse, not a mis-timed one).
+    const lines = [line('opening', 0.5, 6), line('verse', 35, 38), line('verse2', 38, 41)]
+    const spans = [span(6, 6, 0.5, 6), span(4, 6, 35, 38), span(6, 6, 38, 41)]
+    const out = snapLeadingVerseToOnset(lines, 23, 'ja', { spans })
+    expect(out[1].startTime).toBe(35)
+  })
+
+  it('snapLeadingVerseToOnset: no-op when the first post-onset line is not content-matched', () => {
+    // An interpolated (uncovered) line carries no evidence it belongs at the onset.
+    const lines = [line('opening', 0.5, 6), line('interp', 29, 31), line('real', 31, 34)]
+    const spans = [span(6, 6, 0.5, 6), span(0, 6, 0, 0), span(4, 6, 31, 34)]
+    const out = snapLeadingVerseToOnset(lines, 23, 'ja', { spans })
+    // 'real' (firstIdx) is 8s past the onset → beyond maxGap → nothing moves.
+    expect(out[1].startTime).toBe(29)
+    expect(out[2].startTime).toBe(31)
   })
 
   it('does not re-spread a content-matched early opening onto a later re-entry onset', () => {

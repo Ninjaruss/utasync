@@ -44,7 +44,8 @@ const { detectSheetLanguage } = await imp('src/ai-pipeline/whisperLanguage.ts')
 const { chunksToWords } = await imp('src/ai-pipeline/transcriptChunks.ts')
 const { computeLineMatchedSpans } = await imp('src/ai-pipeline/contentAligner.ts')
 const { computeVocalActivity, firstVocalOnset } = await imp('src/ai-pipeline/vocalActivity.ts')
-const { anchorLeadingEdge, backfillLateStartsToAcousticOnset } = await imp('src/lyrics/leadingEdgeAnchor.ts')
+const { anchorLeadingEdge, backfillLateStartsToAcousticOnset, snapLeadingVerseToOnset } = await imp('src/lyrics/leadingEdgeAnchor.ts')
+const SNAP_VERSE = process.argv.includes('--snap-verse') // EXPERIMENTAL: not wired into AutoAlignFlow
 const { parseLrc, matchSheetToLrc } = await imp('scripts/lib/lrcTruth.mjs')
 
 const langName = (l) => (l === 'ja' ? 'japanese' : l === 'en' ? 'english' : 'auto')
@@ -100,6 +101,7 @@ if (!NO_ANCHOR) {
   const onset = firstVocalOnset(vocalSig)
   const spans = computeLineMatchedSpans(refined.lines.map((l) => l.original || l.translation), sanitizeTranscript(transcriptWords))
   if (onset != null) refined = { ...refined, lines: anchorLeadingEdge(refined.lines, onset, alignmentLanguage, { spans }) }
+  if (SNAP_VERSE && onset != null) refined = { ...refined, lines: snapLeadingVerseToOnset(refined.lines, onset, alignmentLanguage, { spans }) }
   refined = { ...refined, lines: backfillLateStartsToAcousticOnset(refined.lines, spans, vocalSig) }
   onsetInfo = onset == null ? 'null (no clean intro→onset)' : `${onset.toFixed(2)}s`
 }
