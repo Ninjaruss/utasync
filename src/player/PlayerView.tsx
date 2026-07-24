@@ -1191,6 +1191,9 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         translations={song.lyrics.lines.map((l) => l.translation)}
         audioPosition={() => position}
         onComplete={handleTapComplete}
+        isPlaying={playbackState === 'playing'}
+        onTogglePlay={togglePlay}
+        onSeek={seek}
       />
     )
   }

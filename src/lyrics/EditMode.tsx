@@ -14,6 +14,7 @@ import {
 } from '../core/ui/toolbarClasses'
 import { lineIndexAtPlayhead, linePlaybackStart } from './lineTiming'
 import { likelyLyricsMismatch, offTimingLineCount } from './lineDegeneracy'
+import { exportLRC, downloadFile } from './exporter'
 
 interface Props {
   lines: TimedLine[]
@@ -573,6 +574,15 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
                   {hasLocalAudio && onAutoAlignAccurate && (
                     <button type="button" onClick={() => { setShowMore(false); onAutoAlignAccurate() }} className={moreMenuItem}>
                       Re-align (word-level)
+                    </button>
+                  )}
+                  {lines.some((l) => l.startTime > 0 || l.endTime > 0) && (
+                    <button
+                      type="button"
+                      onClick={() => { setShowMore(false); downloadFile(exportLRC(lines), `${(title || 'lyrics').replace(/[/\\?%*:|"<>]/g, '_')}.lrc`, 'text/plain') }}
+                      className={moreMenuItem}
+                    >
+                      Export .lrc
                     </button>
                   )}
                 </div>

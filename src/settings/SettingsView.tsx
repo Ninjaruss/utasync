@@ -312,7 +312,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
                   <button
                     type="button"
                     onClick={() => setConfirmDeleteId(song.id)}
-                    className="min-h-11 px-3 text-xs text-red-400 hover:text-red-300 touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]"
+                    className="min-h-11 px-3 text-xs text-white/40 hover:text-red-300 focus-visible:text-red-300 touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]"
                     aria-label={`Delete ${song.title}`}
                   >
                     Delete
