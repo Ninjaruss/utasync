@@ -11,6 +11,7 @@ import { resolveYouTubeVideoId } from '../sources/youtube'
 import { ABLoopController } from './ABLoop'
 import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, AlignmentLanguage } from '../core/types'
 import { TapAnchorPrompt } from './TapAnchorPrompt'
+import { Banner } from '../core/ui/Banner'
 import { refitAroundAnchors, selectAnchorTargets, type TimingAnchor } from '../lyrics/anchorRefit'
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
 import { projectPhraseTokensToLines } from '../lyrics/phraseProjection'
@@ -1228,25 +1229,27 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       {/* Stored audio failed to load and there is no YouTube fallback: playback is
           disabled, so offer a way to re-attach a file rather than a dead player. */}
       {localAudioLoadFailed && !isYouTube && hasStoredAudio && (
-        <div className="shrink-0 px-3 sm:px-4 py-2.5 border-b border-cinnabar-900/80 bg-cinnabar-950/80 flex items-center gap-3">
-          <p className="text-[11px] text-amber-400/90 text-pretty leading-snug flex-1">
-            Couldn&apos;t load this song&apos;s audio file. {attachAudioError || 'It may be missing or in an unsupported format.'}
-          </p>
-          <label className="shrink-0 px-2.5 py-1.5 rounded-lg bg-cinnabar-accent text-white text-[11px] font-medium min-h-8 inline-flex items-center touch-manipulation cursor-pointer">
-            {attachingAudio ? 'Adding…' : 'Re-attach audio'}
-            <input
-              type="file"
-              accept="audio/*"
-              className="hidden"
-              disabled={attachingAudio}
-              onChange={(e) => {
-                const file = e.target.files?.[0]
-                if (file) void handleAttachLocalAudio(file)
-                e.target.value = ''
-              }}
-            />
-          </label>
-        </div>
+        <Banner
+          severity="error"
+          actionSlot={
+            <label className="shrink-0 self-start px-2.5 py-1.5 rounded-lg bg-cinnabar-accent text-white text-[11px] font-semibold min-h-8 inline-flex items-center touch-manipulation cursor-pointer">
+              {attachingAudio ? 'Adding…' : 'Re-attach audio'}
+              <input
+                type="file"
+                accept="audio/*"
+                className="hidden"
+                disabled={attachingAudio}
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) void handleAttachLocalAudio(file)
+                  e.target.value = ''
+                }}
+              />
+            </label>
+          }
+        >
+          Couldn&apos;t load this song&apos;s audio file. {attachAudioError || 'It may be missing or in an unsupported format.'}
+        </Banner>
       )}
 
       {mode === 'play' && canPlayback && (
@@ -1259,38 +1262,23 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       )}
 
       {mode === 'play' && lyricsUntimed && canPlayback && (
-        <div className="shrink-0 px-3 sm:px-4 py-2 border-b border-cinnabar-900/80 bg-cinnabar-950/80">
-          <p className="text-[11px] text-white/45 text-pretty">
-            Lyrics are not timed yet. Open Edit → Tap-through to stamp each line while the song plays
-            {hasStoredAudio ? ', or use Auto-align.' : ', or add an audio file for AI align.'}
-          </p>
-        </div>
+        <Banner severity="info">
+          Lyrics aren&apos;t timed yet. Open Edit → Tap-through to time each line as the song plays
+          {hasStoredAudio ? ', or use Auto-align.' : ', or add an audio file for AI align.'}
+        </Banner>
       )}
 
+      {/* Approximate-timing note. Deliberately does NOT push word-level "Re-align":
+          that pass is measurably worse on long tracks (the exact case this fires
+          for). The reliable fix is tapping a line as it plays — the tap-anchor
+          prompt above already offers that — or fine-tuning in Edit. */}
       {mode === 'play' && suggestWordLevelAlign && !accurateReadingsDismissed && (
-        <div className="shrink-0 px-3 sm:px-4 py-2.5 border-b border-cinnabar-900/80 bg-cinnabar-950/80 flex items-start gap-3">
-          <p className="text-[11px] text-white/55 text-pretty leading-snug flex-1">
-            Some lines share one block in the audio analysis, so their timing is approximate.
-            Re-align with <span className="text-white/80">Accurate timing</span> for tighter per-line sync (slower).
-          </p>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => beginAlignment('auto', true)}
-              className="px-2.5 py-1.5 rounded-lg bg-cinnabar-accent text-white text-[11px] font-medium min-h-8 touch-manipulation"
-            >
-              Re-align
-            </button>
-            <button
-              type="button"
-              onClick={() => setAccurateReadingsDismissed(true)}
-              aria-label="Dismiss"
-              className="text-white/35 hover:text-white/70 text-xs min-h-8 px-1 touch-manipulation"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
+        <Banner
+          severity="info"
+          onDismiss={() => setAccurateReadingsDismissed(true)}
+        >
+          Some line timings are approximate — tap a line as it plays to fix it, or fine-tune in Edit.
+        </Banner>
       )}
 
       {mode === 'play' && (isJapanese || hasTranslation || phraseChanges.length > 0) && (

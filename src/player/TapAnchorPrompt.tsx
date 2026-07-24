@@ -1,3 +1,5 @@
+import { Banner } from '../core/ui/Banner'
+
 interface Props {
   /** Active flagged line to anchor, or null to render nothing. */
   lineIndex: number | null
@@ -22,17 +24,15 @@ export function TapAnchorPrompt({ lineIndex, remaining, getTime, onAnchor }: Pro
   if (lineIndex === null) return null
   const more = typeof remaining === 'number' && remaining > 1 ? ` (${remaining} spots need your ear)` : ''
   return (
-    <div className="shrink-0 px-3 sm:px-4 py-2.5 border-b border-cinnabar-900/80 bg-cinnabar-950/80 flex items-center gap-3">
-      <p className="text-[11px] text-white/55 text-pretty leading-snug flex-1">
-        This line’s timing is uncertain{more} — tap right when it starts and the rest re-fits around it.
-      </p>
-      <button
-        type="button"
-        onClick={() => onAnchor(lineIndex, getTime())}
-        className="px-2.5 py-1.5 rounded-lg bg-cinnabar-accent text-white text-[11px] font-medium min-h-8 touch-manipulation shrink-0"
-      >
-        Tap when this line starts
-      </button>
-    </div>
+    <Banner
+      severity="action"
+      action={{
+        label: 'Tap when this line starts',
+        variant: 'primary',
+        onClick: () => onAnchor(lineIndex, getTime()),
+      }}
+    >
+      This line’s timing is uncertain{more} — tap right when it starts and the rest re-fits around it.
+    </Banner>
   )
 }
