@@ -30,26 +30,28 @@ function renderHint(overrides: Partial<Parameters<typeof EditMode>[0]> = {}) {
 const allGood: LineAlignmentQuality[] = ['good', 'good']
 
 // The top of Edit shows ONE consolidated status notice at a time, most-actionable
-// first: mixed-realign > lyrics-mismatch > recover > approx-timing > off-timing.
+// first: mixed-realign > lyrics-mismatch > recover > approximate-timing > stray.
+// The reliable fix (tap-to-anchor) is the headline action; word-level re-align —
+// measurably worse on long tracks — is a de-emphasized More item, never a notice CTA.
 describe('EditMode alignment notice', () => {
   it('warns of a likely lyrics/recording mismatch when confidence is low', () => {
     renderHint({ lineAlignmentQuality: allGood, alignmentConfidence: 0.3 })
     expect(screen.getByText(/may not match this recording/i)).toBeTruthy()
-    // No re-align on a mismatch — it can't fix un-matching lyrics.
-    expect(screen.queryByRole('button', { name: /re-align/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /fix by tapping/i })).toBeNull()
   })
 
-  it('offers a re-align for approximate (block) timing even when every row scores good', () => {
-    // Tail-clipping case: lines score "good" yet share coarse blocks, so the
-    // approximate-timing notice must still surface with the re-align CTA.
+  it('surfaces the approximate-timing notice; word-level re-align lives in More, not as a notice CTA', () => {
     const { onAutoAlignAccurate } = renderHint({
       lineAlignmentQuality: allGood,
       alignmentConfidence: 0.9,
       accurateRealignReason: 'segment-blocks',
     })
     expect(screen.getByText(/line timings are approximate/i)).toBeTruthy()
-    const btn = screen.getByRole('button', { name: /re-align/i })
-    fireEvent.click(btn)
+    // The word-mode re-align is NOT a headline notice button (it's a trap on long tracks)…
+    expect(screen.queryByRole('button', { name: /^re-align$/i })).toBeNull()
+    // …it's reachable, de-emphasized, from More.
+    fireEvent.click(screen.getByRole('button', { name: /more/i }))
+    fireEvent.click(screen.getByRole('button', { name: /word-level/i }))
     expect(onAutoAlignAccurate).toHaveBeenCalledTimes(1)
   })
 
@@ -59,7 +61,7 @@ describe('EditMode alignment notice', () => {
     expect(screen.queryByText(/line timings are approximate/i)).toBeNull()
   })
 
-  it('collapses weak-labels into the same approximate-timing notice + re-align', () => {
+  it('collapses weak-labels into the same approximate-timing notice', () => {
     const weakLines: TimedLine[] = Array.from({ length: 8 }, (_, i) => ({
       startTime: i * 3 + 1,
       endTime: i * 3 + 4,
@@ -69,27 +71,33 @@ describe('EditMode alignment notice', () => {
     const quality: LineAlignmentQuality[] = [
       'good', 'good', 'approximate', 'approximate', 'approximate', 'needs_review', 'needs_review', 'needs_review',
     ]
-    const { onAutoAlignAccurate } = renderHint({
+    renderHint({
       lines: weakLines,
       lineAlignmentQuality: quality,
       alignmentConfidence: 0.9,
       accurateRealignReason: 'weak-labels',
     })
-    expect(screen.getByText(/line timings are approximate/i)).toBeTruthy()
-    const btn = screen.getByRole('button', { name: /re-align/i })
-    fireEvent.click(btn)
-    expect(onAutoAlignAccurate).toHaveBeenCalledTimes(1)
+    expect(screen.getByText(/lines may be off/i)).toBeTruthy()
   })
 
-  it('shows the plain off-timing nudge for a few stray rows', () => {
+  it('offers "Fix by tapping" (the tap-anchor bridge) when one is available', () => {
+    const onFixTiming = vi.fn()
+    renderHint({ lineAlignmentQuality: ['needs_review', 'good'], alignmentConfidence: 0.9, onFixTiming })
+    expect(screen.getByText(/tap them in time to fix/i)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /fix by tapping/i }))
+    expect(onFixTiming).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the plain off-timing notice (nudge) when no tap-fix is available', () => {
     renderHint({ lineAlignmentQuality: ['needs_review', 'good'], alignmentConfidence: 0.9 })
-    expect(screen.getByText(/1 line may be slightly off/i)).toBeTruthy()
-    expect(screen.queryByText(/may not match this recording/i)).toBeNull()
+    expect(screen.getByText(/1 line may be off/i)).toBeTruthy()
+    expect(screen.getByText(/nudge the times below/i)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /fix by tapping/i })).toBeNull()
   })
 
   it('shows no notice for a healthy alignment', () => {
     renderHint({ lineAlignmentQuality: allGood, alignmentConfidence: 0.9 })
-    expect(screen.queryByText(/may be slightly off/i)).toBeNull()
+    expect(screen.queryByText(/may be off/i)).toBeNull()
     expect(screen.queryByText(/may not match this recording/i)).toBeNull()
     expect(screen.queryByText(/line timings are approximate/i)).toBeNull()
   })
@@ -101,8 +109,7 @@ describe('EditMode alignment notice', () => {
       needsMixedRealign: true,
     })
     expect(screen.getByText(/timed by an older version/i)).toBeTruthy()
-    // The generic off-timing nudge must not also render beneath it.
-    expect(screen.queryByText(/may be slightly off/i)).toBeNull()
+    expect(screen.queryByText(/may be off/i)).toBeNull()
   })
 
   it('shows the targeted Re-scan notice, not the generic off-timing nudge, when gaps are recoverable', () => {
@@ -114,7 +121,6 @@ describe('EditMode alignment notice', () => {
     })
     expect(screen.getByRole('button', { name: /re-scan/i })).toBeTruthy()
     expect(screen.getByText(/couldn.t be timed/i)).toBeTruthy()
-    // …so the duplicate generic off-timing banner is gone.
-    expect(screen.queryByText(/may be slightly off/i)).toBeNull()
+    expect(screen.queryByText(/may be off/i)).toBeNull()
   })
 })

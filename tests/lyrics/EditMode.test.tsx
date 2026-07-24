@@ -147,7 +147,7 @@ describe('EditMode', () => {
       showAlignmentQuality: true,
     })
     expect(screen.getAllByText(/off-timing/i).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText(/1 line may be slightly off/i)).toBeTruthy()
+    expect(screen.getByText(/1 line may be off/i)).toBeTruthy()
   })
 
   it('hides alignment quality badges when showAlignmentQuality is false', () => {
@@ -177,7 +177,7 @@ describe('EditMode', () => {
       lineAlignmentQuality: ['good', 'approximate'],
       showAlignmentQuality: true,
     })
-    expect(screen.getByText(/1 line may be slightly off/i)).toBeTruthy()
+    expect(screen.getByText(/1 line may be off/i)).toBeTruthy()
   })
 
   it('banner does not count approximate lines with a plausible duration', () => {
@@ -451,7 +451,7 @@ describe('EditMode — readable guidance + tintable icons (UI pass)', () => {
 
   it('renders the off-timing hint at text-xs', () => {
     renderEditMode({ lineAlignmentQuality: ['good', 'needs_review'], showAlignmentQuality: true })
-    const hint = screen.getByText(/may be slightly off/i)
+    const hint = screen.getByText(/may be off/i)
     expect(hint.className).toContain('text-xs')
     expect(hint.className).not.toContain('text-[10px]')
   })

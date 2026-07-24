@@ -61,8 +61,14 @@ interface Props {
    * chunks, so line-end timing is structurally approximate; 'weak-labels' — a
    * large share of lines could not be verified against the audio at all. */
   accurateRealignReason?: 'segment-blocks' | 'weak-labels' | null
-  /** Re-run Auto-align in accurate (word-level) mode. */
+  /** Re-run Auto-align in accurate (word-level) mode. Kept as a de-emphasized
+   * "More" item, not a headline CTA — word-level timing is measurably worse on
+   * long (>180s) tracks, the exact case the approximate-timing notice fires for. */
   onAutoAlignAccurate?: () => void
+  /** Switch to Play and jump to the first uncertain line so the user can tap it in
+   * time (the tap-to-anchor flow) — the reliable fix for a few off lines. Undefined
+   * when there's nothing to tap or no playable audio. */
+  onFixTiming?: () => void
 }
 
 const DELETE_CONFIRM_MS = 3000
@@ -217,9 +223,6 @@ function Row({
               {showAlignmentQuality && alignmentQuality === 'needs_review' && (
                 <span className="text-[10px] bg-amber-400/15 text-amber-400/80 rounded-full px-2 py-0.5 shrink-0 select-none">off-timing</span>
               )}
-              {showAlignmentQuality && alignmentQuality === 'approximate' && (
-                <span className="text-[10px] bg-white/[0.07] text-white/35 rounded-full px-2 py-0.5 shrink-0 select-none">approx</span>
-              )}
             </div>
           )}
         </div>
@@ -300,7 +303,7 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus, alignmentConfidence, accurateRealignReason = null, onAutoAlignAccurate }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus, alignmentConfidence, accurateRealignReason = null, onAutoAlignAccurate, onFixTiming }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
@@ -567,6 +570,11 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
                   <button type="button" onClick={() => { setShowMore(false); openSecondLang() }} className={moreMenuItem}>
                     {hasSecondLang ? '2nd language' : '+ Translation'}
                   </button>
+                  {hasLocalAudio && onAutoAlignAccurate && (
+                    <button type="button" onClick={() => { setShowMore(false); onAutoAlignAccurate() }} className={moreMenuItem}>
+                      Re-align (word-level)
+                    </button>
+                  )}
                 </div>
               </>
             )}
@@ -622,22 +630,20 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             </button>
           </div>
         )}
-        {notice === 'approx-timing' && (
+        {(notice === 'approx-timing' || notice === 'off-timing') && (
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-xs text-amber-400/80 text-pretty flex-1 min-w-[12rem]">
-              {offTimingCount > 0 ? `${offTimingCount} line${offTimingCount === 1 ? '' : 's'} may be off. ` : ''}Some line timings are approximate.
+              {offTimingCount > 0
+                ? `${offTimingCount} line${offTimingCount === 1 ? '' : 's'} may be off.`
+                : 'Some line timings are approximate.'}
+              {onFixTiming ? ' Tap them in time to fix.' : ' Nudge the times below.'}
             </p>
-            {onAutoAlignAccurate && (
-              <button type="button" onClick={onAutoAlignAccurate} className={`${toolbarActionBtn} self-start`}>
-                Re-align
+            {onFixTiming && (
+              <button type="button" onClick={onFixTiming} className={`${toolbarActionBtn} self-start`}>
+                Fix by tapping
               </button>
             )}
           </div>
-        )}
-        {notice === 'off-timing' && (
-          <p className="text-xs text-amber-400/80 text-pretty">
-            {offTimingCount} line{offTimingCount === 1 ? '' : 's'} may be slightly off — nudge the times below, or re-run Auto-align.
-          </p>
         )}
       </div>
 

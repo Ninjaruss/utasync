@@ -1375,6 +1375,11 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               alignmentConfidence={song?.lyrics.alignmentConfidence}
               accurateRealignReason={hasStoredAudio ? realignReason : null}
               onAutoAlignAccurate={() => beginAlignment('auto', true)}
+              onFixTiming={
+                anchorTargets.length > 0 && canPlayback
+                  ? () => { setMode('play'); goToLyricLine(anchorTargets[0]) }
+                  : undefined
+              }
             />
           )}
         </div>
