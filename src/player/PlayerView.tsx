@@ -9,7 +9,9 @@ import { YouTubePlayer, type YouTubePlayerHandle } from './YouTubePlayer'
 import { youtubeErrorMessage, youtubeNeedsVisibleEmbed } from './youtubeEmbedPolicy'
 import { resolveYouTubeVideoId } from '../sources/youtube'
 import { ABLoopController } from './ABLoop'
-import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase } from '../core/types'
+import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, AlignmentLanguage } from '../core/types'
+import { TapAnchorPrompt } from './TapAnchorPrompt'
+import { refitAroundAnchors, selectAnchorTargets, type TimingAnchor } from '../lyrics/anchorRefit'
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
 import { projectPhraseTokensToLines } from '../lyrics/phraseProjection'
 import { repairPhraseTranslationOrder, remapPhraseTranslations } from '../lyrics/phraseNormalize'
@@ -284,6 +286,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const { playbackState, position, duration, speed, volume, abLoop, armingAB, currentSongId, setPlaybackState, setPosition, setDuration, setSpeed, setVolume, setABLoop, armAB, setCurrentSong } = usePlayerStore()
   const { lines, syncPosition, setLines, furiganaMode, showTranslation, lyricsLayout, setFuriganaMode, setShowTranslation, setLyricsLayout } = useLyricsStore()
   const [song, setSong] = useState<Song | null>(null)
+  const activeLine = useLyricsStore((s) => s.activeLine)
   const [alignMode, setAlignMode] = useState<AlignMode | null>(null)
   const [alignAccurateReadings, setAlignAccurateReadings] = useState(false)
   const [accurateReadingsDismissed, setAccurateReadingsDismissed] = useState(false)
@@ -604,6 +607,45 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const localAudioPlayable = hasStoredAudio && !localAudioLoadFailed
   const isYouTube = !!ytVideoId && !localAudioPlayable
   const canPlayback = isYouTube || localAudioPlayable
+  // Tap-to-anchor: the few rows the aligner was least sure of. When one of them is
+  // the active line in Play mode, offer a one-tap pin — the tap becomes ground
+  // truth for that line and refitAroundAnchors re-fits LOCALLY around it (confident
+  // lines outside the pinned span are never shifted).
+  const anchorTargets =
+    song?.lyrics.alignmentMode === 'auto'
+      ? selectAnchorTargets(song.lyrics.lines, song.lyrics.lineAlignmentQuality, {
+          alreadyAnchored: (song.lyrics.timingAnchors ?? []).map((a) => a.lineIndex),
+        })
+      : []
+  const anchorTargetActive =
+    mode === 'play' && activeLine >= 0 && anchorTargets.includes(activeLine) ? activeLine : null
+  const handleTapAnchor = async (lineIndex: number, time: number) => {
+    if (!song) return
+    const anchors: TimingAnchor[] = [
+      ...(song.lyrics.timingAnchors ?? []).filter((a) => a.lineIndex !== lineIndex),
+      { lineIndex, time, source: 'user' },
+    ]
+    const newLines = refitAroundAnchors(
+      song.lyrics.lines,
+      anchors,
+      song.lyrics.sourceLanguage as AlignmentLanguage,
+      { quality: song.lyrics.lineAlignmentQuality },
+    )
+    // The tap IS ground truth for this row — clear its uncertainty flag so it drops
+    // out of the remaining targets.
+    const quality = song.lyrics.lineAlignmentQuality ? [...song.lyrics.lineAlignmentQuality] : undefined
+    if (quality) quality[lineIndex] = 'good'
+    const lyrics = {
+      ...song.lyrics,
+      lines: newLines,
+      timingAnchors: anchors,
+      ...(quality ? { lineAlignmentQuality: quality } : {}),
+    }
+    const updated: Song = { ...song, lyrics, syncState: computeSyncState({ ...song, lyrics }) }
+    setLines(newLines)
+    setSong(updated)
+    await db.songs.put(updated)
+  }
   const showYouTubeVideo = youtubeNeedsVisibleEmbed()
   const lyricsUntimed = lines.length > 0 && !linesAreTimed(lines)
   const onYouTubeError = (code: number) => toast(youtubeErrorMessage(code), 'warning')
@@ -1205,6 +1247,15 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
             />
           </label>
         </div>
+      )}
+
+      {mode === 'play' && canPlayback && (
+        <TapAnchorPrompt
+          lineIndex={anchorTargetActive}
+          remaining={anchorTargets.length}
+          getTime={() => (isYouTube ? position : engine.position)}
+          onAnchor={handleTapAnchor}
+        />
       )}
 
       {mode === 'play' && lyricsUntimed && canPlayback && (

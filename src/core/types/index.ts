@@ -122,6 +122,10 @@ export interface LyricsData {
   anchorSources?: ('lcs' | 'interpolated' | 'interjection')[]
   /** Per-line quality from the last validation pass (same order as `lines`). */
   lineAlignmentQuality?: LineAlignmentQuality[]
+  /** Hard timing pins from user taps (and any auto start/end edges). Line timing is
+   * re-fit locally around these via refitAroundAnchors, and they survive re-align.
+   * Absent ⇒ legacy behavior (no pins). */
+  timingAnchors?: { lineIndex: number; time: number; source: 'user' | 'auto-start' | 'auto-end' }[]
   /** Canonical sung units derived after auto-align (Phase 1). Optional until derived;
    * the UI keeps rendering `lines` by default (D1 hybrid). */
   phrases?: SungPhrase[]
