@@ -147,7 +147,7 @@ describe('EditMode', () => {
       showAlignmentQuality: true,
     })
     expect(screen.getAllByText(/off-timing/i).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText(/1.*off-timing/i)).toBeTruthy()
+    expect(screen.getByText(/1 line may be slightly off/i)).toBeTruthy()
   })
 
   it('hides alignment quality badges when showAlignmentQuality is false', () => {
@@ -177,7 +177,7 @@ describe('EditMode', () => {
       lineAlignmentQuality: ['good', 'approximate'],
       showAlignmentQuality: true,
     })
-    expect(screen.getByText(/1.*off-timing/i)).toBeTruthy()
+    expect(screen.getByText(/1 line may be slightly off/i)).toBeTruthy()
   })
 
   it('banner does not count approximate lines with a plausible duration', () => {
@@ -203,7 +203,7 @@ describe('EditMode', () => {
   // re-run-Auto-align recommendation.
   it('shows a re-align recommendation for a stale mixed-language song', () => {
     renderEditMode({ needsMixedRealign: true })
-    expect(screen.getByText(/mixed-language song.*re-run Auto-align/i)).toBeTruthy()
+    expect(screen.getByText(/timed by an older version/i)).toBeTruthy()
   })
 
   it('hides the mixed re-align recommendation by default', () => {
@@ -367,24 +367,24 @@ describe('EditMode — gap recovery (R9-2)', () => {
   it('offers "Recover N sections" when audio is present and holes are recoverable', () => {
     const onRecoverGaps = vi.fn()
     renderEditMode({ recoverableGapCount: 2, onRecoverGaps })
-    const btn = screen.getByRole('button', { name: /recover 2 sections/i })
+    const btn = screen.getByRole('button', { name: /re-scan/i })
     fireEvent.click(btn)
     expect(onRecoverGaps).toHaveBeenCalledTimes(1)
   })
 
   it('singularizes the label for a single recoverable section', () => {
     renderEditMode({ recoverableGapCount: 1, onRecoverGaps: vi.fn() })
-    expect(screen.getByRole('button', { name: /recover 1 section$/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /re-scan/i })).toBeTruthy()
   })
 
   it('hides the recover button when there are no recoverable holes', () => {
     renderEditMode({ recoverableGapCount: 0, onRecoverGaps: vi.fn() })
-    expect(screen.queryByRole('button', { name: /recover/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /re-scan/i })).toBeNull()
   })
 
   it('hides the recover button without local audio', () => {
     renderEditMode({ hasLocalAudio: false, recoverableGapCount: 3, onRecoverGaps: vi.fn() })
-    expect(screen.queryByRole('button', { name: /recover/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /re-scan/i })).toBeNull()
   })
 
   it('shows recovering progress and disables the button while recovering', () => {
@@ -404,13 +404,13 @@ describe('EditMode — gap recovery (R9-2)', () => {
   // UI pass item 5: the bare button needs a plain-language explainer.
   it('explains what gap recovery does alongside the button (plural)', () => {
     renderEditMode({ recoverableGapCount: 2, onRecoverGaps: vi.fn() })
-    expect(screen.getByText(/2 parts of the song couldn.t be timed/i)).toBeTruthy()
+    expect(screen.getByText(/2 parts couldn.t be timed/i)).toBeTruthy()
     expect(screen.getByText(/your edits are kept/i)).toBeTruthy()
   })
 
   it('singularizes the explainer for one recoverable section', () => {
     renderEditMode({ recoverableGapCount: 1, onRecoverGaps: vi.fn() })
-    expect(screen.getByText(/1 part of the song couldn.t be timed/i)).toBeTruthy()
+    expect(screen.getByText(/1 part couldn.t be timed/i)).toBeTruthy()
   })
 
   it('shows an inline spinner only while recovering', () => {
@@ -451,7 +451,7 @@ describe('EditMode — readable guidance + tintable icons (UI pass)', () => {
 
   it('renders the off-timing hint at text-xs', () => {
     renderEditMode({ lineAlignmentQuality: ['good', 'needs_review'], showAlignmentQuality: true })
-    const hint = screen.getByText(/adjust the timestamps below/i)
+    const hint = screen.getByText(/may be slightly off/i)
     expect(hint.className).toContain('text-xs')
     expect(hint.className).not.toContain('text-[10px]')
   })

@@ -483,24 +483,25 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
   //     the Recover block already owns them.
   const likelyMismatch =
     showAlignmentQuality && likelyLyricsMismatch(lines, lineAlignmentQuality, alignmentConfidence)
-  const unverifiedCount =
-    showAlignmentQuality && lineAlignmentQuality?.length
-      ? lines.reduce(
-          (n, l, i) =>
-            n + ((l.original || l.translation).trim() && lineAlignmentQuality[i] !== 'good' ? 1 : 0),
-          0,
-        )
-      : 0
-  const alignmentHint: 'mixed-realign' | 'lyrics-mismatch' | 'block-timing' | 'weak-labels' | 'off-timing' | null =
+  // One plain-language notice at a time, most-actionable first. Replaces the
+  // former stack of amber jargon hints + the separate Recover block so the top of
+  // Edit never piles guidance. 'block-timing' and 'weak-labels' collapse into one
+  // "approximate timing" message — the distinction was mechanism detail the user
+  // doesn't need; both resolve to the same re-align action.
+  const approxTiming =
+    hasLocalAudio &&
+    (accurateRealignReason === 'segment-blocks' ||
+      (accurateRealignReason === 'weak-labels' && showAlignmentQuality))
+  const notice: 'mixed-realign' | 'lyrics-mismatch' | 'recover' | 'approx-timing' | 'off-timing' | null =
     needsMixedRealign
       ? 'mixed-realign'
       : likelyMismatch
         ? 'lyrics-mismatch'
-        : hasLocalAudio && accurateRealignReason === 'segment-blocks'
-          ? 'block-timing'
-          : hasLocalAudio && accurateRealignReason === 'weak-labels' && showAlignmentQuality
-            ? 'weak-labels'
-            : offTimingCount > 0 && !recoverBlockShown
+        : recoverBlockShown
+          ? 'recover'
+          : approxTiming
+            ? 'approx-timing'
+            : offTimingCount > 0
               ? 'off-timing'
               : null
 
@@ -586,68 +587,30 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             No audio file — use Tap-through to time lyrics while the song plays.
           </p>
         )}
-        {alignmentHint === 'mixed-realign' && (
+
+        {/* One consolidated status notice: a single calm line + at most one action,
+            in plain language. Exactly one branch renders (driven by `notice`), so
+            guidance never stacks. */}
+        {notice === 'mixed-realign' && (
           <p className="text-xs text-amber-400/80 text-pretty">
-            Mixed-language song aligned before recent timing fixes — re-run Auto-align to re-time it (older mixed songs can't be re-timed automatically on open).
+            This song was timed by an older version. Re-run Auto-align to fix it.
           </p>
         )}
-        {alignmentHint === 'lyrics-mismatch' && (
+        {notice === 'lyrics-mismatch' && (
           <p className="text-xs text-amber-400/80 text-pretty">
-            Many lines couldn’t be matched to the audio — these lyrics may not match this recording
-            (a different or live version, or the wrong lyrics).{onReplaceLyrics ? ' Try Replace lyrics,' : ''} or
-            fine-tune the timestamps below.
+            These lyrics may not match this recording.{onReplaceLyrics ? ' Try replacing them,' : ''} or nudge the times below.
           </p>
         )}
-        {alignmentHint === 'block-timing' && (
-          <div className="flex items-start gap-2 flex-wrap">
+        {notice === 'recover' && (
+          <div className="flex items-center gap-2 flex-wrap">
             <p className="text-xs text-amber-400/80 text-pretty flex-1 min-w-[12rem]">
-              {offTimingCount > 0
-                ? `${offTimingCount} line${offTimingCount === 1 ? '' : 's'} off-timing. `
-                : ''}
-              Line ends are approximate — this long track was analyzed in coarse blocks that group
-              several lines together. Re-align with accurate timing for tighter per-line sync (slower).
+              {recoverableGapCount} part{recoverableGapCount === 1 ? '' : 's'} couldn’t be timed. Re-scan just those — your edits are kept.
             </p>
-            {onAutoAlignAccurate && (
-              <button
-                type="button"
-                onClick={onAutoAlignAccurate}
-                className={`${toolbarActionBtn} self-start`}
-              >
-                Re-align accurately
-              </button>
-            )}
-          </div>
-        )}
-        {alignmentHint === 'weak-labels' && (
-          <div className="flex items-start gap-2 flex-wrap">
-            <p className="text-xs text-amber-400/80 text-pretty flex-1 min-w-[12rem]">
-              {unverifiedCount} line{unverifiedCount === 1 ? '' : 's'} couldn’t be verified against the
-              audio, so their timing may drift. This song likely needs a more powerful pass — re-align
-              with Accurate timing or the High accuracy model (slower), or fine-tune below.
-            </p>
-            {onAutoAlignAccurate && (
-              <button
-                type="button"
-                onClick={onAutoAlignAccurate}
-                className={`${toolbarActionBtn} self-start`}
-              >
-                Re-align accurately
-              </button>
-            )}
-          </div>
-        )}
-        {alignmentHint === 'off-timing' && (
-          <p className="text-xs text-amber-400/80 text-pretty">
-            {offTimingCount} line{offTimingCount === 1 ? '' : 's'} off-timing — adjust the timestamps below or re-run Auto-align.
-          </p>
-        )}
-        {hasLocalAudio && recoverableGapCount > 0 && onRecoverGaps && (
-          <div className="flex flex-col items-start gap-1">
             <button
               type="button"
               onClick={onRecoverGaps}
               disabled={recoveringGaps}
-              className={`${toolbarActionBtn} inline-flex items-center gap-1.5 disabled:opacity-60`}
+              className={`${toolbarActionBtn} self-start inline-flex items-center gap-1.5 disabled:opacity-60`}
             >
               {recoveringGaps && (
                 <span
@@ -655,15 +618,26 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
                   className="w-3 h-3 shrink-0 rounded-full border-2 border-cinnabar-accent border-t-transparent animate-spin"
                 />
               )}
-              {recoveringGaps
-                ? recoverGapsStatus ?? 'Recovering…'
-                : `Recover ${recoverableGapCount} section${recoverableGapCount === 1 ? '' : 's'}`}
+              {recoveringGaps ? recoverGapsStatus ?? 'Re-scanning…' : 'Re-scan'}
             </button>
-            <p className="text-xs text-white/60 text-pretty">
-              {recoverableGapCount} part{recoverableGapCount === 1 ? '' : 's'} of the song couldn’t
-              be timed — re-scan just those parts. Your edits are kept.
-            </p>
           </div>
+        )}
+        {notice === 'approx-timing' && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-xs text-amber-400/80 text-pretty flex-1 min-w-[12rem]">
+              {offTimingCount > 0 ? `${offTimingCount} line${offTimingCount === 1 ? '' : 's'} may be off. ` : ''}Some line timings are approximate.
+            </p>
+            {onAutoAlignAccurate && (
+              <button type="button" onClick={onAutoAlignAccurate} className={`${toolbarActionBtn} self-start`}>
+                Re-align
+              </button>
+            )}
+          </div>
+        )}
+        {notice === 'off-timing' && (
+          <p className="text-xs text-amber-400/80 text-pretty">
+            {offTimingCount} line{offTimingCount === 1 ? '' : 's'} may be slightly off — nudge the times below, or re-run Auto-align.
+          </p>
         )}
       </div>
 
