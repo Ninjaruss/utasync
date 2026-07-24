@@ -31,9 +31,9 @@ const V = VOCAB.length
 
 const F = (p) => join(root, p)
 const SONGS = [
-  { name: 'veil', audio: F('public/e2e/veil.mp3'), lyrics: F('tests/ai-pipeline/fixtures/veil/lyrics.ja.txt'), truth: F('tests/ai-pipeline/fixtures/lrc-truth/veil.json') },
-  { name: 'guitar-loneliness', audio: F('public/e2e/guitar.mp3'), lyrics: F('tests/ai-pipeline/fixtures/guitar-loneliness/lyrics.ja.txt'), truth: F('tests/ai-pipeline/fixtures/lrc-truth/guitar-loneliness.json') },
-  { name: 'stranger-than-heaven', audio: F('public/e2e/stranger.mp3'), lyrics: F('tests/ai-pipeline/fixtures/stranger-than-heaven/lyrics.txt'), truth: F('tests/ai-pipeline/fixtures/lrc-truth/stranger-than-heaven.json') },
+  { name: 'veil', audio: F('public/e2e/veil.mp3'), lyrics: F('tests/ai-pipeline/fixtures/veil/lyrics.ja.txt'), truth: F('tests/ai-pipeline/fixtures/lrc-truth/veil.json'), transcript: F('tests/ai-pipeline/fixtures/veil/transcript.words.json') },
+  { name: 'guitar-loneliness', audio: F('public/e2e/guitar.mp3'), lyrics: F('tests/ai-pipeline/fixtures/guitar-loneliness/lyrics.ja.txt'), truth: F('tests/ai-pipeline/fixtures/lrc-truth/guitar-loneliness.json'), transcript: F('tests/ai-pipeline/fixtures/guitar-loneliness/transcript.segment.json') },
+  { name: 'stranger-than-heaven', audio: F('public/e2e/stranger.mp3'), lyrics: F('tests/ai-pipeline/fixtures/stranger-than-heaven/lyrics.txt'), truth: F('tests/ai-pipeline/fixtures/lrc-truth/stranger-than-heaven.json'), transcript: F('tests/ai-pipeline/fixtures/stranger-than-heaven/transcript.segment.json') },
 ]
 const extraAt = process.argv.indexOf('--extra')
 if (extraAt >= 0) {
@@ -43,6 +43,26 @@ const only = process.argv.indexOf('--song') >= 0 ? process.argv[process.argv.ind
 
 const { decodeMp3ToMono } = await import(pathToFileURL(F('scripts/lib/nodeAudio.mjs')).href)
 const { parseLrc, matchSheetToLrc } = await import(pathToFileURL(F('scripts/lib/lrcTruth.mjs')).href)
+const { refineAlignmentWithPhrases } = await import(pathToFileURL(F('src/lyrics/phraseAlignment.ts')).href)
+const { detectSheetLanguage } = await import(pathToFileURL(F('src/ai-pipeline/whisperLanguage.ts')).href)
+
+/** Normalize either a word array or {chunks:[{text,timestamp}]} — mirrors audit-corpus.mjs. */
+function loadTranscriptWords(path) {
+  const raw = JSON.parse(readFileSync(path, 'utf8'))
+  if (Array.isArray(raw)) {
+    return raw.flatMap((w) => {
+      const word = (w.word ?? '').trim()
+      if (!word || !Number.isFinite(w.startTime) || !Number.isFinite(w.endTime)) return []
+      return [{ word, startTime: w.startTime, endTime: w.endTime }]
+    })
+  }
+  return (raw.chunks ?? []).flatMap((c) => {
+    const [start, end] = c.timestamp ?? []
+    const word = c.text?.trim()
+    if (!word || !Number.isFinite(start) || !Number.isFinite(end)) return []
+    return [{ word, startTime: start, endTime: end }]
+  })
+}
 
 console.log('loading MMS forced aligner + kuroshiro…')
 const model = await AutoModel.from_pretrained(ID, { dtype: 'q8' })
@@ -217,6 +237,48 @@ function alignAnchored(em, frames, lineTokens, fps, opts) {
   return lineTime
 }
 
+
+/**
+ * HYBRID (the WhisperX architecture): bound each segment by the EXISTING pipeline's
+ * coarse line placement — information independent of the CTC path, which is the
+ * property the two failed containment attempts lacked — and let CTC refine timing
+ * inside. Both ends are pinned, so the token/audio density constraint survives, and
+ * segments are solved INDEPENDENTLY so a bad seam cannot cascade.
+ */
+function alignHybrid(em, frames, lineTokens, fps, coarse, opts) {
+  const G = opts?.group ?? 4
+  const PAD = opts?.padSec ?? 4
+  const dur = frames / fps
+  const lineTime = new Array(lineTokens.length).fill(null)
+  for (let g = 0; g < lineTokens.length; g += G) {
+    const idx = []
+    for (let i = g; i < Math.min(g + G, lineTokens.length); i++) if (lineTokens[i].length && coarse[i]) idx.push(i)
+    if (!idx.length) continue
+    const toks = idx.flatMap((i) => lineTokens[i])
+    // Bracket with START times only — line END times are the least reliable signal
+    // in this pipeline ("line ends are approximate"), so building the right edge on
+    // them poisoned the window. The next segment's start is the honest right bound.
+    const nextIdx = idx[idx.length - 1] + 1
+    const rightAnchor = coarse[nextIdx]?.startTime ?? coarse[idx[idx.length - 1]].endTime
+    const s0 = Math.max(0, coarse[idx[0]].startTime - PAD)
+    const s1 = Math.min(dur, Math.max(rightAnchor, coarse[idx[0]].startTime + 1) + PAD)
+    const f0 = Math.floor(s0 * fps)
+    const f1 = Math.min(frames, Math.ceil(s1 * fps))
+    if (f1 - f0 < toks.length) continue
+    const r = align(em.subarray(f0 * V, f1 * V), f1 - f0, toks)
+    let k = 0
+    for (const i of idx) {
+      if (r.tokFrame[k] >= 0) lineTime[i] = (f0 + r.tokFrame[k]) / fps
+      k += lineTokens[i].length
+    }
+  }
+  return lineTime
+}
+
+const HYBRID = process.argv.includes('--hybrid')
+const COARSE_ONLY = process.argv.includes('--coarse')
+const PAD_S = process.argv.indexOf('--pad') >= 0 ? Number(process.argv[process.argv.indexOf('--pad') + 1]) : 4
+
 const ANCHORED = process.argv.includes('--anchored')
 const WINDOWED = process.argv.includes('--windowed')
 const GROUP_N = process.argv.indexOf('--group') >= 0 ? Number(process.argv[process.argv.indexOf('--group') + 1]) : 4
@@ -248,7 +310,21 @@ for (const s of SONGS) {
   if (frames < tokens.length) { console.log(`skip ${s.name} (audio shorter than token count)`); continue }
   let lineTime
   let unaligned = 0
-  if (ANCHORED) {
+  let coarse = null
+  if ((HYBRID || COARSE_ONLY) && s.transcript && existsSync(s.transcript)) {
+    const words = loadTranscriptWords(s.transcript)
+    const rows2 = lineTexts.map((original) => ({ original, translation: '', startTime: 0, endTime: 0 }))
+    const lang = detectSheetLanguage(lineTexts, 'ja')
+    coarse = refineAlignmentWithPhrases(rows2, words, lang).lines
+    if (process.argv.includes('--debug')) console.log(`  coarse: ${words.length} transcript words, lang=${lang}`)
+  }
+  if (COARSE_ONLY) {
+    if (!coarse) { console.log(`skip ${s.name} (no transcript for coarse)`); continue }
+    lineTime = coarse.map((l) => l.startTime)
+  } else if (HYBRID) {
+    if (!coarse) { console.log(`skip ${s.name} (no transcript for hybrid)`); continue }
+    lineTime = alignHybrid(em, frames, lineTokens, fps, coarse, { padSec: PAD_S })
+  } else if (ANCHORED) {
     lineTime = alignAnchored(em, frames, lineTokens, fps, { debug: process.argv.includes('--debug') })
   } else if (WINDOWED) {
     lineTime = alignWindowed(em, frames, lineTokens, fps, { group: GROUP_N, debug: process.argv.includes("--debug") })
