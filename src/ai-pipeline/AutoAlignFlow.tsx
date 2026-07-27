@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { canUseVocalSeparation, getDeviceTier } from './capability'
 import { canUseHighAccuracy } from './inferenceBackend'
 import { getWhisperDownloadHint } from './models'
@@ -22,7 +22,8 @@ import { detectSheetLanguage } from './whisperLanguage'
 import { isRecoverableTranscriptionError, classifyAlignError } from './workerError'
 import { resetWhisperTranscriber, transcribeAudio, type LoadProgress, type TranscribeProgressStatus } from './whisperTranscriber'
 import { DEMUCS_OUTPUT_SAMPLE_RATE, isDemucsModelAvailable, refreshDemucsModelAvailability, separateVocals } from './demucsSeparator'
-import { computeVocalActivity, firstVocalOnset } from './vocalActivity'
+import { computeVocalActivity, firstVocalOnset, type VocalActivitySignal } from './vocalActivity'
+import { assessStemQuality, warnIfStemRejected } from './stemQuality'
 import { anchorLeadingEdge, backfillLateStartsToAcousticOnset } from '../lyrics/leadingEdgeAnchor'
 import { computeLineMatchedSpans } from './contentAligner'
 import { applyLrcPrior } from '../lyrics/lrcPrior'
@@ -112,20 +113,13 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
   // model. Gate that first download behind an explicit prompt, remembered once.
   const modelDownloadConsented = useSettingsStore((s) => s.modelDownloadConsented)
   const setModelDownloadConsented = useSettingsStore((s) => s.setModelDownloadConsented)
-  // Code-switching (mixed JA/EN) songs transcribe poorly on the full mix — their
-  // dense bilingual sections are exactly the coverage-bound regions that hurt
-  // alignment accuracy most. Default vocal isolation ON for them on capable
-  // devices (highest-impact accuracy lever); the user can still uncheck it.
-  const isMixedSong = useMemo(
-    () =>
-      detectSheetLanguage(
-        sheetRowsForAlignment(song.lyrics).map((r) => r.original || r.translation),
-        song.lyrics.sourceLanguage,
-      ) === 'mixed',
-    [song.lyrics],
-  )
+  // Vocal isolation is the highest-impact accuracy lever, so it defaults ON on
+  // capable (full-tier) devices — a destroyed stem is caught by the sanity guard
+  // in start() and falls back to the raw mix, so default-on can't regress a song.
+  // `vocalSeparationDefault` is tri-state: null = use this default, true/false =
+  // an explicit user choice (always honored). The user can still uncheck it here.
   const [vocalSeparation, setVocalSeparation] = useState(
-    vocalSeparationDefault || (isMixedSong && vocalSeparationSupported),
+    vocalSeparationSupported && (vocalSeparationDefault ?? true),
   )
   const [demucsReady, setDemucsReady] = useState<boolean | null>(null)
   const [vocalSeparationRun, setVocalSeparationRun] = useState(false)
@@ -191,6 +185,13 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
     try {
       let audioData: Float32Array | null = null
       let sampleRate = 44100
+      // Whether a separated stem passed the sanity guard and is what we transcribe.
+      // Distinct from `willSeparate`/`vocalSeparationRun` (separation was attempted):
+      // a destroyed stem is rejected and we transcribe the raw mix instead.
+      let stemAccepted = false
+      // Stem vocal-activity envelope, computed once at separation and reused by the
+      // leading-edge onset anchor below (stem-only) — null when running on the mix.
+      let vocalSig: VocalActivitySignal | null = null
 
       setStage('preparing')
       setProgress(0)
@@ -216,22 +217,41 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         setStage('separating')
         setProgress(0)
         try {
-          audioData = await separateVocals(audioData, {
+          const stem = await separateVocals(audioData, {
             sampleRate,
             onProgress: (pct) => setProgress(pct),
             isCancelled: () => cancelledRef.current,
           })
-          // Demucs returns vocals at ITS model rate, not the decode rate. On a
-          // 48kHz AudioContext (common on Firefox), keeping the old rate scaled
-          // every Whisper timestamp ~8.8% early — the whole song desynced.
-          sampleRate = DEMUCS_OUTPUT_SAMPLE_RATE
+          if (cancelledRef.current) return
+          // Sanity-guard the stem BEFORE committing to it. Isolation usually helps,
+          // but on some tracks Demucs destroys the vocal (near-silent stem) and
+          // transcribing that is strictly worse than the raw mix. A rejected stem
+          // falls back to the mix — identical to isolation being off — so the guard
+          // can never regress a song. The vocal-activity envelope computed here is
+          // reused by the leading-edge onset anchor below, so this adds no extra DSP.
+          // Demucs returns vocals at ITS model rate (44100), never the decode rate;
+          // on a 48kHz AudioContext (common on Firefox) keeping the decode rate
+          // scaled every Whisper timestamp ~8.8% early and desynced the whole song —
+          // so the stem path uses DEMUCS_OUTPUT_SAMPLE_RATE and the mix-fallback path
+          // keeps the decode rate.
+          const stemSig = computeVocalActivity(stem, DEMUCS_OUTPUT_SAMPLE_RATE, { source: 'stem' })
+          const verdict = assessStemQuality(stemSig, stem.length / DEMUCS_OUTPUT_SAMPLE_RATE)
+          if (verdict.usable) {
+            audioData = stem
+            sampleRate = DEMUCS_OUTPUT_SAMPLE_RATE
+            stemAccepted = true
+            vocalSig = stemSig
+          } else {
+            // Keep the decoded mix (audioData/sampleRate unchanged) and transcribe
+            // that. Surface it so the user understands why isolation had no effect.
+            warnIfStemRejected('auto-align', verdict)
+            setRetryNotice('Vocal isolation produced no usable vocals — aligning on the original mix instead.')
+          }
         } catch (e) {
           if (cancelledRef.current) return
           setError(classifyVocalSepError(e))
           setStage('error')
           return
-        } finally {
-          // no-op
         }
         if (cancelledRef.current) return
       }
@@ -474,9 +494,8 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
       // pull off transcript firstTime regressed; the acoustic envelope is the
       // signal that was missing then). Best-effort and a no-op without a vocal
       // stem, so non-isolated runs are byte-identical.
-      if (audioData && willSeparate) {
+      if (audioData && stemAccepted && vocalSig) {
         try {
-          const vocalSig = computeVocalActivity(audioData, sampleRate, { source: 'stem' })
           const onset = firstVocalOnset(vocalSig)
           // Content-match spans double as the leading-edge anchor's trust signal
           // (which opening lines are real content vs interpolated filler) and the
@@ -680,7 +699,9 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
             <p className="text-sm text-white/80 text-pretty">
               <span className="font-medium text-white">First-song setup</span>
               {' — '}
-              this downloads a ~240MB speech model once, then everything runs on your device.
+              this downloads a ~240MB speech model
+              {vocalSeparation && vocalSeparationSupported ? ' (plus a ~65MB vocal-isolation model)' : ''}
+              {' '}once, then everything runs on your device.
             </p>
             <button
               type="button"

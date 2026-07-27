@@ -10,7 +10,9 @@ const deviceTier = vi.hoisted(() => ({ current: 'lite' as 'lite' | 'full' | 'man
 const vocalSepSupported = vi.hoisted(() => ({ current: false }))
 // First-run download consent flag. Defaults to already-consented so the existing
 // specs autostart straight into alignment; the consent-gate spec flips it off.
-const settings = vi.hoisted(() => ({ consented: true }))
+// `vocalSep` is the tri-state isolation setting (null = use the default, on when
+// supported); specs that assert an explicit choice flip it to true/false.
+const settings = vi.hoisted(() => ({ consented: true, vocalSep: null as boolean | null }))
 
 vi.mock('../../src/ai-pipeline/capability', () => ({
   getDeviceTier: () => deviceTier.current,
@@ -29,13 +31,13 @@ vi.mock('../../src/ai-pipeline/demucsSeparator', async (importOriginal) => {
 
 vi.mock('../../src/payment/SettingsStore', () => ({
   useSettingsStore: (selector: (s: {
-    vocalSeparationEnabled: boolean
+    vocalSeparationEnabled: boolean | null
     modelDownloadConsented: boolean
     setVocalSeparationEnabled: () => void
     setModelDownloadConsented: (v: boolean) => void
   }) => unknown) =>
     selector({
-      vocalSeparationEnabled: false,
+      vocalSeparationEnabled: settings.vocalSep,
       modelDownloadConsented: settings.consented,
       setVocalSeparationEnabled: vi.fn(),
       setModelDownloadConsented: (v: boolean) => { settings.consented = v },
@@ -117,6 +119,7 @@ beforeEach(async () => {
   deviceTier.current = 'lite'
   vocalSepSupported.current = false
   settings.consented = true
+  settings.vocalSep = null
   vi.mocked(refreshDemucsModelAvailability).mockResolvedValue(false)
   vi.mocked(isDemucsModelAvailable).mockResolvedValue(false)
 })
@@ -139,33 +142,23 @@ describe('AutoAlignFlow autoStart', () => {
     expect(screen.getByRole('button', { name: /start auto-align/i })).toBeTruthy()
   })
 
-  it('defaults vocal isolation ON for a mixed-language song on a capable device', () => {
+  it('defaults vocal isolation ON on a capable device when the setting is unset', () => {
+    // Isolation is the highest-impact accuracy lever, so it is default-on for
+    // every song on a full-tier device (a destroyed stem is caught by the guard
+    // in start() and falls back to the mix). null = "use the default".
     deviceTier.current = 'full'
     vocalSepSupported.current = true
+    settings.vocalSep = null
     vi.mocked(refreshDemucsModelAvailability).mockResolvedValue(true)
     vi.mocked(isDemucsModelAvailable).mockResolvedValue(true)
-    const mixedSong: Song = {
-      ...song,
-      lyrics: {
-        lines: [
-          { startTime: 0, endTime: 0, original: '青空に溶けていく', translation: '' },
-          { startTime: 0, endTime: 0, original: 'You make me so happy today', translation: '' },
-          { startTime: 0, endTime: 0, original: '君の声が聞こえる', translation: '' },
-          { startTime: 0, endTime: 0, original: 'Running through the endless night', translation: '' },
-          { startTime: 0, endTime: 0, original: '光の中で踊りだす', translation: '' },
-          { startTime: 0, endTime: 0, original: 'Everything I do for you now', translation: '' },
-        ],
-        sourceLanguage: 'ja',
-        translationLanguage: 'en',
-      },
-    }
-    render(<AutoAlignFlow song={mixedSong} onComplete={vi.fn()} onClose={vi.fn()} />)
+    render(<AutoAlignFlow song={song} onComplete={vi.fn()} onClose={vi.fn()} />)
     expect((screen.getByRole('checkbox', { name: /isolate vocals/i }) as HTMLInputElement).checked).toBe(true)
   })
 
-  it('leaves vocal isolation OFF by default for a single-language song', () => {
+  it('honors an explicit OFF choice over the default', () => {
     deviceTier.current = 'full'
     vocalSepSupported.current = true
+    settings.vocalSep = false
     vi.mocked(refreshDemucsModelAvailability).mockResolvedValue(true)
     vi.mocked(isDemucsModelAvailable).mockResolvedValue(true)
     render(<AutoAlignFlow song={song} onComplete={vi.fn()} onClose={vi.fn()} />)

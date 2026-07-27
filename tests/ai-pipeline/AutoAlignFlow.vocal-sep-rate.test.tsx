@@ -19,7 +19,7 @@ vi.mock('../../src/ai-pipeline/capability', () => ({
 
 vi.mock('../../src/payment/SettingsStore', () => ({
   useSettingsStore: (selector: (s: {
-    vocalSeparationEnabled: boolean
+    vocalSeparationEnabled: boolean | null
     modelDownloadConsented: boolean
     setVocalSeparationEnabled: () => void
     setModelDownloadConsented: (v: boolean) => void
@@ -42,7 +42,15 @@ vi.mock('../../src/core/audio/decodeToMono', () => ({
   decodeAudioFileToMono: vi.fn(async () => ({ data: new Float32Array(48000), sampleRate: 48000 })),
 }))
 
-const separatedVocals = new Float32Array(44100)
+// A voiced vocal-band tone (~300 Hz) so the stem sanity guard in start() accepts
+// it as real vocals rather than a destroyed (near-silent) stem — this spec is
+// about the sample rate, not the guard. All-zeros would be (correctly) rejected
+// and fall back to the mix.
+const separatedVocals = (() => {
+  const buf = new Float32Array(44100)
+  for (let i = 0; i < buf.length; i++) buf[i] = 0.5 * Math.sin((2 * Math.PI * 300 * i) / 44100)
+  return buf
+})()
 vi.mock('../../src/ai-pipeline/demucsSeparator', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../src/ai-pipeline/demucsSeparator')>()
   return {

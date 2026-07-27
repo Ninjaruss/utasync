@@ -173,8 +173,12 @@ export interface UserSettings {
   clozeDifficulty: ClozeDifficulty
   /** Primary lyric language for new songs and online lyric search. */
   defaultSongLanguage: Language
-  /** Isolate vocals with Demucs before Whisper (full-tier only, slower). */
-  vocalSeparationEnabled: boolean
+  /** Isolate vocals with Demucs before Whisper (full-tier only, slower).
+   * Tri-state: `null` means "use the default" (on when the device supports it —
+   * isolation is the highest-impact accuracy lever and is guarded by a stem
+   * sanity-check that falls back to the mix); `true`/`false` are explicit user
+   * choices and are always honored. */
+  vocalSeparationEnabled: boolean | null
   /** Whether detected sung readings are promoted into furigana ruby (D3). */
   readingMode: ReadingMode
   /** Tap a lyric word to open the built-in dictionary popover. Off lets desktop Yomitan users avoid double popups. */

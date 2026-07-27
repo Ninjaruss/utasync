@@ -171,9 +171,9 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
         {canUseVocalSeparation(getDeviceTier()) && (
           <SettingToggle
             title="Isolate vocals for timing"
-            description="Improves lyric timing on songs with loud instrumentals. Downloads an extra AI model the next time a song is aligned."
-            checked={vocalSeparationEnabled}
-            onToggle={() => setVocalSeparationEnabled(!vocalSeparationEnabled)}
+            description="On by default — improves lyric timing on songs with loud instrumentals. Downloads an extra AI model the next time a song is aligned. Turn off to align on the original mix."
+            checked={vocalSeparationEnabled ?? true}
+            onToggle={() => setVocalSeparationEnabled(!(vocalSeparationEnabled ?? true))}
           />
         )}
         <SettingToggle
