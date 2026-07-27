@@ -12,7 +12,7 @@ vi.mock('../../src/player/AudioEngine', () => ({
     onTimeUpdate() {} onEnd() {}
   },
 }))
-vi.mock('../../src/ai-pipeline/capability', () => ({ getDeviceTier: () => 'full' }))
+vi.mock('../../src/ai-pipeline/capability', () => ({ getDeviceTier: () => 'full', canUseVocalSeparation: () => true }))
 // Real tokenizeJapanese loads a kuromoji dictionary via fetch/fs, which isn't
 // available in jsdom — stub it so enrichLines produces tokens deterministically.
 vi.mock('../../src/language/japanese/tokenizer', () => ({

@@ -37,7 +37,8 @@ import { tokenizeEnglish } from '../language/english/tokenizer'
 import { sentenceToIPA } from '../language/english/phonetics'
 import { detectEnglishGrammar } from '../language/english/grammar'
 import { TapSyncEditor } from './TapSyncEditor'
-import { getDeviceTier } from '../ai-pipeline/capability'
+import { getDeviceTier, canUseVocalSeparation } from '../ai-pipeline/capability'
+import { useSettingsStore } from '../payment/SettingsStore'
 import { detectSheetLanguage } from '../ai-pipeline/whisperLanguage'
 import { accurateRealignReason } from '../ai-pipeline/alignTimestampMode'
 import { linesAreTimed, chooseAutoAlignment, type AlignMode } from './alignmentPolicy'
@@ -305,6 +306,13 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [phrasingBusy, setPhrasingBusy] = useState(false)
   const [recoveringGaps, setRecoveringGaps] = useState(false)
   const [recoverGapsStatus, setRecoverGapsStatus] = useState<string | null>(null)
+  // Gap recovery re-transcribes on the same isolated vocal stem the fresh align
+  // uses, when the device supports it and the user hasn't turned isolation off
+  // (null = default-on). recoverGapsForStoredSong still verifies the model + guards
+  // the stem, so this is a cheap intent flag.
+  const vocalSeparationEnabled = useSettingsStore((s) => s.vocalSeparationEnabled)
+  const gapRecoveryIsolatesVocals =
+    canUseVocalSeparation(getDeviceTier()) && (vocalSeparationEnabled ?? true)
   const {
     setBusy: setLyricsReimportBusy,
     confirming: confirmLyricsReimportClose,
@@ -523,6 +531,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
                   setRecoverGapsStatus(n > 0 ? `Recovering ${n} section${n === 1 ? '' : 's'}…` : 'Recovering…')
                 }
               },
+              isolateVocals: gapRecoveryIsolatesVocals,
+              onSeparating: () => { if (!cancelled) setRecoverGapsStatus('Isolating vocals…') },
               highAccuracy: false,
               timestampMode: 'segment',
             })
@@ -769,6 +779,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         isCancelled: () => false,
         onProgress: (n) =>
           setRecoverGapsStatus(n > 0 ? `Recovering ${n} section${n === 1 ? '' : 's'}…` : 'Recovering…'),
+        isolateVocals: gapRecoveryIsolatesVocals,
+        onSeparating: () => setRecoverGapsStatus('Isolating vocals…'),
         highAccuracy: false,
         timestampMode: 'segment',
       })
