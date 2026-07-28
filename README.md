@@ -31,9 +31,10 @@ Utasync is an offline-first PWA that turns YouTube links or your own audio files
 
 - **Play / Edit modes** — practice in Play; refine lyrics and timing in Edit.
 - **Tap-to-sync** — stamp line starts while audio plays (YouTube or local).
-- **Manual editing** — edit line text, add/delete lines, adjust timestamps per line.
+- **Manual editing** — edit line text, add/delete lines, and adjust timing per line: nudge a single edge, shift a whole line earlier/later, or shift every following line together when a section has drifted. Undo/redo (⌘/Ctrl+Z) covers every edit.
+- **Tap to fix timing** — in Play mode the app flags the few lines it's unsure about; tap when each one starts to pin it (one tap to undo), and the surrounding lines re-fit around the anchor.
 - **Replace lyrics** — re-fetch from captions/LRCLIB or import a new file without re-adding the song.
-- **AI auto-align** — on-device Whisper transcription with content-based lyric matching (local audio required). Full-tier devices optionally run vocal separation (Demucs) before transcription.
+- **AI auto-align** — on-device Whisper transcription with content-based lyric matching (local audio required). Full-tier devices isolate vocals (Demucs) before transcription **by default**; a sanity check falls back to the raw mix if a separation comes back empty, so it never makes alignment worse.
 - **Attach local audio** — YouTube-only songs can add an audio file later to unlock auto-align and A/B export while keeping the same library entry.
 
 ### Practice harder sections
@@ -70,11 +71,11 @@ Upload is the recommended path for serious study; YouTube is a quick way to star
 3. **Refine in Edit mode** — tap-sync timing, edit lines, add a second language, or run auto-align when local audio is available.
 4. **Practice** — loop a verse (or a saved playlist of loops), slow down, run cloze drills, or export a clip to study offline elsewhere.
 
-AI models (Whisper, text embeddings, optional Demucs) download once on first use and are cached in the browser. The app picks a **device tier** automatically:
+AI models (Whisper, text embeddings, Demucs vocal isolation) download once on first use and are cached in the browser. The app picks a **device tier** automatically:
 
 | Tier | Requirements | AI capabilities |
 |---|---|---|
-| **Full** | WebGPU + 6 GB+ RAM | Vocal separation + Whisper + word alignment |
+| **Full** | WebGPU + 6 GB+ RAM | Vocal isolation (on by default) + Whisper + word alignment |
 | **Lite** | WebGPU + 4 GB+ RAM | Whisper + word alignment (no separation) |
 | **Manual** | Any modern browser | Tap-sync and manual tools only |
 
@@ -110,7 +111,7 @@ Full prerequisites, optional Demucs model setup, build/deploy notes, browser sup
 | State | Zustand (persisted settings) |
 | Storage | Dexie (IndexedDB), OPFS (audio), Cache Storage (models) |
 | Audio | Howler.js, Web Audio API, SoundTouchJS, AudioWorklet crossfade |
-| AI | @xenova/transformers (Whisper), ONNX Runtime Web (Demucs), embedding workers |
+| AI | @huggingface/transformers v3 (Whisper, WebGPU), ONNX Runtime Web (Demucs), embedding workers |
 | Japanese NLP | kuromoji, kuroshiro, wanakana |
 | English NLP | compromise, CMUdict subset |
 | Lyrics sources | YouTube captions, LRCLIB, LRC/SRT/VTT parsers |

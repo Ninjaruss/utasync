@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback } from 'react'
 
-interface ToastItem { id: number; message: string; type: 'info' | 'warning' | 'error' }
+interface ToastAction { label: string; onClick: () => void }
+interface ToastItem { id: number; message: string; type: 'info' | 'warning' | 'error'; action?: ToastAction }
 
 // Instructional warning/error toasts stay up long enough to actually be read;
 // info toasts stay snappy. Manual ✕ dismissal always works.
@@ -9,7 +10,7 @@ const STICKY_FLOOR_MS = 8000
 const STICKY_CAP_MS = 15000
 const MS_PER_CHAR = 60
 
-const ToastContext = createContext<(msg: string, type?: ToastItem['type']) => void>(() => {})
+const ToastContext = createContext<(msg: string, type?: ToastItem['type'], action?: ToastAction) => void>(() => {})
 
 // eslint-disable-next-line react-refresh/only-export-components -- hook co-located with its provider
 export function useToast() { return useContext(ToastContext) }
@@ -17,12 +18,16 @@ export function useToast() { return useContext(ToastContext) }
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([])
 
-  const show = useCallback((message: string, type: ToastItem['type'] = 'info') => {
+  const show = useCallback((message: string, type: ToastItem['type'] = 'info', action?: ToastAction) => {
     const id = Date.now()
-    setToasts((prev) => [...prev, { id, message, type }])
-    const duration = type === 'info'
-      ? INFO_DURATION_MS
-      : Math.min(STICKY_CAP_MS, Math.max(STICKY_FLOOR_MS, message.length * MS_PER_CHAR))
+    setToasts((prev) => [...prev, { id, message, type, action }])
+    // An actionable toast (e.g. Undo) needs time to actually be clicked, so it
+    // gets the sticky floor even at info level.
+    const duration = action
+      ? STICKY_FLOOR_MS
+      : type === 'info'
+        ? INFO_DURATION_MS
+        : Math.min(STICKY_CAP_MS, Math.max(STICKY_FLOOR_MS, message.length * MS_PER_CHAR))
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), duration)
   }, [])
 
@@ -47,6 +52,15 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             className={`${colorClass[t.type]} text-white text-sm px-4 py-2.5 rounded-xl shadow-lg border flex items-start gap-3 animate-[progress-enter_200ms_ease-out_both] pointer-events-auto`}
           >
             <span className="flex-1 text-pretty leading-snug">{t.message}</span>
+            {t.action && (
+              <button
+                type="button"
+                onClick={() => { t.action!.onClick(); dismiss(t.id) }}
+                className="shrink-0 font-semibold text-cinnabar-accent hover:text-white min-h-8 px-2 -my-1 touch-manipulation transition-colors duration-150"
+              >
+                {t.action.label}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => dismiss(t.id)}

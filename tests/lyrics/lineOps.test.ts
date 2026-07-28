@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stampStart, stampTimes, setText, addLine, deleteLine, mergeWithNext, splitLine, reorder } from '../../src/lyrics/lineOps'
+import { stampStart, stampTimes, setText, addLine, deleteLine, mergeWithNext, splitLine, reorder, shiftLine, shiftLinesFrom } from '../../src/lyrics/lineOps'
 import type { TimedLine } from '../../src/core/types'
 
 const L = (startTime: number, original: string, translation = ''): TimedLine => ({ startTime, endTime: startTime + 2, original, translation })
@@ -11,6 +11,74 @@ describe('stampStart', () => {
     expect(out[1].startTime).toBe(2.5)
     expect(out[0]).toEqual(lines()[0])
     expect(out).not.toBe(lines()) // new array (immutable)
+  })
+})
+
+describe('shiftLine', () => {
+  it('moves start and end together, preserving duration', () => {
+    const out = shiftLine(L(4, 'x'), 1.5) // 4–6 → 5.5–7.5
+    expect(out.startTime).toBe(5.5)
+    expect(out.endTime).toBe(7.5)
+  })
+
+  it('shifts earlier for a negative delta', () => {
+    const out = shiftLine(L(4, 'x'), -1)
+    expect(out.startTime).toBe(3)
+    expect(out.endTime).toBe(5)
+  })
+
+  it('clamps at 0 without changing duration', () => {
+    const out = shiftLine(L(2, 'x'), -5) // would go to -3; slides only to 0
+    expect(out.startTime).toBe(0)
+    expect(out.endTime).toBe(2) // duration (2s) intact
+  })
+
+  it('keeps an auto-end line (end === start) auto after shifting', () => {
+    const auto: TimedLine = { startTime: 4, endTime: 4, original: 'x', translation: '' }
+    const out = shiftLine(auto, 2)
+    expect(out.startTime).toBe(6)
+    expect(out.endTime).toBe(6)
+  })
+})
+
+describe('shiftLinesFrom', () => {
+  it('shifts the given line and every line after it, leaving earlier lines untouched', () => {
+    const out = shiftLinesFrom(lines(), 1, 1) // shift b,c by +1
+    expect(out[0]).toEqual(lines()[0]) // a untouched
+    expect(out[1].startTime).toBe(3)
+    expect(out[2].startTime).toBe(5)
+  })
+
+  it('returns a new array and does not mutate the input', () => {
+    const input = lines()
+    const out = shiftLinesFrom(input, 0, 1)
+    expect(out).not.toBe(input)
+    expect(input[0].startTime).toBe(0) // original intact
+  })
+
+  it('keeps starts monotonic even when a negative shift crosses an earlier line', () => {
+    // Pulling b,c earlier past a collapses them toward a's start; the shared
+    // monotonicity guard keeps starts non-decreasing (its own contract).
+    const out = shiftLinesFrom(lines(), 1, -3)
+    for (let i = 1; i < out.length; i++) {
+      expect(out[i].startTime).toBeGreaterThanOrEqual(out[i - 1].startTime)
+    }
+  })
+
+  it('keeps following lines non-overlapping on a forward shift', () => {
+    const out = shiftLinesFrom(lines(), 1, 1) // no crossing — clean gaps preserved
+    for (let i = 1; i < out.length; i++) {
+      expect(out[i].startTime).toBeGreaterThanOrEqual(out[i - 1].startTime)
+      expect(out[i - 1].endTime).toBeLessThanOrEqual(out[i].startTime)
+    }
+  })
+
+  it('clamps at 0 on a large negative shift', () => {
+    const out = shiftLinesFrom(lines(), 0, -10)
+    expect(out[0].startTime).toBe(0)
+    for (let i = 1; i < out.length; i++) {
+      expect(out[i].startTime).toBeGreaterThanOrEqual(out[i - 1].startTime)
+    }
   })
 })
 

@@ -1,8 +1,35 @@
 import type { TimedLine } from '../core/types'
+import { enforceLineMonotonicity } from './phraseAlignment'
 
 /** Replace one element immutably. */
 function replaceAt(lines: TimedLine[], i: number, next: TimedLine): TimedLine[] {
   return lines.map((l, j) => (j === i ? next : l))
+}
+
+/**
+ * Move a whole line — start AND end together — by `delta` seconds, preserving its
+ * duration. This is the "the line came in late/early" correction, distinct from
+ * stampTimes which moves a single anchor. Clamps at 0: if the shift would push
+ * the start negative it slides only as far as t=0, duration intact. An auto-end
+ * line (endTime === startTime) stays auto.
+ */
+export function shiftLine(line: TimedLine, delta: number): TimedLine {
+  const effective = Math.max(delta, -line.startTime)
+  return { ...line, startTime: line.startTime + effective, endTime: line.endTime + effective }
+}
+
+/**
+ * Shift line `fromIndex` and every line after it by `delta` seconds (see
+ * `shiftLine`), then re-enforce monotonic, non-overlapping timing across the
+ * whole array. Lines before `fromIndex` are left in place (only clamped by the
+ * shared monotonicity pass at the boundary). This is the cascade behind the
+ * popover's "shift later lines too" — the one-action fix when a whole section
+ * drifted by a constant offset. Returns a new array; the input is untouched.
+ */
+export function shiftLinesFrom(lines: TimedLine[], fromIndex: number, delta: number): TimedLine[] {
+  const out = lines.map((l, j) => (j >= fromIndex ? shiftLine(l, delta) : { ...l }))
+  enforceLineMonotonicity(out)
+  return out
 }
 
 export function stampStart(lines: TimedLine[], i: number, time: number): TimedLine[] {
