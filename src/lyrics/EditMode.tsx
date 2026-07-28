@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { TimedLine, Language, LineAlignmentQuality } from '../core/types'
-import { stampTimes, setText, addLine, deleteLine } from './lineOps'
+import { stampTimes, setText, addLine, deleteLine, shiftLinesFrom } from './lineOps'
 import { SecondLanguagePanel } from './SecondLanguagePanel'
 import { TimestampPopover } from './TimestampPopover'
 import {
@@ -79,6 +79,9 @@ const DELETE_CONFIRM_MS = 3000
 const toolbarIconBtn =
   'min-w-11 min-h-11 flex items-center justify-center rounded-lg border border-cinnabar-800 text-white/60 hover:text-white hover:border-cinnabar-accent/50 touch-manipulation transition-[color,border-color,transform] duration-150 ease-out active:scale-[0.96]'
 
+// Platform-appropriate modifier glyph for the keyboard-shortcut hints on Undo/Redo.
+const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iP(hone|ad|od)/.test(navigator.userAgent) ? '⌘' : 'Ctrl+'
+
 const toolbarPrimaryBtn =
   'min-h-11 px-3.5 py-2 rounded-lg bg-cinnabar-accent text-white text-xs font-semibold shadow-sm shadow-cinnabar-accent/20 hover:bg-cinnabar-accent/90 touch-manipulation transition-[background-color,transform] duration-150 ease-out active:scale-[0.96]'
 
@@ -140,10 +143,12 @@ interface RowProps {
   seek?: (time: number) => void
   onScrubStart?: () => void
   onScrubEnd?: () => void
-  onCommitTimes: (patch: { start: number; end: number | null }) => void
+  onCommitTimes: (patch: { start: number; end: number | null; shiftRestBy?: number }) => void
   onClosePopover: () => void
   /** Where an auto end lands for this line (next line's start). */
   autoEnd: number
+  /** A following line exists → the popover's "shift later lines too" is offered. */
+  canCascade: boolean
   alignmentQuality?: LineAlignmentQuality
   showAlignmentQuality?: boolean
 }
@@ -153,7 +158,7 @@ interface RowProps {
 function Row({
   line, index, timed, editing, deleteArmed, playheadActive, onStartEdit, onStopEdit, onCommitText, onAdd,
   onArmDelete, onConfirmDelete, onOpenPopover, popoverOpen, playhead, seek, onScrubStart, onScrubEnd, onCommitTimes, onClosePopover, autoEnd,
-  alignmentQuality, showAlignmentQuality,
+  canCascade, alignmentQuality, showAlignmentQuality,
 }: RowProps) {
   const [original, setOriginal] = useState(line.original)
   const [translation, setTranslation] = useState(line.translation)
@@ -298,6 +303,7 @@ function Row({
           onScrub={seek}
           onScrubStart={onScrubStart}
           onScrubEnd={onScrubEnd}
+          canCascade={canCascade}
         />
       )}
     </div>
@@ -378,6 +384,31 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
     setCanRedo(redoStack.current.length > 0)
     onChangeLines(next)
   }
+
+  // Keyboard undo/redo (desktop): the stack already backs every timing/text edit;
+  // this just adds Cmd/Ctrl+Z (undo) and Cmd/Ctrl+Shift+Z or Ctrl+Y (redo). A
+  // latest-handlers ref keeps the listener from capturing a stale onChangeLines.
+  // Keystrokes inside a text field are left to the browser's native text undo.
+  const undoRedoRef = useRef({ undo, redo })
+  useEffect(() => { undoRedoRef.current = { undo, redo } })
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      const key = e.key.toLowerCase()
+      if (key === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) undoRedoRef.current.redo()
+        else undoRedoRef.current.undo()
+      } else if (key === 'y' && !e.metaKey) {
+        e.preventDefault()
+        undoRedoRef.current.redo()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const openSecondLang = () => {
     onPausePlayback?.()
@@ -519,6 +550,7 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             onClick={undo}
             disabled={!canUndo}
             aria-label="Undo"
+            title={`Undo (${MOD_KEY}Z)`}
             className={`${toolbarIconBtn} disabled:opacity-30`}
           >
             <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -531,6 +563,7 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             onClick={redo}
             disabled={!canRedo}
             aria-label="Redo"
+            title={`Redo (${MOD_KEY}⇧Z)`}
             className={`${toolbarIconBtn} disabled:opacity-30`}
           >
             <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -684,8 +717,15 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             seek={seek}
             onScrubStart={onScrubStart}
           onScrubEnd={onScrubEnd}
-          onCommitTimes={(patch) => applyChange(stampTimes(lines, i, patch))}
+          onCommitTimes={(patch) => {
+            let next = stampTimes(lines, i, patch)
+            // "Shift later lines too": propagate the same start offset to every
+            // following line (one-action fix when a whole section drifted).
+            if (patch.shiftRestBy) next = shiftLinesFrom(next, i + 1, patch.shiftRestBy)
+            applyChange(next)
+          }}
           onClosePopover={closePopoverAfterCommit}
+          canCascade={i < lines.length - 1}
           autoEnd={lines[i + 1]?.startTime ?? Infinity}
           alignmentQuality={lineAlignmentQuality?.[i]}
           showAlignmentQuality={showAlignmentQuality}

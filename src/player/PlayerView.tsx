@@ -630,8 +630,16 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       : []
   const anchorTargetActive =
     mode === 'play' && activeLine >= 0 && anchorTargets.includes(activeLine) ? activeLine : null
+  // Restore the whole song to a pre-tap snapshot (undo for the instantly-persisted
+  // tap-anchor). Reverts the anchor, the refit, and the cleared uncertainty flag.
+  const restoreSong = async (snapshot: Song) => {
+    setLines(snapshot.lyrics.lines)
+    setSong(snapshot)
+    await db.songs.put(snapshot)
+  }
   const handleTapAnchor = async (lineIndex: number, time: number) => {
     if (!song) return
+    const prevSong = song
     const anchors: TimingAnchor[] = [
       ...(song.lyrics.timingAnchors ?? []).filter((a) => a.lineIndex !== lineIndex),
       { lineIndex, time, source: 'user' },
@@ -656,6 +664,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     setLines(newLines)
     setSong(updated)
     await db.songs.put(updated)
+    toast(`Line ${lineIndex + 1} re-timed`, 'info', { label: 'Undo', onClick: () => void restoreSong(prevSong) })
   }
   const showYouTubeVideo = youtubeNeedsVisibleEmbed()
   const lyricsUntimed = lines.length > 0 && !linesAreTimed(lines)

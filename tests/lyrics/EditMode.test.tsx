@@ -321,6 +321,52 @@ describe('EditMode', () => {
     expect(redone[1].original).toBe('bb')
   })
 
+  it('Cmd/Ctrl+Z undoes the last edit from the keyboard', () => {
+    const { onChangeLines } = renderEditMode()
+    fireEvent.click(screen.getByText('b'))
+    const input = screen.getByLabelText('Original text')
+    fireEvent.change(input, { target: { value: 'bb' } })
+    fireEvent.blur(input)
+    expect(onChangeLines).toHaveBeenCalledTimes(1)
+
+    fireEvent.keyDown(document.body, { key: 'z', metaKey: true })
+    const undone = onChangeLines.mock.calls[1][0] as TimedLine[]
+    expect(undone[1].original).toBe('b')
+  })
+
+  it('leaves Cmd/Ctrl+Z to the browser while typing in a text field', () => {
+    const { onChangeLines } = renderEditMode()
+    fireEvent.click(screen.getByText('b'))
+    const inputB = screen.getByLabelText('Original text')
+    fireEvent.change(inputB, { target: { value: 'bb' } })
+    fireEvent.blur(inputB)
+    expect(onChangeLines).toHaveBeenCalledTimes(1)
+
+    // Re-enter a field; a Cmd+Z here belongs to native text undo, not the editor.
+    fireEvent.click(screen.getByText('a'))
+    const inputA = screen.getByLabelText('Original text')
+    fireEvent.keyDown(inputA, { key: 'z', metaKey: true })
+    expect(onChangeLines).toHaveBeenCalledTimes(1) // no editor-level undo fired
+  })
+
+  it('the popover cascade shifts every following line by the same offset', () => {
+    const three: TimedLine[] = [
+      { startTime: 0, endTime: 2, original: 'a', translation: '' },
+      { startTime: 5, endTime: 7, original: 'b', translation: '' },
+      { startTime: 10, endTime: 12, original: 'c', translation: '' },
+    ]
+    const { onChangeLines } = renderEditMode({ lines: three })
+    fireEvent.click(screen.getByRole('button', { name: /edit timestamp for line 1/i }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Whole line' }))
+    fireEvent.click(screen.getByRole('button', { name: /forward 0\.5 seconds/i }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /shift later lines/i }))
+    fireEvent.click(screen.getByText('Done'))
+    const next = onChangeLines.mock.calls[0][0] as TimedLine[]
+    expect(next[0].startTime).toBe(0.5)
+    expect(next[1].startTime).toBe(5.5)
+    expect(next[2].startTime).toBe(10.5)
+  })
+
   it('undo/redo buttons are disabled when there is nothing to undo/redo', () => {
     renderEditMode()
     expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled()

@@ -121,4 +121,47 @@ describe('TimestampPopover', () => {
     expect(Number(slider.max)).toBeGreaterThan(88)
     expect(Number(slider.min)).toBeGreaterThan(60)
   })
+
+  // Whole-line "Line" mode: shift start+end together (the late/early fix).
+  it('Line mode nudges the whole line, preserving duration', () => {
+    const onCommit = vi.fn()
+    renderPopover(line(10, 13), { onCommit }) // explicit 3s duration
+    fireEvent.click(screen.getByRole('tab', { name: 'Whole line' }))
+    fireEvent.click(screen.getByRole('button', { name: /forward 0\.5 seconds/i }))
+    fireEvent.click(screen.getByText('Done'))
+    expect(onCommit).toHaveBeenCalledWith({ start: 10.5, end: 13.5, shiftRestBy: undefined })
+  })
+
+  it('Line mode on an auto-end line moves only the start (end stays auto)', () => {
+    const onCommit = vi.fn()
+    renderPopover(line(10), { onCommit })
+    fireEvent.click(screen.getByRole('tab', { name: 'Whole line' }))
+    fireEvent.click(screen.getByRole('button', { name: /back 0\.1 seconds/i }))
+    fireEvent.click(screen.getByText('Done'))
+    expect(onCommit).toHaveBeenCalledWith({ start: 9.9, end: null, shiftRestBy: undefined })
+  })
+
+  // Cascade: propagate the same offset to following lines.
+  it('hides the cascade toggle when there is no following line', () => {
+    renderPopover(line(10))
+    expect(screen.queryByText(/shift later lines/i)).toBeNull()
+  })
+
+  it('commits a shiftRestBy offset when the cascade toggle is checked', () => {
+    const onCommit = vi.fn()
+    renderPopover(line(10), { onCommit, canCascade: true })
+    fireEvent.click(screen.getByRole('tab', { name: 'Whole line' }))
+    fireEvent.click(screen.getByRole('button', { name: /forward 0\.5 seconds/i }))
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByText('Done'))
+    expect(onCommit).toHaveBeenCalledWith({ start: 10.5, end: null, shiftRestBy: 0.5 })
+  })
+
+  it('leaves following lines alone when the cascade toggle is unchecked', () => {
+    const onCommit = vi.fn()
+    renderPopover(line(10), { onCommit, canCascade: true })
+    fireEvent.click(screen.getByRole('button', { name: /forward 0\.5 seconds/i }))
+    fireEvent.click(screen.getByText('Done'))
+    expect(onCommit.mock.calls[0][0].shiftRestBy).toBeUndefined()
+  })
 })

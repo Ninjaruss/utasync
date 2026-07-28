@@ -71,3 +71,33 @@ describe('Toast durations', () => {
     expect(screen.queryByText('w'.repeat(110))).toBeNull()
   })
 })
+
+function ActionTrigger({ onAction }: { onAction: () => void }) {
+  const toast = useToast()
+  return (
+    <button type="button" onClick={() => toast('Line 2 re-timed', 'info', { label: 'Undo', onClick: onAction })}>
+      fire
+    </button>
+  )
+}
+
+describe('Toast actions', () => {
+  it('renders an action button that fires its handler and dismisses the toast', () => {
+    const onAction = vi.fn()
+    render(<ToastProvider><ActionTrigger onAction={onAction} /></ToastProvider>)
+    fireEvent.click(screen.getByText('fire'))
+    fireEvent.click(screen.getByText('Undo'))
+    expect(onAction).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('Line 2 re-timed')).toBeNull()
+  })
+
+  it('keeps an actionable info toast up to the sticky floor so it can be clicked', () => {
+    render(<ToastProvider><ActionTrigger onAction={vi.fn()} /></ToastProvider>)
+    fireEvent.click(screen.getByText('fire'))
+    // A plain info toast would be gone by 4s; the actionable one survives past it.
+    act(() => vi.advanceTimersByTime(4001))
+    expect(screen.getByText('Undo')).toBeTruthy()
+    act(() => vi.advanceTimersByTime(4000)) // ~8s floor reached
+    expect(screen.queryByText('Line 2 re-timed')).toBeNull()
+  })
+})
