@@ -17,6 +17,17 @@ const STEP = Math.round(DIM_T * (1 - OVERLAP)) // = 64 frames between chunk star
 
 let session: ort.InferenceSession | null = null
 
+/** Where this worker's onnxruntime-web (1.26) loads its jsep runtime (.wasm +
+ * dynamically-imported .mjs) from. Vite emits those files to /onnx-wasm-demucs/
+ * (see vite.config). Without an explicit path, ORT resolves to a CDN/relative
+ * URL that 404s in production, so vocal separation fails there. Mirrors what
+ * configureWhisperEnv does for the transformers ORT (a different version). */
+function demucsOrtWasmBaseUrl(): string {
+  const origin = typeof self !== 'undefined' && 'location' in self ? self.location.origin : ''
+  const base = (import.meta.env?.BASE_URL as string | undefined) ?? '/'
+  return new URL(`${base}onnx-wasm-demucs/`, origin || undefined).href
+}
+
 /** Linear resampler — accurate enough for 44100↔48000. */
 function resample(audio: Float32Array, fromRate: number, toRate: number): Float32Array {
   if (fromRate === toRate) return audio
@@ -38,6 +49,11 @@ self.onmessage = async (e: MessageEvent) => {
   if (type === 'load') {
     try {
       self.postMessage({ type: 'progress', payload: { status: 'loading', progress: 0 } })
+      // Serve the ORT runtime locally (offline-first) and never spawn a nested
+      // proxy worker — we're already inside a worker. Must run before the first
+      // InferenceSession.create.
+      ort.env.wasm.wasmPaths = demucsOrtWasmBaseUrl()
+      ort.env.wasm.proxy = false
       session = await ort.InferenceSession.create(DEMUCS_MODEL_URL, {
         executionProviders: ['webgpu', 'wasm'],
       })

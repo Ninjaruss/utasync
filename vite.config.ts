@@ -16,6 +16,22 @@ const ORT_WASM_DIR = fileURLToPath(
   new URL('node_modules/@huggingface/transformers/dist/', import.meta.url),
 )
 
+// The demucs worker uses the top-level onnxruntime-web (1.26), a DIFFERENT build
+// from the one transformers bundles. Its jsep runtime (.wasm + dynamically-
+// imported .mjs) must be served from our own origin too — without this the
+// worker's ORT tries a CDN/relative path that 404s in production, so vocal
+// separation fails and alignment silently falls back to the raw mix. Served
+// under a distinct prefix so the two ORT versions never get mixed.
+const DEMUCS_ORT_DIR = fileURLToPath(
+  new URL('node_modules/onnxruntime-web/dist/', import.meta.url),
+)
+
+// Prefix → source dir for the two ORT runtimes we serve locally.
+const ORT_SERVE_DIRS: Record<string, string> = {
+  '/onnx-wasm/': ORT_WASM_DIR,
+  '/onnx-wasm-demucs/': DEMUCS_ORT_DIR,
+}
+
 function serveOnnxWasmFile(
   req: Connect.IncomingMessage,
   res: import('node:http').ServerResponse,
@@ -25,17 +41,18 @@ function serveOnnxWasmFile(
   // Serve the ORT wasm binary AND its jsep glue module: the WebGPU backend
   // dynamically imports `ort-wasm-simd-threaded.jsep.mjs`, so serving only .wasm
   // breaks WebGPU with "error loading dynamically imported module".
-  if (!url?.startsWith('/onnx-wasm/') || !(url.endsWith('.wasm') || url.endsWith('.mjs'))) {
+  const prefix = url ? Object.keys(ORT_SERVE_DIRS).find((p) => url.startsWith(p)) : undefined
+  if (!prefix || !(url!.endsWith('.wasm') || url!.endsWith('.mjs'))) {
     next()
     return
   }
-  const name = url.slice('/onnx-wasm/'.length)
+  const name = url!.slice(prefix.length)
   if (name.includes('..') || name.includes('/')) {
     next()
     return
   }
   try {
-    const data = readFileSync(join(ORT_WASM_DIR, name))
+    const data = readFileSync(join(ORT_SERVE_DIRS[prefix], name))
     res.setHeader('Content-Type', name.endsWith('.mjs') ? 'text/javascript' : 'application/wasm')
     res.setHeader('Content-Length', String(data.length))
     res.end(data)
@@ -61,13 +78,16 @@ const serveOnnxWasm: Plugin = {
     server.middlewares.use(serveOnnxWasmFile)
   },
   generateBundle() {
-    for (const name of readdirSync(ORT_WASM_DIR)) {
-      if (!isOrtRuntimeAsset(name)) continue
-      this.emitFile({
-        type: 'asset',
-        fileName: `onnx-wasm/${name}`,
-        source: readFileSync(join(ORT_WASM_DIR, name)),
-      })
+    for (const [prefix, dir] of Object.entries(ORT_SERVE_DIRS)) {
+      const folder = prefix.slice(1) // '/onnx-wasm/' → 'onnx-wasm/'
+      for (const name of readdirSync(dir)) {
+        if (!isOrtRuntimeAsset(name)) continue
+        this.emitFile({
+          type: 'asset',
+          fileName: `${folder}${name}`,
+          source: readFileSync(join(dir, name)),
+        })
+      }
     }
   },
 }
