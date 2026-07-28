@@ -64,4 +64,55 @@ describe('computeSyncState', () => {
     ]
     expect(computeSyncState(baseSong({ lyrics: { lines, sourceLanguage: 'ja', translationLanguage: 'en', alignmentMode: 'manual' } }))).toBe('synced')
   })
+
+  // Quality-aware song badge: a fully-timed song whose aligner flagged many
+  // lines as unverifiable is not honestly "synced".
+  const timedLines = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ startTime: i * 2, endTime: i * 2 + 2, original: `l${i}`, translation: '' }))
+  const lyricsWith = (n: number, quality: ('good' | 'approximate' | 'needs_review')[]) => ({
+    lines: timedLines(n),
+    lineAlignmentQuality: quality,
+    sourceLanguage: 'ja' as const,
+    translationLanguage: 'en' as const,
+    alignmentMode: 'auto' as const,
+  })
+
+  it('stays synced when only a small share of lines are needs_review', () => {
+    // 1 of 10 = 10%, at/under tolerance → still synced.
+    const q = Array.from({ length: 10 }, (_, i) => (i === 0 ? 'needs_review' : 'good')) as ('good' | 'needs_review')[]
+    expect(computeSyncState(baseSong({ lyrics: lyricsWith(10, q) }))).toBe('synced')
+  })
+
+  it('becomes needs-sync when many lines are needs_review', () => {
+    // 4 of 10 = 40% unverified → the "synced" badge would be a false positive.
+    const q = Array.from({ length: 10 }, (_, i) => (i < 4 ? 'needs_review' : 'good')) as ('good' | 'needs_review')[]
+    expect(computeSyncState(baseSong({ lyrics: lyricsWith(10, q) }))).toBe('needs-sync')
+  })
+
+  it('does not flip to needs-sync on routine approximate line-ends', () => {
+    // A long segment-mode track: every line is approximate (fuzzy ends) but
+    // none is needs_review — still fine to sing along to, stays synced.
+    const q = Array.from({ length: 12 }, () => 'approximate') as 'approximate'[]
+    expect(computeSyncState(baseSong({ lyrics: lyricsWith(12, q) }))).toBe('synced')
+  })
+
+  it('ignores blank lines when measuring the unverified share', () => {
+    const lines = [
+      { startTime: 0, endTime: 2, original: 'a', translation: '' },
+      { startTime: 2, endTime: 4, original: '', translation: '' }, // blank spacer
+      { startTime: 4, endTime: 6, original: 'c', translation: '' },
+      { startTime: 6, endTime: 8, original: 'd', translation: '' },
+    ]
+    // 1 needs_review out of 3 non-blank lines = 33% → needs-sync.
+    const lineAlignmentQuality = ['needs_review', 'good', 'good', 'good'] as ('good' | 'needs_review')[]
+    expect(
+      computeSyncState(baseSong({ lyrics: { lines, lineAlignmentQuality, sourceLanguage: 'ja', translationLanguage: 'en', alignmentMode: 'auto' } })),
+    ).toBe('needs-sync')
+  })
+
+  it('falls back to the structural check when quality length does not match lines', () => {
+    // Stale/absent quality (e.g. phrase-layout mismatch) must not be trusted.
+    const q = ['needs_review', 'needs_review'] as ('needs_review')[]
+    expect(computeSyncState(baseSong({ lyrics: lyricsWith(10, q as never) }))).toBe('synced')
+  })
 })
