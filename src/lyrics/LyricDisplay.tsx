@@ -381,7 +381,10 @@ export function LyricDisplay({
             loopHighlight={loopHighlight}
             onLineClick={onLineClick}
             lineRef={isActive ? activeRef : undefined}
-            onWordTap={tapLookupEnabled ? setWordTap : undefined}
+            // Only the ACTIVE line's words open the dictionary; tapping a word on
+            // any other line falls through to the row's seek (jump to that line)
+            // instead of being swallowed by the lookup.
+            onWordTap={tapLookupEnabled && isActive ? setWordTap : undefined}
           />
         )
       })}

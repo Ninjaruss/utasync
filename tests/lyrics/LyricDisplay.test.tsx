@@ -98,6 +98,27 @@ describe('word-pair coloring', () => {
     expect(span.style.borderBottomColor).toBe('rgb(156, 163, 175)') // PARTICLE_COLOR #9ca3af
   })
 
+  const wordLineA: TimedLine = { startTime: 0, endTime: 2, original: '君', translation: 'you', tokens: [{ surface: '君', pos: '名詞', startIndex: 0, endIndex: 1 }] }
+  const wordLineB: TimedLine = { startTime: 5, endTime: 7, original: '空', translation: 'sky', tokens: [{ surface: '空', pos: '名詞', startIndex: 0, endIndex: 1 }] }
+
+  it('tapping a word on a NON-active line seeks to that line (does not open the dictionary)', () => {
+    const onLineClick = vi.fn()
+    useLyricsStore.setState({ lines: [wordLineA, wordLineB], activeLine: 0 })
+    useSettingsStore.setState({ tapLookupEnabled: true })
+    render(<LyricDisplay onLineClick={onLineClick} />)
+    fireEvent.click(screen.getByText('空')) // word on the non-active line (index 1)
+    expect(onLineClick).toHaveBeenCalledWith(wordLineB)
+  })
+
+  it('tapping a word on the ACTIVE line opens the dictionary (does not seek)', () => {
+    const onLineClick = vi.fn()
+    useLyricsStore.setState({ lines: [wordLineA, wordLineB], activeLine: 0 })
+    useSettingsStore.setState({ tapLookupEnabled: true })
+    render(<LyricDisplay onLineClick={onLineClick} />)
+    fireEvent.click(screen.getByText('君')) // word on the active line (index 0)
+    expect(onLineClick).not.toHaveBeenCalled()
+  })
+
   it('colors matched word pairs in stacked layout when translation is shown', () => {
     useLyricsStore.setState({ lyricsLayout: 'stacked', showTranslation: true, lines: [coloredLine], activeLine: -1 })
     render(<LyricDisplay onLineClick={vi.fn()} />)
