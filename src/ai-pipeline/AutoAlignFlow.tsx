@@ -404,7 +404,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         setStage('aligning')
         setProgress(0)
         await yieldToMainThread()
-        const mixed = refineMixedLanguageAlignment(sheetRows, chunksToWords(jaTranscript), chunksToWords(enTranscript))
+        const mixed = refineMixedLanguageAlignment(sheetRows, chunksToWords(jaTranscript), chunksToWords(enTranscript), vocalSig ?? undefined)
         refined = mixed.refined
         transcriptWords = mixed.transcriptWords
       } else {
@@ -423,6 +423,10 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           words,
           alignmentLanguage,
           song.lyrics,
+          // Feed the accepted vocal stem's envelope to the acoustic label-honesty
+          // gate (demotes confident lines that sit on non-vocal audio). Null when
+          // isolation is off/failed/rejected → text-only, gate no-ops.
+          { vocalActivity: vocalSig ?? undefined },
         )
       }
 
@@ -457,7 +461,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           sourceLanguage: song.lyrics.sourceLanguage,
           transcribeSlice: sliceTx.transcribe,
           isCancelled: () => cancelledRef.current,
-          refineOpts: { lyricsBase: song.lyrics },
+          refineOpts: { lyricsBase: song.lyrics, options: { vocalActivity: vocalSig ?? undefined } },
           onProgress: (n) => {
             setGapRecovery(
               n > 0 ? `Recovering ${n} unaligned section${n === 1 ? '' : 's'}…` : null,
