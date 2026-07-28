@@ -4,6 +4,7 @@ import { render, waitFor } from '@testing-library/react'
 import { AutoAlignFlow } from '../../src/ai-pipeline/AutoAlignFlow'
 import type { Song } from '../../src/core/types'
 import { db } from '../../src/core/db/schema'
+import { separateVocals } from '../../src/ai-pipeline/demucsSeparator'
 
 /**
  * Regression: Demucs returns vocals at its model rate (44100), NOT the decode
@@ -37,9 +38,11 @@ vi.mock('../../src/core/opfs/audio', () => ({
   getAudioFile: vi.fn(async () => new Blob([new ArrayBuffer(8)], { type: 'audio/wav' })),
 }))
 
-// Decode yields 48kHz audio (common Firefox AudioContext rate).
+// Decode yields 48kHz audio (common Firefox AudioContext rate). Stable ref so a
+// fallback-to-mix assertion can identify it.
+const mixAudio = new Float32Array(48000)
 vi.mock('../../src/core/audio/decodeToMono', () => ({
-  decodeAudioFileToMono: vi.fn(async () => ({ data: new Float32Array(48000), sampleRate: 48000 })),
+  decodeAudioFileToMono: vi.fn(async () => ({ data: mixAudio, sampleRate: 48000 })),
 }))
 
 // A voiced vocal-band tone (~300 Hz) so the stem sanity guard in start() accepts
@@ -101,5 +104,20 @@ describe('AutoAlignFlow vocal separation sample rate', () => {
     const [audioArg, rateArg] = transcribeAudio.mock.calls[0]
     expect(audioArg).toBe(separatedVocals)
     expect(rateArg).toBe(44100)
+  })
+
+  // Regression: isolation is default-on, so a Demucs failure (e.g. its onnxruntime
+  // can't load in production) must NOT abort the whole align — it must fall back to
+  // transcribing the raw mix, like gap recovery and the stem-quality guard already do.
+  it('falls back to the raw mix (does not abort) when vocal separation fails', async () => {
+    vi.mocked(separateVocals).mockRejectedValueOnce(new Error('onnxruntime backend failed to initialize'))
+    const onComplete = vi.fn()
+    render(<AutoAlignFlow song={song} autoStart onComplete={onComplete} onClose={vi.fn()} />)
+    // The align still COMPLETES (would never fire if the separation failure aborted).
+    await waitFor(() => expect(onComplete).toHaveBeenCalled(), { timeout: 10_000 })
+    // Whisper ran on the decoded mix at its own rate, not a stem.
+    const [audioArg, rateArg] = transcribeAudio.mock.calls[0]
+    expect(audioArg).toBe(mixAudio)
+    expect(rateArg).toBe(48000)
   })
 })

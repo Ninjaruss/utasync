@@ -249,9 +249,13 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
           }
         } catch (e) {
           if (cancelledRef.current) return
-          setError(classifyVocalSepError(e))
-          setStage('error')
-          return
+          // Isolation is default-on, so a Demucs failure must NEVER kill the align.
+          // audioData is still the decoded mix here (it's only reassigned to the stem
+          // on success), so just fall back to transcribing that — same as stored-song
+          // gap recovery and the stem-quality guard. Isolation can only ever help or
+          // no-op, never abort. The classified reason goes to the console for triage.
+          console.warn('[AutoAlignFlow] vocal isolation failed — aligning on the raw mix:', classifyVocalSepError(e))
+          setRetryNotice('Vocal isolation is unavailable here — aligning on the original mix instead.')
         }
         if (cancelledRef.current) return
       }
