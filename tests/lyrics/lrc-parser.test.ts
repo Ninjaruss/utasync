@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseLRC, parseLRCPair } from '../../src/lyrics/lrc-parser'
+import { parseLRC, parseLRCPair, hasLrcTimestamps } from '../../src/lyrics/lrc-parser'
 
 const jaLRC = `[00:12.50]星に願いを
 [00:15.20]夢の中で待ってる
@@ -62,5 +62,27 @@ describe('parseLRCPair', () => {
     const lines = parseLRCPair(jaLRC, shortEn)
     expect(lines).toHaveLength(3)
     expect(lines[1].translation).toBe('')
+  })
+})
+
+describe('hasLrcTimestamps', () => {
+  it('is true when at least two lines carry a time tag', () => {
+    expect(hasLrcTimestamps('[00:03.72]a\n[00:06.76]b')).toBe(true)
+  })
+
+  it('is true for a full LRC with fractional-ms tags', () => {
+    expect(hasLrcTimestamps('[00:03.720]a\n[00:06.760]b\n[00:10.08]c')).toBe(true)
+  })
+
+  it('is false for plain lyrics', () => {
+    expect(hasLrcTimestamps('first line\nsecond line\nthird line')).toBe(false)
+  })
+
+  it('is false when only a single stray tag is present', () => {
+    expect(hasLrcTimestamps('meet me at [00:12.00]\nplain lyric line')).toBe(false)
+  })
+
+  it('is false for empty text', () => {
+    expect(hasLrcTimestamps('')).toBe(false)
   })
 })

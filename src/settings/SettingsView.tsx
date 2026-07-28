@@ -171,9 +171,9 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
         {canUseVocalSeparation(getDeviceTier()) && (
           <SettingToggle
             title="Isolate vocals for timing"
-            description="Improves lyric timing on songs with loud instrumentals. Downloads an extra AI model the next time a song is aligned."
-            checked={vocalSeparationEnabled}
-            onToggle={() => setVocalSeparationEnabled(!vocalSeparationEnabled)}
+            description="On by default — improves lyric timing on songs with loud instrumentals. Downloads an extra AI model the next time a song is aligned. Turn off to align on the original mix."
+            checked={vocalSeparationEnabled ?? true}
+            onToggle={() => setVocalSeparationEnabled(!(vocalSeparationEnabled ?? true))}
           />
         )}
         <SettingToggle
@@ -312,7 +312,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
                   <button
                     type="button"
                     onClick={() => setConfirmDeleteId(song.id)}
-                    className="min-h-11 px-3 text-xs text-red-400 hover:text-red-300 touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]"
+                    className="min-h-11 px-3 text-xs text-white/40 hover:text-red-300 focus-visible:text-red-300 touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]"
                     aria-label={`Delete ${song.title}`}
                   >
                     Delete

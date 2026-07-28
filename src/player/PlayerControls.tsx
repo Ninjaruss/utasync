@@ -15,6 +15,8 @@ import {
   displayMenuTrigger,
   displayMenuTriggerActive,
   displayMenuTriggerIdle,
+  practiceChipBtn,
+  mobileControlChipBtn,
   toolbarChipBtn,
   toolbarChipBtnActive,
   toolbarChipBtnArmed,
@@ -569,14 +571,6 @@ function CollapsibleABLoopSection({
 }
 
 const SWIPE_MIN_PX = 48
-
-const practiceChipBtn =
-  'min-h-9 px-2.5 py-1 rounded-lg border text-[11px] touch-manipulation transition-[color,background-color,border-color,transform] duration-150 ease-out active:scale-[0.96] tabular-nums'
-
-// Mobile control-dock chips (Loop / Speed / Saved) — 44px touch target, same
-// visual family as practiceChipBtn but taller so the thumb has room on a phone.
-const mobileControlChipBtn =
-  'min-h-11 px-2.5 py-1 rounded-lg border text-[11px] font-medium touch-manipulation transition-[color,background-color,border-color,transform] duration-150 ease-out active:scale-[0.96] tabular-nums'
 
 
 function PlaylistCompactPlayer({

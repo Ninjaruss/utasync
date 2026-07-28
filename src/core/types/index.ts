@@ -122,6 +122,10 @@ export interface LyricsData {
   anchorSources?: ('lcs' | 'interpolated' | 'interjection')[]
   /** Per-line quality from the last validation pass (same order as `lines`). */
   lineAlignmentQuality?: LineAlignmentQuality[]
+  /** Hard timing pins from user taps (and any auto start/end edges). Line timing is
+   * re-fit locally around these via refitAroundAnchors, and they survive re-align.
+   * Absent ⇒ legacy behavior (no pins). */
+  timingAnchors?: { lineIndex: number; time: number; source: 'user' | 'auto-start' | 'auto-end' }[]
   /** Canonical sung units derived after auto-align (Phase 1). Optional until derived;
    * the UI keeps rendering `lines` by default (D1 hybrid). */
   phrases?: SungPhrase[]
@@ -169,8 +173,12 @@ export interface UserSettings {
   clozeDifficulty: ClozeDifficulty
   /** Primary lyric language for new songs and online lyric search. */
   defaultSongLanguage: Language
-  /** Isolate vocals with Demucs before Whisper (full-tier only, slower). */
-  vocalSeparationEnabled: boolean
+  /** Isolate vocals with Demucs before Whisper (full-tier only, slower).
+   * Tri-state: `null` means "use the default" (on when the device supports it —
+   * isolation is the highest-impact accuracy lever and is guarded by a stem
+   * sanity-check that falls back to the mix); `true`/`false` are explicit user
+   * choices and are always honored. */
+  vocalSeparationEnabled: boolean | null
   /** Whether detected sung readings are promoted into furigana ruby (D3). */
   readingMode: ReadingMode
   /** Tap a lyric word to open the built-in dictionary popover. Off lets desktop Yomitan users avoid double popups. */

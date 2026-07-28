@@ -11,9 +11,6 @@ export const displayToolbarRow =
 export const editToolbarRow =
   `${toolbarSection} flex flex-col justify-center gap-2 py-3`
 
-/** @deprecated Use displayToolbarRow or editToolbarRow */
-export const modeToolbarRow = editToolbarRow
-
 export const toolbarSectionLabel =
   'text-[10px] uppercase tracking-wide text-white/35'
 
@@ -29,9 +26,21 @@ export const editRowSurfaceActive =
 export const timestampPillBtn =
   'flex items-center gap-1.5 shrink-0 min-h-11 rounded-lg border border-cinnabar-800 bg-cinnabar-950/50 px-2 py-1.5 touch-manipulation hover:border-cinnabar-accent/50 transition-[border-color,transform] duration-150 ease-out active:scale-[0.96]'
 
-/** Chip buttons for practice controls (A-B, speed presets) — shared sizing and borders. */
-export const toolbarChipBtn =
-  'min-h-11 px-3 py-2 rounded-lg border text-xs touch-manipulation transition-[color,background-color,border-color,transform] duration-150 ease-out active:scale-[0.96] tabular-nums'
+/** Shared chip look (border, motion, tabular figures). The three chip sizes below
+ * are the SAME visual family at different densities — desktop/full, compact, and a
+ * taller mobile touch target — composed from this base so they can't drift. Pair
+ * each with a state class (toolbarChipBtnIdle/Active/Armed). */
+const chipBtnBase =
+  'rounded-lg border touch-manipulation transition-[color,background-color,border-color,transform] duration-150 ease-out active:scale-[0.96] tabular-nums'
+
+/** Full-size chip (A-B, speed presets). */
+export const toolbarChipBtn = `min-h-11 px-3 py-2 text-xs ${chipBtnBase}`
+
+/** Compact chip for dense practice rows. */
+export const practiceChipBtn = `min-h-9 px-2.5 py-1 text-[11px] ${chipBtnBase}`
+
+/** Same family, taller so the thumb has room on a phone bottom sheet. */
+export const mobileControlChipBtn = `min-h-11 px-2.5 py-1 text-[11px] font-medium ${chipBtnBase}`
 
 export const toolbarChipBtnIdle =
   'border-cinnabar-800 text-white/45 hover:border-cinnabar-accent/50 hover:text-white/65'

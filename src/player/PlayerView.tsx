@@ -9,7 +9,10 @@ import { YouTubePlayer, type YouTubePlayerHandle } from './YouTubePlayer'
 import { youtubeErrorMessage, youtubeNeedsVisibleEmbed } from './youtubeEmbedPolicy'
 import { resolveYouTubeVideoId } from '../sources/youtube'
 import { ABLoopController } from './ABLoop'
-import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase } from '../core/types'
+import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, AlignmentLanguage } from '../core/types'
+import { TapAnchorPrompt } from './TapAnchorPrompt'
+import { Banner } from '../core/ui/Banner'
+import { refitAroundAnchors, selectAnchorTargets, type TimingAnchor } from '../lyrics/anchorRefit'
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
 import { projectPhraseTokensToLines } from '../lyrics/phraseProjection'
 import { repairPhraseTranslationOrder, remapPhraseTranslations } from '../lyrics/phraseNormalize'
@@ -34,7 +37,8 @@ import { tokenizeEnglish } from '../language/english/tokenizer'
 import { sentenceToIPA } from '../language/english/phonetics'
 import { detectEnglishGrammar } from '../language/english/grammar'
 import { TapSyncEditor } from './TapSyncEditor'
-import { getDeviceTier } from '../ai-pipeline/capability'
+import { getDeviceTier, canUseVocalSeparation } from '../ai-pipeline/capability'
+import { useSettingsStore } from '../payment/SettingsStore'
 import { detectSheetLanguage } from '../ai-pipeline/whisperLanguage'
 import { accurateRealignReason } from '../ai-pipeline/alignTimestampMode'
 import { linesAreTimed, chooseAutoAlignment, type AlignMode } from './alignmentPolicy'
@@ -284,6 +288,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const { playbackState, position, duration, speed, volume, abLoop, armingAB, currentSongId, setPlaybackState, setPosition, setDuration, setSpeed, setVolume, setABLoop, armAB, setCurrentSong } = usePlayerStore()
   const { lines, syncPosition, setLines, furiganaMode, showTranslation, lyricsLayout, setFuriganaMode, setShowTranslation, setLyricsLayout } = useLyricsStore()
   const [song, setSong] = useState<Song | null>(null)
+  const activeLine = useLyricsStore((s) => s.activeLine)
   const [alignMode, setAlignMode] = useState<AlignMode | null>(null)
   const [alignAccurateReadings, setAlignAccurateReadings] = useState(false)
   const [accurateReadingsDismissed, setAccurateReadingsDismissed] = useState(false)
@@ -301,6 +306,13 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [phrasingBusy, setPhrasingBusy] = useState(false)
   const [recoveringGaps, setRecoveringGaps] = useState(false)
   const [recoverGapsStatus, setRecoverGapsStatus] = useState<string | null>(null)
+  // Gap recovery re-transcribes on the same isolated vocal stem the fresh align
+  // uses, when the device supports it and the user hasn't turned isolation off
+  // (null = default-on). recoverGapsForStoredSong still verifies the model + guards
+  // the stem, so this is a cheap intent flag.
+  const vocalSeparationEnabled = useSettingsStore((s) => s.vocalSeparationEnabled)
+  const gapRecoveryIsolatesVocals =
+    canUseVocalSeparation(getDeviceTier()) && (vocalSeparationEnabled ?? true)
   const {
     setBusy: setLyricsReimportBusy,
     confirming: confirmLyricsReimportClose,
@@ -519,6 +531,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
                   setRecoverGapsStatus(n > 0 ? `Recovering ${n} section${n === 1 ? '' : 's'}…` : 'Recovering…')
                 }
               },
+              isolateVocals: gapRecoveryIsolatesVocals,
+              onSeparating: () => { if (!cancelled) setRecoverGapsStatus('Isolating vocals…') },
               highAccuracy: false,
               timestampMode: 'segment',
             })
@@ -604,6 +618,45 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const localAudioPlayable = hasStoredAudio && !localAudioLoadFailed
   const isYouTube = !!ytVideoId && !localAudioPlayable
   const canPlayback = isYouTube || localAudioPlayable
+  // Tap-to-anchor: the few rows the aligner was least sure of. When one of them is
+  // the active line in Play mode, offer a one-tap pin — the tap becomes ground
+  // truth for that line and refitAroundAnchors re-fits LOCALLY around it (confident
+  // lines outside the pinned span are never shifted).
+  const anchorTargets =
+    song?.lyrics.alignmentMode === 'auto'
+      ? selectAnchorTargets(song.lyrics.lines, song.lyrics.lineAlignmentQuality, {
+          alreadyAnchored: (song.lyrics.timingAnchors ?? []).map((a) => a.lineIndex),
+        })
+      : []
+  const anchorTargetActive =
+    mode === 'play' && activeLine >= 0 && anchorTargets.includes(activeLine) ? activeLine : null
+  const handleTapAnchor = async (lineIndex: number, time: number) => {
+    if (!song) return
+    const anchors: TimingAnchor[] = [
+      ...(song.lyrics.timingAnchors ?? []).filter((a) => a.lineIndex !== lineIndex),
+      { lineIndex, time, source: 'user' },
+    ]
+    const newLines = refitAroundAnchors(
+      song.lyrics.lines,
+      anchors,
+      song.lyrics.sourceLanguage as AlignmentLanguage,
+      { quality: song.lyrics.lineAlignmentQuality },
+    )
+    // The tap IS ground truth for this row — clear its uncertainty flag so it drops
+    // out of the remaining targets.
+    const quality = song.lyrics.lineAlignmentQuality ? [...song.lyrics.lineAlignmentQuality] : undefined
+    if (quality) quality[lineIndex] = 'good'
+    const lyrics = {
+      ...song.lyrics,
+      lines: newLines,
+      timingAnchors: anchors,
+      ...(quality ? { lineAlignmentQuality: quality } : {}),
+    }
+    const updated: Song = { ...song, lyrics, syncState: computeSyncState({ ...song, lyrics }) }
+    setLines(newLines)
+    setSong(updated)
+    await db.songs.put(updated)
+  }
   const showYouTubeVideo = youtubeNeedsVisibleEmbed()
   const lyricsUntimed = lines.length > 0 && !linesAreTimed(lines)
   const onYouTubeError = (code: number) => toast(youtubeErrorMessage(code), 'warning')
@@ -726,6 +779,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         isCancelled: () => false,
         onProgress: (n) =>
           setRecoverGapsStatus(n > 0 ? `Recovering ${n} section${n === 1 ? '' : 's'}…` : 'Recovering…'),
+        isolateVocals: gapRecoveryIsolatesVocals,
+        onSeparating: () => setRecoverGapsStatus('Isolating vocals…'),
         highAccuracy: false,
         timestampMode: 'segment',
       })
@@ -1148,6 +1203,9 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         translations={song.lyrics.lines.map((l) => l.translation)}
         audioPosition={() => position}
         onComplete={handleTapComplete}
+        isPlaying={playbackState === 'playing'}
+        onTogglePlay={togglePlay}
+        onSeek={seek}
       />
     )
   }
@@ -1186,60 +1244,56 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       {/* Stored audio failed to load and there is no YouTube fallback: playback is
           disabled, so offer a way to re-attach a file rather than a dead player. */}
       {localAudioLoadFailed && !isYouTube && hasStoredAudio && (
-        <div className="shrink-0 px-3 sm:px-4 py-2.5 border-b border-cinnabar-900/80 bg-cinnabar-950/80 flex items-center gap-3">
-          <p className="text-[11px] text-amber-400/90 text-pretty leading-snug flex-1">
-            Couldn&apos;t load this song&apos;s audio file. {attachAudioError || 'It may be missing or in an unsupported format.'}
-          </p>
-          <label className="shrink-0 px-2.5 py-1.5 rounded-lg bg-cinnabar-accent text-white text-[11px] font-medium min-h-8 inline-flex items-center touch-manipulation cursor-pointer">
-            {attachingAudio ? 'Adding…' : 'Re-attach audio'}
-            <input
-              type="file"
-              accept="audio/*"
-              className="hidden"
-              disabled={attachingAudio}
-              onChange={(e) => {
-                const file = e.target.files?.[0]
-                if (file) void handleAttachLocalAudio(file)
-                e.target.value = ''
-              }}
-            />
-          </label>
-        </div>
+        <Banner
+          severity="error"
+          actionSlot={
+            <label className="shrink-0 self-start px-2.5 py-1.5 rounded-lg bg-cinnabar-accent text-white text-[11px] font-semibold min-h-8 inline-flex items-center touch-manipulation cursor-pointer">
+              {attachingAudio ? 'Adding…' : 'Re-attach audio'}
+              <input
+                type="file"
+                accept="audio/*"
+                className="hidden"
+                disabled={attachingAudio}
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) void handleAttachLocalAudio(file)
+                  e.target.value = ''
+                }}
+              />
+            </label>
+          }
+        >
+          Couldn&apos;t load this song&apos;s audio file. {attachAudioError || 'It may be missing or in an unsupported format.'}
+        </Banner>
+      )}
+
+      {mode === 'play' && canPlayback && (
+        <TapAnchorPrompt
+          lineIndex={anchorTargetActive}
+          remaining={anchorTargets.length}
+          getTime={() => (isYouTube ? position : engine.position)}
+          onAnchor={handleTapAnchor}
+        />
       )}
 
       {mode === 'play' && lyricsUntimed && canPlayback && (
-        <div className="shrink-0 px-3 sm:px-4 py-2 border-b border-cinnabar-900/80 bg-cinnabar-950/80">
-          <p className="text-[11px] text-white/45 text-pretty">
-            Lyrics are not timed yet. Open Edit → Tap-through to stamp each line while the song plays
-            {hasStoredAudio ? ', or use Auto-align.' : ', or add an audio file for AI align.'}
-          </p>
-        </div>
+        <Banner severity="info">
+          Lyrics aren&apos;t timed yet. Open Edit → Tap-through to time each line as the song plays
+          {hasStoredAudio ? ', or use Auto-align.' : ', or add an audio file for AI align.'}
+        </Banner>
       )}
 
+      {/* Approximate-timing note. Deliberately does NOT push word-level "Re-align":
+          that pass is measurably worse on long tracks (the exact case this fires
+          for). The reliable fix is tapping a line as it plays — the tap-anchor
+          prompt above already offers that — or fine-tuning in Edit. */}
       {mode === 'play' && suggestWordLevelAlign && !accurateReadingsDismissed && (
-        <div className="shrink-0 px-3 sm:px-4 py-2.5 border-b border-cinnabar-900/80 bg-cinnabar-950/80 flex items-start gap-3">
-          <p className="text-[11px] text-white/55 text-pretty leading-snug flex-1">
-            Some lines share one block in the audio analysis, so their timing is approximate.
-            Re-align with <span className="text-white/80">Accurate timing</span> for tighter per-line sync (slower).
-          </p>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => beginAlignment('auto', true)}
-              className="px-2.5 py-1.5 rounded-lg bg-cinnabar-accent text-white text-[11px] font-medium min-h-8 touch-manipulation"
-            >
-              Re-align
-            </button>
-            <button
-              type="button"
-              onClick={() => setAccurateReadingsDismissed(true)}
-              aria-label="Dismiss"
-              className="text-white/35 hover:text-white/70 text-xs min-h-8 px-1 touch-manipulation"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
+        <Banner
+          severity="info"
+          onDismiss={() => setAccurateReadingsDismissed(true)}
+        >
+          Some line timings are approximate — tap a line as it plays to fix it, or fine-tune in Edit.
+        </Banner>
       )}
 
       {mode === 'play' && (isJapanese || hasTranslation || phraseChanges.length > 0) && (
@@ -1324,6 +1378,11 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               alignmentConfidence={song?.lyrics.alignmentConfidence}
               accurateRealignReason={hasStoredAudio ? realignReason : null}
               onAutoAlignAccurate={() => beginAlignment('auto', true)}
+              onFixTiming={
+                anchorTargets.length > 0 && canPlayback
+                  ? () => { setMode('play'); goToLyricLine(anchorTargets[0]) }
+                  : undefined
+              }
             />
           )}
         </div>

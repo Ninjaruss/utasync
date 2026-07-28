@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cleanPastedLyrics, stripInlineFurigana } from '../../src/lyrics/lyricCleanup'
+import { cleanPastedLyrics, stripInlineFurigana, stripLrcTimestamps } from '../../src/lyrics/lyricCleanup'
 import { linesFromPlainText } from '../../src/sources/songBuilder'
 
 describe('cleanPastedLyrics', () => {
@@ -146,5 +146,54 @@ describe('cleanPastedLyrics', () => {
       '君の名前を呼ぶ',
       '滾らせるこの覚悟の血',
     ])
+  })
+
+  it('strips a leading LRC time tag, keeping the lyric text', () => {
+    expect(cleanPastedLyrics('[00:06.76] Transforming the pain')).toBe('Transforming the pain')
+  })
+
+  it('strips LRC tags with 2- or 3-digit fractional seconds', () => {
+    expect(cleanPastedLyrics('[01:19.923] foo')).toBe('foo')
+    expect(cleanPastedLyrics('[00:05.76]bar')).toBe('bar')
+  })
+
+  it('turns a bare timestamp-only LRC line into an empty line (dropped downstream)', () => {
+    expect(cleanPastedLyrics('[01:19.92]').trim()).toBe('')
+  })
+
+  it('strips a run of multiple leading LRC tags', () => {
+    expect(cleanPastedLyrics('[00:12.00][00:45.30] chorus')).toBe('chorus')
+  })
+
+  it('keeps a background-vocal parenthetical after a timestamp', () => {
+    expect(cleanPastedLyrics('[00:03.72] (Giga, TeddyLoid)')).toBe('(Giga, TeddyLoid)')
+  })
+
+  it('does NOT strip a bracketed token that is not a leading time tag', () => {
+    expect(cleanPastedLyrics('meet me at [midnight]')).toBe('meet me at [midnight]')
+  })
+
+  it('stripLrcTimestamps leaves a line with no time tag unchanged', () => {
+    expect(stripLrcTimestamps('just lyrics')).toBe('just lyrics')
+  })
+
+  it('parses a pasted LRC block end-to-end through linesFromPlainText', () => {
+    const input = [
+      '[00:03.72] (Giga, TeddyLoid)',
+      '[00:06.76] Transforming the pain and rewriting your name',
+      '[00:10.08] ゼロ戻りまた再生',
+      '[00:16.80] 生き残れ (I know the fate that will)',
+      '[01:19.92]',
+      '[03:07.60]',
+    ].join('\n')
+    const lines = linesFromPlainText(input)
+    expect(lines.map((l) => l.original)).toEqual([
+      '(Giga, TeddyLoid)',
+      'Transforming the pain and rewriting your name',
+      'ゼロ戻りまた再生',
+      '生き残れ (I know the fate that will)',
+    ])
+    // Timestamps are cleaned, not consumed as timing — start at 0 like all pasted text.
+    expect(lines.every((l) => l.startTime === 0)).toBe(true)
   })
 })

@@ -119,7 +119,7 @@ export function LibraryScreen({ onOpen, onAdd, onSettings, refreshKey = 0 }: Pro
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); setPendingDelete(song) }}
-                  className="relative z-10 min-w-11 min-h-11 flex items-center justify-center text-xs text-red-400 hover:text-red-300 shrink-0 touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96] mr-0.5"
+                  className="relative z-10 min-w-11 min-h-11 flex items-center justify-center text-sm text-white/25 hover:text-red-300 focus-visible:text-red-300 shrink-0 touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96] mr-0.5"
                   aria-label={`Delete ${song.title}`}
                 >
                   ✕

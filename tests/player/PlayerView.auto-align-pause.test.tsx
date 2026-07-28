@@ -29,7 +29,7 @@ vi.mock('../../src/player/AudioEngine', () => ({
   },
 }))
 
-vi.mock('../../src/ai-pipeline/capability', () => ({ getDeviceTier: () => 'full' }))
+vi.mock('../../src/ai-pipeline/capability', () => ({ getDeviceTier: () => 'full', canUseVocalSeparation: () => true }))
 
 vi.mock('../../src/ai-pipeline/AutoAlignFlow', () => ({
   AutoAlignFlow: () => <div data-testid="auto-align-flow">Auto-Align</div>,

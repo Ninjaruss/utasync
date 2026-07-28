@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import type { TimedLine, Language } from '../core/types'
-import { linesFromPlainText } from '../sources/songBuilder'
+import { linesFromPaste } from '../sources/songBuilder'
+import { LrcTimingNotice } from './LrcTimingNotice'
 import { parseSubtitle } from './subtitle-parser'
 import { resolveLyricsForSong, lyricsSourceLabel, type LyricsResolveSource } from '../sources/lyricsResolver'
 import { LyricsFoundConfirm, lyricsFoundReadyToApply } from './LyricsFoundConfirm'
@@ -39,6 +40,7 @@ export function LyricsImportPanel({
 }: Props) {
   const [lyricsPhase, setLyricsPhase] = useState<LyricsPhase>({ kind: 'idle' })
   const [pasted, setPasted] = useState('')
+  const [ignoreLrcTimings, setIgnoreLrcTimings] = useState(false)
   const [subtitleFile, setSubtitleFile] = useState<File | null>(null)
   const [error, setError] = useState('')
   const [applying, setApplying] = useState(false)
@@ -95,7 +97,7 @@ export function LyricsImportPanel({
   async function resolveManualLines(): Promise<TimedLine[] | null> {
     if (lyricsPhase.kind === 'found') return lyricsPhase.lines
     if (lyricsPhase.kind === 'manual') {
-      if (lyricsPhase.source === 'paste') return linesFromPlainText(pasted)
+      if (lyricsPhase.source === 'paste') return linesFromPaste(pasted, { ignoreLrcTimings })
       if (!subtitleFile) {
         setError('Choose a subtitle file or paste lyrics instead.')
         return null
@@ -192,13 +194,20 @@ export function LyricsImportPanel({
             <p className="text-white/35 text-xs text-pretty">No automatic match — paste lyrics or choose a subtitle file.</p>
             {skipSearchButtons}
             {lyricsPhase.source === 'paste' && (
-              <textarea
-                value={pasted}
-                onChange={(e) => setPasted(e.target.value)}
-                placeholder="Paste lyrics, one line per row…"
-                rows={6}
-                className="w-full px-4 py-3 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/30"
-              />
+              <>
+                <textarea
+                  value={pasted}
+                  onChange={(e) => { setPasted(e.target.value); setIgnoreLrcTimings(false) }}
+                  placeholder="Paste lyrics, one line per row…"
+                  rows={6}
+                  className="w-full px-4 py-3 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/30"
+                />
+                <LrcTimingNotice
+                  pasted={pasted}
+                  ignored={ignoreLrcTimings}
+                  onAlignFromScratch={() => setIgnoreLrcTimings(true)}
+                />
+              </>
             )}
             {lyricsPhase.source === 'subtitle' && (
               <label className="block w-full px-4 py-3 bg-cinnabar-900 text-white/70 rounded-xl border border-cinnabar-800 cursor-pointer text-sm">

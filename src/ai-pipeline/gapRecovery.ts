@@ -12,6 +12,9 @@ import { applySungLayout } from '../lyrics/phraseLayout'
 import { enumerateGapHoles, holeWorthRetrying, lineText } from '../lyrics/gapRealign'
 import { decodeAudioFileToMono } from '../core/audio/decodeToMono'
 import { getAudioFile } from '../core/opfs/audio'
+import { separateVocals, isDemucsModelAvailable, DEMUCS_OUTPUT_SAMPLE_RATE } from './demucsSeparator'
+import { computeVocalActivity } from './vocalActivity'
+import { assessStemQuality, warnIfStemRejected } from './stemQuality'
 
 /**
  * Stored-song gap recovery (round 9, R9-2). Lifts round-8's fresh-Auto-align-only
@@ -35,8 +38,13 @@ import { getAudioFile } from '../core/opfs/audio'
  * bounded by verified anchors, slices aim at un-transcribed spans, and splices
  * can be accepted on placed-coverage improvement; previously-stamped songs get
  * one more automatic pass with the wider detection.
+ * 3: gap slices are now re-transcribed on the ISOLATED vocal stem (Demucs), the
+ * same source the fresh align uses — busy mixes are exactly where holes garble,
+ * so isolating there recovers them where the raw mix couldn't. Guarded (a
+ * destroyed stem falls back to the mix) and accept-if-better, so previously-
+ * stamped songs get one more automatic pass that can only improve them.
  */
-export const GAP_RECOVERY_VERSION = 2
+export const GAP_RECOVERY_VERSION = 3
 
 /**
  * Build a `RefinedAlignment` "alignment view" from the persisted lyrics fields the
@@ -121,6 +129,15 @@ export interface RecoverGapsArgs {
   onProgress?: (holesToRecover: number) => void
   highAccuracy?: boolean
   timestampMode?: 'word' | 'segment'
+  /** Isolate vocals (Demucs) before re-transcribing the gap slices, matching the
+   * fresh-align source. Intent only — the caller derives it from device tier + the
+   * user's isolation setting; this routine still verifies the model is available
+   * and sanity-guards the stem (falling back to the mix). Default false keeps the
+   * legacy raw-mix behavior for callers that don't opt in. */
+  isolateVocals?: boolean
+  /** Fired once when vocal isolation starts, so the caller can show an "Isolating
+   * vocals…" status ahead of the (separate) hole-transcription progress. */
+  onSeparating?: () => void
 }
 
 /**
@@ -141,6 +158,8 @@ export async function recoverGapsForStoredSong(
     onProgress,
     highAccuracy = false,
     timestampMode = 'segment',
+    isolateVocals = false,
+    onSeparating,
   } = args
 
   // No hole worth a slice → skip the (expensive) decode + model load entirely.
@@ -157,8 +176,38 @@ export async function recoverGapsForStoredSong(
       return null
     }
   }
-  const { data, sampleRate } = await decodeAudioFileToMono(file)
+  let { data, sampleRate } = await decodeAudioFileToMono(file)
   if (isCancelled?.()) return null
+
+  // Isolation parity with the fresh align (GAP_RECOVERY_VERSION 3): re-transcribe
+  // the garbled gaps on the same isolated vocal stem the song was aligned on. Only
+  // when the caller opted in AND the model is present; the stem is sanity-guarded
+  // exactly like AutoAlignFlow (a destroyed near-silent stem falls back to the raw
+  // mix), and reanalyzeGaps' accept-if-better means a worse re-transcription is
+  // discarded — so this can only help. Demucs returns 44100 Hz; the slice
+  // transcriber must use that rate for the stem, or every slice window desyncs.
+  if (isolateVocals && (await isDemucsModelAvailable())) {
+    onSeparating?.()
+    try {
+      const stem = await separateVocals(data, {
+        sampleRate,
+        isCancelled: () => isCancelled?.() ?? false,
+      })
+      if (isCancelled?.()) return null
+      const stemSig = computeVocalActivity(stem, DEMUCS_OUTPUT_SAMPLE_RATE, { source: 'stem' })
+      const verdict = assessStemQuality(stemSig, stem.length / DEMUCS_OUTPUT_SAMPLE_RATE)
+      if (verdict.usable) {
+        data = stem
+        sampleRate = DEMUCS_OUTPUT_SAMPLE_RATE
+      } else {
+        // Rejected stem → keep the decoded mix (data/sampleRate unchanged).
+        warnIfStemRejected('gap-recovery', verdict)
+      }
+    } catch {
+      // Separation failed/cancelled → recover on the mix rather than aborting.
+      if (isCancelled?.()) return null
+    }
+  }
 
   const alignmentLanguage = detectSheetLanguage(sheetTexts, lyrics.sourceLanguage)
   const sliceTx = createSliceTranscriber({

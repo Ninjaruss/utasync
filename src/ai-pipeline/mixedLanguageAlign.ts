@@ -107,12 +107,62 @@ export function mergeMixedRefinedAlignments(
 
   const passOf = (src: MixedPassSource) => (src === 'ja' ? ja : en)
 
+  // Cross-pass consensus skeleton: lines where the two forced-language passes
+  // independently agree (within AGREE_TOL) and both carry real evidence are
+  // high-confidence — two passes rarely agree on a time by accident. Interpolate
+  // an expected timeline across those agreed anchors, so a rank/preference pick
+  // that drifts far from it while the OTHER pass sits much closer can be
+  // re-selected. Catches whole-section drift where one pass mistimes a dense
+  // bilingual run (Recollect's verse-2 / chorus rap) that script preference,
+  // being per-line, cannot see. Gated on enough agreement so single-pass or
+  // low-agreement songs are untouched.
+  const AGREE_TOL = 2.5
+  const CONSENSUS_MIN = 4
+  const DEVIATION_TRIGGER = 8
+  const IMPROVE_MIN = 4
+  const agreed: { li: number; time: number }[] = []
+  for (let li = 0; li < n; li++) {
+    const jt = ja.lines[li]?.startTime
+    const et = en.lines[li]?.startTime
+    if (jt == null || et == null) continue
+    if (Math.abs(jt - et) <= AGREE_TOL && lineRank(ja, li) >= 1 && lineRank(en, li) >= 1) {
+      agreed.push({ li, time: (jt + et) / 2 })
+    }
+  }
+  const expected: (number | null)[] = new Array(n).fill(null)
+  if (agreed.length >= CONSENSUS_MIN) {
+    for (let a = 0; a < agreed.length - 1; a++) {
+      const lo = agreed[a]
+      const hi = agreed[a + 1]
+      for (let li = lo.li; li <= hi.li; li++) {
+        expected[li] = lo.time + ((hi.time - lo.time) * (li - lo.li)) / (hi.li - lo.li)
+      }
+    }
+  }
+
   for (let li = 0; li < n; li++) {
     const jaRank = lineRank(ja, li)
     const enRank = lineRank(en, li)
     let src: MixedPassSource
     if (jaRank !== enRank) src = jaRank > enRank ? 'ja' : 'en'
     else src = linePassPreference(lineTexts[li])
+
+    // Consensus override: when the rank/preference pick drifts far from the
+    // agreed skeleton and the other pass sits clearly closer (and has evidence),
+    // trust the consistent pass over the per-line script preference.
+    const exp = expected[li]
+    if (exp != null) {
+      const jt = ja.lines[li].startTime
+      const et = en.lines[li].startTime
+      const devJa = Math.abs(jt - exp)
+      const devEn = Math.abs(et - exp)
+      const curDev = src === 'ja' ? devJa : devEn
+      const altSrc: MixedPassSource = src === 'ja' ? 'en' : 'ja'
+      const altDev = src === 'ja' ? devEn : devJa
+      if (curDev > DEVIATION_TRIGGER && curDev - altDev >= IMPROVE_MIN && lineRank(passOf(altSrc), li) >= 1) {
+        src = altSrc
+      }
+    }
 
     // Monotonic repair: a cross-pass pick that jumps backward is a mis-anchor
     // (e.g. the EN pass matched a chorus reprise). Prefer the other pass when

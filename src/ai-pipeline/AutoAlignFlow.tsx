@@ -22,6 +22,11 @@ import { detectSheetLanguage } from './whisperLanguage'
 import { isRecoverableTranscriptionError, classifyAlignError } from './workerError'
 import { resetWhisperTranscriber, transcribeAudio, type LoadProgress, type TranscribeProgressStatus } from './whisperTranscriber'
 import { DEMUCS_OUTPUT_SAMPLE_RATE, isDemucsModelAvailable, refreshDemucsModelAvailability, separateVocals } from './demucsSeparator'
+import { computeVocalActivity, firstVocalOnset, type VocalActivitySignal } from './vocalActivity'
+import { assessStemQuality, warnIfStemRejected } from './stemQuality'
+import { anchorLeadingEdge, backfillLateStartsToAcousticOnset } from '../lyrics/leadingEdgeAnchor'
+import { computeLineMatchedSpans } from './contentAligner'
+import { applyLrcPrior } from '../lyrics/lrcPrior'
 import { useSettingsStore } from '../payment/SettingsStore'
 import { yieldToMainThread } from '../core/idle'
 
@@ -101,13 +106,21 @@ function loadTaskProgress(p: LoadProgress | null, phase: 'download' | 'init'): n
 
 export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, accurateReadings: accurateReadingsInitial = false }: Props) {
   const tier = getDeviceTier()
+  const vocalSeparationSupported = canUseVocalSeparation(tier)
   const vocalSeparationDefault = useSettingsStore((s) => s.vocalSeparationEnabled)
   const setVocalSeparationEnabled = useSettingsStore((s) => s.setVocalSeparationEnabled)
   // First-run download consent: the very first alignment pulls a ~240MB speech
   // model. Gate that first download behind an explicit prompt, remembered once.
   const modelDownloadConsented = useSettingsStore((s) => s.modelDownloadConsented)
   const setModelDownloadConsented = useSettingsStore((s) => s.setModelDownloadConsented)
-  const [vocalSeparation, setVocalSeparation] = useState(vocalSeparationDefault)
+  // Vocal isolation is the highest-impact accuracy lever, so it defaults ON on
+  // capable (full-tier) devices — a destroyed stem is caught by the sanity guard
+  // in start() and falls back to the raw mix, so default-on can't regress a song.
+  // `vocalSeparationDefault` is tri-state: null = use this default, true/false =
+  // an explicit user choice (always honored). The user can still uncheck it here.
+  const [vocalSeparation, setVocalSeparation] = useState(
+    vocalSeparationSupported && (vocalSeparationDefault ?? true),
+  )
   const [demucsReady, setDemucsReady] = useState<boolean | null>(null)
   const [vocalSeparationRun, setVocalSeparationRun] = useState(false)
   // D2: opt into the slower word-level Whisper pass for more reliable readings on
@@ -144,7 +157,6 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
   const [confirmCancel, setConfirmCancel] = useState(false)
   const cancelledRef = useRef(false)
 
-  const vocalSeparationSupported = canUseVocalSeparation(tier)
   const highAccuracySupported = canUseHighAccuracy(tier)
   // Reflect the selected model so the download-progress copy shows ~1.5GB during
   // a high-accuracy (medium) download, not the small model's ~240MB.
@@ -173,6 +185,13 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
     try {
       let audioData: Float32Array | null = null
       let sampleRate = 44100
+      // Whether a separated stem passed the sanity guard and is what we transcribe.
+      // Distinct from `willSeparate`/`vocalSeparationRun` (separation was attempted):
+      // a destroyed stem is rejected and we transcribe the raw mix instead.
+      let stemAccepted = false
+      // Stem vocal-activity envelope, computed once at separation and reused by the
+      // leading-edge onset anchor below (stem-only) — null when running on the mix.
+      let vocalSig: VocalActivitySignal | null = null
 
       setStage('preparing')
       setProgress(0)
@@ -198,22 +217,41 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         setStage('separating')
         setProgress(0)
         try {
-          audioData = await separateVocals(audioData, {
+          const stem = await separateVocals(audioData, {
             sampleRate,
             onProgress: (pct) => setProgress(pct),
             isCancelled: () => cancelledRef.current,
           })
-          // Demucs returns vocals at ITS model rate, not the decode rate. On a
-          // 48kHz AudioContext (common on Firefox), keeping the old rate scaled
-          // every Whisper timestamp ~8.8% early — the whole song desynced.
-          sampleRate = DEMUCS_OUTPUT_SAMPLE_RATE
+          if (cancelledRef.current) return
+          // Sanity-guard the stem BEFORE committing to it. Isolation usually helps,
+          // but on some tracks Demucs destroys the vocal (near-silent stem) and
+          // transcribing that is strictly worse than the raw mix. A rejected stem
+          // falls back to the mix — identical to isolation being off — so the guard
+          // can never regress a song. The vocal-activity envelope computed here is
+          // reused by the leading-edge onset anchor below, so this adds no extra DSP.
+          // Demucs returns vocals at ITS model rate (44100), never the decode rate;
+          // on a 48kHz AudioContext (common on Firefox) keeping the decode rate
+          // scaled every Whisper timestamp ~8.8% early and desynced the whole song —
+          // so the stem path uses DEMUCS_OUTPUT_SAMPLE_RATE and the mix-fallback path
+          // keeps the decode rate.
+          const stemSig = computeVocalActivity(stem, DEMUCS_OUTPUT_SAMPLE_RATE, { source: 'stem' })
+          const verdict = assessStemQuality(stemSig, stem.length / DEMUCS_OUTPUT_SAMPLE_RATE)
+          if (verdict.usable) {
+            audioData = stem
+            sampleRate = DEMUCS_OUTPUT_SAMPLE_RATE
+            stemAccepted = true
+            vocalSig = stemSig
+          } else {
+            // Keep the decoded mix (audioData/sampleRate unchanged) and transcribe
+            // that. Surface it so the user understands why isolation had no effect.
+            warnIfStemRejected('auto-align', verdict)
+            setRetryNotice('Vocal isolation produced no usable vocals — aligning on the original mix instead.')
+          }
         } catch (e) {
           if (cancelledRef.current) return
           setError(classifyVocalSepError(e))
           setStage('error')
           return
-        } finally {
-          // no-op
         }
         if (cancelledRef.current) return
       }
@@ -428,6 +466,56 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
         transcriptWords = gap.transcriptWords
       }
 
+      // LRC-prior guardrail: when the song already carries timing (a pasted LRC,
+      // a subtitle, or a prior alignment), use it as a monotonic prior so a
+      // confident-but-wrong transcript match can't drop a line onto entirely
+      // different content. Pure — needs no audio/stem — and a no-op for
+      // plain-text songs (all startTimes 0), so freshly-added untimed songs and
+      // the offline corpus are byte-identical. Runs before the acoustic onset
+      // anchor so that pass sharpens the opening within the prior.
+      {
+        const priorTimes = song.lyrics.lines.map((l) => l.startTime)
+        const hasPrior =
+          priorTimes.length === refined.lines.length &&
+          priorTimes.filter((t) => t > 0).length >= Math.ceil(priorTimes.length / 2)
+        if (hasPrior) {
+          const priorSpans = computeLineMatchedSpans(
+            refined.lines.map((l) => l.original || l.translation),
+            sanitizeTranscript(transcriptWords),
+          )
+          refined = { ...refined, lines: applyLrcPrior(refined.lines, priorSpans, priorTimes) }
+        }
+      }
+
+      // Leading-edge onset anchor: if the aligner crammed the opening lines onto
+      // an instrumental intro (no content anchor there, so they interpolate to
+      // t=0), pull them forward to where the vocals actually begin. Stem-only —
+      // a mis-heard intro transcript can't locate the onset (round-7 early-start
+      // pull off transcript firstTime regressed; the acoustic envelope is the
+      // signal that was missing then). Best-effort and a no-op without a vocal
+      // stem, so non-isolated runs are byte-identical.
+      if (audioData && stemAccepted && vocalSig) {
+        try {
+          const onset = firstVocalOnset(vocalSig)
+          // Content-match spans double as the leading-edge anchor's trust signal
+          // (which opening lines are real content vs interpolated filler) and the
+          // late-start snapper's coverage gate. Text→transcript matching only, so
+          // position-independent — computing once before either pass is correct.
+          const spans = computeLineMatchedSpans(
+            refined.lines.map((l) => l.original || l.translation),
+            sanitizeTranscript(transcriptWords),
+          )
+          if (onset != null) {
+            refined = { ...refined, lines: anchorLeadingEdge(refined.lines, onset, alignmentLanguage, { spans }) }
+          }
+          // Late-start complement: after fixing a crammed opening, pull any line
+          // whose start sits AFTER its true vocal onset back to the acoustic onset.
+          refined = { ...refined, lines: backfillLateStartsToAcousticOnset(refined.lines, spans, vocalSig) }
+        } catch {
+          /* acoustic anchor is best-effort — never fail the align over it */
+        }
+      }
+
       const updated: Song = {
         ...song,
         lyrics: applyRefinedAlignment(
@@ -611,7 +699,9 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
             <p className="text-sm text-white/80 text-pretty">
               <span className="font-medium text-white">First-song setup</span>
               {' — '}
-              this downloads a ~240MB speech model once, then everything runs on your device.
+              this downloads a ~240MB speech model
+              {vocalSeparation && vocalSeparationSupported ? ' (plus a ~65MB vocal-isolation model)' : ''}
+              {' '}once, then everything runs on your device.
             </p>
             <button
               type="button"
