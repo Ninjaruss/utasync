@@ -298,6 +298,7 @@ export function refineMixedLanguageAlignment(
   sheetRows: TimedLine[],
   jaWords: TranscriptWord[],
   enWords: TranscriptWord[],
+  vocalActivity?: import('./vocalActivity').VocalActivitySignal,
 ): MixedAlignmentResult {
   const lineTexts = sheetRows.map((l) => l.original || l.translation)
   const frac = scriptCharFractions(lineTexts)
@@ -334,6 +335,7 @@ export function refineMixedLanguageAlignment(
     quality: refined.lineAlignmentQuality ?? [],
     words: sanitizeTranscript(transcriptWords),
     mode: refined.mode,
+    vocalActivity,
   })
   // Re-tighten confidence against the FINAL (post-honesty) labels. The merge
   // capped confidence by placement, but label honesty then demotes over-confident
