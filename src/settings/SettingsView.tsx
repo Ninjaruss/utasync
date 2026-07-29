@@ -58,8 +58,10 @@ function SettingToggle({
         >
           <span
             className={[
-              'absolute top-0.5 w-5 h-5 rounded-full bg-white transition-[left] duration-150 ease-out',
-              checked ? 'left-[1.375rem]' : 'left-0.5',
+              // Animate transform (compositor-friendly) rather than `left`, so the
+              // knob glides without per-frame layout. Travel = track − knob − 2×inset.
+              'absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform duration-150 ease-out',
+              checked ? 'translate-x-5' : 'translate-x-0',
             ].join(' ')}
           />
         </span>
