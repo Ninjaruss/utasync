@@ -3,6 +3,7 @@ import { katakanaToHiragana } from './phonetics'
 import { KANJI_ROMAJI, kanjiLemmaRomaji, lemmaGloss } from '../../ai-pipeline/lyricGloss'
 import { normalizeLemmaGloss } from '../../ai-pipeline/glossNormalize'
 import { getJmdictKanjiGloss, jmdictGlossLoaded, prepareJmdictStemIndex } from '../../ai-pipeline/jmdictGloss'
+import { getPopoverGloss, loadJmdictPopover } from '../../ai-pipeline/jmdictPopover'
 import { loadJmdictReadings, readingInventory } from './jmdictReadings'
 import { grammarGloss, isGrammarToken } from './grammarGlosses'
 import { shouldPromoteSungReading } from '../../lyrics/readingDisplay'
@@ -79,13 +80,22 @@ function lexicalGloss(token: Token, headword: string, kana: string | undefined):
     if (curated) return curated
   }
 
-  // 2. Surface-specific JMdict gloss — bypasses the romaji key so homophones
+  // 2. Dedicated popover dictionary: the full, reading-disambiguated first-sense
+  //    definition. Strictly better than the single-word fallbacks below (which
+  //    truncate "past" → "the" and collapse homographs), and scoped to the popover
+  //    so the word-pairer's romaji map stays untouched. Keyed by dictionary form
+  //    (headword) so inflected verbs resolve, then the raw surface.
+  const readingHira = kana ? katakanaToHiragana(kana) : undefined
+  const popover = getPopoverGloss(headword, readingHira) ?? getPopoverGloss(token.surface, readingHira)
+  if (popover) return popover
+
+  // 3. Surface-specific JMdict gloss — bypasses the romaji key so homophones
   //    don't collapse onto one definition (億 stays "hundred million", not
   //    置く's "put"). Sparse: only present for collision-corrected surfaces.
   const kanjiGloss = getJmdictKanjiGloss(headword) ?? getJmdictKanjiGloss(token.surface)
   if (kanjiGloss) return normalizeLemmaGloss(kanjiGloss)
 
-  // 3. Fallback: romaji lemma chain (JMdict kanji→romaji, then the kana reading).
+  // 4. Fallback: romaji lemma chain (JMdict kanji→romaji, then the kana reading).
   //    On the kana branch, romanize the dictionary (base) form when kuromoji
   //    supplies a kana one: an inflected verb's surface reading misses
   //    (わから → "wakara"), but the base reading resolves (わかる → "wakaru" →
@@ -117,6 +127,21 @@ function subsidiaryVerbLexicalGloss(token: Token, headword: string, kana: string
   return lexicalGloss(token, headword, kana)
 }
 
+const HAS_KANJI = /[一-鿿々]/
+
+/**
+ * Recover a kanji-bearing grammar-tagged content word (度 in 〜度に, 欲しい in
+ * 〜て欲しい, 事 as a nominalizer) from the reading-disambiguated popover, which
+ * kuromoji tags 非自立 and the grammar path would otherwise leave blank. Guarded
+ * on kanji: kana particles/auxiliaries (は, を, た) must never inherit a lexical
+ * gloss — the popover is reading-safe but only kanji surfaces are keyed, and this
+ * guard keeps that invariant even if a kana surface were ever injected.
+ */
+function grammarKanjiPopoverGloss(token: Token, headword: string, readingHira: string | undefined): string | undefined {
+  if (!HAS_KANJI.test(token.surface)) return undefined
+  return getPopoverGloss(headword, readingHira) ?? getPopoverGloss(token.surface, readingHira)
+}
+
 /**
  * Compact lookup for the tap-to-look-up popover. Resolves a romaji lemma key
  * (curated kanji map → JMdict kanji map → kana reading) and reuses the
@@ -127,8 +152,9 @@ export async function lookupWord(token: Token, readingMode: ReadingMode = 'dicti
   if (!hasJapanese(token.surface)) return null
 
   // Loads the JMdict maps + stem index once; resolves (with curated-only
-  // coverage) even when the fetches fail.
-  await Promise.all([prepareJmdictStemIndex(), loadJmdictReadings()])
+  // coverage) even when the fetches fail. The popover dictionary is the primary
+  // definition source; the romaji stem index stays a fallback.
+  await Promise.all([prepareJmdictStemIndex(), loadJmdictReadings(), loadJmdictPopover()])
 
   const headword = token.baseForm ?? token.surface
   // Kuromoji supplies no reading for unknown words (slang); when the surface is
@@ -149,8 +175,9 @@ export async function lookupWord(token: Token, readingMode: ReadingMode = 'dicti
   // not lexical: the kana homophone chain would gloss は as 端 "edge" or た as
   // 田 "rice". They only ever take the curated grammar glossary — an uncurated
   // one shows no gloss rather than a wrong one.
+  const readingHira = kana ? katakanaToHiragana(kana) : undefined
   const gloss = isGrammarToken(token)
-    ? grammarGloss(token) ?? subsidiaryVerbLexicalGloss(token, headword, kana)
+    ? grammarGloss(token) ?? subsidiaryVerbLexicalGloss(token, headword, kana) ?? grammarKanjiPopoverGloss(token, headword, readingHira)
     : lexicalGloss(token, headword, kana)
 
   return {
