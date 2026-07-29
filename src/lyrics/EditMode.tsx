@@ -147,6 +147,8 @@ interface RowProps {
   onClosePopover: () => void
   /** Where an auto end lands for this line (next line's start). */
   autoEnd: number
+  /** Previous line's start, for the timing popover's context strip (0 for the first line). */
+  prevStart?: number
   /** A following line exists → the popover's "shift later lines too" is offered. */
   canCascade: boolean
   alignmentQuality?: LineAlignmentQuality
@@ -158,7 +160,7 @@ interface RowProps {
 function Row({
   line, index, timed, editing, deleteArmed, playheadActive, onStartEdit, onStopEdit, onCommitText, onAdd,
   onArmDelete, onConfirmDelete, onOpenPopover, popoverOpen, playhead, seek, onScrubStart, onScrubEnd, onCommitTimes, onClosePopover, autoEnd,
-  canCascade, alignmentQuality, showAlignmentQuality,
+  prevStart, canCascade, alignmentQuality, showAlignmentQuality,
 }: RowProps) {
   const [original, setOriginal] = useState(line.original)
   const [translation, setTranslation] = useState(line.translation)
@@ -297,6 +299,7 @@ function Row({
         <TimestampPopover
           line={line}
           autoEnd={autoEnd}
+          prevStart={prevStart}
           playhead={playhead}
           onCommit={onCommitTimes}
           onClose={onClosePopover}
@@ -727,6 +730,7 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
           onClosePopover={closePopoverAfterCommit}
           canCascade={i < lines.length - 1}
           autoEnd={lines[i + 1]?.startTime ?? Infinity}
+          prevStart={lines[i - 1]?.startTime}
           alignmentQuality={lineAlignmentQuality?.[i]}
           showAlignmentQuality={showAlignmentQuality}
         />

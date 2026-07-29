@@ -38,10 +38,11 @@ describe('EditMode', () => {
   it('committing the popover stamps the chosen time', () => {
     const { onChangeLines } = renderEditMode()
     fireEvent.click(screen.getByRole('button', { name: /edit timestamp for line 2/i }))
-    fireEvent.change(screen.getByLabelText('Scrub start timestamp'), { target: { value: '9' } })
+    // Line 2 is untimed (start 0), so the ±6s scrub window is 0–6.
+    fireEvent.change(screen.getByLabelText('Scrub start timestamp'), { target: { value: '5' } })
     fireEvent.click(screen.getByText('Done'))
     const next = onChangeLines.mock.calls[0][0] as TimedLine[]
-    expect(next[1].startTime).toBe(9)
+    expect(next[1].startTime).toBe(5)
   })
 
   it('committing an end anchor from the popover stamps endTime', () => {
@@ -59,8 +60,8 @@ describe('EditMode', () => {
     const onScrubEnd = vi.fn()
     const { onChangeLines } = renderEditMode({ seek, onScrubStart: vi.fn(), onScrubEnd, playhead: () => 4 })
     fireEvent.click(screen.getByRole('button', { name: /edit timestamp for line 2/i }))
-    fireEvent.change(screen.getByLabelText('Scrub start timestamp'), { target: { value: '9' } })
-    expect(seek).toHaveBeenCalledWith(9)
+    fireEvent.change(screen.getByLabelText('Scrub start timestamp'), { target: { value: '5' } })
+    expect(seek).toHaveBeenCalledWith(5)
     const list = screen.getByLabelText('Lyric lines')
     fireEvent.click(list)
     expect(onChangeLines).not.toHaveBeenCalled()
