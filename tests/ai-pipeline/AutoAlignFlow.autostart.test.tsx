@@ -56,7 +56,7 @@ class MockAudioContext {
 }
 vi.stubGlobal('AudioContext', MockAudioContext)
 
-const transcribeAudio = vi.fn(async (_audio: Float32Array, _rate: number, opts?: {
+const defaultTranscribe = async (_audio: Float32Array, _rate: number, opts?: {
   onModelLoaded?: () => void
   timestampMode?: 'word' | 'segment'
   highAccuracy?: boolean
@@ -64,7 +64,8 @@ const transcribeAudio = vi.fn(async (_audio: Float32Array, _rate: number, opts?:
 }) => {
   opts?.onModelLoaded?.()
   return { chunks: [{ text: 'hello', timestamp: [0, 1] as [number, number] }] }
-})
+}
+const transcribeAudio = vi.fn(defaultTranscribe)
 
 vi.mock('../../src/ai-pipeline/whisperTranscriber', () => ({
   transcribeAudio: (...args: Parameters<typeof transcribeAudio>) => transcribeAudio(...args),
@@ -115,7 +116,8 @@ const song: Song = {
 
 beforeEach(async () => {
   await db.songs.clear()
-  transcribeAudio.mockClear()
+  transcribeAudio.mockReset()
+  transcribeAudio.mockImplementation(defaultTranscribe)
   deviceTier.current = 'lite'
   vocalSepSupported.current = false
   settings.consented = true
@@ -355,9 +357,9 @@ describe('AutoAlignFlow crash-downgrade retry visibility', () => {
 })
 
 describe('AutoAlignFlow user-facing copy', () => {
-  it('labels the word-level pass "Accurate timing (slower)"', () => {
+  it('no longer offers the vestigial "Accurate timing (slower)" opt-in (word mode is the default on every transcribing tier)', () => {
     render(<AutoAlignFlow song={song} onComplete={vi.fn()} onClose={vi.fn()} />)
-    expect(screen.getByRole('checkbox', { name: /accurate timing \(slower\)/i })).toBeTruthy()
+    expect(screen.queryByRole('checkbox', { name: /accurate timing \(slower\)/i })).toBeNull()
     expect(screen.queryByText(/word-level timestamps/i)).toBeNull()
   })
 
@@ -427,9 +429,10 @@ describe('AutoAlignFlow first-run download consent', () => {
 
 describe('AutoAlignFlow friendly errors', () => {
   it('shows friendly copy for an unclassified failure, with the raw message in a details disclosure', async () => {
-    // Lite tier has no downgrade ladder, so a thrown error reaches the error stage
-    // directly (no retry) — see the crash-downgrade suite for the word/high-acc path.
-    transcribeAudio.mockImplementationOnce(async (_audio, _rate, opts) => {
+    // A failure that persists through the word→segment crash-downgrade ladder
+    // (every tier now defaults to word mode) reaches the error stage — reject on
+    // every attempt so the retry can't succeed on the default mock.
+    transcribeAudio.mockImplementation(async (_audio, _rate, opts) => {
       opts?.onModelLoaded?.()
       throw new Error('Unexpected token < in JSON at position 0')
     })
@@ -450,7 +453,7 @@ describe('AutoAlignFlow friendly errors', () => {
   })
 
   it('maps a model-download failure to connection guidance', async () => {
-    transcribeAudio.mockImplementationOnce(async (_audio, _rate, opts) => {
+    transcribeAudio.mockImplementation(async (_audio, _rate, opts) => {
       opts?.onModelLoaded?.()
       throw new Error('Failed to fetch model weights')
     })

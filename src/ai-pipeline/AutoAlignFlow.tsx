@@ -36,9 +36,6 @@ interface Props {
   onClose: () => void
   /** When true, begin alignment as soon as the flow opens (e.g. fresh audio upload). */
   autoStart?: boolean
-  /** Pre-select the word-level "Accurate readings (slower)" pass (e.g. re-running to
-   * fix merged-segment timing). */
-  accurateReadings?: boolean
 }
 
 type Stage = 'idle' | AlignStage | 'done' | 'error'
@@ -104,7 +101,7 @@ function loadTaskProgress(p: LoadProgress | null, phase: 'download' | 'init'): n
   return Math.min(99, pct)
 }
 
-export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, accurateReadings: accurateReadingsInitial = false }: Props) {
+export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: Props) {
   const tier = getDeviceTier()
   const vocalSeparationSupported = canUseVocalSeparation(tier)
   const vocalSeparationDefault = useSettingsStore((s) => s.vocalSeparationEnabled)
@@ -123,9 +120,6 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
   )
   const [demucsReady, setDemucsReady] = useState<boolean | null>(null)
   const [vocalSeparationRun, setVocalSeparationRun] = useState(false)
-  // D2: opt into the slower word-level Whisper pass for more reliable readings on
-  // long songs (short songs already use word mode; lite tier always uses segment).
-  const [accurateReadings, setAccurateReadings] = useState(accurateReadingsInitial)
   // D8: opt into whisper-medium (full tier only) for more accurate transcription
   // at the cost of a larger download and slower inference.
   const [highAccuracy, setHighAccuracy] = useState(false)
@@ -275,7 +269,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
       // has a repetition-loop hallucination pathology that segment mode avoids.
       const timestampMode = useHighAccuracy
         ? 'segment'
-        : preferredWhisperTimestampMode(tier, durationSec, { accurateReadings })
+        : preferredWhisperTimestampMode(tier, durationSec)
 
       // Detect the alignment language from the sheet itself: the stored song
       // language defaults to 'ja', which would force Japanese transcription
@@ -741,22 +735,6 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false, ac
                 : demucsReady === null
                   ? 'Checking for vocal separation model…'
                   : 'Slower, but helps on busy mixes with loud instrumentals.'}
-            </span>
-          </label>
-        )}
-
-        {stage === 'idle' && !autoStart && !awaitingConsent && (
-          <label className="flex items-start gap-3 rounded-xl bg-cinnabar-900/80 p-3 cursor-pointer touch-manipulation">
-            <input
-              type="checkbox"
-              className="mt-1 accent-cinnabar-accent"
-              checked={accurateReadings}
-              onChange={(e) => setAccurateReadings(e.target.checked)}
-            />
-            <span className="text-sm text-white/80 text-pretty">
-              <span className="font-medium text-white">Accurate timing (slower)</span>
-              {' — '}
-              Better furigana and tighter line timing on long songs.
             </span>
           </label>
         )}

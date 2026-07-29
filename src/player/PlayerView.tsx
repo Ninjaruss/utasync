@@ -290,7 +290,6 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [song, setSong] = useState<Song | null>(null)
   const activeLine = useLyricsStore((s) => s.activeLine)
   const [alignMode, setAlignMode] = useState<AlignMode | null>(null)
-  const [alignAccurateReadings, setAlignAccurateReadings] = useState(false)
   const [accurateReadingsDismissed, setAccurateReadingsDismissed] = useState(false)
   const [mode, setMode] = useState<'play' | 'edit'>('play')
   const [lyricsLoading, setLyricsLoading] = useState<{ message: string; detail?: string } | null>(null)
@@ -754,8 +753,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
   }
 
-  const beginAlignment = (mode: AlignMode, accurateReadings = false) => {
-    setAlignAccurateReadings(accurateReadings)
+  const beginAlignment = (mode: AlignMode) => {
     if (mode === 'tap') {
       if (isYouTube) ytRef.current?.play()
       else engine.play()
@@ -1386,7 +1384,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               recoverGapsStatus={recoverGapsStatus}
               alignmentConfidence={song?.lyrics.alignmentConfidence}
               accurateRealignReason={hasStoredAudio ? realignReason : null}
-              onAutoAlignAccurate={() => beginAlignment('auto', true)}
+              onAutoAlignAccurate={() => beginAlignment('auto')}
               onFixTiming={
                 anchorTargets.length > 0 && canPlayback
                   ? () => { setMode('play'); goToLyricLine(anchorTargets[0]) }
@@ -1524,7 +1522,6 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           <AutoAlignFlow
             song={song}
             autoStart={autoAlignOnOpen}
-            accurateReadings={alignAccurateReadings}
             onComplete={applyAlignedSong}
             onClose={() => setAlignMode(null)}
           />

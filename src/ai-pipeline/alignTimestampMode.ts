@@ -1,43 +1,22 @@
 import type { DeviceTier, LineAlignmentQuality, TimedLine, TimedTranscriptWord } from '../core/types'
 
-export interface TimestampModeOptions {
-  /** User opted into the slower word-level pass for verified readings (D2). */
-  accurateReadings?: boolean
-}
-
 /** Word-level (cross-attention) timestamps verify readings, refine phrase
  * boundaries, and keep line-end tails tight (segment chunks clip a sung final
  * syllable ~0.7-1.0s early and interpolate per-line boundaries inside multi-line
- * chunks). Full tier always uses word mode: the WebGPU worker transcribes with
- * manual per-window word calls (`whisper.worker.ts`), which sidesteps the broken
- * long-form merge that originally motivated a duration cutoff, so the only cost of
- * word mode on full tier is compute time. Lite tier defaults to segment (the merge
- * stall is real on memory-constrained / phone devices) but honors the
- * accurate-readings opt-in so lite users aren't locked to coarser boundaries. */
+ * chunks). Every transcribing tier (full and lite) uses word mode: both run the
+ * WebGPU worker's manual per-window word calls (`whisper.worker.ts`), which
+ * sidestep the broken long-form merge that originally motivated a duration/tier
+ * cutoff — measured at ~1.0x the segment-mode wall-clock, so word timestamps add
+ * negligible compute. Segment mode now only arises from the whisper-medium
+ * high-accuracy pass (its word mode has a repetition-loop pathology). Manual tier
+ * does not transcribe. */
 export function preferredWhisperTimestampMode(
   tier: DeviceTier,
   durationSec: number,
-  options?: TimestampModeOptions,
 ): 'word' | 'segment' {
-  void durationSec // full/lite decision is tier-based; kept for API + lite estimate callers
-  if (options?.accurateReadings && tier !== 'manual') return 'word'
-  if (tier === 'lite') return 'segment'
+  void tier
+  void durationSec // every transcribing tier uses word mode; params kept for API stability
   return 'word'
-}
-
-/** Whether the "Accurate readings (slower)" opt-in is worth surfacing: only when the
- * default would otherwise use segment mode. Full tier now defaults to word mode, so
- * the opt-in is a no-op there; it remains for lite tier (segment by default). */
-export function accurateReadingsAvailable(tier: DeviceTier, durationSec: number): boolean {
-  void durationSec // lite is offered at any duration; full never; kept for API stability
-  return tier === 'lite'
-}
-
-/** Rough extra-time estimate for the word-level pass, shown next to the opt-in.
- * Null when the slower pass would not actually run (already word mode, or unsupported tier). */
-export function accurateReadingsEstimate(tier: DeviceTier, durationSec: number): string | null {
-  if (!accurateReadingsAvailable(tier, durationSec)) return null
-  return '~3–8 min'
 }
 
 /** Number of merged segments to see before suggesting the word-level pass. */
