@@ -15,7 +15,15 @@ interface Props {
   onScrubEnd?: () => void
   /** Whether a following line exists — gates the "shift later lines too" toggle. */
   canCascade?: boolean
+  /** Previous line's start, for the context strip's spatial bearing (0 for the first line). */
+  prevStart?: number
 }
+
+/** Half-width (seconds) of the scrub window on each side of the drag anchor. Small
+ * enough that dragging across the slider is a fine local adjustment (12s total, not
+ * 30s), which — with the frozen-during-drag window below — keeps the thumb tracking
+ * the finger instead of the old spring-return that jumped seconds at a time. */
+const WINDOW_HALF = 6
 
 type Mode = 'start' | 'end' | 'line'
 
@@ -29,6 +37,70 @@ function fmt(t: number): string {
 }
 
 const round1 = (t: number) => Math.round(t * 10) / 10
+
+/** A small spatial bearing: the current scrub window drawn as a track, with the
+ * draft start/end and the neighbouring lines' starts placed on it so the user can
+ * see WHERE in the song this line sits — not just a bare number. The track spans
+ * the same [min, max] as the slider directly below it, so a marker's horizontal
+ * position matches the thumb. Neighbours outside the window collapse to an edge
+ * arrow instead of vanishing. */
+function ContextStrip({
+  min, max, draftStart, draftEnd, prevStart, nextStart, mode,
+}: {
+  min: number
+  max: number
+  draftStart: number
+  draftEnd: number | null
+  prevStart?: number
+  nextStart: number | null
+  mode: Mode
+}) {
+  const span = max - min
+  const pct = (t: number) => ((t - min) / span) * 100
+  const inWindow = (t: number | null | undefined): t is number =>
+    typeof t === 'number' && Number.isFinite(t) && t >= min && t <= max
+  const gap = (a: number, b?: number) =>
+    typeof b === 'number' && Number.isFinite(b) ? Math.abs(round1(a - b)) : null
+  const prevGap = gap(draftStart, prevStart)
+  const nextGap = gap(draftStart, nextStart ?? undefined)
+
+  const marker = (t: number, cls: string, label?: string, key?: string) => (
+    <div
+      key={key}
+      className="absolute top-0 bottom-0 flex flex-col items-center -translate-x-1/2"
+      style={{ left: `${Math.max(0, Math.min(100, pct(t)))}%` }}
+    >
+      <div className={`w-0.5 h-full rounded-full ${cls}`} />
+      {label && <span className="absolute -bottom-4 text-[9px] leading-none text-white/40 whitespace-nowrap">{label}</span>}
+    </div>
+  )
+
+  return (
+    <div className="pb-4">
+      <div className="relative h-6 rounded-md bg-cinnabar-950 border border-cinnabar-800 overflow-hidden">
+        {/* neighbours first (behind), then draft on top */}
+        {inWindow(prevStart) && marker(prevStart, 'bg-white/25', 'prev', 'prev')}
+        {inWindow(nextStart) && marker(nextStart, 'bg-white/25', 'next', 'next')}
+        {/* start always shows as the anchor; in End mode it's the dimmer reference the end moves relative to */}
+        {inWindow(draftStart) && marker(draftStart, mode === 'end' ? 'bg-cinnabar-accent/50' : 'bg-cinnabar-accent', undefined, 'ds')}
+        {draftEnd !== null && inWindow(draftEnd) && marker(draftEnd, mode === 'end' ? 'bg-cinnabar-accent' : 'bg-cinnabar-accent/60', undefined, 'de')}
+        {/* edge arrows when a neighbour is off-window, so the user still has a direction */}
+        {typeof prevStart === 'number' && prevStart < min && (
+          <span className="absolute left-1 top-1/2 -translate-y-1/2 text-[9px] text-white/30">◂ prev</span>
+        )}
+        {typeof nextStart === 'number' && Number.isFinite(nextStart) && nextStart > max && (
+          <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-white/30">next ▸</span>
+        )}
+      </div>
+      {(prevGap !== null || nextGap !== null) && (
+        <div className="mt-0.5 flex justify-between text-[10px] text-white/40 tabular-nums">
+          <span>{prevGap !== null ? `${prevGap}s after prev` : ''}</span>
+          <span>{nextGap !== null ? `${nextGap}s before next` : ''}</span>
+        </div>
+      )}
+    </div>
+  )
+}
 
 const anchorTabBase = 'flex-1 min-h-11 py-1 rounded-lg text-xs font-medium touch-manipulation transition-colors'
 const nudgeBtn =
@@ -44,24 +116,31 @@ const anchorTabOff = 'bg-cinnabar-950 text-white/50'
  * With following lines present, "Shift later lines too" propagates the same
  * offset to the rest of the song. Dragging previews the audio position live.
  */
-export function TimestampPopover({ line, autoEnd, playhead, onCommit, onClose, onScrub, onScrubStart, onScrubEnd, canCascade = false }: Props) {
+export function TimestampPopover({ line, autoEnd, playhead, onCommit, onClose, onScrub, onScrubStart, onScrubEnd, canCascade = false, prevStart }: Props) {
   const hasExplicitEnd = line.endTime > line.startTime
   const [mode, setMode] = useState<Mode>('start')
   const [draftStart, setDraftStart] = useState(line.startTime)
   const [draftEnd, setDraftEnd] = useState<number | null>(hasExplicitEnd ? line.endTime : null)
   const [cascade, setCascade] = useState(false)
+  // While a drag is active this holds the window centre captured at pointer-down,
+  // so min/max stay FIXED for the whole gesture and the thumb tracks the finger.
+  // null = idle, window re-centres on the current value (so the next grab, or a
+  // "Use current position" jump, starts anchored under the thumb).
+  const [dragCenter, setDragCenter] = useState<number | null>(null)
 
   // Slider value for the active mode. An auto end scrubs from where it currently
   // lands so grabbing the slider feels anchored, not arbitrary.
   const autoEndTarget = Number.isFinite(autoEnd) ? autoEnd : draftStart + 3
   const effectiveEnd = draftEnd ?? autoEndTarget
   const value = mode === 'end' ? effectiveEnd : draftStart
-  // The ±15s window follows the DRAFT (not the original line time), so it
-  // re-centers as the draft moves — dragging never dead-ends at an edge, and a
-  // badly-misplaced line jumped via "Use current position" lands inside the
-  // window instead of pinned to the far rail.
-  const min = mode === 'end' ? Math.max(draftStart + 0.1, value - 15) : Math.max(0, value - 15)
-  const max = value + 15
+  // Fixed ±WINDOW_HALF window. Its centre is frozen at drag start (dragCenter) so
+  // the range doesn't shift under the thumb mid-gesture — the old bug where the
+  // window followed the live draft made every push spring back to centre and race
+  // the value by seconds. When idle the centre is the current value, so releasing
+  // and grabbing again re-anchors to travel further than one window.
+  const center = dragCenter ?? value
+  const min = mode === 'end' ? Math.max(draftStart + 0.1, center - WINDOW_HALF) : Math.max(0, center - WINDOW_HALF)
+  const max = center + WINDOW_HALF
 
   const setStart = (t: number) => {
     const v = round1(Math.max(0, t))
@@ -130,14 +209,24 @@ export function TimestampPopover({ line, autoEnd, playhead, onCommit, onClose, o
       <p className="text-xs text-white/60 text-center text-pretty">
         {mode === 'line' ? 'Moves the whole line · ' : ''}Drag to preview · tap outside to cancel
       </p>
+      <ContextStrip
+        min={min}
+        max={max}
+        draftStart={draftStart}
+        draftEnd={draftEnd}
+        prevStart={prevStart}
+        nextStart={Number.isFinite(autoEnd) ? autoEnd : null}
+        mode={mode}
+      />
       <input
         type="range"
         min={min}
         max={max}
         step={0.1}
         value={value}
-        onPointerDown={() => onScrubStart?.()}
-        onPointerUp={() => onScrubEnd?.()}
+        onPointerDown={() => { setDragCenter(value); onScrubStart?.() }}
+        onPointerUp={() => { setDragCenter(null); onScrubEnd?.() }}
+        onPointerCancel={() => { setDragCenter(null); onScrubEnd?.() }}
         onChange={(e) => move(Number(e.target.value))}
         aria-label={mode === 'start' ? 'Scrub start timestamp' : mode === 'end' ? 'Scrub end timestamp' : 'Move whole line'}
         className="w-full accent-cinnabar-accent"

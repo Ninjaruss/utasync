@@ -19,11 +19,30 @@ describe('TimestampPopover', () => {
     const onCommit = vi.fn()
     const onScrub = vi.fn()
     renderPopover(line(42), { onCommit, onScrub })
-    fireEvent.change(screen.getByLabelText('Scrub start timestamp'), { target: { value: '50' } })
+    // Within the ±6s scrub window (36–48) around the current value.
+    fireEvent.change(screen.getByLabelText('Scrub start timestamp'), { target: { value: '45' } })
     // Readout keeps tenths so sub-second nudges are visible.
-    expect(screen.getByText('0:50.0')).toBeTruthy()
-    expect(onScrub).toHaveBeenCalledWith(50)
+    expect(screen.getByText('0:45.0')).toBeTruthy()
+    expect(onScrub).toHaveBeenCalledWith(45)
     expect(onCommit).not.toHaveBeenCalled()
+  })
+
+  it('holds the scrub window fixed during a drag so the thumb does not spring back to centre', () => {
+    // The window is ±6s; grabbing at 42 fixes it to 36–48 for the whole gesture,
+    // so a value pushed toward the edge (47) is honoured rather than re-centred.
+    renderPopover(line(42))
+    const slider = screen.getByLabelText('Scrub start timestamp') as HTMLInputElement
+    fireEvent.pointerDown(slider)
+    fireEvent.change(slider, { target: { value: '47' } })
+    expect(Number(slider.value)).toBe(47)
+    expect(screen.getByText('0:47.0')).toBeTruthy()
+  })
+
+  it('places neighbouring line starts on the context strip as bearing', () => {
+    // prev at 40 and next (autoEnd) at 46 both fall inside the 36–48 window.
+    renderPopover(line(42, 0), { prevStart: 40, autoEnd: 46 })
+    expect(screen.getByText(/2s after prev/i)).toBeTruthy()
+    expect(screen.getByText(/4s before next/i)).toBeTruthy()
   })
 
   it('Done commits the draft start (end stays auto) and closes', () => {
