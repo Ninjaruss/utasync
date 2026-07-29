@@ -27,12 +27,9 @@ describe('preferredWhisperTimestampMode', () => {
     expect(preferredWhisperTimestampMode('lite', 60)).toBe('segment')
   })
 
-  it('uses segment timestamps for long songs on full tier (speed default; accuracy on-demand)', () => {
-    expect(preferredWhisperTimestampMode('full', 300)).toBe('segment')
-    expect(preferredWhisperTimestampMode('full', 200)).toBe('segment')
-  })
-
-  it('uses word timestamps for short songs on full tier', () => {
+  it('uses word timestamps on full tier regardless of duration (precision default)', () => {
+    expect(preferredWhisperTimestampMode('full', 300)).toBe('word')
+    expect(preferredWhisperTimestampMode('full', 200)).toBe('word')
     expect(preferredWhisperTimestampMode('full', 120)).toBe('word')
   })
 
@@ -47,8 +44,8 @@ describe('preferredWhisperTimestampMode', () => {
 })
 
 describe('accurateReadingsAvailable', () => {
-  it('is offered on full tier for long songs (short songs already use word mode)', () => {
-    expect(accurateReadingsAvailable('full', 300)).toBe(true)
+  it('is not offered on full tier (word mode is the full-tier default)', () => {
+    expect(accurateReadingsAvailable('full', 300)).toBe(false)
     expect(accurateReadingsAvailable('full', 120)).toBe(false)
     expect(accurateReadingsAvailable('manual', 300)).toBe(false)
   })
@@ -60,7 +57,7 @@ describe('accurateReadingsAvailable', () => {
 
 describe('accurateReadingsEstimate', () => {
   it('gives a time estimate only when the slower pass would actually run', () => {
-    expect(accurateReadingsEstimate('full', 300)).toBe('~3–8 min')
+    expect(accurateReadingsEstimate('full', 300)).toBeNull()
     expect(accurateReadingsEstimate('full', 120)).toBeNull()
     expect(accurateReadingsEstimate('lite', 300)).toBe('~3–8 min')
     expect(accurateReadingsEstimate('manual', 300)).toBeNull()

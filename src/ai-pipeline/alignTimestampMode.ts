@@ -5,30 +5,31 @@ export interface TimestampModeOptions {
   accurateReadings?: boolean
 }
 
-/** Word-level timestamps verify readings and refine phrase boundaries and keep
- * line-end tails tight (segment chunks clip a sung final syllable ~0.7-1.0s
- * early), but the merge can stall for minutes on phones / long songs — so the
- * default trades that tail accuracy for speed past 180s and offers word mode
- * on-demand instead (accurate-readings opt-in + the in-editor re-align hint from
- * `suggestsWordLevelAlignment`). The opt-in is honored on lite tier too (a lite
- * device is often just a browser without deviceMemory, not a phone), so lite
- * users aren't permanently locked to the coarser segment boundaries. */
+/** Word-level (cross-attention) timestamps verify readings, refine phrase
+ * boundaries, and keep line-end tails tight (segment chunks clip a sung final
+ * syllable ~0.7-1.0s early and interpolate per-line boundaries inside multi-line
+ * chunks). Full tier always uses word mode: the WebGPU worker transcribes with
+ * manual per-window word calls (`whisper.worker.ts`), which sidesteps the broken
+ * long-form merge that originally motivated a duration cutoff, so the only cost of
+ * word mode on full tier is compute time. Lite tier defaults to segment (the merge
+ * stall is real on memory-constrained / phone devices) but honors the
+ * accurate-readings opt-in so lite users aren't locked to coarser boundaries. */
 export function preferredWhisperTimestampMode(
   tier: DeviceTier,
   durationSec: number,
   options?: TimestampModeOptions,
 ): 'word' | 'segment' {
+  void durationSec // full/lite decision is tier-based; kept for API + lite estimate callers
   if (options?.accurateReadings && tier !== 'manual') return 'word'
   if (tier === 'lite') return 'segment'
-  if (durationSec > 180) return 'segment'
   return 'word'
 }
 
-/** Whether the "Accurate readings (slower)" opt-in is worth surfacing: whenever the
- * default would otherwise use segment mode — full tier on long songs, lite tier on
- * any song (lite defaults to segment across the board). */
+/** Whether the "Accurate readings (slower)" opt-in is worth surfacing: only when the
+ * default would otherwise use segment mode. Full tier now defaults to word mode, so
+ * the opt-in is a no-op there; it remains for lite tier (segment by default). */
 export function accurateReadingsAvailable(tier: DeviceTier, durationSec: number): boolean {
-  if (tier === 'full') return durationSec > 180
+  void durationSec // lite is offered at any duration; full never; kept for API stability
   return tier === 'lite'
 }
 
