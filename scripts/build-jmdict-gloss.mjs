@@ -29,6 +29,7 @@ const root = join(here, '..')
 const cacheDir = join(root, '.cache/jmdict')
 const outPath = join(root, 'public/jmdict-gloss.json')
 const readingsOutPath = join(root, 'public/jmdict-readings.json')
+const popoverOutPath = join(root, 'public/jmdict-popover.json')
 
 const KANJI_CHAR_RE = /[㐀-鿿]/
 
@@ -59,6 +60,43 @@ function pickGlossWord(text) {
   const clean = word.toLowerCase().replace(/[^a-z'-]/g, '')
   if (clean.length < 2 || clean.length > 24) return null
   return clean
+}
+
+/** A single readable definition line, trimmed of JMdict qualifiers and capped. */
+function cleanGloss(text) {
+  if (!text?.trim()) return null
+  let g = text.trim()
+  if (SKIP_GLOSS_TYPES.has(g)) return null
+  // Drop a leading qualifier like "(usu. in kana)" that isn't part of the meaning.
+  g = g.replace(/^\([^)]*\)\s*/, '').trim()
+  if (!g) return null
+  if (g.length > 60) g = g.slice(0, 60).trim()
+  return g
+}
+
+/**
+ * Full first-sense definition for the tap-lookup popover: up to 3 gloss lines of
+ * the first usable sense, joined "; " (the popover splits on ";"). Unlike
+ * firstGloss (one alignable word for the pairer), this preserves the readable
+ * definition — "past; bygone days", not "the".
+ */
+function fullGloss(senses) {
+  const collect = (requireContentPos) => {
+    for (const sense of senses ?? []) {
+      const pos = sense.partOfSpeech ?? []
+      if (requireContentPos && pos.some((p) => SKIP_POS.has(p))) continue
+      const items = []
+      for (const g of sense.gloss ?? []) {
+        if (g.lang && g.lang !== 'eng') continue
+        const c = cleanGloss(g.text)
+        if (c) items.push(c)
+        if (items.length >= 3) break
+      }
+      if (items.length) return items.join('; ')
+    }
+    return null
+  }
+  return collect(true) ?? collect(false)
 }
 
 function firstGloss(senses) {
@@ -139,6 +177,11 @@ function kanaFormsFor(word, surface) {
 async function processFile(jsonPath) {
   const romaji = new Map()
   const kanji = new Map()
+  // Popover dictionary: kanji surface → Map<hiragana reading, { g, score }>. One
+  // entry per homograph reading (辛い: からい / つらい) so the tap popover can
+  // disambiguate by the token's reading. Holds the FULL first-sense definition,
+  // not the pairer's single word. Read only by the popover.
+  const popover = new Map()
   // surface → { common: Set<hiragana>, uncommon: Set<hiragana> } across ALL
   // entries sharing the surface (角 collects かど, かく, つの from 3 entries).
   const readings = new Map()
@@ -197,6 +240,29 @@ async function processFile(jsonPath) {
     if (!gloss) continue
     const score = entryScore(word)
 
+    // Popover: store the full first-sense definition per kanji surface + reading.
+    const popoverDef = fullGloss(word.sense)
+    if (popoverDef) {
+      for (const k of word.kanji ?? []) {
+        const surface = k.text?.trim()
+        if (!surface || surface.length > 8 || !KANJI_CHAR_RE.test(surface)) continue
+        const forms = kanaFormsFor(word, surface)
+        const commonForms = forms.filter((kr) => kr.common)
+        for (const kr of commonForms.length ? commonForms : forms) {
+          const reading = toHiragana(kr.text?.trim() ?? '')
+          if (!reading) continue
+          let byReading = popover.get(surface)
+          if (!byReading) {
+            byReading = new Map()
+            popover.set(surface, byReading)
+          }
+          const prev = byReading.get(reading)
+          // Higher-scored (common) entry wins a given surface+reading.
+          if (!prev || score > prev.score) byReading.set(reading, { g: popoverDef, score })
+        }
+      }
+    }
+
     for (const k of word.kana ?? []) {
       const r = kanaToRomaji(k.text)
       if (r.length < 2) continue
@@ -236,9 +302,20 @@ async function processFile(jsonPath) {
       return v.gloss && v.gloss !== romajiGloss ? [[surface, v.gloss]] : []
     }),
   )
+  // Popover entries: readings sorted by score (common first) so the popover leads
+  // with the primary sense when the token reading doesn't pin a specific homograph.
+  const popoverEntries = Object.fromEntries(
+    [...popover.entries()].map(([surface, byReading]) => [
+      surface,
+      [...byReading.entries()]
+        .sort((a, b) => b[1].score - a[1].score)
+        .map(([r, v]) => ({ r, g: v.g })),
+    ]),
+  )
   console.log(
     `\nProcessed ${entries} entries → ${romaji.size} romaji, ${kanji.size} kanji, ` +
-      `${Object.keys(kanjiGloss).length} kanji glosses, ${readings.size} reading surfaces`,
+      `${Object.keys(kanjiGloss).length} kanji glosses, ${Object.keys(popoverEntries).length} popover surfaces, ` +
+      `${readings.size} reading surfaces`,
   )
   return {
     v: 1,
@@ -246,6 +323,7 @@ async function processFile(jsonPath) {
     romaji: Object.fromEntries([...romaji.entries()].map(([k, v]) => [k, v.gloss])),
     kanji: Object.fromEntries([...kanji.entries()].map(([k, v]) => [k, v.romaji])),
     kanjiGloss,
+    popover: popoverEntries,
     readings: Object.fromEntries(
       [...readings.entries()].map(([surface, b]) => {
         const common = [...b.common].join(',')
@@ -278,6 +356,11 @@ async function main() {
   writeFileSync(readingsOutPath, readingsPayload)
   const rmb = (Buffer.byteLength(readingsPayload) / 1024 / 1024).toFixed(2)
   console.log(`Wrote ${readingsOutPath} (${rmb} MB, ${Object.keys(data.readings).length} surfaces)`)
+
+  const popoverPayload = `{"v":1,"source":"${data.source}","entries":${JSON.stringify(data.popover)}}`
+  writeFileSync(popoverOutPath, popoverPayload)
+  const pmb = (Buffer.byteLength(popoverPayload) / 1024 / 1024).toFixed(2)
+  console.log(`Wrote ${popoverOutPath} (${pmb} MB, ${Object.keys(data.popover).length} surfaces)`)
 }
 
 main().catch((e) => {

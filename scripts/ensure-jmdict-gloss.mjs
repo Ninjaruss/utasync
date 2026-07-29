@@ -1,7 +1,7 @@
 /**
- * Builds public/jmdict-gloss.json + public/jmdict-readings.json when missing
- * (first clone / fresh install). Full build downloads JMdict — skipped when
- * both output files already exist.
+ * Builds public/jmdict-gloss.json + public/jmdict-readings.json +
+ * public/jmdict-popover.json when missing (first clone / fresh install). Full
+ * build downloads JMdict — skipped when all output files already exist.
  */
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -11,8 +11,9 @@ import { spawnSync } from 'node:child_process'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const outPath = join(root, 'public/jmdict-gloss.json')
 const readingsOutPath = join(root, 'public/jmdict-readings.json')
+const popoverOutPath = join(root, 'public/jmdict-popover.json')
 
-if (existsSync(outPath) && existsSync(readingsOutPath)) {
+if (existsSync(outPath) && existsSync(readingsOutPath) && existsSync(popoverOutPath)) {
   process.exit(0)
 }
 
