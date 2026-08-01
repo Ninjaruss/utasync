@@ -81,6 +81,33 @@ function lineRank(pass: RefinedAlignment, li: number): number {
   return QUALITY_RANK[pass.lineAlignmentQuality?.[li] ?? 'needs_review']
 }
 
+/**
+ * Cross-pass consensus skeleton: lines where the two forced-language passes
+ * independently agree (within CONSENSUS_AGREE_TOL) and both carry real evidence.
+ * Exported for offline instruments (hybrid-align-scorecard); the merge below
+ * consumes it unchanged.
+ */
+export const CONSENSUS_AGREE_TOL = 2.5
+export function consensusAgreedLines(
+  ja: RefinedAlignment,
+  en: RefinedAlignment,
+): { li: number; time: number }[] {
+  // Both passes are refineAlignmentWithPhrases() runs over the SAME sheetRows,
+  // so their line counts both equal the sheet length — Math.min here is just a
+  // defensive equal-length read, not a narrowing of the caller's lineTexts.length.
+  const n = Math.min(ja.lines.length, en.lines.length)
+  const agreed: { li: number; time: number }[] = []
+  for (let li = 0; li < n; li++) {
+    const jt = ja.lines[li]?.startTime
+    const et = en.lines[li]?.startTime
+    if (jt == null || et == null) continue
+    if (Math.abs(jt - et) <= CONSENSUS_AGREE_TOL && lineRank(ja, li) >= 1 && lineRank(en, li) >= 1) {
+      agreed.push({ li, time: (jt + et) / 2 })
+    }
+  }
+  return agreed
+}
+
 export interface MixedMergeResult {
   refined: RefinedAlignment
   /** Per line: which pass the merged timing came from. */
@@ -107,28 +134,20 @@ export function mergeMixedRefinedAlignments(
 
   const passOf = (src: MixedPassSource) => (src === 'ja' ? ja : en)
 
-  // Cross-pass consensus skeleton: lines where the two forced-language passes
-  // independently agree (within AGREE_TOL) and both carry real evidence are
-  // high-confidence — two passes rarely agree on a time by accident. Interpolate
+  // Cross-pass consensus skeleton (consensusAgreedLines, above): lines where
+  // the two forced-language passes independently agree (within
+  // CONSENSUS_AGREE_TOL) and both carry real evidence are high-confidence —
+  // two passes rarely agree on a time by accident. Interpolate
   // an expected timeline across those agreed anchors, so a rank/preference pick
   // that drifts far from it while the OTHER pass sits much closer can be
   // re-selected. Catches whole-section drift where one pass mistimes a dense
   // bilingual run (Recollect's verse-2 / chorus rap) that script preference,
   // being per-line, cannot see. Gated on enough agreement so single-pass or
   // low-agreement songs are untouched.
-  const AGREE_TOL = 2.5
   const CONSENSUS_MIN = 4
   const DEVIATION_TRIGGER = 8
   const IMPROVE_MIN = 4
-  const agreed: { li: number; time: number }[] = []
-  for (let li = 0; li < n; li++) {
-    const jt = ja.lines[li]?.startTime
-    const et = en.lines[li]?.startTime
-    if (jt == null || et == null) continue
-    if (Math.abs(jt - et) <= AGREE_TOL && lineRank(ja, li) >= 1 && lineRank(en, li) >= 1) {
-      agreed.push({ li, time: (jt + et) / 2 })
-    }
-  }
+  const agreed = consensusAgreedLines(ja, en)
   const expected: (number | null)[] = new Array(n).fill(null)
   if (agreed.length >= CONSENSUS_MIN) {
     for (let a = 0; a < agreed.length - 1; a++) {
@@ -286,6 +305,8 @@ export interface MixedAlignmentResult {
   refined: RefinedAlignment
   transcriptWords: TranscriptWord[]
   pickedFrom: MixedPassSource[]
+  /** Inner forced-language passes, exposed for offline instruments. */
+  passes: { ja: RefinedAlignment; en: RefinedAlignment }
 }
 
 /**
@@ -343,5 +364,5 @@ export function refineMixedLanguageAlignment(
   // number the low-confidence warning and mismatch banner trust) is only known
   // now. Never raises confidence; only lowers it toward the demoted reality.
   refined.confidence = Math.min(refined.confidence, placementConfidence(refined.lineAlignmentQuality))
-  return { refined, transcriptWords, pickedFrom }
+  return { refined, transcriptWords, pickedFrom, passes: { ja: jaPass, en: enPass } }
 }
