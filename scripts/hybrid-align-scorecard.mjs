@@ -306,8 +306,13 @@ function refineSelective(em, frames, fps, lineTokens, baseLines, anchorIdx, dura
   return out
 }
 
-/** consensus = base.anchors.consensus; good = base.anchors.good; both = sorted-deduped union. */
+/**
+ * consensus = base.anchors.consensus; good = base.anchors.good;
+ * both = sorted-deduped union; none = empty anchorIdx — the whole song
+ * becomes one guarded window (monolithic CTC bounded [0,durationSec]).
+ */
 function pickAnchors(base, policy) {
+  if (policy === 'none') return []
   if (policy === 'good') return base.anchors.good
   if (policy === 'both') return [...new Set([...base.anchors.consensus, ...base.anchors.good])].sort((a, b) => a - b)
   return base.anchors.consensus
@@ -386,6 +391,17 @@ for (const song of SONGS) {
 
   if (SWEEP) {
     const pads = [0.5, 1, 2]
+    // sel/none: empty anchorIdx -> one guarded monolithic window [0,duration]
+    // (buildSelectiveWindows). Pad is irrelevant here (t0/t1 clamp to song
+    // edges regardless), so run it once per ja-mode rather than per pad.
+    if (song.mixed) {
+      for (const mode of ['word', 'segment']) {
+        if (!baselines[mode]) continue
+        runSelectiveConfig(mode, 'none', 1)
+      }
+    } else {
+      runSelectiveConfig(jaModeArg, 'none', 1)
+    }
     if (song.mixed) {
       for (const mode of ['word', 'segment']) {
         if (!baselines[mode]) continue
