@@ -40,7 +40,10 @@ export function LandingScreen({ onOpenApp }: Props) {
     <div className="h-[100dvh] overflow-y-auto bg-cinnabar-950 text-white">
       <div className="w-full max-w-2xl mx-auto px-5 pb-16">
         <header className="flex items-center justify-between py-5">
-          <span className="text-cinnabar-accent font-semibold tracking-widest text-lg">歌sync</span>
+          <span className="flex items-center gap-2">
+            <img src="/favicon.svg" alt="" className="w-6 h-6" />
+            <span className="text-cinnabar-accent font-semibold tracking-widest text-lg">歌sync</span>
+          </span>
           <button
             type="button"
             onClick={onOpenApp}
