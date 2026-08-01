@@ -19,6 +19,8 @@ const CACHE = path.join(__dirname, '.cache')
 const FONT_URL =
   'https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Bold.otf'
 const FONT_PATH = path.join(CACHE, 'NotoSansCJKjp-Bold.otf')
+// Floor, not exact match: releases can shift slightly; ~16 MB is the real size.
+const FONT_MIN_BYTES = 1_000_000
 
 const CINNABAR = '#f87171'
 const TILE = '#180606'
@@ -34,7 +36,19 @@ async function ensureFont() {
   console.log('Downloading Noto Sans CJK JP Bold (~16 MB, cached in scripts/.cache)...')
   const res = await fetch(FONT_URL)
   if (!res.ok) throw new Error(`Font download failed: ${res.status} ${res.statusText}`)
-  fs.writeFileSync(FONT_PATH, Buffer.from(await res.arrayBuffer()))
+  const buf = Buffer.from(await res.arrayBuffer())
+  // Download to a temp file and rename into place, with a size sanity check,
+  // so a killed/truncated download can never leave a corrupt file at FONT_PATH
+  // that existsSync() would then treat as valid forever (see scripts/download-models.mjs).
+  const tmpPath = `${FONT_PATH}.tmp`
+  fs.writeFileSync(tmpPath, buf)
+  if (buf.length < FONT_MIN_BYTES) {
+    fs.rmSync(tmpPath, { force: true })
+    throw new Error(
+      `Font download from ${FONT_URL} looks truncated: got ${buf.length} bytes, expected at least ${FONT_MIN_BYTES}`
+    )
+  }
+  fs.renameSync(tmpPath, FONT_PATH)
 }
 
 function loadFont() {
@@ -70,6 +84,9 @@ function echoMarkSvg({ rx, fontSize, font }) {
 
 /** 1200x630 social card: mark + 歌sync wordmark + tagline. */
 function ogSvg(markSvg) {
+  // Strips the outer <svg> tag to inline the mark's children into the nested
+  // <svg> below. Coupled to echoMarkSvg()'s exact output shape (single root
+  // <svg ...>...</svg> with no trailing content after the closing tag).
   const markInner = markSvg.replace(/^<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '')
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
   <rect width="1200" height="630" fill="${OG_BG}"/>
