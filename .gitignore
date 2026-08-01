@@ -40,3 +40,5 @@ tests/ai-pipeline/fixtures/*.wav
 
 # Local E2E harness assets (staged audio is copyrighted — never commit)
 public/e2e/
+
+scripts/.cache/
