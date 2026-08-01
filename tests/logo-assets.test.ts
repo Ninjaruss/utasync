@@ -34,4 +34,11 @@ describe('logo assets', () => {
       expect(buf.length).toBeGreaterThan(1000)
     })
   }
+
+  it('index.html wires icons and social meta', () => {
+    const html = readFileSync(join(root, 'index.html'), 'utf8')
+    expect(html).toContain('rel="apple-touch-icon"')
+    expect(html).toContain('property="og:image" content="https://utasync.app/og.png"')
+    expect(html).toContain('name="twitter:card" content="summary_large_image"')
+  })
 })
