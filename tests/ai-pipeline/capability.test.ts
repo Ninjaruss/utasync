@@ -10,8 +10,24 @@ describe('getDeviceTier', () => {
     vi.stubGlobal('navigator', { gpu: {}, deviceMemory: 4 })
     expect(getDeviceTier()).toBe('lite')
   })
-  it('returns manual without WebGPU', () => {
-    vi.stubGlobal('navigator', { gpu: undefined, deviceMemory: 8 })
+  // No WebGPU no longer means no AI: Whisper transcribes on WASM regardless of
+  // tier and the embedder falls back to WASM, so a desktop-class machine still
+  // runs the lite pipeline. Full (vocal separation, whisper-medium) stays
+  // WebGPU-only.
+  it('returns lite (not full) without WebGPU on a desktop-class machine', () => {
+    vi.stubGlobal('navigator', { gpu: undefined, deviceMemory: 8, userAgent: 'Mozilla/5.0 (X11; Linux x86_64) Chrome/126.0' })
+    expect(getDeviceTier()).toBe('lite')
+  })
+  it('returns lite without WebGPU on a multi-core desktop with no deviceMemory (Firefox forks, e.g. Zen on SteamOS)', () => {
+    vi.stubGlobal('navigator', { gpu: undefined, hardwareConcurrency: 8, userAgent: 'Mozilla/5.0 (X11; Linux x86_64; rv:141.0) Gecko/20100101 Firefox/141.0' })
+    expect(getDeviceTier()).toBe('lite')
+  })
+  it('stays manual without WebGPU on low-memory devices', () => {
+    vi.stubGlobal('navigator', { gpu: undefined, deviceMemory: 4, userAgent: 'Mozilla/5.0 (X11; Linux) Chrome/126.0' })
+    expect(getDeviceTier()).toBe('manual')
+  })
+  it('stays manual without WebGPU on mobile (WASM whisper is too slow on phone CPUs)', () => {
+    vi.stubGlobal('navigator', { gpu: undefined, deviceMemory: 8, hardwareConcurrency: 8, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/605.1' })
     expect(getDeviceTier()).toBe('manual')
   })
 

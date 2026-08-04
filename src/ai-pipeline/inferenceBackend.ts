@@ -1,4 +1,5 @@
 import type { DeviceTier } from '../core/types'
+import { hasWebGPU } from './capability'
 
 export type Dtype = 'fp16' | 'q8' | 'q4'
 
@@ -8,11 +9,13 @@ export interface InferenceBackend {
   dtype: Dtype
 }
 
-/** WebGPU where the device has a GPU (lite/full tiers), WASM otherwise. Whisper
- * and the embedder share this policy; WASM stays the runtime fallback if a
- * WebGPU pipeline fails to construct (handled at the load site). */
+/** WebGPU where the browser exposes it (lite/full tiers), WASM otherwise.
+ * The tier alone isn't enough: lite now includes desktop-class machines whose
+ * browser lacks WebGPU entirely (Firefox forks on Linux), which must not even
+ * attempt a WebGPU pipeline. WASM stays the runtime fallback if a WebGPU
+ * pipeline fails to construct (handled at the load site). */
 export function resolveInferenceBackend(tier: DeviceTier): InferenceBackend {
-  if (tier === 'full' || tier === 'lite') return { device: 'webgpu', dtype: 'fp16' }
+  if ((tier === 'full' || tier === 'lite') && hasWebGPU()) return { device: 'webgpu', dtype: 'fp16' }
   return { device: 'wasm', dtype: 'q8' }
 }
 
