@@ -1213,6 +1213,18 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         isPlaying={playbackState === 'playing'}
         onTogglePlay={togglePlay}
         onSeek={seek}
+        volume={volume}
+        onVolumeChange={(v) => {
+          setVolume(v)
+          if (isYouTube) ytRef.current?.setVolume(v)
+          else engine.setVolume(v)
+        }}
+        speed={speed}
+        onSpeedChange={(s) => {
+          setSpeed(s)
+          if (isYouTube) ytRef.current?.setRate(s)
+          else engine.setRate(s)
+        }}
       />
     )
   }

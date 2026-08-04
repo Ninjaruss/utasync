@@ -226,6 +226,70 @@ describe('lookupWord — surface-specific kanji gloss (homophone collapse fix)',
   })
 })
 
+describe('lookupWord — kana headwords resolve via the popover dictionary, not the romaji chain', () => {
+  // Kana-written lyric tokens (この, きみ) have no kanji surface to match, so
+  // before kana headwords existed in jmdict-popover.json they fell through to
+  // the pairer's romaji homophone chain — この showed 九's "nine" (kono is a
+  // rare reading of 九), きみ showed 黄身 "egg yolk".
+  beforeEach(async () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    setJmdictGlossForTests(
+      JSON.parse(readFileSync(join(here, '../../../public/jmdict-gloss.json'), 'utf8')),
+    )
+    const { setJmdictPopoverForTests } = await import('../../../src/ai-pipeline/jmdictPopover')
+    setJmdictPopoverForTests(
+      JSON.parse(readFileSync(join(here, '../../../public/jmdict-popover.json'), 'utf8')),
+    )
+  })
+  afterEach(async () => {
+    resetJmdictGlossCache()
+    const { resetJmdictPopoverCache } = await import('../../../src/ai-pipeline/jmdictPopover')
+    resetJmdictPopoverCache()
+  })
+
+  it('この means "this", never 九 "nine"', async () => {
+    const r = await lookupWord(tok({ surface: 'この', reading: 'コノ', pos: '連体詞', baseForm: 'この' }))
+    expect(r!.glosses).toContain('this')
+    expect(r!.glosses).not.toContain('nine')
+  })
+
+  it('resolves common kana demonstratives and pronouns to their dominant homophone', async () => {
+    const cases: Array<[Token, string, string]> = [
+      // token, expected substring, wrong homophone it previously collapsed to
+      [tok({ surface: 'これ', reading: 'コレ', pos: '名詞', posDetail1: '代名詞', baseForm: 'これ' }), 'this', 'stress'],
+      [tok({ surface: 'ここ', reading: 'ココ', pos: '名詞', posDetail1: '代名詞', baseForm: 'ここ' }), 'here', 'individual'],
+      [tok({ surface: 'きみ', reading: 'キミ', pos: '名詞', posDetail1: '代名詞', baseForm: 'きみ' }), 'you', 'egg yolk'],
+      [tok({ surface: 'ぼく', reading: 'ボク', pos: '名詞', posDetail1: '代名詞', baseForm: 'ぼく' }), 'I', 'manservant'],
+      [tok({ surface: 'いま', reading: 'イマ', pos: '名詞', posDetail1: '副詞可能', baseForm: 'いま' }), 'now', 'living room'],
+      [tok({ surface: 'いる', reading: 'イル', pos: '動詞', posDetail1: '自立', baseForm: 'いる' }), 'exist', 'needed'],
+    ]
+    for (const [t, correct, wrong] of cases) {
+      const r = await lookupWord(t)
+      expect(r!.glosses.join(' '), `${t.surface} should mean ${correct}`).toContain(correct)
+      expect(r!.glosses.join(' '), `${t.surface} must not show ${wrong}`).not.toContain(wrong)
+    }
+  })
+
+  it('kanji pronoun surfaces lead with the pronoun sense (君 → you, not monarch)', async () => {
+    const cases: Array<[Token, string, string]> = [
+      [tok({ surface: '君', reading: 'キミ', pos: '名詞', posDetail1: '代名詞' }), 'you', 'monarch'],
+      [tok({ surface: '僕', reading: 'ボク', pos: '名詞', posDetail1: '代名詞' }), 'I', 'manservant'],
+      [tok({ surface: '彼', reading: 'カレ', pos: '名詞', posDetail1: '代名詞' }), 'he', 'boyfriend'],
+    ]
+    for (const [t, correct, wrong] of cases) {
+      const r = await lookupWord(t)
+      expect(r!.glosses.join(' '), `${t.surface} should mean ${correct}`).toContain(correct)
+      expect(r!.glosses.join(' '), `${t.surface} must not lead with ${wrong}`).not.toContain(wrong)
+    }
+  })
+
+  it('particles still never take the kana headword chain (は stays grammar-glossed)', async () => {
+    const r = await lookupWord(tok({ surface: 'は', reading: 'ハ', pos: '助詞', posDetail1: '係助詞' }))
+    expect(r!.glosses.join(' ')).toMatch(/topic/)
+    expect(r!.glosses.join(' ')).not.toMatch(/tooth/)
+  })
+})
+
 describe('lookupWord — JMdict reading fallback', () => {
   it('uses the common JMdict reading when kuromoji has none for a kanji word', async () => {
     const { setJmdictReadingsForTests, resetJmdictReadingsCache } = await import('../../../src/language/japanese/jmdictReadings')

@@ -6,6 +6,8 @@ function renderEditor(overrides: Partial<Parameters<typeof TapSyncEditor>[0]> = 
   const onComplete = vi.fn()
   const onTogglePlay = vi.fn()
   const onSeek = vi.fn()
+  const onVolumeChange = vi.fn()
+  const onSpeedChange = vi.fn()
   render(
     <TapSyncEditor
       plainLines={['line one']}
@@ -15,10 +17,14 @@ function renderEditor(overrides: Partial<Parameters<typeof TapSyncEditor>[0]> = 
       isPlaying={false}
       onTogglePlay={onTogglePlay}
       onSeek={onSeek}
+      volume={1}
+      onVolumeChange={onVolumeChange}
+      speed={1}
+      onSpeedChange={onSpeedChange}
       {...overrides}
     />,
   )
-  return { onComplete, onTogglePlay, onSeek }
+  return { onComplete, onTogglePlay, onSeek, onVolumeChange, onSpeedChange }
 }
 
 describe('TapSyncEditor', () => {
@@ -46,5 +52,26 @@ describe('TapSyncEditor', () => {
     renderEditor({ isPlaying: true })
     expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy()
     expect(screen.getByText(/tap the moment each line starts/i)).toBeTruthy()
+  })
+
+  // The tap screen replaces the player UI entirely, so it needs its own audio
+  // adjustments — a user timing lines can't otherwise change volume or slow
+  // the song down.
+  it('adjusts volume from the tap screen', () => {
+    const { onVolumeChange } = renderEditor()
+    fireEvent.change(screen.getByRole('slider', { name: 'Volume' }), { target: { value: '50' } })
+    expect(onVolumeChange).toHaveBeenCalledWith(0.5)
+  })
+
+  it('adjusts playback speed from the tap screen', () => {
+    const { onSpeedChange } = renderEditor()
+    fireEvent.click(screen.getByRole('button', { name: /Slow \(75%\)/i }))
+    expect(onSpeedChange).toHaveBeenCalledWith(0.75)
+  })
+
+  it('returns to normal speed from the active preset', () => {
+    const { onSpeedChange } = renderEditor({ speed: 0.75 })
+    fireEvent.click(screen.getByRole('button', { name: /Slow \(75%\)/i }))
+    expect(onSpeedChange).toHaveBeenCalledWith(1)
   })
 })

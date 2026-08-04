@@ -6,13 +6,21 @@ import type { DeviceTier } from '../core/types'
  * Firefox user out of the full tier (word timestamps, vocal separation,
  * whisper-medium). Use core count as a coarse desktop-class signal instead;
  * mobile browsers stay conservative. */
+function isMobileBrowser(nav: Navigator & { userAgentData?: { mobile?: boolean } }): boolean {
+  return nav.userAgentData?.mobile ?? /Android|iPhone|iPad|Mobi/i.test(nav.userAgent ?? '')
+}
+
 function estimateDeviceMemory(nav: Navigator & { userAgentData?: { mobile?: boolean } }): number {
-  const mobile = nav.userAgentData?.mobile ?? /Android|iPhone|iPad|Mobi/i.test(nav.userAgent ?? '')
-  if (mobile) return 4
+  if (isMobileBrowser(nav)) return 4
   const cores = nav.hardwareConcurrency ?? 4
   if (cores >= 8) return 8
   if (cores >= 4) return 6
   return 4
+}
+
+/** True when the browser exposes WebGPU (navigator.gpu). */
+export function hasWebGPU(): boolean {
+  return !!(navigator as Navigator & { gpu?: unknown }).gpu
 }
 
 export function getDeviceTier(): DeviceTier {
@@ -22,6 +30,13 @@ export function getDeviceTier(): DeviceTier {
   const memory: number = nav.deviceMemory ?? estimateDeviceMemory(nav)
   if (gpu && memory >= 6) return 'full'
   if (gpu && memory >= 4) return 'lite'
+  // No WebGPU is a browser property, not a hardware one (Firefox forks on
+  // Linux/SteamOS, older Safari). Whisper transcribes on WASM regardless of
+  // tier and the embedder falls back to WASM, so a desktop-class machine still
+  // gets the lite pipeline. Mobile stays manual — WASM Whisper on a phone CPU
+  // is too slow to offer honestly. Full (vocal separation, whisper-medium)
+  // remains WebGPU-only.
+  if (!isMobileBrowser(nav) && memory >= 6) return 'lite'
   return 'manual'
 }
 

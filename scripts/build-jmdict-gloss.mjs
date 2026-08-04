@@ -41,6 +41,11 @@ const assetName = commonOnly
 const assetUrl = `https://github.com/scriptin/jmdict-simplified/releases/download/${encodeURIComponent(TAG)}/${assetName}`
 
 const SKIP_POS = new Set(['unc', 'ctr', 'suf', 'pref', 'pn', 'int', 'conj'])
+// The popover shows human-readable definitions, where a pronoun sense IS the
+// definition: skipping 'pn' made 君 lead with "monarch" instead of "you" and
+// 僕 with "manservant" instead of "I; me". The pairer's firstGloss keeps the
+// full skip list — pronouns aren't alignable content words.
+const POPOVER_SKIP_POS = new Set([...SKIP_POS].filter((p) => p !== 'pn'))
 const SKIP_GLOSS_TYPES = new Set(['explanation'])
 
 function kanaToRomaji(text) {
@@ -84,7 +89,7 @@ function fullGloss(senses) {
   const collect = (requireContentPos) => {
     for (const sense of senses ?? []) {
       const pos = sense.partOfSpeech ?? []
-      if (requireContentPos && pos.some((p) => SKIP_POS.has(p))) continue
+      if (requireContentPos && pos.some((p) => POPOVER_SKIP_POS.has(p))) continue
       const items = []
       for (const g of sense.gloss ?? []) {
         if (g.lang && g.lang !== 'eng') continue
@@ -259,6 +264,54 @@ async function processFile(jsonPath) {
           const prev = byReading.get(reading)
           // Higher-scored (common) entry wins a given surface+reading.
           if (!prev || score > prev.score) byReading.set(reading, { g: popoverDef, score })
+        }
+      }
+
+      // Kana headwords too: kana-written lyric tokens (この, これ, とりわけ)
+      // never match a kanji surface, so without kana keys they fell through to
+      // the pairer's romaji homophone chain, which collapses across entries
+      // (この → 九 "nine" via its rare この reading). Restricted to common
+      // entries to keep the artifact small. Homophones share one kana key, so
+      // ranking decides what a kana-written token shows: kana-NATIVE entries
+      // (usually-kana "uk" tag, or no kanji form at all) own their kana keys —
+      // 此処 "here" must beat 個々 "individual" for ここ — with a pronoun
+      // nudge to settle non-uk ties the way songs use them (きみ → 君 "you",
+      // not 黄身 "egg yolk"). 九's この isn't a common form, so it never gets
+      // keyed at all. Keys keep JMdict's own script — katakana loanwords stay
+      // katakana, matching kuromoji surfaces/baseForms.
+      if (isCommonEntry(word)) {
+        const kanaNative =
+          !(word.kanji?.length) || (word.sense ?? []).some((s) => (s.misc ?? []).includes('uk'))
+        const pos0 = word.sense?.[0]?.partOfSpeech ?? []
+        // Kana-key score, from scratch (NOT entryScore): a common KANJI form
+        // means the word is normally written in kanji — it makes the entry a
+        // weaker owner of a kana key, so only kana-common counts here (君 "you"
+        // must beat 黄身 "egg yolk" for きみ). Pronoun and adverb first senses
+        // are conventionally kana-written even without the uk tag (きみ, いま
+        // "now" over 居間 "living room"); an aux-v sense marks a core
+        // grammaticalized verb (居る, owner of いる, over 要る).
+        const kanaScore =
+          (word.kana?.some((k) => k.common) ? 4 : 0) +
+          (kanaNative ? 8 : 0) +
+          (pos0.includes('pn') ? 2 : 0) +
+          (pos0.includes('adv') ? 1 : 0) +
+          ((word.sense ?? []).some((s) => (s.partOfSpeech ?? []).includes('aux-v')) ? 2 : 0)
+        const forms = (word.kana ?? []).filter(
+          // sk = search-only, ok = outdated, ik = irregular: never display keys.
+          (kr) => !(kr.tags ?? []).some((t) => t === 'sk' || t === 'ok' || t === 'ik'),
+        )
+        const commonForms = forms.filter((kr) => kr.common)
+        for (const kr of commonForms.length ? commonForms : forms) {
+          const kanaKey = kr.text?.trim()
+          if (!kanaKey || kanaKey.length > 12) continue
+          const reading = toHiragana(kanaKey)
+          let byReading = popover.get(kanaKey)
+          if (!byReading) {
+            byReading = new Map()
+            popover.set(kanaKey, byReading)
+          }
+          const prev = byReading.get(reading)
+          if (!prev || kanaScore > prev.score) byReading.set(reading, { g: popoverDef, score: kanaScore })
         }
       }
     }
