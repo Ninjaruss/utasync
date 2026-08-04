@@ -11,6 +11,13 @@ interface Props {
   isPlaying: boolean
   onTogglePlay: () => void
   onSeek?: (time: number) => void
+  /** Audio adjustments — this screen replaces the player UI entirely, so volume
+   * and speed must be reachable here. Slowing playback makes taps easier to
+   * land; recorded times stay in song-time, so timing is unaffected. */
+  volume: number
+  onVolumeChange: (volume: number) => void
+  speed: number
+  onSpeedChange: (speed: number) => void
 }
 
 const fmt = (t: number) => {
@@ -18,7 +25,12 @@ const fmt = (t: number) => {
   return `${m}:${Math.floor(t % 60).toString().padStart(2, '0')}`
 }
 
-export function TapSyncEditor({ plainLines, translations, audioPosition, onComplete, isPlaying, onTogglePlay, onSeek }: Props) {
+const SPEED_PRESETS = [
+  { label: 'Slower (60%)', speed: 0.6 },
+  { label: 'Slow (75%)', speed: 0.75 },
+]
+
+export function TapSyncEditor({ plainLines, translations, audioPosition, onComplete, isPlaying, onTogglePlay, onSeek, volume, onVolumeChange, speed, onSpeedChange }: Props) {
   const [tapped, setTapped] = useState<number[]>([])
   const current = tapped.length
   const done = current >= plainLines.length
@@ -87,6 +99,42 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
           )}
         </button>
         <span className="text-white/40 text-xs tabular-nums min-w-12 text-center">{fmt(audioPosition())}</span>
+      </div>
+
+      {/* Audio adjustments — volume and slowed playback for easier tapping. */}
+      <div className="flex flex-col items-center gap-2">
+        <div className="flex items-center gap-2 w-56">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-white/40 shrink-0">
+            <path d="M11 5 6 9H3v6h3l5 4z" />
+            <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+          </svg>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(volume * 100)}
+            onChange={(e) => onVolumeChange(Number(e.target.value) / 100)}
+            aria-label="Volume"
+            className="flex-1 accent-cinnabar-accent h-1"
+          />
+          <span className="text-white/40 text-xs w-9 text-right tabular-nums shrink-0">{Math.round(volume * 100)}%</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {SPEED_PRESETS.map((p) => {
+            const active = speed === p.speed
+            return (
+              <button
+                key={p.speed}
+                type="button"
+                onClick={() => onSpeedChange(active ? 1 : p.speed)}
+                aria-pressed={active}
+                className={`min-h-9 px-3 rounded-full text-xs touch-manipulation transition-colors ${active ? 'bg-cinnabar-accent text-white' : 'border border-cinnabar-800 text-white/50 hover:text-white'}`}
+              >
+                {p.label}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       <p className="text-white/50 text-sm text-center text-pretty max-w-xs">
