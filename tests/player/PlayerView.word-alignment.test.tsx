@@ -82,7 +82,9 @@ describe('PlayerView word alignment', () => {
     expect(screen.queryByText(/normalizing lyrics/i)).toBeNull()
   })
 
-  it('runs alignment-only when tokens exist but alignmentIndices are missing', async () => {
+  // Word pairing is scheduled through runWhenIdle, so under suite load it can
+  // land well past waitFor's 1s default. Budget for that instead of racing it.
+  it('runs alignment-only when tokens exist but alignmentIndices are missing', { timeout: 20_000 }, async () => {
     await db.songs.put({
       id: 'song1', title: 'T', artist: 'A',
       sources: [{ provider: 'youtube', ref: 'abc', hasAudio: true }],
@@ -102,7 +104,7 @@ describe('PlayerView word alignment', () => {
     const { useLyricsStore } = await import('../../src/lyrics/LyricsStore')
     await waitFor(() => {
       expect(useLyricsStore.getState().lines[0].tokens?.[0]?.alignmentIndices).toEqual([0])
-    })
+    }, { timeout: 10_000 })
     const saved = await db.songs.get('song1')
     expect(saved?.lyrics.lines[0].tokens?.[0]?.alignmentIndices).toEqual([0])
   })

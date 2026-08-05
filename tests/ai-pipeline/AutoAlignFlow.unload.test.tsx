@@ -118,7 +118,9 @@ describe('AutoAlignFlow beforeunload guard', () => {
 
     await waitFor(() => expect(transcribeAudio).toHaveBeenCalled())
     // Guard is registered while the run is in flight and not yet removed.
-    expect(beforeUnloadAdds().length).toBeGreaterThan(0)
+    // Registration happens in an effect keyed on isProcessing, which has not
+    // necessarily flushed by the time transcribeAudio is first called.
+    await waitFor(() => expect(beforeUnloadAdds().length).toBeGreaterThan(0))
     expect(beforeUnloadRemoves().length).toBeLessThan(beforeUnloadAdds().length)
 
     // The handler asks the browser to confirm leaving.
@@ -130,8 +132,9 @@ describe('AutoAlignFlow beforeunload guard', () => {
 
     resolveTranscribe({ chunks: [{ text: 'hello', timestamp: [0, 1] }] })
     await waitFor(() => expect(onComplete).toHaveBeenCalled())
-    // Done stage: every registration has been removed again.
-    expect(beforeUnloadRemoves().length).toBe(beforeUnloadAdds().length)
+    // Done stage: every registration has been removed again. Removal is effect
+    // cleanup, so it trails onComplete by a tick.
+    await waitFor(() => expect(beforeUnloadRemoves().length).toBe(beforeUnloadAdds().length))
   })
 
   it('removes the guard on unmount mid-run', async () => {
@@ -143,8 +146,7 @@ describe('AutoAlignFlow beforeunload guard', () => {
     const { unmount } = render(
       <AutoAlignFlow song={song} autoStart onComplete={vi.fn()} onClose={vi.fn()} />,
     )
-    await waitFor(() => expect(transcribeAudio).toHaveBeenCalled())
-    expect(beforeUnloadAdds().length).toBeGreaterThan(0)
+    await waitFor(() => expect(beforeUnloadAdds().length).toBeGreaterThan(0))
 
     unmount()
     expect(beforeUnloadRemoves().length).toBe(beforeUnloadAdds().length)
@@ -158,8 +160,11 @@ describe('AutoAlignFlow beforeunload guard', () => {
 
     render(<AutoAlignFlow song={song} autoStart onComplete={vi.fn()} onClose={vi.fn()} />)
     await waitFor(() => expect(screen.getByText(/transcription cancelled/i)).toBeTruthy())
-    expect(beforeUnloadAdds().length).toBeGreaterThan(0)
-    expect(beforeUnloadRemoves().length).toBe(beforeUnloadAdds().length)
+    // Both counts move in effects, which trail the rendered error message.
+    await waitFor(() => {
+      expect(beforeUnloadAdds().length).toBeGreaterThan(0)
+      expect(beforeUnloadRemoves().length).toBe(beforeUnloadAdds().length)
+    })
   })
 
   it('does not register the guard while idle', () => {
