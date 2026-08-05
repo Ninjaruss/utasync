@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { useModalDialog } from '../core/ui/useModalDialog'
+import { useHistoryDismiss } from '../core/ui/useHistoryDismiss'
 import { LinkParser } from './LinkParser'
 import { UploadAudioFlow } from './UploadAudioFlow'
 import { ConfirmDialog } from '../core/ui/ConfirmDialog'
@@ -120,6 +121,9 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
   // Routed through requestClose, so Escape gets the same "your pasted lyrics
   // will be lost" guard as the ✕ and the backdrop.
   useModalDialog(panelRef, requestClose)
+  // Android's Back gesture is how people close sheets. Routed through the same
+  // guard, so it can't silently discard pasted lyrics the way navigating away did.
+  useHistoryDismiss(requestClose)
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col justify-end md:justify-center md:items-center md:p-6">

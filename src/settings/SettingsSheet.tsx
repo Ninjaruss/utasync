@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 import { useModalDialog } from '../core/ui/useModalDialog'
+import { useHistoryDismiss } from '../core/ui/useHistoryDismiss'
 import { SettingsView } from './SettingsView'
 
 interface Props {
@@ -12,6 +13,7 @@ interface Props {
 export function SettingsSheet({ onClose, onSongDeleted, onViewLanding }: Props) {
   const panelRef = useRef<HTMLDivElement>(null)
   useModalDialog(panelRef, onClose)
+  useHistoryDismiss(onClose)
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col justify-end md:justify-center md:items-center md:p-6">
