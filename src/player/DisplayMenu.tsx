@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { FuriganaMode, LyricsLayout } from '../core/types'
 import { useOutsideDismiss } from '../core/ui/useOutsideDismiss'
 import { useMinWidthMd } from '../core/ui/useMinWidthMd'
+import { useModalDialog } from '../core/ui/useModalDialog'
 import {
   displayMenuTrigger,
   displayMenuTriggerActive,
@@ -199,6 +200,14 @@ export function DisplayMenu(props: Props) {
   const summary = displaySummary(isJapanese, furiganaMode, showTranslation, lyricsLayout, !!sungLayoutActive)
 
   useOutsideDismiss(rootRef, open && isDesktop, () => setOpen(false))
+  // Escape closes it and focus returns to the Display trigger — previously the
+  // only ways out were a pointer press outside or a click on the trigger.
+  //
+  // Gated on the panel actually being in the DOM: on mobile it waits for
+  // panelPos, which a useLayoutEffect fills in only AFTER the first open render.
+  // Enabling the hook before then means it sees a null ref, bails, and never
+  // re-runs — so Escape silently did nothing on exactly the devices that need it.
+  useModalDialog(panelRef, () => setOpen(false), open && (isDesktop || !!panelPos))
 
   useLayoutEffect(() => {
     if (!open || isDesktop || !triggerRef.current) return
@@ -255,9 +264,11 @@ export function DisplayMenu(props: Props) {
 
       {open && isDesktop && (
         <div
+          ref={panelRef}
+          tabIndex={-1}
           role="dialog"
           aria-label="Lyrics display options"
-          className="absolute left-auto right-0 top-full mt-2 z-50 w-60 rounded-xl border border-cinnabar-800 bg-cinnabar-900 shadow-xl shadow-black/40 p-3 space-y-3"
+          className="absolute left-auto right-0 top-full mt-2 z-50 w-60 rounded-xl border border-cinnabar-800 bg-cinnabar-900 shadow-xl shadow-black/40 p-3 space-y-3 max-h-[70dvh] overflow-y-auto overscroll-contain"
         >
           <DisplayMenuPanel {...props} />
         </div>
@@ -266,6 +277,7 @@ export function DisplayMenu(props: Props) {
       {open && !isDesktop && panelPos && createPortal(
         <div
           ref={panelRef}
+          tabIndex={-1}
           role="dialog"
           aria-label="Lyrics display options"
           style={{
@@ -273,7 +285,10 @@ export function DisplayMenu(props: Props) {
             right: panelPos.right,
             width: panelPos.width,
           }}
-          className="fixed z-50 rounded-xl border border-cinnabar-800 bg-cinnabar-900 shadow-xl shadow-black/40 p-2.5 space-y-2"
+          // max-h/overflow: in landscape the panel starts ~155px down a 375px
+          // viewport, so its lower rows (Side by side, Match song phrasing) were
+          // drawn off the bottom edge with no way to reach them.
+          className="fixed z-50 rounded-xl border border-cinnabar-800 bg-cinnabar-900 shadow-xl shadow-black/40 p-2.5 space-y-2 max-h-[70dvh] overflow-y-auto overscroll-contain"
         >
           <DisplayMenuPanel {...props} compact />
         </div>,

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { TimedLine, Language, LineAlignmentQuality } from '../core/types'
 import { stampTimes, setText, addLine, deleteLine, shiftLinesFrom } from './lineOps'
 import { SecondLanguagePanel } from './SecondLanguagePanel'
+import { useModalDialog } from '../core/ui/useModalDialog'
 import { TimestampPopover } from './TimestampPopover'
 import {
   editRowSurface,
@@ -35,6 +36,9 @@ interface Props {
   /** Tap-through timing while audio plays (YouTube or local). */
   showTapSync?: boolean
   onTapSync?: () => void
+  /** False on devices that can't run on-device AI (manual tier). Auto-align is
+   * hidden rather than offered-then-refused. */
+  autoAlignSupported?: boolean
   /** Re-fetch / replace main lyrics from captions, LRCLIB, paste, or file. */
   onReplaceLyrics?: () => void
   /** Pause playback when opening a modal workflow (second language, etc.). */
@@ -313,7 +317,7 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus, alignmentConfidence, accurateRealignReason = null, onAutoAlignAccurate, onFixTiming }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, autoAlignSupported = true, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus, alignmentConfidence, accurateRealignReason = null, onAutoAlignAccurate, onFixTiming }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
@@ -334,6 +338,10 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
   const [showMore, setShowMore] = useState(false)
+  const moreMenuRef = useRef<HTMLDivElement>(null)
+  // Escape closes the menu and returns focus to the More button; before this the
+  // only way out was a pointer press on the invisible backdrop.
+  useModalDialog(moreMenuRef, () => setShowMore(false), showMore)
 
   // External-change guard (item 3): EditMode stays mounted while a completed
   // Auto-align or gap-recovery pass replaces `lines` from OUTSIDE this editor.
@@ -593,7 +601,13 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             {showMore && (
               <>
                 <div className="fixed inset-0 z-30" aria-hidden="true" onClick={() => setShowMore(false)} />
-                <div className="absolute right-0 top-full z-40 mt-1 flex min-w-[11rem] flex-col rounded-xl border border-cinnabar-800 bg-cinnabar-900 p-1 shadow-xl">
+                <div
+                  ref={moreMenuRef}
+                  tabIndex={-1}
+                  role="menu"
+                  aria-label="More lyric actions"
+                  className="absolute right-0 top-full z-40 mt-1 flex min-w-[11rem] flex-col rounded-xl border border-cinnabar-800 bg-cinnabar-900 p-1 shadow-xl max-h-[70dvh] overflow-y-auto overscroll-contain"
+                >
                   {onReplaceLyrics && (
                     <button type="button" onClick={() => { setShowMore(false); onReplaceLyrics() }} className={moreMenuItem}>
                       Replace lyrics
@@ -626,7 +640,11 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             )}
           </div>
 
-          {hasLocalAudio && (
+          {/* The tier check happens HERE, not after the confirm. Offering
+              Auto-align on a device that can't run it meant the user agreed to
+              "a few minutes" of work and then got a modal that only told them
+              their device was unsupported, with nothing to do. */}
+          {hasLocalAudio && autoAlignSupported && (
             <button
               type="button"
               onClick={() => setConfirmAutoAlign(true)}
@@ -635,10 +653,24 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
               Auto-align
             </button>
           )}
+          {hasLocalAudio && !autoAlignSupported && onTapSync && (
+            <button
+              type="button"
+              onClick={onTapSync}
+              className={toolbarPrimaryBtn}
+            >
+              Tap-through
+            </button>
+          )}
         </div>
         {!hasLocalAudio && (
           <p className="text-xs text-white/30 text-pretty">
             No audio file — use Tap-through to time lyrics while the song plays.
+          </p>
+        )}
+        {hasLocalAudio && !autoAlignSupported && (
+          <p className="text-xs text-white/30 text-pretty">
+            This device can't run on-device AI — tap through to time lyrics while the song plays.
           </p>
         )}
 

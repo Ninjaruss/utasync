@@ -331,7 +331,9 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const lyricsReimportRef = useRef<HTMLDivElement>(null)
   // Escape routes through requestClose so it inherits the "lyrics are still
   // being fetched" guard rather than cancelling a search silently.
-  useModalDialog(lyricsReimportRef, requestLyricsReimportClose, showLyricsReimport)
+  // Gated on `song` too, because that is what the dialog's own render is gated
+  // on — enabling the hook while the element is absent would leave it unarmed.
+  useModalDialog(lyricsReimportRef, requestLyricsReimportClose, showLyricsReimport && !!song)
   const seekRef = useRef<(time: number) => void>(() => {})
   const enrichmentJobRef = useRef(0)
   const wordColorJobRef = useRef(0)
@@ -833,10 +835,17 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     [song],
   )
 
-  const applyAlignedSong = (updated: Song) => {
+  /** Adopt a newly-timed song. `closeFlow` is false for auto-align: closing in
+   * the same tick the flow reaches its 'done' stage meant its success screen —
+   * and the low-confidence warning with its "re-run with vocal isolation"
+   * button — rendered for zero frames, so the modal just vanished and the user
+   * had no idea whether the result was trustworthy. The flow closes itself
+   * through its own Close button instead. Tap-through has no result screen, so
+   * it still closes on completion. */
+  const applyAlignedSong = (updated: Song, { closeFlow = true }: { closeFlow?: boolean } = {}) => {
     setSong(updated)
     setLines(updated.lyrics.lines)
-    setAlignMode(null)
+    if (closeFlow) setAlignMode(null)
     // Yield so Whisper/Demucs workers finish tearing down and release WebGPU
     // memory before we load the embedding model for word-pair coloring.
     const yieldMs = getDeviceTier() === 'lite' ? 150 : 0
@@ -1375,6 +1384,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               // tap pass leaves timings behind — which used to hide the tool
               // that produced them.
               showTapSync={canPlayback}
+              autoAlignSupported={getDeviceTier() !== 'manual'}
               onTapSync={() => beginAlignment('tap')}
               onReplaceLyrics={() => setShowLyricsReimport(true)}
               onPausePlayback={pausePlayback}
@@ -1556,7 +1566,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           <AutoAlignFlow
             song={song}
             autoStart={autoAlignOnOpen}
-            onComplete={applyAlignedSong}
+            onComplete={(updated) => applyAlignedSong(updated, { closeFlow: false })}
             onClose={() => setAlignMode(null)}
           />
         </Suspense>
