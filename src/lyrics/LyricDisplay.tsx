@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLyricsStore } from './LyricsStore'
 import { useSettingsStore } from '../payment/SettingsStore'
 import type { TimedLine, FuriganaMode, ReadingMode, Token } from '../core/types'
@@ -77,6 +77,11 @@ function ColoredTokens({
           : token.readingMismatch
             ? 'reading-mismatch'
             : undefined
+        // Only words that actually have a dictionary entry become controls, so
+        // Tab doesn't stop on every particle and punctuation mark.
+        const lookupable = !!onWordTap && hasJapanese(token.surface)
+        const openLookup = (el: HTMLElement) =>
+          onWordTap?.({ token, rect: el.getBoundingClientRect() })
         return (
           <span
             key={i}
@@ -84,10 +89,21 @@ function ColoredTokens({
             style={tokenBorderStyle(color, highlighted)}
             onMouseEnter={() => onHover({ source: i })}
             onMouseLeave={() => onHover(null)}
+            // role/tabIndex rather than a real <button>: a button resets the
+            // ruby/inline typography the lyric line depends on.
+            role={lookupable ? 'button' : undefined}
+            tabIndex={lookupable ? 0 : undefined}
+            aria-label={lookupable ? `Look up ${token.surface}` : undefined}
+            onKeyDown={lookupable ? (e) => {
+              if (e.key !== 'Enter' && e.key !== ' ') return
+              e.preventDefault()
+              e.stopPropagation()
+              openLookup(e.currentTarget)
+            } : undefined}
             onClick={onWordTap ? (e) => {
               if (!hasJapanese(token.surface)) return
               e.stopPropagation()
-              onWordTap({ token, rect: e.currentTarget.getBoundingClientRect() })
+              openLookup(e.currentTarget)
             } : undefined}
           >
             {reading ? (
@@ -331,17 +347,59 @@ export function LyricDisplay({
   const activeRef = useRef<HTMLDivElement>(null)
   const loopActive = abLoop ? isABLoopActive(abLoop) : false
 
-  // Keep the active line centered as playback advances, without hijacking the
-  // user's manual scrolling beyond the moment the line changes. The first
-  // centering (mount, e.g. returning from Edit mode) jumps instantly so the
-  // user isn't watching a long smooth scroll from the top of the song.
+  // Keep the active line centered as playback advances. The first centering
+  // (mount, e.g. returning from Edit mode) jumps instantly so the user isn't
+  // watching a long smooth scroll from the top of the song.
+  //
+  // Following pauses the moment the user scrolls for themselves: re-centering on
+  // every line change made it impossible to read back over a phrase you just
+  // missed, because the next line begins two to four seconds later and snapped
+  // the view away again. It resumes when the user asks (the jump control), when
+  // they tap a line to seek, or on its own once the active line is back on
+  // screen — never on a timer, which would yank the view mid-sentence.
   const hasCentered = useRef(false)
-  useEffect(() => {
+  const [followPaused, setFollowPaused] = useState(false)
+
+  const centerActiveLine = useCallback((smooth: boolean) => {
     const el = activeRef.current
     if (!el) return
-    el.scrollIntoView({ block: 'center', behavior: hasCentered.current ? 'smooth' : 'auto' })
+    el.scrollIntoView({ block: 'center', behavior: smooth ? 'smooth' : 'auto' })
+  }, [])
+
+  const resumeFollowing = useCallback(() => {
+    setFollowPaused(false)
+    centerActiveLine(true)
+  }, [centerActiveLine])
+
+  /** True when the active row is within the scroll viewport. */
+  const activeLineOnScreen = useCallback(() => {
+    const el = activeRef.current
+    const box = containerRef.current
+    if (!el || !box) return false
+    const row = el.getBoundingClientRect()
+    const view = box.getBoundingClientRect()
+    return row.bottom > view.top && row.top < view.bottom
+  }, [])
+
+  useEffect(() => {
+    if (!activeRef.current || followPaused) return
+    centerActiveLine(hasCentered.current)
     hasCentered.current = true
-  }, [activeLine])
+  }, [activeLine, followPaused, centerActiveLine])
+
+  // wheel/touchmove are unambiguous user intent; a plain `scroll` listener
+  // cannot tell our own scrollIntoView apart from a finger.
+  const pauseFollowing = useCallback(() => {
+    if (activeLineOnScreen()) return
+    setFollowPaused(true)
+  }, [activeLineOnScreen])
+
+  // Resume-only: scrolling back to where the song actually is means the user
+  // wants to follow again. It never pauses, so the scroll events emitted by our
+  // own smooth scrollIntoView can't strand the view mid-flight.
+  const resumeIfBackOnScreen = useCallback(() => {
+    if (followPaused && activeLineOnScreen()) setFollowPaused(false)
+  }, [followPaused, activeLineOnScreen])
 
   if (lines.length === 0) {
     return (
@@ -354,8 +412,12 @@ export function LyricDisplay({
   }
 
   return (
+    <div className="relative flex-1 min-h-0 flex flex-col">
     <div
       ref={containerRef}
+      onWheel={pauseFollowing}
+      onTouchMove={pauseFollowing}
+      onScroll={resumeIfBackOnScreen}
       className="flex-1 min-h-0 overflow-y-auto py-[8vh] sm:py-[14vh] md:py-[16vh] lg:py-[20vh] px-4"
       style={{ touchAction: 'pan-y', scrollbarWidth: 'thin' }}
     >
@@ -379,7 +441,10 @@ export function LyricDisplay({
             line={line}
             isActive={isActive}
             loopHighlight={loopHighlight}
-            onLineClick={onLineClick}
+            // Tapping a line seeks there, which IS a request to follow the song
+            // again — so it clears a paused follow rather than leaving the user
+            // staring at a jump chip they no longer need.
+            onLineClick={(l) => { setFollowPaused(false); onLineClick(l) }}
             lineRef={isActive ? activeRef : undefined}
             // Only the ACTIVE line's words open the dictionary; tapping a word on
             // any other line falls through to the row's seek (jump to that line)
@@ -395,6 +460,20 @@ export function LyricDisplay({
           onClose={() => setWordTap(null)}
         />
       )}
+    </div>
+
+    {followPaused && (
+      <button
+        type="button"
+        onClick={resumeFollowing}
+        // Centred with auto margins rather than -translate-x-1/2: the
+        // progress-enter keyframes animate `transform`, which overrides the
+        // translate utility and left the chip hanging off to the right.
+        className="absolute inset-x-0 mx-auto w-fit bottom-3 z-20 min-h-11 px-4 rounded-full border border-cinnabar-accent/50 bg-cinnabar-950/90 backdrop-blur-sm text-cinnabar-accent text-xs font-medium shadow-lg shadow-black/30 touch-manipulation transition-colors duration-150 ease-out animate-[progress-enter_180ms_ease-out_both]"
+      >
+        ↓ Jump to current line
+      </button>
+    )}
     </div>
   )
 }

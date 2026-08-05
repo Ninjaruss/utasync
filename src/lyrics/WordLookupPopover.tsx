@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Token } from '../core/types'
 import { lookupWord, jishoSearchUrl, type WordLookupResult } from '../language/japanese/wordLookup'
 import { useSettingsStore } from '../payment/SettingsStore'
+import { useModalDialog } from '../core/ui/useModalDialog'
 
 interface Props {
   token: Token
@@ -20,6 +21,9 @@ const CARD_EST_HEIGHT = 160 // rough card height, for deciding when to flip abov
  */
 export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null)
+  // Escape closes it and focus returns to the word that opened it, so a
+  // keyboard reader can look words up without losing their place in the line.
+  useModalDialog(ref, onClose)
   // Keyed by token so a new tap derives back to the loading state without a
   // synchronous setState inside the effect.
   const [resolved, setResolved] = useState<{ token: Token; result: WordLookupResult | null } | null>(null)
@@ -99,6 +103,7 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
   return (
     <div
       ref={ref}
+      tabIndex={-1}
       role="dialog"
       aria-label={`Dictionary entry for ${headword}`}
       onClick={(e) => e.stopPropagation()}
