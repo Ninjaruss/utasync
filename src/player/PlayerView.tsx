@@ -70,6 +70,7 @@ import { WordColorProgressBanner } from './WordColorProgressBanner'
 import { PlayEditToggle } from './PlayEditToggle'
 import { ConfirmDialog } from '../core/ui/ConfirmDialog'
 import { useConfirmedClose } from '../core/ui/useConfirmedClose'
+import { useModalDialog } from '../core/ui/useModalDialog'
 import { displayToolbarRow } from '../core/ui/toolbarClasses'
 
 const AutoAlignFlow = lazy(() => import('../ai-pipeline/AutoAlignFlow'))
@@ -265,14 +266,22 @@ function canRunWordAlignment(): boolean {
   return getDeviceTier() !== 'manual'
 }
 
+/** Anything that owns its own keystrokes: a text field, a real control, or the
+ * inside of an open dialog. The player's shortcuts live on `window`, so without
+ * this they hijack every key on the page — Space on a focused button toggled
+ * playback instead of pressing the button, and arrows inside a sheet seeked the
+ * song. Lyric rows are plain divs and match nothing here, so clicking a lyric
+ * and pressing Space still works. */
+const KEYSTROKE_OWNER = [
+  'button', 'a[href]', 'input', 'textarea', 'select',
+  '[role="switch"]', '[role="slider"]', '[role="button"]',
+  '[role="dialog"]', '[role="alertdialog"]', '[role="menu"]',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',')
+
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
-  return (
-    target.isContentEditable
-    || target.tagName === 'INPUT'
-    || target.tagName === 'TEXTAREA'
-    || target.tagName === 'SELECT'
-  )
+  return target.isContentEditable || !!target.closest(KEYSTROKE_OWNER)
 }
 
 export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false }: Props) {
@@ -319,6 +328,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     confirm: confirmLyricsReimportCloseNow,
     cancel: cancelLyricsReimportClose,
   } = useConfirmedClose(() => setShowLyricsReimport(false))
+  const lyricsReimportRef = useRef<HTMLDivElement>(null)
+  // Escape routes through requestClose so it inherits the "lyrics are still
+  // being fetched" guard rather than cancelling a search silently.
+  useModalDialog(lyricsReimportRef, requestLyricsReimportClose, showLyricsReimport)
   const seekRef = useRef<(time: number) => void>(() => {})
   const enrichmentJobRef = useRef(0)
   const wordColorJobRef = useRef(0)
@@ -1203,32 +1216,6 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
   }
 
-  if (song && alignMode === 'tap') {
-    return (
-      <TapSyncEditor
-        plainLines={song.lyrics.lines.map((l) => l.original)}
-        translations={song.lyrics.lines.map((l) => l.translation)}
-        audioPosition={() => position}
-        onComplete={handleTapComplete}
-        isPlaying={playbackState === 'playing'}
-        onTogglePlay={togglePlay}
-        onSeek={seek}
-        volume={volume}
-        onVolumeChange={(v) => {
-          setVolume(v)
-          if (isYouTube) ytRef.current?.setVolume(v)
-          else engine.setVolume(v)
-        }}
-        speed={speed}
-        onSpeedChange={(s) => {
-          setSpeed(s)
-          if (isYouTube) ytRef.current?.setRate(s)
-          else engine.setRate(s)
-        }}
-      />
-    )
-  }
-
   return (
     <div
       className="h-full overflow-hidden bg-cinnabar-950 flex flex-col w-full max-w-7xl mx-auto md:border-x border-cinnabar-900/80"
@@ -1383,7 +1370,11 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               sourceLanguage={song?.lyrics.sourceLanguage ?? 'ja'}
               onChangeLines={handleEditLines}
               onAutoAlign={() => beginAlignment('auto')}
-              showTapSync={canPlayback && lyricsUntimed}
+              // Not gated on lyricsUntimed: the songs that most need re-timing
+              // are the ones that already have (wrong) timings, and a partial
+              // tap pass leaves timings behind — which used to hide the tool
+              // that produced them.
+              showTapSync={canPlayback}
               onTapSync={() => beginAlignment('tap')}
               onReplaceLyrics={() => setShowLyricsReimport(true)}
               onPausePlayback={pausePlayback}
@@ -1484,6 +1475,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           onClick={requestLyricsReimportClose}
         >
           <div
+            ref={lyricsReimportRef}
+            tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
             className="relative w-full max-w-md rounded-2xl bg-cinnabar-950 border border-cinnabar-800 p-4 max-h-[min(90dvh,32rem)] flex flex-col overflow-hidden"
             role="dialog"
@@ -1525,6 +1518,35 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
             </div>
           </div>
         </div>
+      )}
+
+      {/* Overlay, NOT an early return: tap-through has to be rendered inside the
+          main tree because that tree owns <YouTubePlayer>. Returning early
+          unmounted the iframe and its position ticker, so the clock froze at
+          0:00 and every tap on a YouTube song recorded the same timestamp. */}
+      {song && alignMode === 'tap' && (
+        <TapSyncEditor
+          plainLines={song.lyrics.lines.map((l) => l.original)}
+          translations={song.lyrics.lines.map((l) => l.translation)}
+          audioPosition={() => position}
+          onComplete={handleTapComplete}
+          onCancel={() => setAlignMode(null)}
+          isPlaying={playbackState === 'playing'}
+          onTogglePlay={togglePlay}
+          onSeek={seek}
+          volume={volume}
+          onVolumeChange={(v) => {
+            setVolume(v)
+            if (isYouTube) ytRef.current?.setVolume(v)
+            else engine.setVolume(v)
+          }}
+          speed={speed}
+          onSpeedChange={(s) => {
+            setSpeed(s)
+            if (isYouTube) ytRef.current?.setRate(s)
+            else engine.setRate(s)
+          }}
+        />
       )}
 
       {song && alignMode === 'auto' && (

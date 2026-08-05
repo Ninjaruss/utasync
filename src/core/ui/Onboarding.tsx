@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { useModalDialog } from './useModalDialog'
 
 export const ONBOARDING_STORAGE_KEY = 'utasync_onboarding_seen'
 
@@ -29,11 +30,16 @@ function markOnboardingSeen(): void {
 export function Onboarding() {
   const [seen, setSeen] = useState(hasSeenOnboarding)
   const [step, setStep] = useState(0)
+  const ref = useRef<HTMLDivElement>(null)
 
   const dismiss = () => {
     markOnboardingSeen()
     setSeen(true)
   }
+
+  // Escape dismisses for good, exactly like Skip — reappearing after the user
+  // has told it to go away would be worse than not honouring the key at all.
+  useModalDialog(ref, dismiss, !seen)
 
   if (seen) return null
 
@@ -42,6 +48,8 @@ export function Onboarding() {
 
   return (
     <div
+      ref={ref}
+      tabIndex={-1}
       role="dialog"
       aria-modal="true"
       aria-labelledby="onboarding-title"

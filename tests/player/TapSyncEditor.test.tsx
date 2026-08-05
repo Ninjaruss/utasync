@@ -14,6 +14,7 @@ function renderEditor(overrides: Partial<Parameters<typeof TapSyncEditor>[0]> = 
       translations={['']}
       audioPosition={() => 1.5}
       onComplete={onComplete}
+      onCancel={vi.fn()}
       isPlaying={false}
       onTogglePlay={onTogglePlay}
       onSeek={onSeek}

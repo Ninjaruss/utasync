@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { useModalDialog } from '../core/ui/useModalDialog'
 import { LinkParser } from './LinkParser'
 import { UploadAudioFlow } from './UploadAudioFlow'
 import { ConfirmDialog } from '../core/ui/ConfirmDialog'
@@ -114,7 +115,11 @@ function SourceTile({
 
 export function AddSongSheet({ onSongReady, onClose }: Props) {
   const [source, setSource] = useState<Source>('upload')
+  const panelRef = useRef<HTMLDivElement>(null)
   const { setBusy, setDirty, confirming, requestClose, confirm, cancel } = useConfirmedClose(onClose)
+  // Routed through requestClose, so Escape gets the same "your pasted lyrics
+  // will be lost" guard as the ✕ and the backdrop.
+  useModalDialog(panelRef, requestClose)
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col justify-end md:justify-center md:items-center md:p-6">
@@ -125,10 +130,13 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
         className="absolute inset-0 bg-black/60"
       />
       <div
+        ref={panelRef}
+        tabIndex={-1}
         className="relative bg-cinnabar-950 border-t md:border border-cinnabar-900 rounded-t-2xl md:rounded-2xl p-4 md:p-5 w-full md:max-w-3xl max-h-[92dvh] md:max-h-[min(92vh,54rem)] flex flex-col overflow-hidden"
         role="dialog"
         aria-label="Add a song"
         aria-modal="true"
+        style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 1rem), 1rem)' }}
       >
         {confirming && (
           <ConfirmDialog

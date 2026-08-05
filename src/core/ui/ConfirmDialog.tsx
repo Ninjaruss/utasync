@@ -1,3 +1,6 @@
+import { useRef } from 'react'
+import { useModalDialog } from './useModalDialog'
+
 interface Props {
   title: string
   message: string
@@ -16,10 +19,19 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: Props) {
+  const ref = useRef<HTMLDivElement>(null)
+  // Escape means "don't do the destructive thing", so it maps to cancel. The
+  // hook keeps this confirm — not the sheet it sits inside — the owner of that
+  // keystroke, and returns focus to whatever opened it.
+  useModalDialog(ref, onCancel)
+
   return (
     <div
+      ref={ref}
       className="absolute inset-0 z-20 flex items-end sm:items-center justify-center p-4 bg-black/50 rounded-inherit"
       role="alertdialog"
+      aria-modal="true"
+      tabIndex={-1}
       aria-labelledby="confirm-dialog-title"
       aria-describedby="confirm-dialog-message"
     >
