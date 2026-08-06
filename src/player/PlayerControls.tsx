@@ -10,7 +10,22 @@ import {
   wrapPlaylistIndex,
   wrapPlaylistIndexPrev,
 } from './abLoopPlaylist'
-import { useMinWidthMd } from '../core/ui/useMinWidthMd'
+import { useWideLayout } from '../core/ui/useWideLayout'
+
+/** Sidebar treatment for a phone held sideways — mirrors the md: rules above it.
+ * Written out because Tailwind cannot compose an arbitrary variant from a
+ * constant, and repeating the query inline for each utility is unreadable. */
+const SHORT_WIDE = [
+  '[@media(max-height:520px)_and_(min-width:560px)]:border-t-0',
+  '[@media(max-height:520px)_and_(min-width:560px)]:border-l',
+  '[@media(max-height:520px)_and_(min-width:560px)]:bg-cinnabar-950',
+  '[@media(max-height:520px)_and_(min-width:560px)]:backdrop-blur-none',
+  '[@media(max-height:520px)_and_(min-width:560px)]:pt-3',
+  '[@media(max-height:520px)_and_(min-width:560px)]:px-4',
+  '[@media(max-height:520px)_and_(min-width:560px)]:w-64',
+  '[@media(max-height:520px)_and_(min-width:560px)]:overflow-y-auto',
+  '[@media(max-height:520px)_and_(min-width:560px)]:overscroll-contain',
+].join(' ')
 import { ConfirmDialog } from '../core/ui/ConfirmDialog'
 import {
   displayMenuTrigger,
@@ -423,7 +438,7 @@ function CollapsibleABLoopSection({
   expanded?: boolean
   onExpandedChange?: (value: boolean) => void
 }) {
-  const isDesktop = useMinWidthMd()
+  const isDesktop = useWideLayout()
   const [uncontrolledExpanded, setUncontrolledExpanded] = useState(abActive)
   const expanded = controlledExpanded ?? uncontrolledExpanded
   const setExpanded = (value: boolean | ((prev: boolean) => boolean)) => {
@@ -1082,7 +1097,7 @@ function CollapsibleSpeedSection({
   expanded?: boolean
   onExpandedChange?: (expanded: boolean) => void
 }) {
-  const isDesktop = useMinWidthMd()
+  const isDesktop = useWideLayout()
   const isActive = speed !== NORMAL_SPEED
   const [internalExpanded, setInternalExpanded] = useState(isActive)
   const expanded = controlledExpanded ?? internalExpanded
@@ -1299,7 +1314,7 @@ function SavedLoopsPanelSection({
 }) {
   const hint = savedLoopsPanelHint(open, playlistActive, playlistIndex, playlistLength, entryCount)
   const triggerActive = open || playlistActive
-  const isDesktop = useMinWidthMd()
+  const isDesktop = useWideLayout()
 
   return (
     <section
@@ -1473,7 +1488,7 @@ export function PlayerControls({
 }: Props) {
   const abActive = abLoop.a !== null || abLoop.b !== null || armingAB !== null
   const abLooping = isABLoopActive(abLoop)
-  const isDesktop = useMinWidthMd()
+  const isDesktop = useWideLayout()
   const [savedLoopsOpen, setSavedLoopsOpen] = useState(false)
   const [speedOpen, setSpeedOpen] = useState(false)
   // Mobile bottom-sheet state. The sheet owns its own expansion flags so the
@@ -1623,6 +1638,9 @@ export function PlayerControls({
         'bg-cinnabar-950/95 md:bg-cinnabar-950 backdrop-blur-sm md:backdrop-blur-none',
         'px-3 pt-2 md:pt-4 md:px-5 md:w-72 lg:w-80',
         'md:overflow-y-auto md:overscroll-contain',
+        // Landscape phone: same sidebar treatment as desktop, at a width that
+        // still leaves the lyrics the majority of a short, wide screen.
+        SHORT_WIDE,
       ].join(' ')}
       style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 8px), 8px)' }}
       onClick={(e) => e.stopPropagation()}

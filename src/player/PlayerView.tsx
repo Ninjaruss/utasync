@@ -497,14 +497,23 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           /* leave alignment as-is; playback still works */
         }
       }
+      // The refinement above awaits a Dexie write, and the last `cancelled`
+      // check was before it. A superseded load resuming here would overwrite the
+      // current song's state with the previous one's — and force Play mode,
+      // ejecting a user who had since switched to Edit.
+      if (cancelled) return
+
       setSong(loaded)
       setLines(loaded.lyrics.lines)
       setLocalAudioLoadFailed(false)
-      setMode('play') // a freshly opened song always lands in Play mode
       // Opening a different song starts from the top; reopening the same song
       // (e.g. after a trip to Settings) resumes the persisted position.
       const store = usePlayerStore.getState()
       const isNewSong = store.currentSongId !== songId
+      // Only a genuinely new song lands in Play mode. Re-running this effect for
+      // the song already open — a refresh, a return from Settings — used to
+      // throw the user out of Edit mode mid-edit for no reason they could see.
+      if (isNewSong) setMode('play')
       if (isNewSong) setCurrentSong(songId) // resets position to 0
       const resumeAt = isNewSong ? 0 : store.position
       // Load locally-stored audio into the engine so playback works for
@@ -1404,7 +1413,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       )}
 
       {/* Main: lyrics + controls. Controls dock to the bottom on mobile, sidebar on md+. */}
-      <div className="flex flex-1 min-h-0 flex-col md:flex-row md:items-stretch">
+      {/* Sidebar beside the lyrics on a wide OR short-and-wide viewport. A phone
+          held sideways used to stack header + toolbar + dock down a 360px
+          viewport, leaving under one lyric row visible. */}
+      <div className="flex flex-1 min-h-0 flex-col md:flex-row md:items-stretch [@media(max-height:520px)_and_(min-width:560px)]:flex-row [@media(max-height:520px)_and_(min-width:560px)]:items-stretch">
         <div className="flex flex-1 min-h-0 flex-col min-w-0">
           {mode === 'play' ? (
             <LyricDisplay

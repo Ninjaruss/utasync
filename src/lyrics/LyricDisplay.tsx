@@ -452,7 +452,7 @@ export function LyricDisplay({
          scroll region, i.e. zero usable height, with the one visible line
          clipped through its own kanji. The clamp keeps the padding decorative
          on short screens and unchanged on tall ones. */
-      className="flex-1 min-h-0 overflow-y-auto px-4 py-[clamp(0.5rem,8vh,3rem)] [@media(min-height:640px)]:py-[clamp(1rem,14vh,7rem)] [@media(min-height:900px)]:py-[16vh]"
+      className="flex-1 min-h-0 overflow-y-auto px-4 py-[clamp(0.25rem,4vh,1rem)] [@media(min-height:640px)]:py-[clamp(1rem,14vh,7rem)] [@media(min-height:900px)]:py-[16vh]"
       style={{ touchAction: 'pan-y', scrollbarWidth: 'thin' }}
     >
       {lines.map((line, i) => {
