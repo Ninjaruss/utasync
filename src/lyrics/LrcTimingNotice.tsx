@@ -22,7 +22,7 @@ export function LrcTimingNotice({ pasted, ignored, onAlignFromScratch }: Props) 
       <button
         type="button"
         onClick={onAlignFromScratch}
-        className="underline text-white/40 hover:text-white/70 touch-manipulation"
+        className="underline text-white/60 hover:text-white/70 touch-manipulation"
       >
         Align from scratch instead
       </button>

@@ -11,6 +11,7 @@ import {
   wrapPlaylistIndexPrev,
 } from './abLoopPlaylist'
 import { useMinWidthMd } from '../core/ui/useMinWidthMd'
+import { ConfirmDialog } from '../core/ui/ConfirmDialog'
 import {
   displayMenuTrigger,
   displayMenuTriggerActive,
@@ -223,8 +224,10 @@ function TransportButtons({
   compact?: boolean
 }) {
   const playClass = playSize === 'lg' ? 'w-14 h-14 text-2xl' : 'w-10 h-10 text-xl'
+  // Even the compact variant clears 44px: these are used one-handed mid-song,
+  // and a missed skip costs your place in the track.
   const skipClass = compact
-    ? 'min-w-9 min-h-9 text-base'
+    ? 'min-w-11 min-h-11 text-base'
     : 'min-w-11 min-h-11 text-lg'
 
   return (
@@ -232,7 +235,7 @@ function TransportButtons({
       <button
         type="button"
         onClick={() => onSeek(Math.max(0, position - 5))}
-        className={`${skipClass} flex items-center justify-center text-white/45 hover:text-white touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]`}
+        className={`${skipClass} flex items-center justify-center text-white/70 hover:text-white touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]`}
         aria-label="Rewind 5 seconds"
       >
         <SkipBackIcon />
@@ -251,7 +254,7 @@ function TransportButtons({
       <button
         type="button"
         onClick={() => onSeek(Math.min(duration, position + 5))}
-        className={`${skipClass} flex items-center justify-center text-white/45 hover:text-white touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]`}
+        className={`${skipClass} flex items-center justify-center text-white/70 hover:text-white touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]`}
         aria-label="Forward 5 seconds"
       >
         <SkipForwardIcon />
@@ -263,7 +266,7 @@ function TransportButtons({
 function CompactVolume({ volumePct, onVolumeChange }: { volumePct: number; onVolumeChange: (v: number) => void }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="text-white/35 w-4 shrink-0 flex items-center justify-center" aria-hidden>
+      <span className="text-white/60 w-4 shrink-0 flex items-center justify-center" aria-hidden>
         <VolumeIcon level={volumePct === 0 ? 'mute' : volumePct < 50 ? 'low' : 'high'} />
       </span>
       <input
@@ -276,7 +279,7 @@ function CompactVolume({ volumePct, onVolumeChange }: { volumePct: number; onVol
         className="flex-1 accent-cinnabar-accent touch-manipulation h-1"
         aria-label="Volume"
       />
-      <span className="text-white/45 text-xs w-10 text-right tabular-nums shrink-0">{volumePct}%</span>
+      <span className="text-white/70 text-xs w-10 text-right tabular-nums shrink-0">{volumePct}%</span>
     </div>
   )
 }
@@ -321,7 +324,7 @@ function ABLoopControls({
       >
         {set ? (
           <>
-            <span className="text-white/45 mr-1">{which.toUpperCase()}</span>
+            <span className="text-white/70 mr-1">{which.toUpperCase()}</span>
             {formatTime(value)}
           </>
         ) : (
@@ -355,7 +358,7 @@ function ABLoopControls({
           <button
             type="button"
             onClick={onClearAB}
-            className={[chip, toolbarChipBtnIdle, 'text-white/40'].join(' ')}
+            className={[chip, toolbarChipBtnIdle, 'text-white/60'].join(' ')}
           >
             Clear loop
           </button>
@@ -368,17 +371,17 @@ function ABLoopControls({
         </p>
       )}
       {!armingAB && !abLoopError && !hasAny && showIdleHints && (
-        <p className={[hintClass, 'text-white/35'].join(' ')}>
+        <p className={[hintClass, 'text-white/60'].join(' ')}>
           Tap Set A or Set B, then tap a lyric line to mark the loop.
         </p>
       )}
       {!armingAB && !abLoopError && onlyA && showIdleHints && (
-        <p className={[hintClass, 'text-white/35'].join(' ')}>
+        <p className={[hintClass, 'text-white/60'].join(' ')}>
           Point A is set. Tap Set B, then tap the ending lyric line.
         </p>
       )}
       {!armingAB && !abLoopError && onlyB && showIdleHints && (
-        <p className={[hintClass, 'text-white/35'].join(' ')}>
+        <p className={[hintClass, 'text-white/60'].join(' ')}>
           Point B is set. Tap Set A, then tap the starting lyric line.
         </p>
       )}
@@ -465,11 +468,11 @@ function CollapsibleABLoopSection({
             className="flex-1 flex items-center justify-between gap-2 min-h-9 touch-manipulation"
           >
             <span className="flex items-center gap-2 min-w-0">
-              <span className="text-[10px] uppercase tracking-wide text-white/35 shrink-0">Loop</span>
+              <span className="text-[10px] uppercase tracking-wide text-white/60 shrink-0">Loop</span>
               {!expanded && (
                 <span className={[
                   'text-[11px] truncate tabular-nums',
-                  abActive ? 'text-white/60' : 'text-white/35',
+                  abActive ? 'text-white/60' : 'text-white/60',
                 ].join(' ')}>
                   {collapsedSummary}
                 </span>
@@ -478,7 +481,7 @@ function CollapsibleABLoopSection({
                 <span className="text-[10px] text-cinnabar-accent font-medium shrink-0">Looping</span>
               )}
             </span>
-            <span className="text-[10px] text-white/35 shrink-0" aria-hidden>{expanded ? '▴' : '▾'}</span>
+            <span className="text-[10px] text-white/60 shrink-0" aria-hidden>{expanded ? '▴' : '▾'}</span>
           </button>
           {canSave && onSave && (
             <button
@@ -528,11 +531,11 @@ function CollapsibleABLoopSection({
           className="flex-1 flex items-center justify-between gap-2 min-h-9 touch-manipulation"
         >
           <span className="flex items-center gap-2 min-w-0">
-            <span className="text-[10px] uppercase tracking-wide text-white/35 shrink-0">Loop</span>
+            <span className="text-[10px] uppercase tracking-wide text-white/60 shrink-0">Loop</span>
             {!expanded && (
               <span className={[
                 'text-[11px] truncate tabular-nums',
-                abActive ? 'text-white/60' : 'text-white/35',
+                abActive ? 'text-white/60' : 'text-white/60',
               ].join(' ')}>
                 {collapsedSummary}
               </span>
@@ -541,7 +544,7 @@ function CollapsibleABLoopSection({
               <span className="text-[10px] text-cinnabar-accent font-medium shrink-0">Looping</span>
             )}
           </span>
-          <span className="text-[10px] text-white/35 shrink-0" aria-hidden>{expanded ? '▴' : '▾'}</span>
+          <span className="text-[10px] text-white/60 shrink-0" aria-hidden>{expanded ? '▴' : '▾'}</span>
         </button>
         {canSave && onSave && (
           <button
@@ -681,7 +684,7 @@ function PlaylistCompactPlayer({
               ))}
             </div>
           ) : (
-            <p className="text-[10px] text-white/40 tabular-nums mt-0.5" aria-hidden>
+            <p className="text-[10px] text-white/60 tabular-nums mt-0.5" aria-hidden>
               {playlistIndex + 1} / {entries.length}
             </p>
           )}
@@ -724,7 +727,7 @@ function PlaylistCompactPlayer({
             }}
             className="fixed z-[60] rounded-lg border border-cinnabar-800 bg-cinnabar-900 shadow-lg shadow-black/40 p-2"
           >
-            <p className="text-[10px] text-white/40 px-0.5 pb-1">Plays before next loop</p>
+            <p className="text-[10px] text-white/60 px-0.5 pb-1">Plays before next loop</p>
             <div className="flex flex-wrap gap-1">
               {PLAYLIST_REPEAT_PRESETS.map((preset) => (
                 <button
@@ -838,6 +841,7 @@ function ABLoopPlaylistControls({
     setEditingId(null)
   }
 
+  const [confirmClear, setConfirmClear] = useState(false)
   const hasEntries = entries.length > 0
   const showManagementList = hasEntries && !playlistActive
 
@@ -857,7 +861,7 @@ function ABLoopPlaylistControls({
       )}
 
       {!hasEntries && !compactMobile && (
-        <p className="text-[10px] text-white/30 text-pretty">
+        <p className="text-[10px] text-white/55 text-pretty">
           Set A and B, then tap Save to add loops here.
         </p>
       )}
@@ -904,7 +908,7 @@ function ABLoopPlaylistControls({
                         ref={menuOpen ? triggerRef : undefined}
                         type="button"
                         onClick={() => setMenuId(menuOpen ? null : entry.id)}
-                        className="min-w-8 min-h-8 flex items-center justify-center text-white/30 hover:text-white/70 text-sm touch-manipulation"
+                        className="min-w-8 min-h-8 flex items-center justify-center text-white/55 hover:text-white/70 text-sm touch-manipulation"
                         aria-label={`Options for loop ${playlistEntryLabel(entry)}`}
                         aria-expanded={menuOpen}
                       >
@@ -930,24 +934,36 @@ function ABLoopPlaylistControls({
             </ul>
           </div>
 
-          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px]">
+          <div className="relative flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px]">
             {canExport && onExport && (
               <button
                 type="button"
                 onClick={onExport}
                 disabled={exporting}
-                className="text-cinnabar-accent/90 hover:text-cinnabar-accent disabled:opacity-40 touch-manipulation"
+                className="min-h-11 px-1 text-cinnabar-accent/90 hover:text-cinnabar-accent disabled:opacity-40 touch-manipulation"
               >
                 {exporting ? 'Exporting…' : 'Export all loops'}
               </button>
             )}
+            {/* Was a ~13px bare link sitting next to Export that wiped every
+                saved loop on the first tap, with nothing to undo it. */}
             <button
               type="button"
-              onClick={onClear}
-              className="text-white/35 hover:text-white/60 touch-manipulation"
+              onClick={() => setConfirmClear(true)}
+              className="min-h-11 px-1 text-white/60 hover:text-white/85 touch-manipulation"
             >
               Clear all
             </button>
+            {confirmClear && (
+              <ConfirmDialog
+                title="Clear every saved loop?"
+                message={`All ${entries.length} saved ${entries.length === 1 ? 'loop' : 'loops'} for this song will be removed. This can't be undone.`}
+                confirmLabel="Clear all"
+                cancelLabel="Keep them"
+                onConfirm={() => { setConfirmClear(false); onClear() }}
+                onCancel={() => setConfirmClear(false)}
+              />
+            )}
           </div>
         </>
       )}
@@ -994,7 +1010,7 @@ function SpeedControl({
   return (
     <div className={compact ? 'space-y-1.5' : 'space-y-2'}>
       <div className="flex items-center gap-2">
-        <span className="text-white/35 shrink-0 w-4 flex items-center justify-center" aria-hidden>
+        <span className="text-white/60 shrink-0 w-4 flex items-center justify-center" aria-hidden>
           <FastForwardIcon />
         </span>
         <input
@@ -1040,11 +1056,11 @@ function SpeedControl({
             aria-pressed={speed === presetSpeed}
           >
             <span className="block font-medium">{presetLabel(presetSpeed)}</span>
-            <span className="block text-[9px] text-white/35 leading-tight">{label}</span>
+            <span className="block text-[9px] text-white/60 leading-tight">{label}</span>
           </button>
         ))}
       </div>
-      <p className="text-[10px] text-white/30 text-pretty sr-only">
+      <p className="text-[10px] text-white/55 text-pretty sr-only">
         Double-tap the slider to jump back to 1×.
       </p>
     </div>
@@ -1105,7 +1121,7 @@ function CollapsibleSpeedSection({
         className="w-full flex items-center justify-between gap-2 min-h-9 touch-manipulation"
       >
         <span className="flex items-center gap-2 min-w-0">
-          <span className="text-[10px] uppercase tracking-wide text-white/35 shrink-0">Speed</span>
+          <span className="text-[10px] uppercase tracking-wide text-white/60 shrink-0">Speed</span>
           {!expanded && (
             <span className={[
               'text-[11px] tabular-nums truncate',
@@ -1115,7 +1131,7 @@ function CollapsibleSpeedSection({
             </span>
           )}
         </span>
-        <span className="text-[10px] text-white/35 shrink-0" aria-hidden>{expanded ? '▴' : '▾'}</span>
+        <span className="text-[10px] text-white/60 shrink-0" aria-hidden>{expanded ? '▴' : '▾'}</span>
       </button>
       {expanded && (
         <div className="pt-1.5 border-t border-cinnabar-900/60 mt-1.5">
@@ -1315,7 +1331,7 @@ function SavedLoopsPanelSection({
           <span
             className={[
               'text-[10px] leading-none shrink-0 transition-transform duration-200 ease-out',
-              open ? 'text-cinnabar-accent' : 'text-white/35',
+              open ? 'text-cinnabar-accent' : 'text-white/60',
             ].join(' ')}
             aria-hidden
           >
@@ -1330,7 +1346,7 @@ function SavedLoopsPanelSection({
         </span>
         <span className={[
           'text-[11px] shrink-0 tabular-nums',
-          open ? 'text-cinnabar-accent/80 font-medium' : playlistActive ? 'text-red-200/65' : 'text-white/35',
+          open ? 'text-cinnabar-accent/80 font-medium' : playlistActive ? 'text-red-200/65' : 'text-white/60',
         ].join(' ')}>
           {hint}
         </span>
@@ -1398,7 +1414,7 @@ function MobileControlsSheet({
             type="button"
             aria-label="Close controls"
             onClick={onClose}
-            className="min-h-11 min-w-11 -mr-2 flex items-center justify-center text-white/45 hover:text-white touch-manipulation transition-[color,transform] duration-150 ease-out active:scale-[0.94]"
+            className="min-h-11 min-w-11 -mr-2 flex items-center justify-center text-white/70 hover:text-white touch-manipulation transition-[color,transform] duration-150 ease-out active:scale-[0.94]"
           >
             <span aria-hidden className="text-lg leading-none">✕</span>
           </button>
@@ -1615,7 +1631,9 @@ export function PlayerControls({
       {headerSlot}
       <section className="space-y-1 shrink-0" aria-label="Playback">
         <SeekBar progress={progress} duration={duration} onSeek={onSeek} />
-        <div className="flex justify-between text-[10px] md:text-[11px] text-white/30 tabular-nums">
+        {/* Elapsed / total measured 2.54:1 at white/30 — the worst contrast in
+            the app, on the one readout you check mid-song. */}
+        <div className="flex justify-between text-[10px] md:text-[11px] text-white/65 tabular-nums">
           <span>{formatTime(position)}</span>
           <span>{formatTime(duration)}</span>
         </div>

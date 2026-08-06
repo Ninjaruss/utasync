@@ -101,7 +101,7 @@ function DisplayMenuPanel({
             ].join(' ')}
           >
             <span className={compact ? 'text-xs' : 'text-sm'}>{FURIGANA_LABEL[furiganaMode]}</span>
-            {!compact && <span className="block text-[10px] text-white/35 mt-0.5 text-pretty">Tap to cycle</span>}
+            {!compact && <span className="block text-[10px] text-white/60 mt-0.5 text-pretty">Tap to cycle</span>}
           </button>
         </section>
       )}
@@ -139,13 +139,13 @@ function DisplayMenuPanel({
               />
             </label>
             {!wordPairColoringAvailable && (
-              <p className="text-[10px] text-white/30 px-1 text-pretty">
+              <p className="text-[10px] text-white/55 px-1 text-pretty">
                 Word-pair colors need WebGPU (unavailable on this device).
               </p>
             )}
           </div>
         ) : (
-          <p className="text-[11px] text-white/40 px-1 py-0.5 text-pretty leading-snug">
+          <p className="text-[11px] text-white/60 px-1 py-0.5 text-pretty leading-snug">
             No translation attached — add one in Edit mode.
           </p>
         )}
@@ -170,7 +170,7 @@ function DisplayMenuPanel({
                 className="accent-cinnabar-accent w-4 h-4 shrink-0"
               />
             </label>
-            <p className="text-[10px] text-white/35 px-1 text-pretty leading-snug">
+            <p className="text-[10px] text-white/60 px-1 text-pretty leading-snug">
               Regroup rows to match how the song is actually sung — clearer word pairing and seek points.
             </p>
           </div>
@@ -256,7 +256,7 @@ export function DisplayMenu(props: Props) {
         <span aria-hidden className="text-sm leading-none">Aa</span>
         <span>Display</span>
         {summary && (
-          <span className="hidden sm:inline text-[10px] font-normal text-white/40 truncate max-w-[8rem]">
+          <span className="hidden sm:inline text-[10px] font-normal text-white/60 truncate max-w-[8rem]">
             · {summary}
           </span>
         )}

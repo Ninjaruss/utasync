@@ -85,10 +85,10 @@ function SourceTile({
           </span>
         )}
       </div>
-      <p className={['text-[11px] text-white/45 md:mb-0 text-pretty', selected ? 'mb-2.5' : 'mb-0'].join(' ')}>{option.summary}</p>
+      <p className={['text-[11px] text-white/70 md:mb-0 text-pretty', selected ? 'mb-2.5' : 'mb-0'].join(' ')}>{option.summary}</p>
       <div className={[selected ? 'grid' : 'hidden', 'grid-cols-1 sm:grid-cols-2 gap-2.5 md:hidden'].join(' ')}>
         <div>
-          <p className="text-[10px] uppercase tracking-wide text-white/30 mb-1">Includes</p>
+          <p className="text-[10px] uppercase tracking-wide text-white/55 mb-1">Includes</p>
           <ul className="space-y-0.5">
             {option.includes.map((item) => (
               <li key={item} className="text-[11px] text-white/55 text-pretty flex gap-1.5">
@@ -99,11 +99,11 @@ function SourceTile({
           </ul>
         </div>
         <div>
-          <p className="text-[10px] uppercase tracking-wide text-white/30 mb-1">Limitations</p>
+          <p className="text-[10px] uppercase tracking-wide text-white/55 mb-1">Limitations</p>
           <ul className="space-y-0.5">
             {option.limitations.map((item) => (
-              <li key={item} className="text-[11px] text-white/40 text-pretty flex gap-1.5">
-                <span className="text-white/25 shrink-0" aria-hidden>–</span>
+              <li key={item} className="text-[11px] text-white/60 text-pretty flex gap-1.5">
+                <span className="text-white/50 shrink-0" aria-hidden>–</span>
                 {item}
               </li>
             ))}
@@ -193,7 +193,7 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
           <button
             aria-label="Close"
             onClick={requestClose}
-            className="text-white/40 text-lg leading-none min-h-11 min-w-11 flex items-center justify-center touch-manipulation hover:text-white/70"
+            className="text-white/60 text-lg leading-none min-h-11 min-w-11 flex items-center justify-center touch-manipulation hover:text-white/70"
           >
             ✕
           </button>

@@ -26,13 +26,13 @@ const textTone: Record<BannerSeverity, string> = {
 }
 
 const primaryBtn =
-  'shrink-0 self-start min-h-8 px-2.5 py-1.5 rounded-lg bg-cinnabar-accent text-white text-[11px] font-semibold touch-manipulation transition-[background-color,transform] duration-150 ease-out active:scale-[0.96] disabled:opacity-60 inline-flex items-center gap-1.5'
+  'shrink-0 self-start min-h-11 px-3 py-1.5 rounded-lg bg-cinnabar-accent text-white text-[11px] font-semibold touch-manipulation transition-[background-color,transform] duration-150 ease-out active:scale-[0.96] disabled:opacity-60 inline-flex items-center gap-1.5'
 const ghostBtn =
-  'shrink-0 self-start min-h-8 px-2.5 py-1.5 rounded-lg border border-cinnabar-700 text-white/70 hover:text-white text-[11px] font-semibold touch-manipulation transition-colors disabled:opacity-60 inline-flex items-center gap-1.5'
+  'shrink-0 self-start min-h-11 px-3 py-1.5 rounded-lg border border-cinnabar-700 text-white/70 hover:text-white text-[11px] font-semibold touch-manipulation transition-colors disabled:opacity-60 inline-flex items-center gap-1.5'
 
 /**
  * The one notice-strip primitive. Replaces the hand-rolled
- * `shrink-0 px-3 … border-b … bg-cinnabar-950/80` + `text-[11px] text-white/45`
+ * `shrink-0 px-3 … border-b … bg-cinnabar-950/80` + `text-[11px] text-white/70`
  * strips scattered across Play/Edit/add-song, which had no shared shell and no
  * severity distinction. Always `text-xs` (the legibility floor). One optional
  * action and one optional dismiss.
@@ -81,7 +81,7 @@ export function Banner({
           type="button"
           onClick={onDismiss}
           aria-label="Dismiss"
-          className="shrink-0 self-start min-h-8 px-1 text-white/35 hover:text-white/70 text-xs touch-manipulation"
+          className="shrink-0 self-start min-h-8 px-1 text-white/60 hover:text-white/70 text-xs touch-manipulation"
         >
           ✕
         </button>

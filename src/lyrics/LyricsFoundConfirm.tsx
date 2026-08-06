@@ -35,12 +35,12 @@ export function LyricsFoundConfirm({
     <div className="space-y-2.5">
       <p className="text-green-400/90 text-sm text-pretty">
         Found {synced ? 'time-synced' : 'text-only'} lyrics ({lines.length} lines)
-        <span className="text-white/40 text-[11px]"> · via {sourceLabel}</span>
+        <span className="text-white/60 text-[11px]"> · via {sourceLabel}</span>
       </p>
 
       <div className="rounded-lg border border-cinnabar-800 bg-cinnabar-950/80 p-2.5 space-y-2 text-xs">
         <div>
-          <p className="text-white/40 uppercase tracking-wide text-[10px] mb-0.5">Your song</p>
+          <p className="text-white/60 uppercase tracking-wide text-[10px] mb-0.5">Your song</p>
           <p className="text-white/80 text-pretty">
             <span className="font-medium">{queriedTitle.trim() || '—'}</span>
             {queriedArtist.trim() ? (
@@ -55,13 +55,13 @@ export function LyricsFoundConfirm({
           </p>
         ) : match ? (
           <div>
-            <p className="text-white/40 uppercase tracking-wide text-[10px] mb-0.5">Matched lyrics entry</p>
+            <p className="text-white/60 uppercase tracking-wide text-[10px] mb-0.5">Matched lyrics entry</p>
             <p className="text-white/80 text-pretty">
               <span className="font-medium">{match.track}</span>
               <span className="text-white/50"> · {match.artist}</span>
             </p>
             {match.matchKind === 'fuzzy' && (
-              <p className="text-white/35 text-[11px] mt-1 text-pretty">Fuzzy search match — please confirm this is the same song.</p>
+              <p className="text-white/60 text-[11px] mt-1 text-pretty">Fuzzy search match — please confirm this is the same song.</p>
             )}
           </div>
         ) : null}
@@ -79,7 +79,7 @@ export function LyricsFoundConfirm({
             <li key={i} className="text-xs text-white/60 truncate font-jp">{l.original || '—'}</li>
           ))}
           {lines.length > preview.length && (
-            <li className="text-[10px] text-white/30">+{lines.length - preview.length} more…</li>
+            <li className="text-[10px] text-white/55">+{lines.length - preview.length} more…</li>
           )}
         </ul>
       )}
@@ -89,7 +89,7 @@ export function LyricsFoundConfirm({
           <button
             type="button"
             onClick={onConfirm}
-            className="px-3 py-2 rounded-lg bg-cinnabar-accent text-white text-xs font-medium min-h-10 touch-manipulation"
+            className="px-3 py-2 rounded-lg bg-cinnabar-accent text-white text-xs font-medium min-h-11 touch-manipulation"
           >
             Yes, this is the right song
           </button>
@@ -97,7 +97,7 @@ export function LyricsFoundConfirm({
         <button
           type="button"
           onClick={onUseDifferent}
-          className="px-3 py-2 rounded-lg bg-cinnabar-900 text-white/60 text-xs min-h-10 touch-manipulation hover:text-white/80"
+          className="px-3 py-2 rounded-lg bg-cinnabar-900 text-white/70 text-xs min-h-11 touch-manipulation hover:text-white/85"
         >
           Use different lyrics
         </button>

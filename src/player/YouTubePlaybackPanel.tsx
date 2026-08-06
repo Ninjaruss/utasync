@@ -103,20 +103,20 @@ export const YouTubePlaybackPanel = forwardRef<YouTubePlayerHandle, Props>(funct
             {playbackState === 'playing' ? '▶' : '⏸'}
           </span>
           <span className="text-[11px] font-medium text-white/70 truncate flex-1">Video</span>
-          <span className="text-[10px] text-white/35 tabular-nums shrink-0">
+          <span className="text-[10px] text-white/60 tabular-nums shrink-0">
             {formatTime(position)} / {formatTime(duration)}
           </span>
-          <span className="text-white/35 text-[10px] shrink-0" aria-hidden>
+          <span className="text-white/60 text-[10px] shrink-0" aria-hidden>
             {collapsed ? '▾' : '▴'}
           </span>
         </button>
       )}
 
       <div className={`flex items-center justify-between gap-2 ${!isDesktop && mode === 'play' ? 'mt-1.5' : 'mt-0 md:mt-2'}`}>
-        <p className="text-[10px] text-white/40 text-pretty leading-snug hidden md:block flex-1">
+        <p className="text-[10px] text-white/60 text-pretty leading-snug hidden md:block flex-1">
           Streaming via YouTube — add audio to unlock AI align and export.
         </p>
-        <p className="text-[10px] text-white/35 text-pretty leading-snug md:hidden flex-1">
+        <p className="text-[10px] text-white/60 text-pretty leading-snug md:hidden flex-1">
           YouTube stream · add audio for AI align
         </p>
         <button

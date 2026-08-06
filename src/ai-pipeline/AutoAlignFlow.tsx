@@ -715,7 +715,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
             <button
               type="button"
               onClick={onClose}
-              className="w-full text-white/40 text-sm text-center min-h-10 touch-manipulation"
+              className="w-full text-white/60 text-sm text-center min-h-10 touch-manipulation"
             >
               Not now
             </button>
@@ -782,7 +782,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
           <div className="space-y-3">
             <p className="text-red-400 text-sm">{error}</p>
             {errorDetail && errorDetail !== error && (
-              <details className="text-white/40 text-xs">
+              <details className="text-white/60 text-xs">
                 <summary className="cursor-pointer touch-manipulation select-none">Technical details</summary>
                 <p className="mt-1 break-words font-mono text-white/50">{errorDetail}</p>
               </details>
@@ -824,7 +824,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
         )}
 
         {!awaitingConsent && (
-          <button onClick={requestClose} className="text-white/40 text-sm w-full text-center min-h-10 touch-manipulation">
+          <button onClick={requestClose} className="text-white/60 text-sm w-full text-center min-h-10 touch-manipulation">
             {stage === 'done' ? 'Close' : 'Cancel'}
           </button>
         )}

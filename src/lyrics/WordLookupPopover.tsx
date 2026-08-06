@@ -117,7 +117,7 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
         type="button"
         onClick={onClose}
         aria-label="Close"
-        className="absolute top-0 right-0 w-11 h-11 flex items-center justify-center text-white/40 hover:text-white/80 touch-manipulation transition-colors duration-150 ease-out"
+        className="absolute top-0 right-0 w-11 h-11 flex items-center justify-center text-white/60 hover:text-white/80 touch-manipulation transition-colors duration-150 ease-out"
       >
         <span aria-hidden className="text-sm leading-none">✕</span>
       </button>
@@ -127,18 +127,18 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
           <span lang="ja" className="font-jp text-sm text-cinnabar-accent/90">{reading}</span>
         )}
         {!loading && result.dictionaryReading && (
-          <span lang="ja" className="font-jp text-xs text-white/40">dictionary: {result.dictionaryReading}</span>
+          <span lang="ja" className="font-jp text-xs text-white/60">dictionary: {result.dictionaryReading}</span>
         )}
-        {pos && <span className="text-[10px] text-white/40">{pos}</span>}
+        {pos && <span className="text-[10px] text-white/60">{pos}</span>}
       </div>
       {loading ? (
-        <p className="text-xs text-white/40">Looking up…</p>
+        <p className="text-xs text-white/60">Looking up…</p>
       ) : glosses.length > 0 ? (
         <p className="text-sm text-white/80 text-pretty">{glosses.join('; ')}</p>
       ) : result.dictionaryAvailable ? (
-        <p className="text-xs text-white/40">No definition found.</p>
+        <p className="text-xs text-white/60">No definition found.</p>
       ) : (
-        <p className="text-xs text-white/40">Definitions unavailable.</p>
+        <p className="text-xs text-white/60">Definitions unavailable.</p>
       )}
       <a
         href={jishoSearchUrl(headword)}
