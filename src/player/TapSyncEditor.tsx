@@ -1,11 +1,16 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import type { TimedLine } from '../core/types'
+import { ConfirmDialog } from '../core/ui/ConfirmDialog'
+import { useModalDialog } from '../core/ui/useModalDialog'
 
 interface Props {
   plainLines: string[]
   translations: string[]
   audioPosition: () => number
   onComplete: (lines: TimedLine[]) => void
+  /** Leave the screen without saving. Tap-through covers the whole player, so
+   * without this there is no way back short of reloading the app. */
+  onCancel: () => void
   /** Playback controls so the user can start/pause/rewind without leaving the
    * screen — the instruction says "play the song", so the screen must be able to. */
   isPlaying: boolean
@@ -30,8 +35,10 @@ const SPEED_PRESETS = [
   { label: 'Slow (75%)', speed: 0.75 },
 ]
 
-export function TapSyncEditor({ plainLines, translations, audioPosition, onComplete, isPlaying, onTogglePlay, onSeek, volume, onVolumeChange, speed, onSpeedChange }: Props) {
+export function TapSyncEditor({ plainLines, translations, audioPosition, onComplete, onCancel, isPlaying, onTogglePlay, onSeek, volume, onVolumeChange, speed, onSpeedChange }: Props) {
   const [tapped, setTapped] = useState<number[]>([])
+  const [confirmingCancel, setConfirmingCancel] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
   const current = tapped.length
   const done = current >= plainLines.length
 
@@ -40,13 +47,30 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
     setTapped((prev) => [...prev, audioPosition()])
   }, [current, plainLines.length, audioPosition])
 
+  /** Leaving discards taps, so only ask when there is something to lose. */
+  const requestCancel = useCallback(() => {
+    if (tapped.length === 0) onCancel()
+    else setConfirmingCancel(true)
+  }, [tapped.length, onCancel])
+
+  useModalDialog(rootRef, requestCancel)
+
   const handleFinish = () => {
-    const lines: TimedLine[] = tapped.map((startTime, i) => ({
-      startTime,
-      endTime: tapped[i + 1] ?? startTime + 5,
-      original: plainLines[i],
-      translation: translations[i] ?? '',
-    }))
+    // Emit every line, not just the tapped ones: a partial pass is still worth
+    // saving on a long song, and untapped lines stay at 0/0 (untimed) rather
+    // than being given invented timestamps that would look aligned.
+    const lines: TimedLine[] = plainLines.map((original, i) => {
+      const startTime = tapped[i]
+      if (startTime === undefined) {
+        return { startTime: 0, endTime: 0, original, translation: translations[i] ?? '' }
+      }
+      return {
+        startTime,
+        endTime: tapped[i + 1] ?? startTime + 5,
+        original,
+        translation: translations[i] ?? '',
+      }
+    })
     onComplete(lines)
   }
 
@@ -64,7 +88,49 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
     'min-w-11 min-h-11 flex items-center justify-center rounded-full border border-cinnabar-800 text-white/70 hover:text-white hover:border-cinnabar-accent/50 touch-manipulation transition-[color,border-color,transform] duration-150 ease-out active:scale-[0.96]'
 
   return (
-    <div className="h-full bg-cinnabar-950 flex flex-col items-center justify-center gap-6 p-6">
+    <div
+      ref={rootRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Tap-through timing"
+      tabIndex={-1}
+      className="fixed inset-0 z-50 bg-cinnabar-950 flex flex-col"
+      style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+    >
+      {confirmingCancel && (
+        <ConfirmDialog
+          title="Leave tap-through?"
+          message={tapped.length === 1
+            ? 'Your 1 tapped line will be discarded. Save instead to keep it.'
+            : `Your ${tapped.length} tapped lines will be discarded. Save instead to keep them.`}
+          confirmLabel="Discard"
+          cancelLabel="Keep tapping"
+          onConfirm={onCancel}
+          onCancel={() => setConfirmingCancel(false)}
+        />
+      )}
+
+      {/* The screen replaces the whole player, so it has to carry its own way
+          back — the app header (and its ← Back) is not rendered underneath. */}
+      <div className="shrink-0 flex items-center justify-between px-3 py-2 border-b border-cinnabar-900">
+        <button
+          type="button"
+          onClick={requestCancel}
+          aria-label="Cancel tap-through"
+          className="min-h-11 px-3 text-white/50 hover:text-white text-sm touch-manipulation transition-colors duration-150 ease-out"
+        >
+          ← Cancel
+        </button>
+        <span className="text-white/30 text-[11px] uppercase tracking-wide">Tap-through</span>
+      </div>
+
+      {/* Scrolls instead of centring: on a short viewport a centred column
+          pushes the Tap button and the Save/Undo row off both ends. */}
+      <div
+        data-testid="tap-sync-scroll"
+        className="flex-1 min-h-0 overflow-y-auto flex flex-col items-center gap-6 p-6"
+        style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 1.5rem), 1.5rem)' }}
+      >
       <div className="text-white/40 text-sm tabular-nums">
         Line {Math.min(current + 1, plainLines.length)} of {plainLines.length}
       </div>
@@ -80,8 +146,11 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
 
       {tapped.length > 0 && (
         <div className="text-white/30 text-xs text-center max-w-xs tabular-nums space-y-0.5">
+          {/* Offset by however many are actually shown — slice(-3) yields fewer
+              than 3 early on, and a fixed -3 produced negative indices (a blank
+              label) for the first two taps. */}
           {tapped.slice(-3).map((t, i) => (
-            <div key={i} className="truncate">{plainLines[tapped.length - 3 + i]} · {fmt(t)}</div>
+            <div key={i} className="truncate">{plainLines[tapped.length - Math.min(3, tapped.length) + i]} · {fmt(t)}</div>
           ))}
         </div>
       )}
@@ -156,12 +225,15 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
           className="min-h-11 px-4 py-2 text-white/50 hover:text-white text-sm disabled:opacity-30 touch-manipulation transition-colors">
           ← Undo
         </button>
-        {done && (
+        {/* Available from the first tap: a half-timed long song beats none. The
+            label names the count so a partial pass isn't mistaken for a full one. */}
+        {tapped.length > 0 && (
           <button onClick={handleFinish}
             className="min-h-11 px-6 py-2 bg-cinnabar-accent text-white rounded-full text-sm font-medium touch-manipulation active:scale-[0.97] transition-transform">
-            Save timing
+            {done ? 'Save timing' : `Save timing for ${tapped.length} of ${plainLines.length}`}
           </button>
         )}
+      </div>
       </div>
     </div>
   )

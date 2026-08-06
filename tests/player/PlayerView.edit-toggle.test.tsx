@@ -33,7 +33,10 @@ describe('SongScreen Play/Edit toggle', () => {
   it('hides display toggles, speed, and A-B loop in Edit mode', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
-    expect(screen.getByRole('button', { name: /lyrics display options/i })).toBeTruthy()
+    // The Display button only appears once the lyrics store reports a
+    // translation, which lands a tick after the text does — asserting this
+    // synchronously raced under load.
+    await waitFor(() => expect(screen.getByRole('button', { name: /lyrics display options/i })).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     await waitFor(() => expect(screen.getByRole('button', { name: /edit timestamp for line 1/i })).toBeTruthy())
     expect(screen.queryByRole('button', { name: /lyrics display options/i })).toBeNull()

@@ -95,7 +95,9 @@ beforeEach(async () => {
 })
 
 describe('AutoAlignFlow vocal separation sample rate', () => {
-  it('feeds Whisper the separated audio at the Demucs output rate, not the decode rate', async () => {
+  // Test timeout must exceed the waitFor budget below, or the 10s grace period
+  // is unreachable behind vitest's 5s default.
+  it('feeds Whisper the separated audio at the Demucs output rate, not the decode rate', { timeout: 20_000 }, async () => {
     const onComplete = vi.fn()
     render(<AutoAlignFlow song={song} autoStart onComplete={onComplete} onClose={vi.fn()} />)
     await waitFor(() => expect(onComplete).toHaveBeenCalled(), { timeout: 10_000 })
@@ -109,7 +111,7 @@ describe('AutoAlignFlow vocal separation sample rate', () => {
   // Regression: isolation is default-on, so a Demucs failure (e.g. its onnxruntime
   // can't load in production) must NOT abort the whole align — it must fall back to
   // transcribing the raw mix, like gap recovery and the stem-quality guard already do.
-  it('falls back to the raw mix (does not abort) when vocal separation fails', async () => {
+  it('falls back to the raw mix (does not abort) when vocal separation fails', { timeout: 20_000 }, async () => {
     vi.mocked(separateVocals).mockRejectedValueOnce(new Error('onnxruntime backend failed to initialize'))
     const onComplete = vi.fn()
     render(<AutoAlignFlow song={song} autoStart onComplete={onComplete} onClose={vi.fn()} />)

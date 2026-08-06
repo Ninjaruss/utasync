@@ -4,6 +4,14 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { db } from '../../src/core/db/schema'
 import { PlayerView } from '../../src/player/PlayerView'
 
+// Without this the real OPFS helper runs, and jsdom has no navigator.storage —
+// so the load fails and Auto-align (gated on playable local audio) may or may
+// not have disappeared by the time the assertion runs. Every sibling PlayerView
+// test mocks this; this file was the exception, which is what made it flake.
+vi.mock('../../src/core/opfs/audio', () => ({
+  getAudioFile: vi.fn(async () => new File([], 'song1.mp3')),
+}))
+
 vi.mock('../../src/player/AudioEngine', () => ({
   AudioEngine: class {
     duration = 10; position = 3
@@ -34,7 +42,10 @@ describe('PlayerView local audio gating', () => {
     expect(screen.getByText(/tap-through to time lyrics/i)).toBeTruthy()
   })
 
-  it('offers Auto-align once audioStoredPath is present', async () => {
+  // The per-test timeout has to clear the waitFor budget below, or the test dies
+  // at vitest's 5s default before its own 10s grace period is up — which is how
+  // this "flakes under load" in the first place.
+  it('offers Auto-align once audioStoredPath is present', { timeout: 20_000 }, async () => {
     await seedSong({ audioStoredPath: '/audio/song1' })
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
