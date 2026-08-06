@@ -30,7 +30,7 @@ export function WordColorProgressBanner({ done, total }: Props) {
             />
           </div>
         </div>
-        <span className="text-xs text-white/45 tabular-nums shrink-0">{pct}%</span>
+        <span className="text-xs text-white/70 tabular-nums shrink-0">{pct}%</span>
       </div>
     </div>
   )

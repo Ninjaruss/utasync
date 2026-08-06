@@ -46,7 +46,7 @@ function FindLyricsOnlineSection({
   return (
     <div className="rounded-lg border border-cinnabar-800/80 bg-cinnabar-950/60 p-2.5 space-y-2">
       <p className="text-white/50 text-xs text-pretty">{section.title}</p>
-      <p className="text-white/35 text-[11px] text-pretty leading-snug">{section.subtitle}</p>
+      <p className="text-white/60 text-[11px] text-pretty leading-snug">{section.subtitle}</p>
       {hasMetadata ? (
         <ul className="space-y-1.5">
           {section.links.map((link) => (
@@ -63,7 +63,7 @@ function FindLyricsOnlineSection({
           ))}
         </ul>
       ) : (
-        <p className="text-white/35 text-xs text-pretty">
+        <p className="text-white/60 text-xs text-pretty">
           Add a song title or artist to pre-fill search links.
         </p>
       )}
@@ -152,7 +152,7 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
       <div className="w-full max-w-md rounded-2xl bg-cinnabar-900 border border-cinnabar-800 p-4 flex flex-col max-h-[min(90dvh,28rem)] overflow-hidden">
         <div className="flex items-center justify-between shrink-0 mb-3">
           <h2 className="text-white font-semibold">Second language</h2>
-          <button onClick={onClose} aria-label="Close" className="text-white/40 min-h-11 min-w-11 flex items-center justify-center">✕</button>
+          <button onClick={onClose} aria-label="Close" className="text-white/60 min-h-11 min-w-11 flex items-center justify-center">✕</button>
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto space-y-3">
@@ -165,11 +165,11 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
                   {translatedLines.slice(0, 6).map((l, i) => (
                     <li key={i} className="text-xs">
                       <span className="text-white/70 font-jp">{l.original}</span>
-                      <span className="text-white/35 italic block">{l.translation}</span>
+                      <span className="text-white/60 italic block">{l.translation}</span>
                     </li>
                   ))}
                   {translatedLines.length > 6 && (
-                    <li className="text-[10px] text-white/30">+{translatedLines.length - 6} more…</li>
+                    <li className="text-[10px] text-white/55">+{translatedLines.length - 6} more…</li>
                   )}
                 </ul>
               </>
@@ -203,11 +203,11 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
               {phase.paired.slice(0, 4).map((l, i) => (
                 <li key={i} className="text-xs">
                   <span className="text-white/70 font-jp">{l.original}</span>
-                  <span className="text-white/35 italic block">{l.translation || '—'}</span>
+                  <span className="text-white/60 italic block">{l.translation || '—'}</span>
                 </li>
               ))}
               {phase.paired.length > 4 && (
-                <li className="text-[10px] text-white/30">+{phase.paired.length - 4} more…</li>
+                <li className="text-[10px] text-white/55">+{phase.paired.length - 4} more…</li>
               )}
             </ul>
             <div className="flex flex-wrap gap-2">
@@ -231,7 +231,7 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
               onChange={(e) => setPasted(e.target.value)}
               placeholder={searchSection.pasteHint}
               rows={5}
-              className="w-full flex-1 min-h-[6rem] px-3 py-2 bg-cinnabar-900 text-white text-sm rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/30 font-jp resize-y"
+              className="w-full flex-1 min-h-[6rem] px-3 py-2 bg-cinnabar-900 text-white text-sm rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/55 font-jp resize-y"
             />
             <div className="flex flex-wrap gap-2 shrink-0">
               <button

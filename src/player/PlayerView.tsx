@@ -314,6 +314,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [localAudioLoadFailed, setLocalAudioLoadFailed] = useState(false)
   const [showLyricsReimport, setShowLyricsReimport] = useState(false)
   const [pendingReplace, setPendingReplace] = useState<{ imported: TimedLine[]; loss: string } | null>(null)
+  const [songMissing, setSongMissing] = useState(false)
   const [phrasingBusy, setPhrasingBusy] = useState(false)
   const [recoveringGaps, setRecoveringGaps] = useState(false)
   const [recoverGapsStatus, setRecoverGapsStatus] = useState<string | null>(null)
@@ -468,7 +469,13 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     let cancelIdle = () => {}
     enrichmentJobRef.current++
     db.songs.get(songId).then(async (s) => {
-      if (!s || cancelled) return
+      if (cancelled) return
+      // A bookmarked or shared link to a song that has since been deleted used
+      // to render an empty player: no lyrics, dead controls, no explanation.
+      if (!s) {
+        setSongMissing(true)
+        return
+      }
       let loaded = s
       if (shouldRefineStoredAlignment(s.lyrics)) {
         try {
@@ -723,7 +730,16 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
     const { abLoop: loop } = usePlayerStore.getState()
     if (isValidABPair(loop.a, loop.b)) {
+      // The points have to go — keeping them would drag the playhead straight
+      // back to the loop the user just navigated away from. But placing an A–B
+      // pair is real work, and losing it to a stray line tap with no notice was
+      // silent data loss, so it comes back with one tap.
+      const previous = { a: loop.a, b: loop.b }
       setABLoop({ a: null, b: null })
+      toast('A–B loop cleared.', 'info', {
+        label: 'Undo',
+        onClick: () => setABLoop(previous),
+      })
     }
   }
 
@@ -1250,6 +1266,26 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
   }
 
+  if (songMissing) {
+    return (
+      <div role="alert" className="h-full bg-cinnabar-950 flex flex-col items-center justify-center gap-3 px-6 text-center">
+        <div className="w-12 h-12 rounded-2xl bg-cinnabar-900 border border-cinnabar-800 flex items-center justify-center text-cinnabar-accent/70 text-xl">♪</div>
+        <p className="text-white/80 text-sm font-medium text-balance">This song isn't in your library</p>
+        <p className="text-white/60 text-xs text-pretty max-w-[18rem] leading-relaxed">
+          It may have been deleted, or the link came from another device — songs are stored
+          on the device that added them, not in an account.
+        </p>
+        <button
+          type="button"
+          onClick={onBack}
+          className="mt-2 min-h-11 px-4 rounded-xl bg-cinnabar-accent text-white text-sm font-medium touch-manipulation active:scale-[0.97] transition-transform"
+        >
+          Back to library
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div
       className="h-full overflow-hidden bg-cinnabar-950 flex flex-col w-full max-w-7xl mx-auto md:border-x border-cinnabar-900/80"
@@ -1264,16 +1300,16 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       )}
       {/* Top bar */}
       <header className="flex items-center gap-2 px-4 py-2.5 border-b border-cinnabar-900 shrink-0">
-        <button onClick={onBack} className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-white/40 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]">← Back</button>
+        <button onClick={onBack} className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-white/65 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]">← Back</button>
         {song && (
           <div className="flex-1 min-w-0 px-1">
             <p className="text-sm text-white/85 truncate font-medium">{song.title}</p>
-            {song.artist && <p className="text-[11px] text-white/35 truncate">{song.artist}</p>}
+            {song.artist && <p className="text-[11px] text-white/60 truncate">{song.artist}</p>}
           </div>
         )}
         <div className="flex items-center gap-2 shrink-0">
           <PlayEditToggle mode={mode} onChange={setMode} />
-          <button onClick={() => onSettings?.()} className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-white/40 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]">Settings</button>
+          <button onClick={() => onSettings?.()} className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-white/65 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]">Settings</button>
         </div>
       </header>
 
@@ -1338,7 +1374,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
 
       {mode === 'play' && (isJapanese || hasTranslation || phraseChanges.length > 0) && (
         <div className={`${displayToolbarRow} md:py-2.5 py-2`}>
-          <p className="text-xs text-white/40 text-pretty shrink-0 hidden sm:block">Lyrics display</p>
+          <p className="text-xs text-white/60 text-pretty shrink-0 hidden sm:block">Lyrics display</p>
           <DisplayMenu
             isJapanese={isJapanese}
             hasTranslation={hasTranslation}
@@ -1536,7 +1572,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
                 type="button"
                 aria-label="Close"
                 onClick={requestLyricsReimportClose}
-                className="text-white/40 min-h-10 min-w-10 flex items-center justify-center hover:text-white/70"
+                className="text-white/60 min-h-10 min-w-10 flex items-center justify-center hover:text-white/70"
               >
                 ✕
               </button>

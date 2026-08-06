@@ -153,7 +153,7 @@ export function LyricsImportPanel({
 
   return (
     <div className="space-y-3">
-      <p className="text-[11px] text-white/40 text-pretty">
+      <p className="text-[11px] text-white/60 text-pretty">
         {videoId
           ? 'Checks YouTube captions first, then the lyrics database.'
           : 'Searches the lyrics database for time-synced or text-only lyrics.'}
@@ -161,12 +161,12 @@ export function LyricsImportPanel({
 
       <div className="rounded-xl border border-cinnabar-800 bg-cinnabar-900/50 p-4 space-y-3">
         {lyricsPhase.kind === 'idle' && (
-          <p className="text-white/35 text-xs">Starting lyrics search…</p>
+          <p className="text-white/60 text-xs">Starting lyrics search…</p>
         )}
 
         {lyricsPhase.kind === 'searching' && (
           <div className="space-y-2">
-            <p className="text-white/35 text-xs text-center py-1">
+            <p className="text-white/60 text-xs text-center py-1">
               {videoId ? 'Checking YouTube captions & the lyrics database…' : 'Searching the lyrics database…'}
             </p>
             <p className="text-xs text-white/60 text-center">Or add lyrics manually:</p>
@@ -191,7 +191,7 @@ export function LyricsImportPanel({
 
         {lyricsPhase.kind === 'manual' && (
           <>
-            <p className="text-white/35 text-xs text-pretty">No automatic match — paste lyrics or choose a subtitle file.</p>
+            <p className="text-white/60 text-xs text-pretty">No automatic match — paste lyrics or choose a subtitle file.</p>
             {skipSearchButtons}
             {lyricsPhase.source === 'paste' && (
               <>
@@ -200,7 +200,7 @@ export function LyricsImportPanel({
                   onChange={(e) => { setPasted(e.target.value); setIgnoreLrcTimings(false) }}
                   placeholder="Paste lyrics, one line per row…"
                   rows={6}
-                  className="w-full px-4 py-3 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/30"
+                  className="w-full px-4 py-3 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/55"
                 />
                 <LrcTimingNotice
                   pasted={pasted}

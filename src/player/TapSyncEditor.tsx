@@ -121,7 +121,7 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
         >
           ← Cancel
         </button>
-        <span className="text-white/30 text-[11px] uppercase tracking-wide">Tap-through</span>
+        <span className="text-white/55 text-[11px] uppercase tracking-wide">Tap-through</span>
       </div>
 
       {/* Scrolls instead of centring: on a short viewport a centred column
@@ -131,7 +131,7 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
         className="flex-1 min-h-0 overflow-y-auto flex flex-col items-center gap-6 p-6"
         style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 1.5rem), 1.5rem)' }}
       >
-      <div className="text-white/40 text-sm tabular-nums">
+      <div className="text-white/60 text-sm tabular-nums">
         Line {Math.min(current + 1, plainLines.length)} of {plainLines.length}
       </div>
 
@@ -145,7 +145,7 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
       </div>
 
       {tapped.length > 0 && (
-        <div className="text-white/30 text-xs text-center max-w-xs tabular-nums space-y-0.5">
+        <div className="text-white/55 text-xs text-center max-w-xs tabular-nums space-y-0.5">
           {/* Offset by however many are actually shown — slice(-3) yields fewer
               than 3 early on, and a fixed -3 produced negative indices (a blank
               label) for the first two taps. */}
@@ -167,13 +167,13 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
             <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
           )}
         </button>
-        <span className="text-white/40 text-xs tabular-nums min-w-12 text-center">{fmt(audioPosition())}</span>
+        <span className="text-white/60 text-xs tabular-nums min-w-12 text-center">{fmt(audioPosition())}</span>
       </div>
 
       {/* Audio adjustments — volume and slowed playback for easier tapping. */}
       <div className="flex flex-col items-center gap-2">
         <div className="flex items-center gap-2 w-56">
-          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-white/40 shrink-0">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-white/60 shrink-0">
             <path d="M11 5 6 9H3v6h3l5 4z" />
             <path d="M15.5 8.5a5 5 0 0 1 0 7" />
           </svg>
@@ -186,7 +186,7 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
             aria-label="Volume"
             className="flex-1 accent-cinnabar-accent h-1"
           />
-          <span className="text-white/40 text-xs w-9 text-right tabular-nums shrink-0">{Math.round(volume * 100)}%</span>
+          <span className="text-white/60 text-xs w-9 text-right tabular-nums shrink-0">{Math.round(volume * 100)}%</span>
         </div>
         <div className="flex items-center gap-2">
           {SPEED_PRESETS.map((p) => {

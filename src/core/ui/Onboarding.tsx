@@ -67,7 +67,7 @@ export function Onboarding() {
             />
           ))}
         </div>
-        <p className="text-[10px] uppercase tracking-wide text-white/35 tabular-nums">
+        <p className="text-[10px] uppercase tracking-wide text-white/60 tabular-nums">
           {step + 1} of {STEPS.length}
         </p>
         <h2 id="onboarding-title" className="text-white font-semibold text-lg text-balance">{current.title}</h2>
@@ -76,7 +76,7 @@ export function Onboarding() {
           <button
             type="button"
             onClick={dismiss}
-            className="min-h-11 px-2 text-white/40 hover:text-white/70 text-sm touch-manipulation transition-colors duration-150 ease-out"
+            className="min-h-11 px-2 text-white/60 hover:text-white/70 text-sm touch-manipulation transition-colors duration-150 ease-out"
           >
             Skip
           </button>

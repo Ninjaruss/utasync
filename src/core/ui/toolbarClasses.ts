@@ -11,8 +11,11 @@ export const displayToolbarRow =
 export const editToolbarRow =
   `${toolbarSection} flex flex-col justify-center gap-2 py-3`
 
+/* Section labels are 10px, so they need MORE contrast than body copy, not less:
+ * at white/35 on the cinnabar ground they measured ~3.1:1, well under the 4.5:1
+ * WCAG AA floor for text this size. */
 export const toolbarSectionLabel =
-  'text-[10px] uppercase tracking-wide text-white/35'
+  'text-[10px] uppercase tracking-wide text-white/60'
 
 export const toolbarActionBtn =
   'min-h-11 px-3 py-2 rounded-lg border border-cinnabar-800 text-xs text-white/65 hover:text-white hover:border-cinnabar-accent/50 touch-manipulation transition-[color,border-color,transform] duration-150 ease-out active:scale-[0.96]'
@@ -43,7 +46,7 @@ export const practiceChipBtn = `min-h-9 px-2.5 py-1 text-[11px] ${chipBtnBase}`
 export const mobileControlChipBtn = `min-h-11 px-2.5 py-1 text-[11px] font-medium ${chipBtnBase}`
 
 export const toolbarChipBtnIdle =
-  'border-cinnabar-800 text-white/45 hover:border-cinnabar-accent/50 hover:text-white/65'
+  'border-cinnabar-800 text-white/70 hover:border-cinnabar-accent/50 hover:text-white/85'
 
 export const toolbarChipBtnActive =
   'border-cinnabar-accent text-cinnabar-accent bg-cinnabar-accent/10'

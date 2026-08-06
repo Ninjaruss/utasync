@@ -10,6 +10,7 @@ import { isABLoopActive, lyricLoopHighlight, type LyricLoopHighlight } from '../
 import { lyricRowLoopRegion, lyricRowPlayheadActive, lyricRowPlaylistCurrent, lyricRowPlaylistRegion } from '../core/ui/toolbarClasses'
 import { WordLookupPopover } from './WordLookupPopover'
 import { hasJapanese } from '../language/japanese/wordLookup'
+import { prefersReducedMotion } from '../core/ui/reducedMotion'
 
 const lyricTextTransition =
   'transition-[color,font-size,font-weight,text-shadow] duration-300 ease-out'
@@ -384,7 +385,13 @@ export function LyricDisplay({
   const centerActiveLine = useCallback((smooth: boolean) => {
     const el = activeRef.current
     if (!el) return
-    el.scrollIntoView({ block: 'center', behavior: smooth ? 'smooth' : 'auto' })
+    // An explicit `behavior` beats CSS scroll-behavior, so the reduced-motion
+    // preference has to be checked here — this scroll fires every few seconds
+    // for the length of a song, which is the app's most motion-heavy moment.
+    el.scrollIntoView({
+      block: 'center',
+      behavior: smooth && !prefersReducedMotion() ? 'smooth' : 'auto',
+    })
   }, [])
 
   const resumeFollowing = useCallback(() => {

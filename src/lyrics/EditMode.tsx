@@ -196,7 +196,7 @@ function Row({
           aria-label={`Edit timestamp for line ${index + 1}`}
           className={timestampPillBtn}
         >
-          <span className="text-white/40">
+          <span className="text-white/60">
             {/* Clock — inline SVG so tint classes apply (emoji render as color glyphs on iOS). */}
             <svg
               aria-hidden="true"
@@ -224,12 +224,15 @@ function Row({
               onChange={(e) => setOriginal(e.target.value)}
               onBlur={() => original !== line.original && onCommitText({ original })}
               aria-label="Original text"
-              className="w-full bg-cinnabar-950 text-white text-sm px-2 py-1 rounded-lg outline-none border border-cinnabar-800 focus:border-cinnabar-accent font-jp"
+              // text-base (16px): iOS Safari zooms into any focused field under
+              // 16px and never zooms back out, so editing one line left the
+              // whole app magnified for the rest of the session.
+              className="w-full bg-cinnabar-950 text-white text-base px-2 py-1.5 rounded-lg outline-none border border-cinnabar-800 focus:border-cinnabar-accent font-jp"
             />
           ) : (
             <div className="w-full flex items-center gap-3 text-left">
               <button onClick={onStartEdit} className="flex-1 text-sm text-white font-jp text-left" aria-label={`Edit line ${index + 1}`}>
-                {line.original || <span className="text-white/30">empty</span>}
+                {line.original || <span className="text-white/55">empty</span>}
                 {!timed && <span className="ml-2 text-[10px] text-cinnabar-accent">untimed</span>}
               </button>
               {showAlignmentQuality && alignmentQuality === 'needs_review' && (
@@ -293,10 +296,10 @@ function Row({
           }}
           placeholder="Translation"
           aria-label="Translation text"
-          className="mt-1.5 w-full bg-cinnabar-950 text-white/80 text-sm px-2 py-1 rounded-lg outline-none border border-cinnabar-800 focus:border-cinnabar-accent"
+          className="mt-1.5 w-full bg-cinnabar-950 text-white/80 text-base px-2 py-1.5 rounded-lg outline-none border border-cinnabar-800 focus:border-cinnabar-accent"
         />
       ) : (
-        line.translation && <span className="block text-[11px] italic text-white/45 mt-1 pl-[4.75rem]">{line.translation}</span>
+        line.translation && <span className="block text-[11px] italic text-white/70 mt-1 pl-[4.75rem]">{line.translation}</span>
       )}
 
       {popoverOpen && (
@@ -664,12 +667,12 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
           )}
         </div>
         {!hasLocalAudio && (
-          <p className="text-xs text-white/30 text-pretty">
+          <p className="text-xs text-white/55 text-pretty">
             No audio file — use Tap-through to time lyrics while the song plays.
           </p>
         )}
         {hasLocalAudio && !autoAlignSupported && (
-          <p className="text-xs text-white/30 text-pretty">
+          <p className="text-xs text-white/55 text-pretty">
             This device can't run on-device AI — tap through to time lyrics while the song plays.
           </p>
         )}

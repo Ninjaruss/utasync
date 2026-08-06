@@ -13,7 +13,7 @@ export function LegalLinks({ className = '', external = true }: Props) {
 
   return (
     <nav
-      className={`flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-white/35 ${className}`}
+      className={`flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-white/60 ${className}`}
       aria-label="Legal"
     >
       <a

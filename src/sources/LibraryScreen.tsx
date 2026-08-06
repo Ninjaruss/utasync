@@ -19,15 +19,23 @@ export function LibraryScreen({ onOpen, onAdd, onSettings, refreshKey = 0 }: Pro
   // null = query still loading; keeps the empty state from flashing for returning users.
   const [songs, setSongs] = useState<Song[] | null>(null)
   const [pendingDelete, setPendingDelete] = useState<Song | null>(null)
+  // 'error' rather than a separate flag, so the load result is one value and the
+  // effect never has to setState synchronously to reset it.
+  const [loadError, setLoadError] = useState(false)
   const toast = useToast()
+  const loadFailed = loadError && songs === null
 
   useEffect(() => {
     // Cancellation guards against rapid refreshKey bumps racing (a stale result
     // could resurrect a deleted card) and against setState after unmount.
     let cancelled = false
-    db.songs.orderBy('createdAt').reverse().toArray().then((rows) => {
-      if (!cancelled) setSongs(rows)
-    })
+    db.songs.orderBy('createdAt').reverse().toArray().then(
+      (rows) => { if (!cancelled) { setSongs(rows); setLoadError(false) } },
+      // Without this the skeleton pulsed forever — a private-mode or
+      // corrupted-IndexedDB user just watched an empty library load for ever
+      // with nothing to react to.
+      () => { if (!cancelled) setLoadError(true) },
+    )
     return () => { cancelled = true }
   }, [refreshKey])
 
@@ -55,7 +63,7 @@ export function LibraryScreen({ onOpen, onAdd, onSettings, refreshKey = 0 }: Pro
           <button
             type="button"
             onClick={onSettings}
-            className="min-h-11 px-3 text-white/40 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out"
+            className="min-h-11 px-3 text-white/60 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out"
           >
             ⚙ Settings
           </button>
@@ -71,8 +79,32 @@ export function LibraryScreen({ onOpen, onAdd, onSettings, refreshKey = 0 }: Pro
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-2">
-          {songs === null && (
+        {/* The dock, the toasts and the sheets each add their own bottom inset,
+            so this is applied here rather than on the app shell — otherwise it
+            would be counted twice everywhere else. Without it the last song
+            card sits under the iPhone home indicator. */}
+        <div
+          className="flex-1 overflow-y-auto px-4 space-y-2"
+          style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 1.5rem), 1.5rem)' }}
+        >
+          {loadFailed && (
+            <div role="alert" className="flex flex-col items-center justify-center text-center gap-2 py-24 px-6">
+              <div className="w-12 h-12 rounded-2xl bg-cinnabar-900 border border-cinnabar-800 flex items-center justify-center text-red-400 text-xl mb-1">!</div>
+              <p className="text-white/75 text-sm font-medium text-balance">Couldn't open your library</p>
+              <p className="text-white/60 text-xs text-pretty max-w-[18rem] leading-relaxed">
+                Your songs are still saved. This usually means the browser blocked storage —
+                private browsing, or storage turned off for this site.
+              </p>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="mt-2 min-h-11 px-4 rounded-xl bg-cinnabar-accent text-white text-sm font-medium touch-manipulation active:scale-[0.97] transition-transform"
+              >
+                Try again
+              </button>
+            </div>
+          )}
+          {songs === null && !loadFailed && (
             <>
               <p role="status" className="sr-only">Loading songs…</p>
               <div aria-hidden="true" className="space-y-2 animate-pulse">
@@ -84,8 +116,10 @@ export function LibraryScreen({ onOpen, onAdd, onSettings, refreshKey = 0 }: Pro
           {songs?.length === 0 && (
             <div className="flex flex-col items-center justify-center text-center gap-2 py-24 px-6 animate-[progress-enter_220ms_ease-out_both]">
               <div className="w-12 h-12 rounded-2xl bg-cinnabar-900 border border-cinnabar-800 flex items-center justify-center text-cinnabar-accent/70 text-xl mb-1">♪</div>
-              <p className="text-white/55 text-sm font-medium text-balance">Your library is empty</p>
-              <p className="text-white/30 text-xs text-pretty max-w-[16rem] leading-relaxed">
+              <p className="text-white/75 text-sm font-medium text-balance">Your library is empty</p>
+              {/* The only instruction a brand-new user gets — it cannot be the
+                  dimmest text on the screen. */}
+              <p className="text-white/60 text-xs text-pretty max-w-[16rem] leading-relaxed">
                 Add a song from a YouTube link or an audio file to start syncing lyrics.
               </p>
             </div>
@@ -110,16 +144,18 @@ export function LibraryScreen({ onOpen, onAdd, onSettings, refreshKey = 0 }: Pro
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-white truncate">{song.title}</p>
-                    <p className="text-xs text-white/40 truncate">{song.artist}</p>
+                    <p className="text-xs text-white/60 truncate">{song.artist}</p>
                   </div>
-                  <span className={`text-[10px] rounded-full border px-2 py-0.5 shrink-0 ${sync === 'synced' ? 'border-white/20 text-white/50' : 'border-cinnabar-accent/60 text-cinnabar-accent'}`}>
+                  <span className={`text-[10px] rounded-full border px-2 py-0.5 shrink-0 ${sync === 'synced' ? 'border-white/30 text-white/65' : 'border-cinnabar-accent/60 text-cinnabar-accent'}`}>
                     {sync === 'synced' ? 'synced' : 'needs sync'}
                   </span>
                 </div>
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); setPendingDelete(song) }}
-                  className="relative z-10 min-w-11 min-h-11 flex items-center justify-center text-sm text-white/25 hover:text-red-300 focus-visible:text-red-300 shrink-0 touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96] mr-0.5"
+                  // Was white/25 — about 2.2:1, effectively invisible until
+                  // hovered, on the control that deletes a song.
+                  className="relative z-10 min-w-11 min-h-11 flex items-center justify-center text-sm text-white/55 hover:text-red-300 focus-visible:text-red-300 shrink-0 touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96] mr-0.5"
                   aria-label={`Delete ${song.title}`}
                 >
                   ✕

@@ -80,14 +80,14 @@ export function ProcessProgress({
             {step.label}
           </p>
           {!soloIndeterminate && (
-            <span className="text-[11px] text-white/40 tabular-nums shrink-0">
+            <span className="text-[11px] text-white/60 tabular-nums shrink-0">
               {currentStepIndex + 1}/{stepCount}
             </span>
           )}
         </div>
         {step.detail && hasTaskBar && (
           <p className={[
-            'text-white/35 text-pretty',
+            'text-white/60 text-pretty',
             compact ? 'text-[10px]' : 'text-xs',
           ].join(' ')}>
             {step.detail}
@@ -98,8 +98,8 @@ export function ProcessProgress({
       {!soloIndeterminate && (
         <div className={compact ? 'space-y-1' : 'space-y-1.5'}>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[10px] uppercase tracking-wide text-white/30">Overall</span>
-            <span className="text-[11px] text-white/45 tabular-nums">{overall}%</span>
+            <span className="text-[10px] uppercase tracking-wide text-white/55">Overall</span>
+            <span className="text-[11px] text-white/70 tabular-nums">{overall}%</span>
           </div>
           <ProgressBar value={overall} size={compact ? 'sm' : 'md'} aria-label="Overall progress" />
         </div>
@@ -107,11 +107,11 @@ export function ProcessProgress({
 
       <div className={compact ? 'space-y-1' : 'space-y-1.5'}>
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] uppercase tracking-wide text-white/30">Current task</span>
+          <span className="text-[10px] uppercase tracking-wide text-white/55">Current task</span>
           {hasTaskBar ? (
-            <span className="text-[11px] text-white/45 tabular-nums">{taskPct}%</span>
+            <span className="text-[11px] text-white/70 tabular-nums">{taskPct}%</span>
           ) : showElapsed && elapsed > 0 ? (
-            <span className="text-[11px] text-white/45 tabular-nums">{elapsed}s</span>
+            <span className="text-[11px] text-white/70 tabular-nums">{elapsed}s</span>
           ) : null}
         </div>
         {hasTaskBar ? (
@@ -136,7 +136,7 @@ export function ProcessProgress({
                     className={[
                       'flex items-center gap-2 text-pretty',
                       compact ? 'text-[10px]' : 'text-[11px]',
-                      sub.state === 'active' ? 'text-white/55' : 'text-white/30',
+                      sub.state === 'active' ? 'text-white/55' : 'text-white/55',
                     ].join(' ')}
                   >
                     <SubstepIcon state={sub.state} />
