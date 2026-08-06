@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, waitFor, act } from '@testing-library/react'
 import { useHistoryDismiss } from '../../../src/core/ui/useHistoryDismiss'
 
+import { StrictMode } from 'react'
+
 function Sheet({ onDismiss, open = true }: { onDismiss: () => void; open?: boolean }) {
   useHistoryDismiss(onDismiss, open)
   return <div>sheet</div>
@@ -38,17 +40,47 @@ describe('useHistoryDismiss', () => {
     expect(onDismiss).not.toHaveBeenCalled()
   })
 
-  it('leaves the entry it added behind when closed some other way', async () => {
+  it('does not grow history when the same sheet is opened repeatedly', async () => {
     const onDismiss = vi.fn()
-    const { unmount, rerender } = render(<Sheet onDismiss={onDismiss} />)
-    const depthWithSheet = window.history.length
+    const { rerender, unmount } = render(<Sheet onDismiss={onDismiss} />)
+    const depth = window.history.length
 
-    // Closed with the ✕ rather than Back.
-    rerender(<Sheet onDismiss={onDismiss} open={false} />)
-    await waitFor(() => expect(window.history.length).toBeLessThanOrEqual(depthWithSheet))
-    // Popping our own entry must not read as a user Back gesture.
+    // Close with the ✕, reopen, close, reopen — the parked entry is reused.
+    for (let i = 0; i < 3; i++) {
+      rerender(<Sheet onDismiss={onDismiss} open={false} />)
+      rerender(<Sheet onDismiss={onDismiss} open />)
+    }
+    expect(window.history.length).toBe(depth)
     expect(onDismiss).not.toHaveBeenCalled()
     unmount()
+  })
+
+  // Regression: StrictMode runs effects mount → cleanup → mount. The cleanup's
+  // own history.back() then arrived at the SECOND instance's listener, which
+  // read it as a user Back and dismissed the sheet the instant it opened — the
+  // Add-song sheet became impossible to open in dev.
+  it('survives StrictMode double-invoking the effect', async () => {
+    const onDismiss = vi.fn()
+    render(
+      <StrictMode>
+        <Sheet onDismiss={onDismiss} />
+      </StrictMode>,
+    )
+    await new Promise((r) => setTimeout(r, 30))
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+
+  it('still dismisses on a real Back after a StrictMode remount', async () => {
+    const onDismiss = vi.fn()
+    render(
+      <StrictMode>
+        <Sheet onDismiss={onDismiss} />
+      </StrictMode>,
+    )
+    await new Promise((r) => setTimeout(r, 30))
+
+    await goBack()
+    await waitFor(() => expect(onDismiss).toHaveBeenCalledTimes(1))
   })
 
   it('reads the latest callback, so an inline arrow does not re-arm the entry', async () => {
