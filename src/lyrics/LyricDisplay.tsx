@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLyricsStore } from './LyricsStore'
 import { useSettingsStore } from '../payment/SettingsStore'
-import type { TimedLine, FuriganaMode, ReadingMode, Token } from '../core/types'
+import type { TimedLine, FuriganaMode, ReadingMode, Token, GrammarAnnotation, ClozeDifficulty } from '../core/types'
+import { ClozeOverlay } from '../cloze/ClozeOverlay'
 import { isSameText, hasVisibleTranslation } from './bilingual'
 import { colorForToken, colorForTranslationWord, splitTranslationLines } from '../language/wordColors'
 import { resolveTokenReading, lineRomajiFromTokens } from './readingDisplay'
@@ -22,6 +23,11 @@ type HoveredPair = { source?: number; target?: number }
 interface WordTap {
   token: Token
   rect: DOMRect
+  /** Grammar pattern covering this token, when the line has one. Carried on the
+   * tap because the popover is the only tap-driven surface anchored to a token —
+   * the previous renderer for these was hover-only, so on a phone the hints were
+   * computed for every line of every song and could never be read. */
+  grammar?: { pattern: string; explanation: string }
 }
 
 const tokenBorderStyle = (color: string | null, highlighted = false) => {
@@ -56,6 +62,7 @@ function ColoredTokens({
   hovered,
   onHover,
   onWordTap,
+  grammarAnnotations,
 }: {
   tokens: Token[]
   withFurigana: boolean
@@ -64,6 +71,7 @@ function ColoredTokens({
   hovered: HoveredPair | null
   onHover: (pair: HoveredPair | null) => void
   onWordTap?: (tap: WordTap) => void
+  grammarAnnotations?: GrammarAnnotation[]
 }) {
   return (
     <>
@@ -81,8 +89,13 @@ function ColoredTokens({
         // Only words that actually have a dictionary entry become controls, so
         // Tab doesn't stop on every particle and punctuation mark.
         const lookupable = !!onWordTap && hasJapanese(token.surface)
+        const grammar = grammarAnnotations?.find((a) => a.tokenIndices.includes(i))
         const openLookup = (el: HTMLElement) =>
-          onWordTap?.({ token, rect: el.getBoundingClientRect() })
+          onWordTap?.({
+            token,
+            rect: el.getBoundingClientRect(),
+            grammar: grammar ? { pattern: grammar.pattern, explanation: grammar.explanation } : undefined,
+          })
         return (
           <span
             key={i}
@@ -134,7 +147,7 @@ interface Props {
 }
 
 /** Renders the Japanese (primary) text honoring the furigana/romaji mode. */
-function PrimaryText({ line, isActive, furiganaMode, readingMode, colored, hovered, onHover, onWordTap }: {
+function PrimaryText({ line, isActive, furiganaMode, readingMode, colored, hovered, onHover, onWordTap, cloze }: {
   line: TimedLine
   isActive: boolean
   furiganaMode: FuriganaMode
@@ -143,11 +156,19 @@ function PrimaryText({ line, isActive, furiganaMode, readingMode, colored, hover
   hovered: HoveredPair | null
   onHover: (pair: HoveredPair | null) => void
   onWordTap?: (tap: WordTap) => void
+  /** Set on the active line while cloze drilling. */
+  cloze?: { difficulty: ClozeDifficulty; revealed: boolean }
 }) {
   const sizeClass = isActive ? 'text-xl sm:text-2xl font-semibold text-white' : 'text-base font-normal text-white/45 group-hover:text-white/75'
   const lineHoverClass = 'group-hover:underline decoration-white/30 underline-offset-4'
   const showFurigana = furiganaMode === 'furigana'
   const useTokenRender = line.tokens && line.tokens.length > 0 && (colored || showFurigana || (!!onWordTap && hasJapanese(line.original)))
+
+  // Blanks replace the line entirely: furigana, colouring and lookup would each
+  // give the answer away.
+  if (cloze) {
+    return <ClozeOverlay line={line} difficulty={cloze.difficulty} revealed={cloze.revealed} />
+  }
 
   if (showFurigana && line.furigana && !useTokenRender) {
     return (
@@ -175,6 +196,7 @@ function PrimaryText({ line, isActive, furiganaMode, readingMode, colored, hover
           hovered={hovered}
           onHover={onHover}
           onWordTap={onWordTap}
+          grammarAnnotations={line.grammarAnnotations}
         />
       ) : (
         line.original
@@ -249,7 +271,7 @@ function loopHighlightClass(highlight: LyricLoopHighlight | null, isActive: bool
   }
 }
 
-function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, armingAB }: {
+function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, armingAB, cloze, onReveal }: {
   line: TimedLine
   isActive: boolean
   loopHighlight: LyricLoopHighlight | null
@@ -257,6 +279,8 @@ function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, 
   lineRef?: React.Ref<HTMLDivElement>
   onWordTap?: (tap: WordTap) => void
   armingAB?: 'a' | 'b' | null
+  cloze?: { difficulty: ClozeDifficulty; revealed: boolean }
+  onReveal?: () => void
 }) {
   const { furiganaMode, showTranslation, lyricsLayout } = useLyricsStore()
   const readingMode = useSettingsStore((s) => s.readingMode)
@@ -331,6 +355,7 @@ function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, 
             hovered={hoveredPair}
             onHover={setHoveredPair}
             onWordTap={onWordTap}
+            cloze={cloze}
           />
           {translationEl}
         </div>
@@ -345,9 +370,22 @@ function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, 
             hovered={hoveredPair}
             onHover={setHoveredPair}
             onWordTap={onWordTap}
+            cloze={cloze}
           />
           {translationEl}
         </div>
+      )}
+      {/* Reveal is its own control rather than a tap on the line: the row seeks,
+          and losing your place because you wanted the answer would be a poor
+          trade during a drill. */}
+      {cloze && !cloze.revealed && onReveal && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onReveal() }}
+          className="mt-2 min-h-11 px-4 rounded-full border border-cinnabar-accent/50 text-cinnabar-accent text-xs font-medium touch-manipulation active:scale-[0.97] transition-transform"
+        >
+          Reveal
+        </button>
       )}
     </div>
   )
@@ -362,7 +400,11 @@ export function LyricDisplay({
   playlistIndex = 0,
   armingAB = null,
 }: Props) {
-  const { lines, activeLine } = useLyricsStore()
+  const { lines, activeLine, clozeMode, clozeDifficulty } = useLyricsStore()
+  // Which line the user has revealed. Holding the INDEX rather than a boolean
+  // means moving to the next line un-reveals on its own, with no effect syncing
+  // state back from the playhead.
+  const [revealedLine, setRevealedLine] = useState(-1)
   const tapLookupEnabled = useSettingsStore((s) => s.tapLookupEnabled)
   const [wordTap, setWordTap] = useState<WordTap | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -486,7 +528,13 @@ export function LyricDisplay({
             // instead of being swallowed by the lookup. While arming a loop point
             // the whole row is the target, so lookup stands down — otherwise
             // tapping the Japanese opened a definition instead of placing the point.
-            onWordTap={tapLookupEnabled && isActive && !armingAB ? setWordTap : undefined}
+            // Lookup stands down during a drill — reading the definition of the
+            // word you are being asked to recall defeats the exercise.
+            onWordTap={tapLookupEnabled && isActive && !armingAB && !clozeMode ? setWordTap : undefined}
+            cloze={clozeMode && isActive && line.tokens?.length
+              ? { difficulty: clozeDifficulty, revealed: revealedLine === i }
+              : undefined}
+            onReveal={() => setRevealedLine(i)}
           />
         )
       })}
@@ -494,6 +542,7 @@ export function LyricDisplay({
         <WordLookupPopover
           token={wordTap.token}
           anchorRect={wordTap.rect}
+          grammar={wordTap.grammar}
           onClose={() => setWordTap(null)}
         />
       )}

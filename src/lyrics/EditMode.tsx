@@ -69,7 +69,6 @@ interface Props {
   /** Re-run Auto-align in accurate (word-level) mode. Kept as a de-emphasized
    * "More" item, not a headline CTA — word-level timing is measurably worse on
    * long (>180s) tracks, the exact case the approximate-timing notice fires for. */
-  onAutoAlignAccurate?: () => void
   /** Switch to Play and jump to the first uncertain line so the user can tap it in
    * time (the tap-to-anchor flow) — the reliable fix for a few off lines. Undefined
    * when there's nothing to tap or no playable audio. */
@@ -320,7 +319,7 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, autoAlignSupported = true, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus, alignmentConfidence, accurateRealignReason = null, onAutoAlignAccurate, onFixTiming }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, autoAlignSupported = true, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus, alignmentConfidence, accurateRealignReason = null, onFixTiming }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
@@ -624,11 +623,11 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
                   <button type="button" onClick={() => { setShowMore(false); openSecondLang() }} className={moreMenuItem}>
                     {hasSecondLang ? '2nd language' : '+ Translation'}
                   </button>
-                  {hasLocalAudio && onAutoAlignAccurate && (
-                    <button type="button" onClick={() => { setShowMore(false); onAutoAlignAccurate() }} className={moreMenuItem}>
-                      Re-align (word-level)
-                    </button>
-                  )}
+                  {/* "Re-align (word-level)" lived here. Word-level timestamps
+                      became the default, so it ran exactly the same alignment as
+                      the Auto-align button beside this menu — while skipping its
+                      "this replaces timing for all N lines" confirmation. A
+                      second door to the same room, with the warning removed. */}
                   {lines.some((l) => l.startTime > 0 || l.endTime > 0) && (
                     <button
                       type="button"

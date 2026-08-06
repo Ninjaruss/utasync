@@ -297,7 +297,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   // stops audio it itself started (leaves pre-existing playback alone).
   const scrubStartedPlayRef = useRef(false)
   const { playbackState, position, duration, speed, volume, abLoop, armingAB, currentSongId, setPlaybackState, setPosition, setDuration, setSpeed, setVolume, setABLoop, armAB, setCurrentSong } = usePlayerStore()
-  const { lines, syncPosition, setLines, furiganaMode, showTranslation, lyricsLayout, setFuriganaMode, setShowTranslation, setLyricsLayout } = useLyricsStore()
+  const { lines, syncPosition, setLines, furiganaMode, showTranslation, lyricsLayout, setFuriganaMode, setShowTranslation, setLyricsLayout, clozeMode, clozeDifficulty, setClozeMode, setClozeDifficulty } = useLyricsStore()
   const [song, setSong] = useState<Song | null>(null)
   const activeLine = useLyricsStore((s) => s.activeLine)
   const [alignMode, setAlignMode] = useState<AlignMode | null>(null)
@@ -1394,6 +1394,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
             phrasingAvailable={phraseChanges.length > 0}
             sungLayoutActive={sungLayoutActive}
             phrasingBusy={phrasingBusy}
+            clozeMode={clozeMode}
+            clozeDifficulty={clozeDifficulty}
+            onToggleCloze={() => setClozeMode(!clozeMode)}
+            onClozeDifficulty={setClozeDifficulty}
             onFuriganaCycle={cycleFurigana}
             onToggleTranslation={() => setShowTranslation(!showTranslation)}
             onToggleLayout={() => setLyricsLayout(lyricsLayout === 'sideBySide' ? 'stacked' : 'sideBySide')}
@@ -1471,7 +1475,6 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               recoverGapsStatus={recoverGapsStatus}
               alignmentConfidence={song?.lyrics.alignmentConfidence}
               accurateRealignReason={hasStoredAudio ? realignReason : null}
-              onAutoAlignAccurate={() => beginAlignment('auto')}
               onFixTiming={
                 anchorTargets.length > 0 && canPlayback
                   ? () => { setMode('play'); goToLyricLine(anchorTargets[0]) }

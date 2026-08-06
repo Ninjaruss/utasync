@@ -8,6 +8,8 @@ interface Props {
   token: Token
   /** Bounding rect of the tapped span; null falls back to the bottom-card layout. */
   anchorRect: DOMRect | null
+  /** Grammar pattern covering this word, when the line has one. */
+  grammar?: { pattern: string; explanation: string }
   onClose: () => void
 }
 
@@ -19,7 +21,7 @@ const CARD_EST_HEIGHT = 160 // rough card height, for deciding when to flip abov
  * wide viewports; a fixed bottom card on narrow ones so it never fights the
  * user's thumb. Playback keeps running; dismissed by tapping outside.
  */
-export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
+export function WordLookupPopover({ token, anchorRect, grammar, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   // Escape closes it and focus returns to the word that opened it, so a
   // keyboard reader can look words up without losing their place in the line.
@@ -139,6 +141,15 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
         <p className="text-xs text-white/60">No definition found.</p>
       ) : (
         <p className="text-xs text-white/60">Definitions unavailable.</p>
+      )}
+      {/* The grammar pattern this word belongs to. Detected for every line
+          already; this is the first surface that actually shows it, and the
+          only tap-driven one — the previous renderer was hover-only. */}
+      {grammar && (
+        <div className="pt-1.5 border-t border-cinnabar-800">
+          <p lang="ja" className="font-jp text-xs text-cinnabar-accent/90">{grammar.pattern}</p>
+          <p className="text-xs text-white/70 text-pretty leading-snug">{grammar.explanation}</p>
+        </div>
       )}
       <a
         href={jishoSearchUrl(headword)}
