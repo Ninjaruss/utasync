@@ -116,8 +116,29 @@ function SourceTile({
 
 export function AddSongSheet({ onSongReady, onClose }: Props) {
   const [source, setSource] = useState<Source>('upload')
+  const [pendingSource, setPendingSource] = useState<Source | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
-  const { setBusy, setDirty, confirming, requestClose, confirm, cancel } = useConfirmedClose(onClose)
+  const { busy, dirty, setBusy, setDirty, confirming, requestClose, confirm, cancel } = useConfirmedClose(onClose)
+
+  /* Switching tiles unmounts the active flow and everything in it. The tiles are
+   * full-width and adjacent on a phone, so a mistap used to silently discard the
+   * chosen file, the edited metadata and any pasted lyrics — the same work the ✕
+   * and the backdrop already confirm before losing. */
+  const requestSource = (next: Source) => {
+    if (next === source) return
+    if (busy || dirty) setPendingSource(next)
+    else setSource(next)
+  }
+
+  const confirmSourceSwitch = () => {
+    if (pendingSource) setSource(pendingSource)
+    setPendingSource(null)
+    // The old flow is unmounting, so its busy/dirty state goes with it. The
+    // incoming flow reports its own; without this reset the sheet would still
+    // think there was work to protect and confirm again on close.
+    setBusy(false)
+    setDirty(false)
+  }
   // Routed through requestClose, so Escape gets the same "your pasted lyrics
   // will be lost" guard as the ✕ and the backdrop.
   useModalDialog(panelRef, requestClose)
@@ -142,6 +163,18 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
         aria-modal="true"
         style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 1rem), 1rem)' }}
       >
+        {/* One at a time: a close confirmation outranks a tile switch. */}
+        {!confirming && pendingSource && (
+          <ConfirmDialog
+            title={pendingSource === 'link' ? 'Switch to YouTube link?' : 'Switch to Upload audio?'}
+            message="What you've entered here — the file, the details and any pasted lyrics — will be lost."
+            confirmLabel="Discard"
+            cancelLabel="Keep what I have"
+            onConfirm={confirmSourceSwitch}
+            onCancel={() => setPendingSource(null)}
+          />
+        )}
+
         {confirming && (
           <ConfirmDialog
             title="Discard this song?"
@@ -172,7 +205,7 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
               key={option.id}
               option={option}
               selected={source === option.id}
-              onSelect={() => setSource(option.id)}
+              onSelect={() => requestSource(option.id)}
             />
           ))}
         </div>
