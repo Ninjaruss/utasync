@@ -128,6 +128,8 @@ interface Props {
   playlistActive?: boolean
   playlistEntries?: ABLoopPlaylistEntry[]
   playlistIndex?: number
+  /** Set while the user is placing an A or B loop point by tapping a line. */
+  armingAB?: 'a' | 'b' | null
 }
 
 /** Renders the Japanese (primary) text honoring the furigana/romaji mode. */
@@ -246,13 +248,14 @@ function loopHighlightClass(highlight: LyricLoopHighlight | null, isActive: bool
   }
 }
 
-function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap }: {
+function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, armingAB }: {
   line: TimedLine
   isActive: boolean
   loopHighlight: LyricLoopHighlight | null
   onLineClick: (line: TimedLine) => void
   lineRef?: React.Ref<HTMLDivElement>
   onWordTap?: (tap: WordTap) => void
+  armingAB?: 'a' | 'b' | null
 }) {
   const { furiganaMode, showTranslation, lyricsLayout } = useLyricsStore()
   const readingMode = useSettingsStore((s) => s.readingMode)
@@ -285,12 +288,29 @@ function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap }
     </div>
   ) : null
 
+  /* The row becomes a control except when its own words already are — nesting a
+   * button inside a button is invalid, and there is nothing to seek to on the
+   * line you are already on. While a loop point is being armed every row is a
+   * target, including the active one, so word lookup steps aside. */
+  const rowIsControl = !isActive || !!armingAB
+  const rowLabel = armingAB
+    ? `Set loop point ${armingAB.toUpperCase()} at ${line.original || line.translation}`
+    : `Jump to ${line.original || line.translation}`
+
   return (
     <div
       ref={lineRef}
       onClick={() => onLineClick(line)}
+      role={rowIsControl ? 'button' : undefined}
+      tabIndex={rowIsControl ? 0 : undefined}
+      aria-label={rowIsControl ? rowLabel : undefined}
+      onKeyDown={rowIsControl ? (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return
+        e.preventDefault()
+        onLineClick(line)
+      } : undefined}
       className={[
-        'group cursor-pointer rounded-xl',
+        'group cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinnabar-accent/60',
         lyricLineTransition,
         isActive ? 'py-4 sm:py-6' : 'py-2.5 sm:py-3',
         sideBySide ? 'text-left' : 'text-center',
@@ -339,6 +359,7 @@ export function LyricDisplay({
   playlistActive = false,
   playlistEntries = [],
   playlistIndex = 0,
+  armingAB = null,
 }: Props) {
   const { lines, activeLine } = useLyricsStore()
   const tapLookupEnabled = useSettingsStore((s) => s.tapLookupEnabled)
@@ -418,7 +439,13 @@ export function LyricDisplay({
       onWheel={pauseFollowing}
       onTouchMove={pauseFollowing}
       onScroll={resumeIfBackOnScreen}
-      className="flex-1 min-h-0 overflow-y-auto py-[8vh] sm:py-[14vh] md:py-[16vh] lg:py-[20vh] px-4"
+      /* Breathing room scaled by VIEWPORT HEIGHT, not width. The old
+         sm:/md:/lg: steps keyed off width, so a landscape phone (wide but
+         short) took the desktop-sized 14vh — 50px top AND bottom of a 101px
+         scroll region, i.e. zero usable height, with the one visible line
+         clipped through its own kanji. The clamp keeps the padding decorative
+         on short screens and unchanged on tall ones. */
+      className="flex-1 min-h-0 overflow-y-auto px-4 py-[clamp(0.5rem,8vh,3rem)] [@media(min-height:640px)]:py-[clamp(1rem,14vh,7rem)] [@media(min-height:900px)]:py-[16vh]"
       style={{ touchAction: 'pan-y', scrollbarWidth: 'thin' }}
     >
       {lines.map((line, i) => {
@@ -446,10 +473,13 @@ export function LyricDisplay({
             // staring at a jump chip they no longer need.
             onLineClick={(l) => { setFollowPaused(false); onLineClick(l) }}
             lineRef={isActive ? activeRef : undefined}
+            armingAB={armingAB}
             // Only the ACTIVE line's words open the dictionary; tapping a word on
             // any other line falls through to the row's seek (jump to that line)
-            // instead of being swallowed by the lookup.
-            onWordTap={tapLookupEnabled && isActive ? setWordTap : undefined}
+            // instead of being swallowed by the lookup. While arming a loop point
+            // the whole row is the target, so lookup stands down — otherwise
+            // tapping the Japanese opened a definition instead of placing the point.
+            onWordTap={tapLookupEnabled && isActive && !armingAB ? setWordTap : undefined}
           />
         )
       })}

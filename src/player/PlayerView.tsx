@@ -12,7 +12,7 @@ import { ABLoopController } from './ABLoop'
 import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, AlignmentLanguage } from '../core/types'
 import { TapAnchorPrompt } from './TapAnchorPrompt'
 import { Banner } from '../core/ui/Banner'
-import { refitAroundAnchors, selectAnchorTargets, type TimingAnchor } from '../lyrics/anchorRefit'
+import { refitAroundAnchors, selectAnchorTargets, selectActiveAnchorTarget, type TimingAnchor } from '../lyrics/anchorRefit'
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
 import { projectPhraseTokensToLines } from '../lyrics/phraseProjection'
 import { repairPhraseTranslationOrder, remapPhraseTranslations } from '../lyrics/phraseNormalize'
@@ -46,6 +46,8 @@ import { EditMode } from '../lyrics/EditMode'
 import { computeSyncState } from '../core/db/migrations'
 import { hasVisibleTranslation } from '../lyrics/bilingual'
 import { linesNeedEnrichment, linesNeedAlignment, lineNeedsAlignment, enrichmentMadeProgress, LYRICS_ENRICHMENT_VERSION } from '../lyrics/lyricsEnrichment'
+import { describeReplaceLoss } from '../lyrics/replaceLyricsLoss'
+import { retimeQuality } from '../lyrics/retimeQuality'
 import { runWhenIdle, yieldToMainThread } from '../core/idle'
 import { alignLinesTokens, countEmbedBatches } from '../ai-pipeline/wordAligner'
 import { preloadGlossLexicon } from '../ai-pipeline/lyricGloss'
@@ -311,6 +313,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [attachAudioError, setAttachAudioError] = useState('')
   const [localAudioLoadFailed, setLocalAudioLoadFailed] = useState(false)
   const [showLyricsReimport, setShowLyricsReimport] = useState(false)
+  const [pendingReplace, setPendingReplace] = useState<{ imported: TimedLine[]; loss: string } | null>(null)
   const [phrasingBusy, setPhrasingBusy] = useState(false)
   const [recoveringGaps, setRecoveringGaps] = useState(false)
   const [recoverGapsStatus, setRecoverGapsStatus] = useState<string | null>(null)
@@ -642,8 +645,11 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           alreadyAnchored: (song.lyrics.timingAnchors ?? []).map((a) => a.lineIndex),
         })
       : []
+  // Latched rather than an exact match on the active line: see
+  // selectActiveAnchorTarget — a flagged line's stored timing is wrong, so the
+  // real vocal lands after the app has already moved on.
   const anchorTargetActive =
-    mode === 'play' && activeLine >= 0 && anchorTargets.includes(activeLine) ? activeLine : null
+    mode === 'play' ? selectActiveAnchorTarget(activeLine, anchorTargets) : null
   // Restore the whole song to a pre-tap snapshot (undo for the instantly-persisted
   // tap-anchor). Reverts the anchor, the refit, and the cleared uncertainty flag.
   const restoreSong = async (snapshot: Song) => {
@@ -936,7 +942,11 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         ...song.lyrics,
         lines,
         enrichmentVersion: undefined,
-        ...(timingChanged ? { lineAlignmentQuality: undefined } : {}),
+        // Clear the flag only on the lines actually retimed — a hand edit is
+        // ground truth for THAT line and says nothing about the others.
+        ...(timingChanged
+          ? { lineAlignmentQuality: retimeQuality(song.lyrics.lineAlignmentQuality, song.lyrics.lines, lines) }
+          : {}),
         ...(phrases !== song.lyrics.phrases ? { phrases } : {}),
       },
       syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines } }),
@@ -1148,8 +1158,23 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
   }
 
+  /** Replacing overwrites `lines` wholesale — hand-tapped timing and an attached
+   * translation go with it, and nothing brings them back. Confirm first, naming
+   * exactly what is lost; silent when the import carries its own timing or
+   * translation, so the dialog stays meaningful. */
   const handleReplaceLyrics = async (imported: TimedLine[]) => {
     if (!song) return
+    const loss = describeReplaceLoss(song.lyrics.lines, imported)
+    if (loss) {
+      setPendingReplace({ imported, loss })
+      return
+    }
+    await applyReplaceLyrics(imported)
+  }
+
+  const applyReplaceLyrics = async (imported: TimedLine[]) => {
+    if (!song) return
+    setPendingReplace(null)
     setShowLyricsReimport(false)
     const sourceLanguage = inferSourceLanguage(imported)
     const translationLanguage: Language = sourceLanguage === 'ja' ? 'en' : 'ja'
@@ -1348,6 +1373,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           {mode === 'play' ? (
             <LyricDisplay
               abLoop={abLoop}
+              armingAB={armingAB}
               position={position}
               playlistActive={playlistActive}
               playlistEntries={playlistEntries}
@@ -1418,9 +1444,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           volume={volume}
           volumePct={volumePct}
           onSpeedChange={(s) => {
-            setSpeed(s)
-            if (isYouTube) ytRef.current?.setRate(s)
-            else engine.setRate(s)
+            // YouTube honours only a fixed set of rates, so the store records
+            // what was actually applied rather than what was asked for.
+            if (isYouTube) setSpeed(ytRef.current?.setRate(s) ?? s)
+            else { setSpeed(s); engine.setRate(s) }
           }}
           onVolumeChange={(v) => {
             setVolume(v)
@@ -1534,6 +1561,17 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           main tree because that tree owns <YouTubePlayer>. Returning early
           unmounted the iframe and its position ticker, so the clock froze at
           0:00 and every tap on a YouTube song recorded the same timestamp. */}
+      {pendingReplace && (
+        <ConfirmDialog
+          title="Replace lyrics?"
+          message={pendingReplace.loss}
+          confirmLabel="Replace"
+          cancelLabel="Keep what I have"
+          onConfirm={() => { void applyReplaceLyrics(pendingReplace.imported) }}
+          onCancel={() => setPendingReplace(null)}
+        />
+      )}
+
       {song && alignMode === 'tap' && (
         <TapSyncEditor
           plainLines={song.lyrics.lines.map((l) => l.original)}
@@ -1552,9 +1590,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           }}
           speed={speed}
           onSpeedChange={(s) => {
-            setSpeed(s)
-            if (isYouTube) ytRef.current?.setRate(s)
-            else engine.setRate(s)
+            // YouTube honours only a fixed set of rates, so the store records
+            // what was actually applied rather than what was asked for.
+            if (isYouTube) setSpeed(ytRef.current?.setRate(s) ?? s)
+            else { setSpeed(s); engine.setRate(s) }
           }}
         />
       )}

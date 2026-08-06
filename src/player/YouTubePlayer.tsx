@@ -2,6 +2,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { usePlayerStore } from './PlayerStore'
 import { useLyricsStore } from '../lyrics/LyricsStore'
+import { snapToSupportedRate } from './snapPlaybackRate'
 
 interface Props {
   videoId: string
@@ -16,7 +17,9 @@ export interface YouTubePlayerHandle {
   play: () => void
   pause: () => void
   seekTo: (seconds: number) => void
-  setRate: (rate: number) => void
+  /** Returns the rate the embed actually applied, which may differ from the
+   * request — YouTube supports only a fixed set and ignores the rest. */
+  setRate: (rate: number) => number
   setVolume: (volume: number) => void
 }
 
@@ -128,8 +131,15 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
       setPosition(seconds)
       syncPosition(seconds)
     },
+    // Returns the rate actually applied. The embed silently ignores rates
+    // outside its own list, so callers echo this back into the store rather
+    // than displaying a speed the audio is not playing at.
     setRate: (rate: number) => {
-      playerRef.current?.setPlaybackRate(rate)
+      const player = playerRef.current
+      if (!player) return rate
+      const applied = snapToSupportedRate(rate, player.getAvailablePlaybackRates?.())
+      player.setPlaybackRate(applied)
+      return applied
     },
     setVolume: (volume: number) => {
       playerRef.current?.setVolume(Math.round(volume * 100))
