@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import 'fake-indexeddb/auto'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { Onboarding, ONBOARDING_STORAGE_KEY } from '../../../src/core/ui/Onboarding'
 import { AddSongSheet } from '../../../src/sources/AddSongSheet'
 import { SettingsSheet } from '../../../src/settings/SettingsSheet'
@@ -65,6 +65,35 @@ describe.each(CASES)('$name as a modal dialog', ({ open }) => {
     await screen.findByRole('dialog')
     fireEvent.keyDown(document, { key: 'Escape' })
     await expectClosed()
+  })
+})
+
+describe('sheets and the system Back gesture', () => {
+  const goBack = async () => {
+    await act(async () => {
+      window.history.back()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+  }
+
+  it('Back closes the Add-song sheet instead of leaving the app', async () => {
+    window.history.replaceState(null, '', '/')
+    const onClose = vi.fn()
+    render(<AddSongSheet onSongReady={vi.fn()} onClose={onClose} />)
+    await screen.findByRole('dialog')
+
+    await goBack()
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+  })
+
+  it('Back closes the Settings sheet', async () => {
+    window.history.replaceState(null, '', '/')
+    const onClose = vi.fn()
+    render(<SettingsSheet onClose={onClose} />)
+    await screen.findByRole('dialog')
+
+    await goBack()
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
   })
 })
 

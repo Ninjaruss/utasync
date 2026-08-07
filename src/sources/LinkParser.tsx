@@ -279,7 +279,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
     </div>
   )
 
-  const fieldClass = 'w-full px-4 py-3 md:py-2 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/30'
+  const fieldClass = 'w-full px-4 py-3 md:py-2 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/55'
   const fileLabelClass = 'block w-full px-4 py-3 md:py-2 bg-cinnabar-900 text-white/60 rounded-xl border border-cinnabar-800 cursor-pointer text-xs text-pretty'
 
   return (
@@ -342,7 +342,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
           </button>
         ) : (
           <>
-            <p className="text-white/40 text-xs text-pretty">
+            <p className="text-white/60 text-xs text-pretty">
               Verify title and artist — YouTube captions and the lyrics database are checked automatically.
             </p>
 
@@ -410,7 +410,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
 
               {lyricsPhase.kind === 'manual' && (
                 <>
-                  <p className="text-white/35 text-xs text-pretty">No match in captions or the lyrics database — paste lyrics or choose a subtitle file.</p>
+                  <p className="text-white/60 text-xs text-pretty">No match in captions or the lyrics database — paste lyrics or choose a subtitle file.</p>
                   {skipSearchButtons}
                   {lyricsPhase.source === 'paste' && (
                     <>

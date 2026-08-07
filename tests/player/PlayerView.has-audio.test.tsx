@@ -12,6 +12,15 @@ vi.mock('../../src/core/opfs/audio', () => ({
   getAudioFile: vi.fn(async () => new File([], 'song1.mp3')),
 }))
 
+// Auto-align is now gated on device tier as well as stored audio, and the real
+// getDeviceTier() reads navigator.hardwareConcurrency — which would resolve to
+// 'manual' on a small CI runner and hide the button this file asserts on.
+vi.mock('../../src/ai-pipeline/capability', () => ({
+  getDeviceTier: () => 'full',
+  canUseVocalSeparation: () => true,
+  hasWebGPU: () => true,
+}))
+
 vi.mock('../../src/player/AudioEngine', () => ({
   AudioEngine: class {
     duration = 10; position = 3

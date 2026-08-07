@@ -107,3 +107,25 @@ export function selectAnchorTargets(
     .sort((a, b) => a.t - b.t || (entries.has(b.i) ? 1 : 0) - (entries.has(a.i) ? 1 : 0) || a.i - b.i)
   return cand.slice(0, max).map((c) => c.i).sort((a, b) => a - b)
 }
+
+/** Lines of grace after a flagged line's stored span before the tap prompt
+ * lets go. The stored timing is wrong by definition — that is why the line was
+ * flagged — so the real vocal usually arrives after the app has already
+ * advanced the active line. Without this the prompt disappeared before the user
+ * could possibly tap, which made the app's headline fix for bad timing unusable
+ * exactly when timing was worst. */
+const ANCHOR_LATCH_LINES = 2
+
+/**
+ * Which flagged line, if any, the tap-to-fix prompt should be offering right
+ * now — the active line when it is itself flagged, otherwise the most recent
+ * flagged line still within the grace window.
+ */
+export function selectActiveAnchorTarget(activeLine: number, anchorTargets: number[]): number | null {
+  if (activeLine < 0 || anchorTargets.length === 0) return null
+  if (anchorTargets.includes(activeLine)) return activeLine
+  const latched = anchorTargets.filter(
+    (t) => t < activeLine && activeLine - t <= ANCHOR_LATCH_LINES,
+  )
+  return latched.length > 0 ? latched[latched.length - 1] : null
+}

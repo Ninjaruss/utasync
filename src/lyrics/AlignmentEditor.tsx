@@ -77,7 +77,7 @@ export function AlignmentEditor({ originalLines, translationLines, extraLines, o
             We couldn’t automatically match every line — your paste had a different number of
             lines. Rows left blank just stay untranslated.
           </p>
-          <p className="text-white/40 text-xs mt-0.5 text-pretty">
+          <p className="text-white/60 text-xs mt-0.5 text-pretty">
             Use ↑ ↓ to reorder translations until each row matches its original line.
           </p>
         </div>
@@ -90,13 +90,13 @@ export function AlignmentEditor({ originalLines, translationLines, extraLines, o
           <button
             onClick={onCancel}
             aria-label="Cancel"
-            className="text-white/40 min-h-11 min-w-11 flex items-center justify-center"
+            className="text-white/60 min-h-11 min-w-11 flex items-center justify-center"
           >✕</button>
         </div>
       </div>
 
       {/* Column headers — meaningless for the stacked mobile cards, so desktop-only */}
-      <div className="hidden sm:grid grid-cols-[1fr_1fr_auto] gap-2 text-[10px] uppercase tracking-wide text-white/30 px-1 shrink-0">
+      <div className="hidden sm:grid grid-cols-[1fr_1fr_auto] gap-2 text-[10px] uppercase tracking-wide text-white/55 px-1 shrink-0">
         <span>Original</span>
         <span>Translation</span>
         {/* Matches the row control cluster: 3 × min-w-11 (2.75rem) + 2 × gap-1 (0.25rem). */}
@@ -130,7 +130,7 @@ export function AlignmentEditor({ originalLines, translationLines, extraLines, o
                   'flex-1 min-w-0 sm:flex-none sm:min-w-[auto] bg-cinnabar-900 text-sm px-2 py-1.5 rounded-lg outline-none border focus:border-cinnabar-accent',
                   translations[i]?.trim()
                     ? 'text-white border-cinnabar-800'
-                    : 'text-white/30 border-cinnabar-800/50',
+                    : 'text-white/55 border-cinnabar-800/50',
                 ].join(' ')}
               />
 
@@ -139,13 +139,13 @@ export function AlignmentEditor({ originalLines, translationLines, extraLines, o
                 <button
                   onClick={() => moveUp(i)}
                   disabled={i === 0}
-                  className="min-w-11 min-h-11 flex items-center justify-center text-white/30 hover:text-white disabled:opacity-20 text-sm touch-manipulation"
+                  className="min-w-11 min-h-11 flex items-center justify-center text-white/55 hover:text-white disabled:opacity-20 text-sm touch-manipulation"
                   aria-label="Move translation up"
                 >↑</button>
                 <button
                   onClick={() => moveDown(i)}
                   disabled={i >= translations.length - 1}
-                  className="min-w-11 min-h-11 flex items-center justify-center text-white/30 hover:text-white disabled:opacity-20 text-sm touch-manipulation"
+                  className="min-w-11 min-h-11 flex items-center justify-center text-white/55 hover:text-white disabled:opacity-20 text-sm touch-manipulation"
                   aria-label="Move translation down"
                 >↓</button>
                 <button
@@ -160,7 +160,7 @@ export function AlignmentEditor({ originalLines, translationLines, extraLines, o
       {/* Extra translation lines that had no original counterpart */}
       {extras.length > 0 && (
         <div className="space-y-1.5 pt-2">
-          <p className="text-[10px] uppercase tracking-wide text-white/30">
+          <p className="text-[10px] uppercase tracking-wide text-white/55">
             Extra lines — move into place or discard
           </p>
           {extras.map((ex, ei) => (
@@ -177,7 +177,7 @@ export function AlignmentEditor({ originalLines, translationLines, extraLines, o
               <button
                 onClick={() => removeExtra(ei)}
                 aria-label="Discard extra line"
-                className="min-w-11 min-h-11 flex items-center justify-center text-white/30 hover:text-red-400 text-sm touch-manipulation"
+                className="min-w-11 min-h-11 flex items-center justify-center text-white/55 hover:text-red-400 text-sm touch-manipulation"
               >✕</button>
             </div>
           ))}

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLyricsStore } from './LyricsStore'
 import { useSettingsStore } from '../payment/SettingsStore'
-import type { TimedLine, FuriganaMode, ReadingMode, Token } from '../core/types'
+import type { TimedLine, FuriganaMode, ReadingMode, Token, GrammarAnnotation, ClozeDifficulty } from '../core/types'
+import { ClozeOverlay } from '../cloze/ClozeOverlay'
 import { isSameText, hasVisibleTranslation } from './bilingual'
 import { colorForToken, colorForTranslationWord, splitTranslationLines } from '../language/wordColors'
 import { resolveTokenReading, lineRomajiFromTokens } from './readingDisplay'
@@ -10,6 +11,7 @@ import { isABLoopActive, lyricLoopHighlight, type LyricLoopHighlight } from '../
 import { lyricRowLoopRegion, lyricRowPlayheadActive, lyricRowPlaylistCurrent, lyricRowPlaylistRegion } from '../core/ui/toolbarClasses'
 import { WordLookupPopover } from './WordLookupPopover'
 import { hasJapanese } from '../language/japanese/wordLookup'
+import { prefersReducedMotion } from '../core/ui/reducedMotion'
 
 const lyricTextTransition =
   'transition-[color,font-size,font-weight,text-shadow] duration-300 ease-out'
@@ -21,6 +23,11 @@ type HoveredPair = { source?: number; target?: number }
 interface WordTap {
   token: Token
   rect: DOMRect
+  /** Grammar pattern covering this token, when the line has one. Carried on the
+   * tap because the popover is the only tap-driven surface anchored to a token —
+   * the previous renderer for these was hover-only, so on a phone the hints were
+   * computed for every line of every song and could never be read. */
+  grammar?: { pattern: string; explanation: string }
 }
 
 const tokenBorderStyle = (color: string | null, highlighted = false) => {
@@ -55,6 +62,7 @@ function ColoredTokens({
   hovered,
   onHover,
   onWordTap,
+  grammarAnnotations,
 }: {
   tokens: Token[]
   withFurigana: boolean
@@ -63,6 +71,7 @@ function ColoredTokens({
   hovered: HoveredPair | null
   onHover: (pair: HoveredPair | null) => void
   onWordTap?: (tap: WordTap) => void
+  grammarAnnotations?: GrammarAnnotation[]
 }) {
   return (
     <>
@@ -77,6 +86,16 @@ function ColoredTokens({
           : token.readingMismatch
             ? 'reading-mismatch'
             : undefined
+        // Only words that actually have a dictionary entry become controls, so
+        // Tab doesn't stop on every particle and punctuation mark.
+        const lookupable = !!onWordTap && hasJapanese(token.surface)
+        const grammar = grammarAnnotations?.find((a) => a.tokenIndices.includes(i))
+        const openLookup = (el: HTMLElement) =>
+          onWordTap?.({
+            token,
+            rect: el.getBoundingClientRect(),
+            grammar: grammar ? { pattern: grammar.pattern, explanation: grammar.explanation } : undefined,
+          })
         return (
           <span
             key={i}
@@ -84,10 +103,21 @@ function ColoredTokens({
             style={tokenBorderStyle(color, highlighted)}
             onMouseEnter={() => onHover({ source: i })}
             onMouseLeave={() => onHover(null)}
+            // role/tabIndex rather than a real <button>: a button resets the
+            // ruby/inline typography the lyric line depends on.
+            role={lookupable ? 'button' : undefined}
+            tabIndex={lookupable ? 0 : undefined}
+            aria-label={lookupable ? `Look up ${token.surface}` : undefined}
+            onKeyDown={lookupable ? (e) => {
+              if (e.key !== 'Enter' && e.key !== ' ') return
+              e.preventDefault()
+              e.stopPropagation()
+              openLookup(e.currentTarget)
+            } : undefined}
             onClick={onWordTap ? (e) => {
               if (!hasJapanese(token.surface)) return
               e.stopPropagation()
-              onWordTap({ token, rect: e.currentTarget.getBoundingClientRect() })
+              openLookup(e.currentTarget)
             } : undefined}
           >
             {reading ? (
@@ -112,10 +142,12 @@ interface Props {
   playlistActive?: boolean
   playlistEntries?: ABLoopPlaylistEntry[]
   playlistIndex?: number
+  /** Set while the user is placing an A or B loop point by tapping a line. */
+  armingAB?: 'a' | 'b' | null
 }
 
 /** Renders the Japanese (primary) text honoring the furigana/romaji mode. */
-function PrimaryText({ line, isActive, furiganaMode, readingMode, colored, hovered, onHover, onWordTap }: {
+function PrimaryText({ line, isActive, furiganaMode, readingMode, colored, hovered, onHover, onWordTap, cloze }: {
   line: TimedLine
   isActive: boolean
   furiganaMode: FuriganaMode
@@ -124,11 +156,19 @@ function PrimaryText({ line, isActive, furiganaMode, readingMode, colored, hover
   hovered: HoveredPair | null
   onHover: (pair: HoveredPair | null) => void
   onWordTap?: (tap: WordTap) => void
+  /** Set on the active line while cloze drilling. */
+  cloze?: { difficulty: ClozeDifficulty; revealed: boolean }
 }) {
   const sizeClass = isActive ? 'text-xl sm:text-2xl font-semibold text-white' : 'text-base font-normal text-white/45 group-hover:text-white/75'
   const lineHoverClass = 'group-hover:underline decoration-white/30 underline-offset-4'
   const showFurigana = furiganaMode === 'furigana'
   const useTokenRender = line.tokens && line.tokens.length > 0 && (colored || showFurigana || (!!onWordTap && hasJapanese(line.original)))
+
+  // Blanks replace the line entirely: furigana, colouring and lookup would each
+  // give the answer away.
+  if (cloze) {
+    return <ClozeOverlay line={line} difficulty={cloze.difficulty} revealed={cloze.revealed} />
+  }
 
   if (showFurigana && line.furigana && !useTokenRender) {
     return (
@@ -156,6 +196,7 @@ function PrimaryText({ line, isActive, furiganaMode, readingMode, colored, hover
           hovered={hovered}
           onHover={onHover}
           onWordTap={onWordTap}
+          grammarAnnotations={line.grammarAnnotations}
         />
       ) : (
         line.original
@@ -230,13 +271,16 @@ function loopHighlightClass(highlight: LyricLoopHighlight | null, isActive: bool
   }
 }
 
-function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap }: {
+function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, armingAB, cloze, onReveal }: {
   line: TimedLine
   isActive: boolean
   loopHighlight: LyricLoopHighlight | null
   onLineClick: (line: TimedLine) => void
   lineRef?: React.Ref<HTMLDivElement>
   onWordTap?: (tap: WordTap) => void
+  armingAB?: 'a' | 'b' | null
+  cloze?: { difficulty: ClozeDifficulty; revealed: boolean }
+  onReveal?: () => void
 }) {
   const { furiganaMode, showTranslation, lyricsLayout } = useLyricsStore()
   const readingMode = useSettingsStore((s) => s.readingMode)
@@ -269,12 +313,29 @@ function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap }
     </div>
   ) : null
 
+  /* The row becomes a control except when its own words already are — nesting a
+   * button inside a button is invalid, and there is nothing to seek to on the
+   * line you are already on. While a loop point is being armed every row is a
+   * target, including the active one, so word lookup steps aside. */
+  const rowIsControl = !isActive || !!armingAB
+  const rowLabel = armingAB
+    ? `Set loop point ${armingAB.toUpperCase()} at ${line.original || line.translation}`
+    : `Jump to ${line.original || line.translation}`
+
   return (
     <div
       ref={lineRef}
       onClick={() => onLineClick(line)}
+      role={rowIsControl ? 'button' : undefined}
+      tabIndex={rowIsControl ? 0 : undefined}
+      aria-label={rowIsControl ? rowLabel : undefined}
+      onKeyDown={rowIsControl ? (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return
+        e.preventDefault()
+        onLineClick(line)
+      } : undefined}
       className={[
-        'group cursor-pointer rounded-xl',
+        'group cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinnabar-accent/60',
         lyricLineTransition,
         isActive ? 'py-4 sm:py-6' : 'py-2.5 sm:py-3',
         sideBySide ? 'text-left' : 'text-center',
@@ -294,6 +355,7 @@ function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap }
             hovered={hoveredPair}
             onHover={setHoveredPair}
             onWordTap={onWordTap}
+            cloze={cloze}
           />
           {translationEl}
         </div>
@@ -308,9 +370,22 @@ function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap }
             hovered={hoveredPair}
             onHover={setHoveredPair}
             onWordTap={onWordTap}
+            cloze={cloze}
           />
           {translationEl}
         </div>
+      )}
+      {/* Reveal is its own control rather than a tap on the line: the row seeks,
+          and losing your place because you wanted the answer would be a poor
+          trade during a drill. */}
+      {cloze && !cloze.revealed && onReveal && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onReveal() }}
+          className="mt-2 min-h-11 px-4 rounded-full border border-cinnabar-accent/50 text-cinnabar-accent text-xs font-medium touch-manipulation active:scale-[0.97] transition-transform"
+        >
+          Reveal
+        </button>
       )}
     </div>
   )
@@ -323,25 +398,78 @@ export function LyricDisplay({
   playlistActive = false,
   playlistEntries = [],
   playlistIndex = 0,
+  armingAB = null,
 }: Props) {
-  const { lines, activeLine } = useLyricsStore()
+  const { lines, activeLine, clozeMode, clozeDifficulty } = useLyricsStore()
+  // Which line the user has revealed. Holding the INDEX rather than a boolean
+  // means moving to the next line un-reveals on its own, with no effect syncing
+  // state back from the playhead.
+  const [revealedLine, setRevealedLine] = useState(-1)
   const tapLookupEnabled = useSettingsStore((s) => s.tapLookupEnabled)
   const [wordTap, setWordTap] = useState<WordTap | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const activeRef = useRef<HTMLDivElement>(null)
   const loopActive = abLoop ? isABLoopActive(abLoop) : false
 
-  // Keep the active line centered as playback advances, without hijacking the
-  // user's manual scrolling beyond the moment the line changes. The first
-  // centering (mount, e.g. returning from Edit mode) jumps instantly so the
-  // user isn't watching a long smooth scroll from the top of the song.
+  // Keep the active line centered as playback advances. The first centering
+  // (mount, e.g. returning from Edit mode) jumps instantly so the user isn't
+  // watching a long smooth scroll from the top of the song.
+  //
+  // Following pauses the moment the user scrolls for themselves: re-centering on
+  // every line change made it impossible to read back over a phrase you just
+  // missed, because the next line begins two to four seconds later and snapped
+  // the view away again. It resumes when the user asks (the jump control), when
+  // they tap a line to seek, or on its own once the active line is back on
+  // screen — never on a timer, which would yank the view mid-sentence.
   const hasCentered = useRef(false)
-  useEffect(() => {
+  const [followPaused, setFollowPaused] = useState(false)
+
+  const centerActiveLine = useCallback((smooth: boolean) => {
     const el = activeRef.current
     if (!el) return
-    el.scrollIntoView({ block: 'center', behavior: hasCentered.current ? 'smooth' : 'auto' })
+    // An explicit `behavior` beats CSS scroll-behavior, so the reduced-motion
+    // preference has to be checked here — this scroll fires every few seconds
+    // for the length of a song, which is the app's most motion-heavy moment.
+    el.scrollIntoView({
+      block: 'center',
+      behavior: smooth && !prefersReducedMotion() ? 'smooth' : 'auto',
+    })
+  }, [])
+
+  const resumeFollowing = useCallback(() => {
+    setFollowPaused(false)
+    centerActiveLine(true)
+  }, [centerActiveLine])
+
+  /** True when the active row is within the scroll viewport. */
+  const activeLineOnScreen = useCallback(() => {
+    const el = activeRef.current
+    const box = containerRef.current
+    if (!el || !box) return false
+    const row = el.getBoundingClientRect()
+    const view = box.getBoundingClientRect()
+    return row.bottom > view.top && row.top < view.bottom
+  }, [])
+
+  useEffect(() => {
+    if (!activeRef.current || followPaused) return
+    centerActiveLine(hasCentered.current)
     hasCentered.current = true
-  }, [activeLine])
+  }, [activeLine, followPaused, centerActiveLine])
+
+  // wheel/touchmove are unambiguous user intent; a plain `scroll` listener
+  // cannot tell our own scrollIntoView apart from a finger.
+  const pauseFollowing = useCallback(() => {
+    if (activeLineOnScreen()) return
+    setFollowPaused(true)
+  }, [activeLineOnScreen])
+
+  // Resume-only: scrolling back to where the song actually is means the user
+  // wants to follow again. It never pauses, so the scroll events emitted by our
+  // own smooth scrollIntoView can't strand the view mid-flight.
+  const resumeIfBackOnScreen = useCallback(() => {
+    if (followPaused && activeLineOnScreen()) setFollowPaused(false)
+  }, [followPaused, activeLineOnScreen])
 
   if (lines.length === 0) {
     return (
@@ -354,9 +482,19 @@ export function LyricDisplay({
   }
 
   return (
+    <div className="relative flex-1 min-h-0 flex flex-col">
     <div
       ref={containerRef}
-      className="flex-1 min-h-0 overflow-y-auto py-[8vh] sm:py-[14vh] md:py-[16vh] lg:py-[20vh] px-4"
+      onWheel={pauseFollowing}
+      onTouchMove={pauseFollowing}
+      onScroll={resumeIfBackOnScreen}
+      /* Breathing room scaled by VIEWPORT HEIGHT, not width. The old
+         sm:/md:/lg: steps keyed off width, so a landscape phone (wide but
+         short) took the desktop-sized 14vh — 50px top AND bottom of a 101px
+         scroll region, i.e. zero usable height, with the one visible line
+         clipped through its own kanji. The clamp keeps the padding decorative
+         on short screens and unchanged on tall ones. */
+      className="flex-1 min-h-0 overflow-y-auto px-4 py-[clamp(0.25rem,4vh,1rem)] [@media(min-height:640px)]:py-[clamp(1rem,14vh,7rem)] [@media(min-height:900px)]:py-[16vh]"
       style={{ touchAction: 'pan-y', scrollbarWidth: 'thin' }}
     >
       {lines.map((line, i) => {
@@ -379,12 +517,24 @@ export function LyricDisplay({
             line={line}
             isActive={isActive}
             loopHighlight={loopHighlight}
-            onLineClick={onLineClick}
+            // Tapping a line seeks there, which IS a request to follow the song
+            // again — so it clears a paused follow rather than leaving the user
+            // staring at a jump chip they no longer need.
+            onLineClick={(l) => { setFollowPaused(false); onLineClick(l) }}
             lineRef={isActive ? activeRef : undefined}
+            armingAB={armingAB}
             // Only the ACTIVE line's words open the dictionary; tapping a word on
             // any other line falls through to the row's seek (jump to that line)
-            // instead of being swallowed by the lookup.
-            onWordTap={tapLookupEnabled && isActive ? setWordTap : undefined}
+            // instead of being swallowed by the lookup. While arming a loop point
+            // the whole row is the target, so lookup stands down — otherwise
+            // tapping the Japanese opened a definition instead of placing the point.
+            // Lookup stands down during a drill — reading the definition of the
+            // word you are being asked to recall defeats the exercise.
+            onWordTap={tapLookupEnabled && isActive && !armingAB && !clozeMode ? setWordTap : undefined}
+            cloze={clozeMode && isActive && line.tokens?.length
+              ? { difficulty: clozeDifficulty, revealed: revealedLine === i }
+              : undefined}
+            onReveal={() => setRevealedLine(i)}
           />
         )
       })}
@@ -392,9 +542,24 @@ export function LyricDisplay({
         <WordLookupPopover
           token={wordTap.token}
           anchorRect={wordTap.rect}
+          grammar={wordTap.grammar}
           onClose={() => setWordTap(null)}
         />
       )}
+    </div>
+
+    {followPaused && (
+      <button
+        type="button"
+        onClick={resumeFollowing}
+        // Centred with auto margins rather than -translate-x-1/2: the
+        // progress-enter keyframes animate `transform`, which overrides the
+        // translate utility and left the chip hanging off to the right.
+        className="absolute inset-x-0 mx-auto w-fit bottom-3 z-20 min-h-11 px-4 rounded-full border border-cinnabar-accent/50 bg-cinnabar-950/90 backdrop-blur-sm text-cinnabar-accent text-xs font-medium shadow-lg shadow-black/30 touch-manipulation transition-colors duration-150 ease-out animate-[progress-enter_180ms_ease-out_both]"
+      >
+        ↓ Jump to current line
+      </button>
+    )}
     </div>
   )
 }

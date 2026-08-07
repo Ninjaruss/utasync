@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import type { Token } from '../core/types'
 import { lookupWord, jishoSearchUrl, type WordLookupResult } from '../language/japanese/wordLookup'
 import { useSettingsStore } from '../payment/SettingsStore'
+import { useModalDialog } from '../core/ui/useModalDialog'
 
 interface Props {
   token: Token
   /** Bounding rect of the tapped span; null falls back to the bottom-card layout. */
   anchorRect: DOMRect | null
+  /** Grammar pattern covering this word, when the line has one. */
+  grammar?: { pattern: string; explanation: string }
   onClose: () => void
 }
 
@@ -18,8 +21,11 @@ const CARD_EST_HEIGHT = 160 // rough card height, for deciding when to flip abov
  * wide viewports; a fixed bottom card on narrow ones so it never fights the
  * user's thumb. Playback keeps running; dismissed by tapping outside.
  */
-export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
+export function WordLookupPopover({ token, anchorRect, grammar, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null)
+  // Escape closes it and focus returns to the word that opened it, so a
+  // keyboard reader can look words up without losing their place in the line.
+  useModalDialog(ref, onClose)
   // Keyed by token so a new tap derives back to the loading state without a
   // synchronous setState inside the effect.
   const [resolved, setResolved] = useState<{ token: Token; result: WordLookupResult | null } | null>(null)
@@ -99,6 +105,7 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
   return (
     <div
       ref={ref}
+      tabIndex={-1}
       role="dialog"
       aria-label={`Dictionary entry for ${headword}`}
       onClick={(e) => e.stopPropagation()}
@@ -112,7 +119,7 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
         type="button"
         onClick={onClose}
         aria-label="Close"
-        className="absolute top-0 right-0 w-11 h-11 flex items-center justify-center text-white/40 hover:text-white/80 touch-manipulation transition-colors duration-150 ease-out"
+        className="absolute top-0 right-0 w-11 h-11 flex items-center justify-center text-white/60 hover:text-white/80 touch-manipulation transition-colors duration-150 ease-out"
       >
         <span aria-hidden className="text-sm leading-none">✕</span>
       </button>
@@ -122,18 +129,27 @@ export function WordLookupPopover({ token, anchorRect, onClose }: Props) {
           <span lang="ja" className="font-jp text-sm text-cinnabar-accent/90">{reading}</span>
         )}
         {!loading && result.dictionaryReading && (
-          <span lang="ja" className="font-jp text-xs text-white/40">dictionary: {result.dictionaryReading}</span>
+          <span lang="ja" className="font-jp text-xs text-white/60">dictionary: {result.dictionaryReading}</span>
         )}
-        {pos && <span className="text-[10px] text-white/40">{pos}</span>}
+        {pos && <span className="text-[10px] text-white/60">{pos}</span>}
       </div>
       {loading ? (
-        <p className="text-xs text-white/40">Looking up…</p>
+        <p className="text-xs text-white/60">Looking up…</p>
       ) : glosses.length > 0 ? (
         <p className="text-sm text-white/80 text-pretty">{glosses.join('; ')}</p>
       ) : result.dictionaryAvailable ? (
-        <p className="text-xs text-white/40">No definition found.</p>
+        <p className="text-xs text-white/60">No definition found.</p>
       ) : (
-        <p className="text-xs text-white/40">Definitions unavailable.</p>
+        <p className="text-xs text-white/60">Definitions unavailable.</p>
+      )}
+      {/* The grammar pattern this word belongs to. Detected for every line
+          already; this is the first surface that actually shows it, and the
+          only tap-driven one — the previous renderer was hover-only. */}
+      {grammar && (
+        <div className="pt-1.5 border-t border-cinnabar-800">
+          <p lang="ja" className="font-jp text-xs text-cinnabar-accent/90">{grammar.pattern}</p>
+          <p className="text-xs text-white/70 text-pretty leading-snug">{grammar.explanation}</p>
+        </div>
       )}
       <a
         href={jishoSearchUrl(headword)}

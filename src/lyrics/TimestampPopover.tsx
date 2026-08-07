@@ -71,7 +71,7 @@ function ContextStrip({
       style={{ left: `${Math.max(0, Math.min(100, pct(t)))}%` }}
     >
       <div className={`w-0.5 h-full rounded-full ${cls}`} />
-      {label && <span className="absolute -bottom-4 text-[9px] leading-none text-white/40 whitespace-nowrap">{label}</span>}
+      {label && <span className="absolute -bottom-4 text-[9px] leading-none text-white/60 whitespace-nowrap">{label}</span>}
     </div>
   )
 
@@ -86,14 +86,14 @@ function ContextStrip({
         {draftEnd !== null && inWindow(draftEnd) && marker(draftEnd, mode === 'end' ? 'bg-cinnabar-accent' : 'bg-cinnabar-accent/60', undefined, 'de')}
         {/* edge arrows when a neighbour is off-window, so the user still has a direction */}
         {typeof prevStart === 'number' && prevStart < min && (
-          <span className="absolute left-1 top-1/2 -translate-y-1/2 text-[9px] text-white/30">◂ prev</span>
+          <span className="absolute left-1 top-1/2 -translate-y-1/2 text-[9px] text-white/55">◂ prev</span>
         )}
         {typeof nextStart === 'number' && Number.isFinite(nextStart) && nextStart > max && (
-          <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-white/30">next ▸</span>
+          <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-white/55">next ▸</span>
         )}
       </div>
       {(prevGap !== null || nextGap !== null) && (
-        <div className="mt-0.5 flex justify-between text-[10px] text-white/40 tabular-nums">
+        <div className="mt-0.5 flex justify-between text-[10px] text-white/60 tabular-nums">
           <span>{prevGap !== null ? `${prevGap}s after prev` : ''}</span>
           <span>{nextGap !== null ? `${nextGap}s before next` : ''}</span>
         </div>
@@ -262,16 +262,16 @@ export function TimestampPopover({ line, autoEnd, playhead, onCommit, onClose, o
           <span className="text-pretty">
             Shift later lines by the same amount
             {cascade && startDelta !== 0 && (
-              <span className="text-white/40 tabular-nums"> ({startDelta > 0 ? '+' : '−'}{Math.abs(startDelta)}s)</span>
+              <span className="text-white/60 tabular-nums"> ({startDelta > 0 ? '+' : '−'}{Math.abs(startDelta)}s)</span>
             )}
           </span>
         </label>
       )}
       <div className="flex items-center gap-2">
         <div className="flex-1 min-w-0 flex items-center gap-1.5 text-xs">
-          <span className={`tabular-nums ${mode !== 'end' ? 'text-white font-semibold' : 'text-white/40'}`}>{fmt(draftStart)}</span>
-          <span className="text-white/30">–</span>
-          <span className={`tabular-nums ${mode !== 'start' ? 'text-white font-semibold' : 'text-white/40'}`}>
+          <span className={`tabular-nums ${mode !== 'end' ? 'text-white font-semibold' : 'text-white/60'}`}>{fmt(draftStart)}</span>
+          <span className="text-white/55">–</span>
+          <span className={`tabular-nums ${mode !== 'start' ? 'text-white font-semibold' : 'text-white/60'}`}>
             {draftEnd === null ? 'auto' : fmt(draftEnd)}
           </span>
           {mode === 'end' && draftEnd !== null && (

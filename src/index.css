@@ -53,3 +53,42 @@
   user-select: text;
   -webkit-user-select: text;
 }
+
+/* Reduced motion.
+ *
+ * The app had no support at all: the active lyric line smooth-scrolled on every
+ * line change (every few seconds, for the length of a song), and every sheet,
+ * banner and chip animated in. For a vestibular-sensitive user that is the
+ * single most hostile thing the player does.
+ *
+ * Transitions are collapsed rather than removed so state changes still land
+ * instantly instead of appearing not to have happened. `scroll-behavior: auto`
+ * is what stops the karaoke scroll from animating — LyricDisplay's
+ * scrollIntoView respects it. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* iOS Safari zooms into any focused text field whose font-size is under 16px,
+ * and does not zoom back out afterwards — editing one lyric line left the whole
+ * app magnified for the rest of the session. Enforced here rather than per
+ * field so a new input can't reintroduce it. Non-text controls (range, file,
+ * checkbox) are excluded: they have no keyboard and their size is deliberate. */
+@supports (-webkit-touch-callout: none) {
+  input:not([type='range']):not([type='file']):not([type='checkbox']):not([type='radio']),
+  textarea,
+  select {
+    font-size: max(16px, 1em);
+  }
+}

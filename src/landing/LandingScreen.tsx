@@ -47,7 +47,7 @@ export function LandingScreen({ onOpenApp }: Props) {
           <button
             type="button"
             onClick={onOpenApp}
-            className="min-h-11 px-3 text-white/45 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out"
+            className="min-h-11 px-3 text-white/70 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out"
           >
             Open the app →
           </button>
@@ -84,8 +84,8 @@ export function LandingScreen({ onOpenApp }: Props) {
           className="mb-10 rounded-2xl border border-cinnabar-900 bg-gradient-to-b from-cinnabar-900/45 to-cinnabar-950 p-5 sm:p-6 shadow-lg shadow-black/20"
         >
           <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-[0.2em] text-white/30">Preview</span>
-            <span className="flex items-center gap-1.5 text-[10px] text-white/30">
+            <span className="text-[10px] uppercase tracking-[0.2em] text-white/55">Preview</span>
+            <span className="flex items-center gap-1.5 text-[10px] text-white/55">
               <span className="w-1.5 h-1.5 rounded-full bg-cinnabar-accent/70" />
               Synced line
             </span>
@@ -106,8 +106,8 @@ export function LandingScreen({ onOpenApp }: Props) {
                   {w.tail}
                 </span>
                 {/* grammatical particles, rendered muted like the real app */}
-                {i === 0 && <span className="text-white/40">は</span>}
-                {i === 1 && <span className="text-white/40">が</span>}
+                {i === 0 && <span className="text-white/60">は</span>}
+                {i === 1 && <span className="text-white/60">が</span>}
               </span>
             ))}
           </p>
@@ -140,7 +140,7 @@ export function LandingScreen({ onOpenApp }: Props) {
               <div className="w-10 h-10 rounded-xl bg-cinnabar-950 border border-cinnabar-800 flex items-center justify-center text-cinnabar-accent text-lg mb-4">
                 {f.glyph}
               </div>
-              <p className="text-[10px] uppercase tracking-wide text-white/30 tabular-nums">{f.badge}</p>
+              <p className="text-[10px] uppercase tracking-wide text-white/55 tabular-nums">{f.badge}</p>
               <h2 className="mt-1 text-base font-semibold text-balance">{f.title}</h2>
               <p className="mt-2 text-white/55 text-[13px] text-pretty leading-relaxed">{f.body}</p>
             </div>
@@ -163,7 +163,7 @@ export function LandingScreen({ onOpenApp }: Props) {
         </section>
 
         <footer className="mt-10 text-center">
-          <p className="text-[11px] text-white/45 text-pretty">
+          <p className="text-[11px] text-white/70 text-pretty">
             Runs entirely in your browser. Audio streams from YouTube — nothing is uploaded.
           </p>
           <LegalLinks className="mt-3" />

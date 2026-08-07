@@ -42,7 +42,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={show}>
       {children}
+      {/* Toasts are the only channel for "the audio file couldn't be deleted"
+          and similar recovery instructions. Without a live region a screen
+          reader user was never told any of it. Polite, so it waits for a pause
+          rather than cutting across whatever is being read. */}
       <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="false"
         className="fixed left-1/2 -translate-x-1/2 flex flex-col gap-2 z-50 w-full max-w-sm px-4 pointer-events-none"
         style={{ bottom: 'max(env(safe-area-inset-bottom, 16px), 16px)' }}
       >
@@ -65,7 +72,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               type="button"
               onClick={() => dismiss(t.id)}
               aria-label="Dismiss"
-              className="shrink-0 text-white/45 hover:text-white min-w-5 min-h-5 flex items-center justify-center -mr-1 touch-manipulation transition-colors duration-150"
+              // 20px was barely half a fingertip, on the only control that
+              // clears a toast reporting a failed delete.
+              className="shrink-0 text-white/70 hover:text-white min-w-11 min-h-11 flex items-center justify-center -mr-2 touch-manipulation transition-colors duration-150"
             >
               ✕
             </button>

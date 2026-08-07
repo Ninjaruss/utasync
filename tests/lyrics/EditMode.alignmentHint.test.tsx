@@ -9,30 +9,29 @@ const lines: TimedLine[] = [
 ]
 
 function renderHint(overrides: Partial<Parameters<typeof EditMode>[0]> = {}) {
-  const onAutoAlignAccurate = vi.fn()
+  const onAutoAlign = vi.fn()
   const utils = render(
     <EditMode
       lines={lines}
       playhead={() => 0}
       hasLocalAudio
       onChangeLines={vi.fn()}
-      onAutoAlign={vi.fn()}
-      onAutoAlignAccurate={onAutoAlignAccurate}
+      onAutoAlign={onAutoAlign}
       title="t"
       artist="a"
       sourceLanguage="ja"
       {...overrides}
     />,
   )
-  return { onAutoAlignAccurate, ...utils }
+  return { onAutoAlign, ...utils }
 }
 
 const allGood: LineAlignmentQuality[] = ['good', 'good']
 
 // The top of Edit shows ONE consolidated status notice at a time, most-actionable
 // first: mixed-realign > lyrics-mismatch > recover > approximate-timing > stray.
-// The reliable fix (tap-to-anchor) is the headline action; word-level re-align —
-// measurably worse on long tracks — is a de-emphasized More item, never a notice CTA.
+// The reliable fix (tap-to-anchor) is the headline action; re-running alignment is
+// never a notice CTA, because on a long track it is often the worse option.
 describe('EditMode alignment notice', () => {
   it('warns of a likely lyrics/recording mismatch when confidence is low', () => {
     renderHint({ lineAlignmentQuality: allGood, alignmentConfidence: 0.3 })
@@ -40,19 +39,30 @@ describe('EditMode alignment notice', () => {
     expect(screen.queryByRole('button', { name: /fix by tapping/i })).toBeNull()
   })
 
-  it('surfaces the approximate-timing notice; word-level re-align lives in More, not as a notice CTA', () => {
-    const { onAutoAlignAccurate } = renderHint({
+  it('surfaces the approximate-timing notice without offering a re-align CTA', () => {
+    renderHint({
       lineAlignmentQuality: allGood,
       alignmentConfidence: 0.9,
       accurateRealignReason: 'segment-blocks',
     })
     expect(screen.getByText(/line timings are approximate/i)).toBeTruthy()
-    // The word-mode re-align is NOT a headline notice button (it's a trap on long tracks)…
+    // Re-running alignment is never the headline action — it's a trap on long tracks.
     expect(screen.queryByRole('button', { name: /^re-align$/i })).toBeNull()
-    // …it's reachable, de-emphasized, from More.
-    fireEvent.click(screen.getByRole('button', { name: /more/i }))
-    fireEvent.click(screen.getByRole('button', { name: /word-level/i }))
-    expect(onAutoAlignAccurate).toHaveBeenCalledTimes(1)
+  })
+
+  // "Re-align (word-level)" used to sit in More. Word-level timestamps became the
+  // default, so it ran the same alignment as the Auto-align button beside the menu
+  // — while skipping its "this replaces timing for all N lines" confirmation.
+  it('offers exactly one way to re-run alignment, and it is the one that confirms', () => {
+    const { onAutoAlign } = renderHint({ lineAlignmentQuality: allGood, accurateRealignReason: 'segment-blocks' })
+
+    fireEvent.click(screen.getByRole('button', { name: /^more$/i }))
+    expect(screen.queryByRole('button', { name: /word-level/i })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /^auto-align$/i }))
+    expect(onAutoAlign).not.toHaveBeenCalled() // confirm first
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+    expect(onAutoAlign).toHaveBeenCalledTimes(1)
   })
 
   it('mismatch takes priority over the approximate-timing notice', () => {

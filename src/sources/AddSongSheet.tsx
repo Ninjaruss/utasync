@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { useModalDialog } from '../core/ui/useModalDialog'
+import { useHistoryDismiss } from '../core/ui/useHistoryDismiss'
 import { LinkParser } from './LinkParser'
 import { UploadAudioFlow } from './UploadAudioFlow'
 import { ConfirmDialog } from '../core/ui/ConfirmDialog'
@@ -84,10 +85,10 @@ function SourceTile({
           </span>
         )}
       </div>
-      <p className={['text-[11px] text-white/45 md:mb-0 text-pretty', selected ? 'mb-2.5' : 'mb-0'].join(' ')}>{option.summary}</p>
+      <p className={['text-[11px] text-white/70 md:mb-0 text-pretty', selected ? 'mb-2.5' : 'mb-0'].join(' ')}>{option.summary}</p>
       <div className={[selected ? 'grid' : 'hidden', 'grid-cols-1 sm:grid-cols-2 gap-2.5 md:hidden'].join(' ')}>
         <div>
-          <p className="text-[10px] uppercase tracking-wide text-white/30 mb-1">Includes</p>
+          <p className="text-[10px] uppercase tracking-wide text-white/55 mb-1">Includes</p>
           <ul className="space-y-0.5">
             {option.includes.map((item) => (
               <li key={item} className="text-[11px] text-white/55 text-pretty flex gap-1.5">
@@ -98,11 +99,11 @@ function SourceTile({
           </ul>
         </div>
         <div>
-          <p className="text-[10px] uppercase tracking-wide text-white/30 mb-1">Limitations</p>
+          <p className="text-[10px] uppercase tracking-wide text-white/55 mb-1">Limitations</p>
           <ul className="space-y-0.5">
             {option.limitations.map((item) => (
-              <li key={item} className="text-[11px] text-white/40 text-pretty flex gap-1.5">
-                <span className="text-white/25 shrink-0" aria-hidden>–</span>
+              <li key={item} className="text-[11px] text-white/60 text-pretty flex gap-1.5">
+                <span className="text-white/50 shrink-0" aria-hidden>–</span>
                 {item}
               </li>
             ))}
@@ -115,11 +116,35 @@ function SourceTile({
 
 export function AddSongSheet({ onSongReady, onClose }: Props) {
   const [source, setSource] = useState<Source>('upload')
+  const [pendingSource, setPendingSource] = useState<Source | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
-  const { setBusy, setDirty, confirming, requestClose, confirm, cancel } = useConfirmedClose(onClose)
+  const { busy, dirty, setBusy, setDirty, confirming, requestClose, confirm, cancel } = useConfirmedClose(onClose)
+
+  /* Switching tiles unmounts the active flow and everything in it. The tiles are
+   * full-width and adjacent on a phone, so a mistap used to silently discard the
+   * chosen file, the edited metadata and any pasted lyrics — the same work the ✕
+   * and the backdrop already confirm before losing. */
+  const requestSource = (next: Source) => {
+    if (next === source) return
+    if (busy || dirty) setPendingSource(next)
+    else setSource(next)
+  }
+
+  const confirmSourceSwitch = () => {
+    if (pendingSource) setSource(pendingSource)
+    setPendingSource(null)
+    // The old flow is unmounting, so its busy/dirty state goes with it. The
+    // incoming flow reports its own; without this reset the sheet would still
+    // think there was work to protect and confirm again on close.
+    setBusy(false)
+    setDirty(false)
+  }
   // Routed through requestClose, so Escape gets the same "your pasted lyrics
   // will be lost" guard as the ✕ and the backdrop.
   useModalDialog(panelRef, requestClose)
+  // Android's Back gesture is how people close sheets. Routed through the same
+  // guard, so it can't silently discard pasted lyrics the way navigating away did.
+  useHistoryDismiss(requestClose)
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col justify-end md:justify-center md:items-center md:p-6">
@@ -138,6 +163,18 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
         aria-modal="true"
         style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 1rem), 1rem)' }}
       >
+        {/* One at a time: a close confirmation outranks a tile switch. */}
+        {!confirming && pendingSource && (
+          <ConfirmDialog
+            title={pendingSource === 'link' ? 'Switch to YouTube link?' : 'Switch to Upload audio?'}
+            message="What you've entered here — the file, the details and any pasted lyrics — will be lost."
+            confirmLabel="Discard"
+            cancelLabel="Keep what I have"
+            onConfirm={confirmSourceSwitch}
+            onCancel={() => setPendingSource(null)}
+          />
+        )}
+
         {confirming && (
           <ConfirmDialog
             title="Discard this song?"
@@ -156,7 +193,7 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
           <button
             aria-label="Close"
             onClick={requestClose}
-            className="text-white/40 text-lg leading-none min-h-11 min-w-11 flex items-center justify-center touch-manipulation hover:text-white/70"
+            className="text-white/60 text-lg leading-none min-h-11 min-w-11 flex items-center justify-center touch-manipulation hover:text-white/70"
           >
             ✕
           </button>
@@ -168,7 +205,7 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
               key={option.id}
               option={option}
               selected={source === option.id}
-              onSelect={() => setSource(option.id)}
+              onSelect={() => requestSource(option.id)}
             />
           ))}
         </div>

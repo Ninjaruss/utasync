@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { TimedLine, Language, LineAlignmentQuality } from '../core/types'
 import { stampTimes, setText, addLine, deleteLine, shiftLinesFrom } from './lineOps'
 import { SecondLanguagePanel } from './SecondLanguagePanel'
+import { useModalDialog } from '../core/ui/useModalDialog'
 import { TimestampPopover } from './TimestampPopover'
 import {
   editRowSurface,
@@ -35,6 +36,9 @@ interface Props {
   /** Tap-through timing while audio plays (YouTube or local). */
   showTapSync?: boolean
   onTapSync?: () => void
+  /** False on devices that can't run on-device AI (manual tier). Auto-align is
+   * hidden rather than offered-then-refused. */
+  autoAlignSupported?: boolean
   /** Re-fetch / replace main lyrics from captions, LRCLIB, paste, or file. */
   onReplaceLyrics?: () => void
   /** Pause playback when opening a modal workflow (second language, etc.). */
@@ -65,7 +69,6 @@ interface Props {
   /** Re-run Auto-align in accurate (word-level) mode. Kept as a de-emphasized
    * "More" item, not a headline CTA — word-level timing is measurably worse on
    * long (>180s) tracks, the exact case the approximate-timing notice fires for. */
-  onAutoAlignAccurate?: () => void
   /** Switch to Play and jump to the first uncertain line so the user can tap it in
    * time (the tap-to-anchor flow) — the reliable fix for a few off lines. Undefined
    * when there's nothing to tap or no playable audio. */
@@ -192,7 +195,7 @@ function Row({
           aria-label={`Edit timestamp for line ${index + 1}`}
           className={timestampPillBtn}
         >
-          <span className="text-white/40">
+          <span className="text-white/60">
             {/* Clock — inline SVG so tint classes apply (emoji render as color glyphs on iOS). */}
             <svg
               aria-hidden="true"
@@ -220,12 +223,15 @@ function Row({
               onChange={(e) => setOriginal(e.target.value)}
               onBlur={() => original !== line.original && onCommitText({ original })}
               aria-label="Original text"
-              className="w-full bg-cinnabar-950 text-white text-sm px-2 py-1 rounded-lg outline-none border border-cinnabar-800 focus:border-cinnabar-accent font-jp"
+              // text-base (16px): iOS Safari zooms into any focused field under
+              // 16px and never zooms back out, so editing one line left the
+              // whole app magnified for the rest of the session.
+              className="w-full bg-cinnabar-950 text-white text-base px-2 py-1.5 rounded-lg outline-none border border-cinnabar-800 focus:border-cinnabar-accent font-jp"
             />
           ) : (
             <div className="w-full flex items-center gap-3 text-left">
               <button onClick={onStartEdit} className="flex-1 text-sm text-white font-jp text-left" aria-label={`Edit line ${index + 1}`}>
-                {line.original || <span className="text-white/30">empty</span>}
+                {line.original || <span className="text-white/55">empty</span>}
                 {!timed && <span className="ml-2 text-[10px] text-cinnabar-accent">untimed</span>}
               </button>
               {showAlignmentQuality && alignmentQuality === 'needs_review' && (
@@ -289,10 +295,10 @@ function Row({
           }}
           placeholder="Translation"
           aria-label="Translation text"
-          className="mt-1.5 w-full bg-cinnabar-950 text-white/80 text-sm px-2 py-1 rounded-lg outline-none border border-cinnabar-800 focus:border-cinnabar-accent"
+          className="mt-1.5 w-full bg-cinnabar-950 text-white/80 text-base px-2 py-1.5 rounded-lg outline-none border border-cinnabar-800 focus:border-cinnabar-accent"
         />
       ) : (
-        line.translation && <span className="block text-[11px] italic text-white/45 mt-1 pl-[4.75rem]">{line.translation}</span>
+        line.translation && <span className="block text-[11px] italic text-white/70 mt-1 pl-[4.75rem]">{line.translation}</span>
       )}
 
       {popoverOpen && (
@@ -313,7 +319,7 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus, alignmentConfidence, accurateRealignReason = null, onAutoAlignAccurate, onFixTiming }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, autoAlignSupported = true, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus, alignmentConfidence, accurateRealignReason = null, onFixTiming }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
@@ -334,6 +340,10 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
   const [showMore, setShowMore] = useState(false)
+  const moreMenuRef = useRef<HTMLDivElement>(null)
+  // Escape closes the menu and returns focus to the More button; before this the
+  // only way out was a pointer press on the invisible backdrop.
+  useModalDialog(moreMenuRef, () => setShowMore(false), showMore)
 
   // External-change guard (item 3): EditMode stays mounted while a completed
   // Auto-align or gap-recovery pass replaces `lines` from OUTSIDE this editor.
@@ -593,7 +603,13 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             {showMore && (
               <>
                 <div className="fixed inset-0 z-30" aria-hidden="true" onClick={() => setShowMore(false)} />
-                <div className="absolute right-0 top-full z-40 mt-1 flex min-w-[11rem] flex-col rounded-xl border border-cinnabar-800 bg-cinnabar-900 p-1 shadow-xl">
+                <div
+                  ref={moreMenuRef}
+                  tabIndex={-1}
+                  role="menu"
+                  aria-label="More lyric actions"
+                  className="absolute right-0 top-full z-40 mt-1 flex min-w-[11rem] flex-col rounded-xl border border-cinnabar-800 bg-cinnabar-900 p-1 shadow-xl max-h-[70dvh] overflow-y-auto overscroll-contain"
+                >
                   {onReplaceLyrics && (
                     <button type="button" onClick={() => { setShowMore(false); onReplaceLyrics() }} className={moreMenuItem}>
                       Replace lyrics
@@ -607,11 +623,11 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
                   <button type="button" onClick={() => { setShowMore(false); openSecondLang() }} className={moreMenuItem}>
                     {hasSecondLang ? '2nd language' : '+ Translation'}
                   </button>
-                  {hasLocalAudio && onAutoAlignAccurate && (
-                    <button type="button" onClick={() => { setShowMore(false); onAutoAlignAccurate() }} className={moreMenuItem}>
-                      Re-align (word-level)
-                    </button>
-                  )}
+                  {/* "Re-align (word-level)" lived here. Word-level timestamps
+                      became the default, so it ran exactly the same alignment as
+                      the Auto-align button beside this menu — while skipping its
+                      "this replaces timing for all N lines" confirmation. A
+                      second door to the same room, with the warning removed. */}
                   {lines.some((l) => l.startTime > 0 || l.endTime > 0) && (
                     <button
                       type="button"
@@ -626,7 +642,11 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             )}
           </div>
 
-          {hasLocalAudio && (
+          {/* The tier check happens HERE, not after the confirm. Offering
+              Auto-align on a device that can't run it meant the user agreed to
+              "a few minutes" of work and then got a modal that only told them
+              their device was unsupported, with nothing to do. */}
+          {hasLocalAudio && autoAlignSupported && (
             <button
               type="button"
               onClick={() => setConfirmAutoAlign(true)}
@@ -635,10 +655,24 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
               Auto-align
             </button>
           )}
+          {hasLocalAudio && !autoAlignSupported && onTapSync && (
+            <button
+              type="button"
+              onClick={onTapSync}
+              className={toolbarPrimaryBtn}
+            >
+              Tap-through
+            </button>
+          )}
         </div>
         {!hasLocalAudio && (
-          <p className="text-xs text-white/30 text-pretty">
+          <p className="text-xs text-white/55 text-pretty">
             No audio file — use Tap-through to time lyrics while the song plays.
+          </p>
+        )}
+        {hasLocalAudio && !autoAlignSupported && (
+          <p className="text-xs text-white/55 text-pretty">
+            This device can't run on-device AI — tap through to time lyrics while the song plays.
           </p>
         )}
 

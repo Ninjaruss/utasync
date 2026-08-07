@@ -12,7 +12,7 @@ import { ABLoopController } from './ABLoop'
 import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, AlignmentLanguage } from '../core/types'
 import { TapAnchorPrompt } from './TapAnchorPrompt'
 import { Banner } from '../core/ui/Banner'
-import { refitAroundAnchors, selectAnchorTargets, type TimingAnchor } from '../lyrics/anchorRefit'
+import { refitAroundAnchors, selectAnchorTargets, selectActiveAnchorTarget, type TimingAnchor } from '../lyrics/anchorRefit'
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
 import { projectPhraseTokensToLines } from '../lyrics/phraseProjection'
 import { repairPhraseTranslationOrder, remapPhraseTranslations } from '../lyrics/phraseNormalize'
@@ -46,6 +46,8 @@ import { EditMode } from '../lyrics/EditMode'
 import { computeSyncState } from '../core/db/migrations'
 import { hasVisibleTranslation } from '../lyrics/bilingual'
 import { linesNeedEnrichment, linesNeedAlignment, lineNeedsAlignment, enrichmentMadeProgress, LYRICS_ENRICHMENT_VERSION } from '../lyrics/lyricsEnrichment'
+import { describeReplaceLoss } from '../lyrics/replaceLyricsLoss'
+import { retimeQuality } from '../lyrics/retimeQuality'
 import { runWhenIdle, yieldToMainThread } from '../core/idle'
 import { alignLinesTokens, countEmbedBatches } from '../ai-pipeline/wordAligner'
 import { preloadGlossLexicon } from '../ai-pipeline/lyricGloss'
@@ -295,7 +297,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   // stops audio it itself started (leaves pre-existing playback alone).
   const scrubStartedPlayRef = useRef(false)
   const { playbackState, position, duration, speed, volume, abLoop, armingAB, currentSongId, setPlaybackState, setPosition, setDuration, setSpeed, setVolume, setABLoop, armAB, setCurrentSong } = usePlayerStore()
-  const { lines, syncPosition, setLines, furiganaMode, showTranslation, lyricsLayout, setFuriganaMode, setShowTranslation, setLyricsLayout } = useLyricsStore()
+  const { lines, syncPosition, setLines, furiganaMode, showTranslation, lyricsLayout, setFuriganaMode, setShowTranslation, setLyricsLayout, clozeMode, clozeDifficulty, setClozeMode, setClozeDifficulty } = useLyricsStore()
   const [song, setSong] = useState<Song | null>(null)
   const activeLine = useLyricsStore((s) => s.activeLine)
   const [alignMode, setAlignMode] = useState<AlignMode | null>(null)
@@ -311,6 +313,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const [attachAudioError, setAttachAudioError] = useState('')
   const [localAudioLoadFailed, setLocalAudioLoadFailed] = useState(false)
   const [showLyricsReimport, setShowLyricsReimport] = useState(false)
+  const [pendingReplace, setPendingReplace] = useState<{ imported: TimedLine[]; loss: string } | null>(null)
+  const [songMissing, setSongMissing] = useState(false)
   const [phrasingBusy, setPhrasingBusy] = useState(false)
   const [recoveringGaps, setRecoveringGaps] = useState(false)
   const [recoverGapsStatus, setRecoverGapsStatus] = useState<string | null>(null)
@@ -331,7 +335,9 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const lyricsReimportRef = useRef<HTMLDivElement>(null)
   // Escape routes through requestClose so it inherits the "lyrics are still
   // being fetched" guard rather than cancelling a search silently.
-  useModalDialog(lyricsReimportRef, requestLyricsReimportClose, showLyricsReimport)
+  // Gated on `song` too, because that is what the dialog's own render is gated
+  // on — enabling the hook while the element is absent would leave it unarmed.
+  useModalDialog(lyricsReimportRef, requestLyricsReimportClose, showLyricsReimport && !!song)
   const seekRef = useRef<(time: number) => void>(() => {})
   const enrichmentJobRef = useRef(0)
   const wordColorJobRef = useRef(0)
@@ -463,7 +469,13 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     let cancelIdle = () => {}
     enrichmentJobRef.current++
     db.songs.get(songId).then(async (s) => {
-      if (!s || cancelled) return
+      if (cancelled) return
+      // A bookmarked or shared link to a song that has since been deleted used
+      // to render an empty player: no lyrics, dead controls, no explanation.
+      if (!s) {
+        setSongMissing(true)
+        return
+      }
       let loaded = s
       if (shouldRefineStoredAlignment(s.lyrics)) {
         try {
@@ -485,14 +497,23 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           /* leave alignment as-is; playback still works */
         }
       }
+      // The refinement above awaits a Dexie write, and the last `cancelled`
+      // check was before it. A superseded load resuming here would overwrite the
+      // current song's state with the previous one's — and force Play mode,
+      // ejecting a user who had since switched to Edit.
+      if (cancelled) return
+
       setSong(loaded)
       setLines(loaded.lyrics.lines)
       setLocalAudioLoadFailed(false)
-      setMode('play') // a freshly opened song always lands in Play mode
       // Opening a different song starts from the top; reopening the same song
       // (e.g. after a trip to Settings) resumes the persisted position.
       const store = usePlayerStore.getState()
       const isNewSong = store.currentSongId !== songId
+      // Only a genuinely new song lands in Play mode. Re-running this effect for
+      // the song already open — a refresh, a return from Settings — used to
+      // throw the user out of Edit mode mid-edit for no reason they could see.
+      if (isNewSong) setMode('play')
       if (isNewSong) setCurrentSong(songId) // resets position to 0
       const resumeAt = isNewSong ? 0 : store.position
       // Load locally-stored audio into the engine so playback works for
@@ -640,8 +661,11 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           alreadyAnchored: (song.lyrics.timingAnchors ?? []).map((a) => a.lineIndex),
         })
       : []
+  // Latched rather than an exact match on the active line: see
+  // selectActiveAnchorTarget — a flagged line's stored timing is wrong, so the
+  // real vocal lands after the app has already moved on.
   const anchorTargetActive =
-    mode === 'play' && activeLine >= 0 && anchorTargets.includes(activeLine) ? activeLine : null
+    mode === 'play' ? selectActiveAnchorTarget(activeLine, anchorTargets) : null
   // Restore the whole song to a pre-tap snapshot (undo for the instantly-persisted
   // tap-anchor). Reverts the anchor, the refit, and the cleared uncertainty flag.
   const restoreSong = async (snapshot: Song) => {
@@ -715,7 +739,16 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
     const { abLoop: loop } = usePlayerStore.getState()
     if (isValidABPair(loop.a, loop.b)) {
+      // The points have to go — keeping them would drag the playhead straight
+      // back to the loop the user just navigated away from. But placing an A–B
+      // pair is real work, and losing it to a stray line tap with no notice was
+      // silent data loss, so it comes back with one tap.
+      const previous = { a: loop.a, b: loop.b }
       setABLoop({ a: null, b: null })
+      toast('A–B loop cleared.', 'info', {
+        label: 'Undo',
+        onClick: () => setABLoop(previous),
+      })
     }
   }
 
@@ -833,10 +866,17 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     [song],
   )
 
-  const applyAlignedSong = (updated: Song) => {
+  /** Adopt a newly-timed song. `closeFlow` is false for auto-align: closing in
+   * the same tick the flow reaches its 'done' stage meant its success screen —
+   * and the low-confidence warning with its "re-run with vocal isolation"
+   * button — rendered for zero frames, so the modal just vanished and the user
+   * had no idea whether the result was trustworthy. The flow closes itself
+   * through its own Close button instead. Tap-through has no result screen, so
+   * it still closes on completion. */
+  const applyAlignedSong = (updated: Song, { closeFlow = true }: { closeFlow?: boolean } = {}) => {
     setSong(updated)
     setLines(updated.lyrics.lines)
-    setAlignMode(null)
+    if (closeFlow) setAlignMode(null)
     // Yield so Whisper/Demucs workers finish tearing down and release WebGPU
     // memory before we load the embedding model for word-pair coloring.
     const yieldMs = getDeviceTier() === 'lite' ? 150 : 0
@@ -927,7 +967,11 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         ...song.lyrics,
         lines,
         enrichmentVersion: undefined,
-        ...(timingChanged ? { lineAlignmentQuality: undefined } : {}),
+        // Clear the flag only on the lines actually retimed — a hand edit is
+        // ground truth for THAT line and says nothing about the others.
+        ...(timingChanged
+          ? { lineAlignmentQuality: retimeQuality(song.lyrics.lineAlignmentQuality, song.lyrics.lines, lines) }
+          : {}),
         ...(phrases !== song.lyrics.phrases ? { phrases } : {}),
       },
       syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines } }),
@@ -1139,8 +1183,23 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
   }
 
+  /** Replacing overwrites `lines` wholesale — hand-tapped timing and an attached
+   * translation go with it, and nothing brings them back. Confirm first, naming
+   * exactly what is lost; silent when the import carries its own timing or
+   * translation, so the dialog stays meaningful. */
   const handleReplaceLyrics = async (imported: TimedLine[]) => {
     if (!song) return
+    const loss = describeReplaceLoss(song.lyrics.lines, imported)
+    if (loss) {
+      setPendingReplace({ imported, loss })
+      return
+    }
+    await applyReplaceLyrics(imported)
+  }
+
+  const applyReplaceLyrics = async (imported: TimedLine[]) => {
+    if (!song) return
+    setPendingReplace(null)
     setShowLyricsReimport(false)
     const sourceLanguage = inferSourceLanguage(imported)
     const translationLanguage: Language = sourceLanguage === 'ja' ? 'en' : 'ja'
@@ -1216,6 +1275,26 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
   }
 
+  if (songMissing) {
+    return (
+      <div role="alert" className="h-full bg-cinnabar-950 flex flex-col items-center justify-center gap-3 px-6 text-center">
+        <div className="w-12 h-12 rounded-2xl bg-cinnabar-900 border border-cinnabar-800 flex items-center justify-center text-cinnabar-accent/70 text-xl">♪</div>
+        <p className="text-white/80 text-sm font-medium text-balance">This song isn't in your library</p>
+        <p className="text-white/60 text-xs text-pretty max-w-[18rem] leading-relaxed">
+          It may have been deleted, or the link came from another device — songs are stored
+          on the device that added them, not in an account.
+        </p>
+        <button
+          type="button"
+          onClick={onBack}
+          className="mt-2 min-h-11 px-4 rounded-xl bg-cinnabar-accent text-white text-sm font-medium touch-manipulation active:scale-[0.97] transition-transform"
+        >
+          Back to library
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div
       className="h-full overflow-hidden bg-cinnabar-950 flex flex-col w-full max-w-7xl mx-auto md:border-x border-cinnabar-900/80"
@@ -1230,16 +1309,16 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       )}
       {/* Top bar */}
       <header className="flex items-center gap-2 px-4 py-2.5 border-b border-cinnabar-900 shrink-0">
-        <button onClick={onBack} className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-white/40 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]">← Back</button>
+        <button onClick={onBack} className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-white/65 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]">← Back</button>
         {song && (
           <div className="flex-1 min-w-0 px-1">
             <p className="text-sm text-white/85 truncate font-medium">{song.title}</p>
-            {song.artist && <p className="text-[11px] text-white/35 truncate">{song.artist}</p>}
+            {song.artist && <p className="text-[11px] text-white/60 truncate">{song.artist}</p>}
           </div>
         )}
         <div className="flex items-center gap-2 shrink-0">
           <PlayEditToggle mode={mode} onChange={setMode} />
-          <button onClick={() => onSettings?.()} className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-white/40 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]">Settings</button>
+          <button onClick={() => onSettings?.()} className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-white/65 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]">Settings</button>
         </div>
       </header>
 
@@ -1304,7 +1383,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
 
       {mode === 'play' && (isJapanese || hasTranslation || phraseChanges.length > 0) && (
         <div className={`${displayToolbarRow} md:py-2.5 py-2`}>
-          <p className="text-xs text-white/40 text-pretty shrink-0 hidden sm:block">Lyrics display</p>
+          <p className="text-xs text-white/60 text-pretty shrink-0 hidden sm:block">Lyrics display</p>
           <DisplayMenu
             isJapanese={isJapanese}
             hasTranslation={hasTranslation}
@@ -1315,6 +1394,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
             phrasingAvailable={phraseChanges.length > 0}
             sungLayoutActive={sungLayoutActive}
             phrasingBusy={phrasingBusy}
+            clozeMode={clozeMode}
+            clozeDifficulty={clozeDifficulty}
+            onToggleCloze={() => setClozeMode(!clozeMode)}
+            onClozeDifficulty={setClozeDifficulty}
             onFuriganaCycle={cycleFurigana}
             onToggleTranslation={() => setShowTranslation(!showTranslation)}
             onToggleLayout={() => setLyricsLayout(lyricsLayout === 'sideBySide' ? 'stacked' : 'sideBySide')}
@@ -1334,11 +1417,15 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       )}
 
       {/* Main: lyrics + controls. Controls dock to the bottom on mobile, sidebar on md+. */}
-      <div className="flex flex-1 min-h-0 flex-col md:flex-row md:items-stretch">
+      {/* Sidebar beside the lyrics on a wide OR short-and-wide viewport. A phone
+          held sideways used to stack header + toolbar + dock down a 360px
+          viewport, leaving under one lyric row visible. */}
+      <div className="flex flex-1 min-h-0 flex-col md:flex-row md:items-stretch [@media(max-height:520px)_and_(min-width:560px)]:flex-row [@media(max-height:520px)_and_(min-width:560px)]:items-stretch">
         <div className="flex flex-1 min-h-0 flex-col min-w-0">
           {mode === 'play' ? (
             <LyricDisplay
               abLoop={abLoop}
+              armingAB={armingAB}
               position={position}
               playlistActive={playlistActive}
               playlistEntries={playlistEntries}
@@ -1375,6 +1462,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               // tap pass leaves timings behind — which used to hide the tool
               // that produced them.
               showTapSync={canPlayback}
+              autoAlignSupported={getDeviceTier() !== 'manual'}
               onTapSync={() => beginAlignment('tap')}
               onReplaceLyrics={() => setShowLyricsReimport(true)}
               onPausePlayback={pausePlayback}
@@ -1387,7 +1475,6 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               recoverGapsStatus={recoverGapsStatus}
               alignmentConfidence={song?.lyrics.alignmentConfidence}
               accurateRealignReason={hasStoredAudio ? realignReason : null}
-              onAutoAlignAccurate={() => beginAlignment('auto')}
               onFixTiming={
                 anchorTargets.length > 0 && canPlayback
                   ? () => { setMode('play'); goToLyricLine(anchorTargets[0]) }
@@ -1408,9 +1495,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           volume={volume}
           volumePct={volumePct}
           onSpeedChange={(s) => {
-            setSpeed(s)
-            if (isYouTube) ytRef.current?.setRate(s)
-            else engine.setRate(s)
+            // YouTube honours only a fixed set of rates, so the store records
+            // what was actually applied rather than what was asked for.
+            if (isYouTube) setSpeed(ytRef.current?.setRate(s) ?? s)
+            else { setSpeed(s); engine.setRate(s) }
           }}
           onVolumeChange={(v) => {
             setVolume(v)
@@ -1499,7 +1587,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
                 type="button"
                 aria-label="Close"
                 onClick={requestLyricsReimportClose}
-                className="text-white/40 min-h-10 min-w-10 flex items-center justify-center hover:text-white/70"
+                className="text-white/60 min-h-10 min-w-10 flex items-center justify-center hover:text-white/70"
               >
                 ✕
               </button>
@@ -1524,6 +1612,17 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           main tree because that tree owns <YouTubePlayer>. Returning early
           unmounted the iframe and its position ticker, so the clock froze at
           0:00 and every tap on a YouTube song recorded the same timestamp. */}
+      {pendingReplace && (
+        <ConfirmDialog
+          title="Replace lyrics?"
+          message={pendingReplace.loss}
+          confirmLabel="Replace"
+          cancelLabel="Keep what I have"
+          onConfirm={() => { void applyReplaceLyrics(pendingReplace.imported) }}
+          onCancel={() => setPendingReplace(null)}
+        />
+      )}
+
       {song && alignMode === 'tap' && (
         <TapSyncEditor
           plainLines={song.lyrics.lines.map((l) => l.original)}
@@ -1542,9 +1641,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           }}
           speed={speed}
           onSpeedChange={(s) => {
-            setSpeed(s)
-            if (isYouTube) ytRef.current?.setRate(s)
-            else engine.setRate(s)
+            // YouTube honours only a fixed set of rates, so the store records
+            // what was actually applied rather than what was asked for.
+            if (isYouTube) setSpeed(ytRef.current?.setRate(s) ?? s)
+            else { setSpeed(s); engine.setRate(s) }
           }}
         />
       )}
@@ -1556,7 +1656,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           <AutoAlignFlow
             song={song}
             autoStart={autoAlignOnOpen}
-            onComplete={applyAlignedSong}
+            onComplete={(updated) => applyAlignedSong(updated, { closeFlow: false })}
             onClose={() => setAlignMode(null)}
           />
         </Suspense>

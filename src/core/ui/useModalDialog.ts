@@ -42,6 +42,11 @@ function ownerOfKeystroke(): HTMLElement | null {
  * The container needs `role="dialog"` (or `alertdialog`), `aria-modal="true"`
  * and `tabIndex={-1}` so it can hold focus when it contains no controls.
  *
+ * IMPORTANT: `enabled` must not go true before the element is in the DOM. The
+ * effect reads `ref.current` once; a null there means it bails and never
+ * re-runs, so a panel that renders a tick later (waiting on measured position,
+ * say) would silently get no Escape and no focus trap.
+ *
  * `onClose` is read through a ref, so callers can pass an inline arrow without
  * the trap tearing down and stealing focus back on every render.
  */

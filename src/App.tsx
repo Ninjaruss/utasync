@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { LibraryScreen } from './sources/LibraryScreen'
 import { AddSongSheet } from './sources/AddSongSheet'
 import { PlayerView } from './player/PlayerView'
@@ -71,21 +71,30 @@ export default function App() {
     })
   }, [toast])
 
+  // True once WE pushed a song entry, so leaving the song knows whether there is
+  // a library entry underneath to pop back to (a deep link has none).
+  const pushedSongEntry = useRef(false)
+
   // Reflect the routed view in the URL: push a history entry when forward-navigating
   // (open a song) so Back returns to the library and a song URL is shareable. The
   // landing view is not routed. pushState fires no event, so this can't loop with the
-  // popstate listener below.
+  // popstate listener below. Backward moves are NOT routed here — they go through
+  // leaveSong(), which pops.
   useEffect(() => {
     if (view === 'landing') return
     const target = routeToHash(view, songId)
-    if ((window.location.hash || '#/') !== target) window.history.pushState(null, '', target)
+    if ((window.location.hash || '#/') === target) return
+    window.history.pushState(null, '', target)
+    if (view === 'song') pushedSongEntry.current = true
   }, [view, songId])
 
-  // Back/Forward: reconcile state from the URL.
+  // Back/Forward: reconcile state from the URL. An empty hash is the library —
+  // returning null here left the UI frozen on whatever was already shown once
+  // Back reached the entry the app was first loaded on.
   useEffect(() => {
     const onPop = () => {
-      const r = parseHash()
-      if (!r) return
+      const r = parseHash() ?? { view: 'library' as View, songId: null }
+      if (r.view === 'library') pushedSongEntry.current = false
       setView(r.view)
       setSongId(r.songId)
       setAutoAlignOnOpen(false)
@@ -93,6 +102,23 @@ export default function App() {
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
+
+  /* Leaving a song POPS rather than pushing '#/'. Pushing made history
+   * [library, song, library], so the phone's Back gesture re-opened the song the
+   * user had just closed, and a second press did nothing — the app felt like it
+   * was fighting the back button. When the song was deep-linked there is no
+   * library entry beneath it, so fall back to replacing in place. */
+  const leaveSong = () => {
+    if (pushedSongEntry.current) {
+      pushedSongEntry.current = false
+      window.history.back() // the popstate listener above drives the state change
+      return
+    }
+    window.history.replaceState(null, '', '#/')
+    setView('library')
+    setSongId(null)
+    setAutoAlignOnOpen(false)
+  }
 
   const openSong = (id: string, opts?: { autoAlign?: boolean }) => {
     setSongId(id)
@@ -133,7 +159,7 @@ export default function App() {
             <PlayerView
               songId={songId}
               autoAlignOnOpen={autoAlignOnOpen}
-              onBack={() => { setView('library'); setAutoAlignOnOpen(false) }}
+              onBack={leaveSong}
               onSettings={() => setSettingsOpen(true)}
             />
           ) : (

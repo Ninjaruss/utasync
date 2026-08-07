@@ -313,7 +313,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
     </div>
   )
 
-  const fieldClass = 'w-full px-4 py-3 md:py-2 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/30'
+  const fieldClass = 'w-full px-4 py-3 md:py-2 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/55'
   const fileLabelClass = 'block w-full px-4 py-3 md:py-2 bg-cinnabar-900 text-white/70 rounded-xl border border-cinnabar-800 cursor-pointer text-sm'
 
   return (
@@ -340,7 +340,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
 
         {fileWarning && <InlineError>{fileWarning}</InlineError>}
 
-        <p className="text-white/40 text-xs text-pretty">
+        <p className="text-white/60 text-xs text-pretty">
           Check the song title and artist — lyrics search starts once a file and title are set. Adding artist improves matches.
         </p>
 
@@ -397,7 +397,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
           <button
             type="button"
             onClick={swapTitleArtist}
-            className="text-xs text-white/40 hover:text-white/70 underline underline-offset-2"
+            className="text-xs text-white/60 hover:text-white/70 underline underline-offset-2"
           >
             Swap title and artist
           </button>
@@ -440,7 +440,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
 
             {lyricsPhase.kind === 'manual' && (
               <>
-                <p className="text-white/35 text-xs">No match in the lyrics database — paste lyrics or choose a subtitle file.</p>
+                <p className="text-white/60 text-xs">No match in the lyrics database — paste lyrics or choose a subtitle file.</p>
                 {skipSearchButtons}
 
                 {lyricsPhase.source === 'paste' && (

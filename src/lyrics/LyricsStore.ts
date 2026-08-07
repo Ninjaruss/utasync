@@ -17,6 +17,7 @@ interface LyricsState {
   setShowTranslation: (on: boolean) => void
   setLyricsLayout: (layout: LyricsLayout) => void
   setClozeMode: (on: boolean) => void
+  setClozeDifficulty: (difficulty: ClozeDifficulty) => void
 }
 
 function activeLineAtPosition(lines: TimedLine[], position: number): number {
@@ -47,6 +48,7 @@ export const useLyricsStore = create<LyricsState>()(
       })),
       setLyricsLayout: (lyricsLayout) => set({ lyricsLayout }),
       setClozeMode: (clozeMode) => set({ clozeMode }),
+      setClozeDifficulty: (clozeDifficulty) => set({ clozeDifficulty }),
     }),
     {
       name: 'utasync-lyrics',
