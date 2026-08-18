@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 global.fetch = vi.fn()
 const mockFetch = (value: unknown) => vi.mocked(fetch).mockResolvedValue(value as Response)
 
-import { searchLRCLIB, fetchLRCFromLRCLIB, findSecondLanguageInLRCLIB, findLyrics } from '../../src/sources/lrclib'
+import { searchLRCLIB, fetchLRCFromLRCLIB, findSecondLanguageInLRCLIB, findLyrics, lyricsMatchScore } from '../../src/sources/lrclib'
 
 describe('searchLRCLIB', () => {
   beforeEach(() => { vi.resetAllMocks() })
@@ -348,5 +348,43 @@ describe('findLyrics', () => {
 
     await findLyrics('Rock n Roll Morning Light Falls Onto You', 'Asian Kung-Fu Generation')
     expect(searchCalls).toBeLessThan(10)
+  })
+})
+
+describe('lyricsMatchScore — version agreement', () => {
+  const result = (name: string, duration?: number) => ({
+    id: 1, name, artistName: 'Tatsuro Yamashita', syncedLyrics: null, plainLyrics: null, duration,
+  })
+
+  // The reported failure: the user's song declares a specific vocal version and
+  // LRCLIB only has the plain master. Without a version term those score equally
+  // on title similarity, and the wrong master wins on arbitrary ordering.
+  it('ranks the matching version above the plain master', () => {
+    const query = '幸せにさよなら (山下ヴォーカル・バージョン)'
+    const versioned = lyricsMatchScore(result(query), query, 'Tatsuro Yamashita')
+    const plain = lyricsMatchScore(result('幸せにさよなら'), query, 'Tatsuro Yamashita')
+    expect(versioned).toBeGreaterThan(plain)
+  })
+
+  it('ranks a matching live take above a studio master', () => {
+    const query = 'Song Name (Live)'
+    const live = lyricsMatchScore(result('Song Name (Live)'), query, 'Artist')
+    const studio = lyricsMatchScore(result('Song Name'), query, 'Artist')
+    expect(live).toBeGreaterThan(studio)
+  })
+
+  // Regression guard: the ordinary case is two plain titles, and this change must
+  // not disturb it.
+  it('does not change scoring when neither title declares a version', () => {
+    const score = lyricsMatchScore(result('Song Name'), 'Song Name', 'Tatsuro Yamashita')
+    expect(score).toBeGreaterThan(0.9)
+  })
+
+  it('still lets duration dominate a version guess', () => {
+    // Same version marker, but one candidate's length matches the real track.
+    const query = 'Song Name (Live)'
+    const right = lyricsMatchScore(result('Song Name (Live)', 230), query, 'Artist', 230)
+    const wrong = lyricsMatchScore(result('Song Name (Live)', 400), query, 'Artist', 230)
+    expect(right).toBeGreaterThan(wrong)
   })
 })
