@@ -3,6 +3,7 @@ import * as ort from 'onnxruntime-web'
 import { describeWorkerError } from './workerError'
 import { DEMUCS_MODEL_URL } from './demucsModelUrl'
 import { hannWindow, stft, istft } from './fft'
+import type { SeparationProvider } from './separationProvider'
 
 // ---------------------------------------------------------------------------
 // MDX-Net Kim_Vocal_2 parameters — must match what the model was trained with.
@@ -43,11 +44,6 @@ function resample(audio: Float32Array, fromRate: number, toRate: number): Float3
   return out
 }
 
-/** Same union as `SeparationProvider` in demucsSeparator.ts. Declared locally
- * rather than imported: this file is a worker entry point and must not pull in
- * the host module. Keep the two in sync. */
-type ProviderName = 'webgpu' | 'wasm'
-
 /**
  * Creates the session and returns which provider actually backs it.
  *
@@ -56,7 +52,7 @@ type ProviderName = 'webgpu' | 'wasm'
  * was indistinguishable from a WebGPU one. Trying each provider alone makes the
  * answer knowable, which is the whole point.
  */
-async function createSession(): Promise<{ session: ort.InferenceSession; provider: ProviderName }> {
+async function createSession(): Promise<{ session: ort.InferenceSession; provider: SeparationProvider }> {
   const gpu = (self.navigator as WorkerNavigator & { gpu?: { requestAdapter?: () => Promise<unknown> } }).gpu
   if (gpu?.requestAdapter) {
     try {
@@ -69,6 +65,8 @@ async function createSession(): Promise<{ session: ort.InferenceSession; provide
     } catch (err) {
       console.warn('[demucs.worker] WebGPU session failed, falling back to WASM:', err)
     }
+  } else {
+    console.info('[demucs.worker] No WebGPU adapter available, using WASM')
   }
   const session = await ort.InferenceSession.create(DEMUCS_MODEL_URL, {
     executionProviders: ['wasm'],
@@ -126,9 +124,12 @@ self.onmessage = async (e: MessageEvent) => {
       const nChunks = Math.max(1, Math.ceil((totalFrames - DIM_T) / STEP) + 1)
       const inputData = new Float32Array(4 * DIM_F * DIM_T) // reused each chunk
 
-      // Wall-clock since inference began, so the host can extrapolate a real ETA
-      // from the first completed chunk rather than guessing from a percentage.
-      const runStartMs = Date.now()
+      // Monotonic clock since inference began, so the host can extrapolate a real
+      // ETA from the first completed chunk rather than guessing from a percentage.
+      // performance.now() (unlike Date.now()) can't jump from an NTP correction
+      // or system clock change mid-run, which would otherwise corrupt the ETA
+      // projection this feeds.
+      const runStartMs = performance.now()
 
       for (let c = 0; c < nChunks; c++) {
         const tStart = c * STEP
@@ -178,7 +179,7 @@ self.onmessage = async (e: MessageEvent) => {
             progress: 8 + Math.round((c / nChunks) * 82),
             chunk: c + 1,
             nChunks,
-            elapsedMs: Date.now() - runStartMs,
+            elapsedMs: performance.now() - runStartMs,
           },
         })
       }

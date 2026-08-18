@@ -1,5 +1,6 @@
 /** On-device vocal separation via Demucs ONNX (full-tier, opt-in). */
 import { DEMUCS_MODEL_URL } from './demucsModelUrl'
+import type { SeparationProvider } from './separationProvider'
 import {
   ETA_PROMPT_THRESHOLD_MS,
   STALL_TIMEOUT_MS,
@@ -43,7 +44,7 @@ export function resetDemucsModelCache(): void {
   lastCheckedMs = 0
 }
 
-export type SeparationProvider = 'webgpu' | 'wasm'
+export type { SeparationProvider }
 
 /** Why a separation run ended without producing a stem. Each maps to different
  * user-facing copy; all of them route into the same raw-mix fallback. */
