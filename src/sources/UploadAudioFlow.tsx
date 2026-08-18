@@ -246,6 +246,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
       const song = buildSong({
         id: songId, title: title.trim(), artist: artist.trim(), audioStoredPath,
         lines: finalLines, sourceLanguage, translationLanguage, albumArtUrl,
+        durationSec,
       })
       await db.songs.put(song)
       setSaveProgress(null)
