@@ -81,6 +81,10 @@ export interface SeparateVocalsOptions {
    * Preferred cancellation path. Unlike `isCancelled`, aborting terminates the
    * worker immediately rather than waiting for it to send a progress message —
    * which a wedged session.run() never does.
+   *
+   * Assumed to be a fresh per-run AbortController. The abort listener is not
+   * removed when a run settles normally, so a single long-lived signal shared
+   * across many separations would accumulate listeners.
    */
   signal?: AbortSignal
   /** Legacy polling cancellation, checked on each progress message. Retained for
@@ -189,10 +193,11 @@ export async function separateVocals(
               armCap(Math.max(capMs, acceptedCapMs(projected)))
             }
           })
-          .catch(() => {
-            // A prompt that itself fails must not leave the run unbounded, but it
-            // is also not a reason to kill a healthy separation — the cap and the
-            // watchdog still apply.
+          .catch((err) => {
+            // Not fatal — the cap and watchdog still bound the run — but a prompt
+            // that throws will never ask again (askedEstimate stays true), so it
+            // must not fail invisibly.
+            console.error('[demucsSeparator] onLongEstimate rejected', err)
           })
       }
 
@@ -217,6 +222,10 @@ export async function separateVocals(
         } else if (type === 'error') {
           fail(new Error(String(payload)))
         } else if (type === 'progress') {
+          // terminate() should stop further messages, but that is the worker's
+          // invariant, not this closure's — re-arming timers after the run ended
+          // would resurrect a settled run.
+          if (settled) return
           if (options?.isCancelled?.()) {
             fail(new Error('cancelled'))
             return

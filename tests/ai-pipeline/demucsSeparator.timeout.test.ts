@@ -195,6 +195,67 @@ describe('separateVocals — long estimate', () => {
     await promise
   })
 
+  // The `if (settled) return` inside the estimate callback covers a real race:
+  // the prompt is modal to the user but not to the run, which keeps finishing,
+  // stalling, or timing out while they read it. These two pin both directions.
+  it('ignores a late skip when the result already arrived', async () => {
+    let choose: (c: 'skip' | 'continue') => void = () => {}
+    const onLongEstimate = vi.fn(
+      () => new Promise<'skip' | 'continue'>((resolve) => { choose = resolve }),
+    )
+    const promise = held(separateVocals(audio, { durationSec: 230, onLongEstimate }))
+    await vi.advanceTimersByTimeAsync(0)
+    load('wasm')
+
+    worker().emit({
+      type: 'progress',
+      payload: { progress: 8, chunk: 1, nChunks: 155, elapsedMs: 20_000 },
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(onLongEstimate).toHaveBeenCalledTimes(1)
+
+    // The run finishes while the prompt is still on screen.
+    const out = new Float32Array(2048)
+    worker().emit({ type: 'result', payload: out })
+
+    choose('skip')
+    await vi.advanceTimersByTimeAsync(0)
+
+    await expect(promise).resolves.toBe(out)
+  })
+
+  it('ignores a late continue when the run already stalled', async () => {
+    let choose: (c: 'skip' | 'continue') => void = () => {}
+    const onLongEstimate = vi.fn(
+      () => new Promise<'skip' | 'continue'>((resolve) => { choose = resolve }),
+    )
+    const promise = held(separateVocals(audio, { durationSec: 230, onLongEstimate }))
+    await vi.advanceTimersByTimeAsync(0)
+    load('wasm')
+
+    worker().emit({
+      type: 'progress',
+      payload: { progress: 8, chunk: 1, nChunks: 155, elapsedMs: 20_000 },
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(onLongEstimate).toHaveBeenCalledTimes(1)
+
+    // The worker wedges while the prompt is still on screen.
+    await vi.advanceTimersByTimeAsync(STALL_TIMEOUT_MS + 1_000)
+
+    // Accepting a longer wait must not raise the cap on a run that already gave up.
+    choose('continue')
+    await vi.advanceTimersByTimeAsync(0)
+
+    await expect(promise).rejects.toThrow(SeparationAbandonedError)
+    await promise.catch((e: SeparationAbandonedError) => expect(e.reason).toBe('stalled'))
+    expect(worker().terminated).toBe(true)
+    // `settle` already makes a late choice harmless to the promise, so the
+    // outcome alone cannot tell whether the callback's own `settled` guard
+    // works. A raised cap leaves a live timer behind a dead run; this can see it.
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('raises the cap once the user accepts a long run', async () => {
     const onLongEstimate = vi.fn(async () => 'continue' as const)
     const promise = held(separateVocals(audio, { durationSec: 230, onLongEstimate }))
