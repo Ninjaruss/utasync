@@ -1598,6 +1598,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               artist={song.artist}
               videoId={ytVideoId}
               sourceLanguage={song.lyrics.sourceLanguage}
+              durationSec={song.durationSec}
               onApply={handleReplaceLyrics}
               onCancel={requestLyricsReimportClose}
               onBusyChange={setLyricsReimportBusy}
