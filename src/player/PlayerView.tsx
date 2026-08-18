@@ -597,6 +597,32 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [songId])
 
+  // Learn the track length from playback and keep it. YouTube songs have no
+  // duration until the iframe reports one, and songs added before durationSec
+  // existed have none either — but LRCLIB matching leans on it heavily (it is
+  // the main thing telling two masters of the same song apart), so the first
+  // real value is worth storing.
+  //
+  // Never overwrite: a duration parsed from file metadata is exact, and a
+  // polled one is not. Absent-only keeps the better value.
+  //
+  // Reads engine.duration directly rather than the store's `duration`: when
+  // the same song is reopened without navigating away (isNewSong false above),
+  // the store still holds the previous load's duration for one render before
+  // this load's own setDuration call lands, and that stale value must not get
+  // written as if it were freshly learned.
+  useEffect(() => {
+    if (!song || song.durationSec != null) return
+    const learned = engine.duration
+    if (!Number.isFinite(learned) || learned <= 0) return
+    const updated: Song = { ...song, durationSec: learned }
+    void db.songs.put(updated).then(() => setSong(updated))
+  // engine is a stable ref (see engineRef above); including it in the
+  // dependency array would read .current during render, which the
+  // react-hooks/refs rule (rightly) disallows.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [song, duration])
+
   useEffect(() => {
     if (canRunWordAlignment()) {
       preloadGlossLexicon()
