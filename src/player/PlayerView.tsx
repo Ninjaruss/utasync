@@ -606,22 +606,22 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   // Never overwrite: a duration parsed from file metadata is exact, and a
   // polled one is not. Absent-only keeps the better value.
   //
-  // Reads engine.duration directly rather than the store's `duration`: when
-  // the same song is reopened without navigating away (isNewSong false above),
-  // the store still holds the previous load's duration for one render before
-  // this load's own setDuration call lands, and that stale value must not get
-  // written as if it were freshly learned.
+  // Reads the STORE's duration, not engine.duration. engine.load() only runs
+  // for songs with stored audio (see the load effect above), so on a
+  // YouTube-only song engine.duration is permanently 0 — and YouTube is the
+  // case this exists for. YouTubePlayer pushes its polled length straight to
+  // the store, so the store is the one source both providers feed.
+  //
+  // currentSongId guards against reading a length belonging to a different
+  // song: setCurrentSong resets duration to 0 on a song change, but the guard
+  // makes that ordering explicit rather than assumed.
   useEffect(() => {
     if (!song || song.durationSec != null) return
-    const learned = engine.duration
-    if (!Number.isFinite(learned) || learned <= 0) return
-    const updated: Song = { ...song, durationSec: learned }
+    if (currentSongId !== song.id) return
+    if (!Number.isFinite(duration) || duration <= 0) return
+    const updated: Song = { ...song, durationSec: duration }
     void db.songs.put(updated).then(() => setSong(updated))
-  // engine is a stable ref (see engineRef above); including it in the
-  // dependency array would read .current during render, which the
-  // react-hooks/refs rule (rightly) disallows.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [song, duration])
+  }, [song, duration, currentSongId])
 
   useEffect(() => {
     if (canRunWordAlignment()) {

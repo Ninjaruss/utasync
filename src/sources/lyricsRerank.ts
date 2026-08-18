@@ -26,7 +26,12 @@ export function findCloserCandidate<T extends RerankCandidate>(
   candidates: readonly T[],
   knownDurationSec: number | undefined,
 ): T | null {
-  if (knownDurationSec == null || !Number.isFinite(knownDurationSec)) return null
+  // `> 0`, not merely finite: a zero length is what an unreadable file or an
+  // unstarted player reports, and treating it as known would "match" it against
+  // an equally bogus zero-length candidate and recommend swapping to it.
+  if (knownDurationSec == null || !Number.isFinite(knownDurationSec) || knownDurationSec <= 0) {
+    return null
+  }
   // No stored length means no evidence the current pick is wrong.
   if (current.duration == null) return null
   if (durationMatches(current.duration, knownDurationSec)) return null

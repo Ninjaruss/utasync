@@ -22,6 +22,18 @@ describe('findCloserCandidate', () => {
     expect(findCloserCandidate(c(1, 300), [c(1, 300), c(2, 230)], undefined)).toBeNull()
   })
 
+  // A zero length is what an unreadable file or an unstarted player reports.
+  // Treated as "known", it matches an equally bogus zero-length candidate and
+  // recommends swapping to it — a nonsense prompt from two pieces of garbage.
+  it('treats a zero duration as unknown, not as a length to match', () => {
+    expect(findCloserCandidate(c(1, 250), [c(1, 250), c(2, 0)], 0)).toBeNull()
+  })
+
+  it('stays silent for a negative or infinite reported duration', () => {
+    expect(findCloserCandidate(c(1, 250), [c(1, 250), c(2, 230)], -5)).toBeNull()
+    expect(findCloserCandidate(c(1, 250), [c(1, 250), c(2, 230)], Number.POSITIVE_INFINITY)).toBeNull()
+  })
+
   it('stays silent when the current candidate has no duration to judge', () => {
     expect(findCloserCandidate(c(1), [c(1), c(2, 230)], 230)).toBeNull()
   })
