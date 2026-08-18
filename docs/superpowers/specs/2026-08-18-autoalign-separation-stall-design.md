@@ -66,7 +66,8 @@ so this is how the original report gets confirmed on the reporter's machine.
 cost.
 
 - Worker emits `{ chunk, nChunks, elapsedMs }` alongside each progress message.
-- Host extrapolates total runtime. If the projection exceeds **5 minutes**, it pauses
+- Host extrapolates total runtime. If the projection exceeds **3x the audio length**
+  (8 min floor), it pauses
   and asks: *"Vocal separation will take about N minutes on this device. Skip it and
   align on the original mix, or keep going?"*
 - **Skip** throws a sentinel error caught by the existing handler at
@@ -79,13 +80,13 @@ without a GPU.
 
 ### 3. Timeout backstop and a Cancel that lands
 
-- **Hard cap** on total separation: `max(10 min, durationSec * 4 seconds)`. For a 3:50
-  song that is ~15 minutes. Whisper's multiplier (20s of budget per second of audio)
+- **Hard cap** on total separation: `max(15 min, durationSec * 6 seconds)`. For a 3:50
+  song that is ~23 minutes. Whisper's multiplier (20s of budget per second of audio)
   is far too generous here — it would permit a ~77 minute run, i.e. exactly the bug
   being fixed. On expiry, terminate the worker and take the raw-mix fallback.
 - **Accepting a long ETA raises the cap.** If the user was shown a projection and chose
   "keep going", the cap is raised to `projectedMs * 1.5` for that run. Killing a user at
-  15 minutes after they explicitly accepted a 45-minute estimate would be a worse bug
+  23 minutes after they explicitly accepted a 45-minute estimate would be a worse bug
   than the one being fixed. The stall watchdog still applies unchanged — accepting a
   slow run is not accepting a wedged one.
 - **Cancel terminates immediately.** Replace the `isCancelled` polling callback with an
@@ -121,9 +122,44 @@ Deliberately excluded, to keep this shippable and reviewable:
 ## Success criteria
 
 - Auto-align can never sit longer than the hard cap without either finishing, asking the
-  user a question, or falling back. Absent an accepted ETA, that cap is ~15 minutes for a
+  user a question, or falling back. Absent an accepted ETA, that cap is ~23 minutes for a
   typical song — not the ~77 minutes a Whisper-shaped multiplier would allow.
 - Cancel takes effect within one second regardless of worker state.
 - The resolved execution provider is visible in the console for every separation run.
 - A user on a WASM-only device reaches timed lyrics — via the raw mix — rather than
   watching an unbounded progress bar.
+
+
+## Post-implementation: measured calibration (2026-08-18)
+
+The thresholds above were originally set from an assumption — that WebGPU
+separation "should take 1-2 minutes" for a typical song. Live verification
+refuted it, and both numbers were changed as a result.
+
+Measured on an Apple-silicon WebGPU device with a 10-second clip: ~2.15s per
+inference chunk steady-state, ~3.1s for chunk 1 (which carries warmup).
+Extrapolated to a 3:50 song (152 chunks):
+
+| | Multiple of audio length | 3:50 song |
+|---|---|---|
+| Actual run time | ~1.4x | ~5.5 min |
+| Projection from chunk 1 (what the prompt compares against) | ~2.05x | ~8 min |
+
+The original flat 5-minute prompt threshold sat *below* a healthy run, so the
+"this will take a while" dialog would have fired on nearly every full-length
+song on the GPU path — the failure mode where a warning becomes noise users
+learn to dismiss. The threshold is now `max(8 min, 3x duration)`, leaving ~1.5x
+margin over a healthy projection while still catching WASM, which is an order
+of magnitude worse.
+
+The hard cap moved from 4x to 6x for the same reason: 4x (~15 min) was close
+enough to a slow-but-healthy run that a slower GPU could have been killed
+mid-run, which would be a worse bug than the one being fixed.
+
+Also verified live: the worker reports `webgpu` on this machine, and an
+`AbortController` fired mid-inference rejected in **0 ms** — the inert-Cancel
+defect that motivated the work is genuinely gone.
+
+Still unverified anywhere: the WASM path itself. No machine in reach lacks a
+WebGPU adapter, so the no-GPU prompt and the WASM timing that triggers it rest
+on the tier logic and unit tests, not on observation.
