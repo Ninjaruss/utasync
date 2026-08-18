@@ -154,4 +154,27 @@ describe('AutoAlignFlow — abandoned vocal separation', () => {
     expect(separateVocals).not.toHaveBeenCalled()
     expect(await findByText(/skipped vocal isolation/i)).toBeTruthy()
   })
+
+  // Escape must back OUT of the expensive choice. useModalDialog maps Escape to
+  // onCancel, so these two prompts deliberately put "Skip it" there and "Keep
+  // going" on confirm — the inverse of the cancel dialog's arrangement. Get that
+  // backwards and Escape silently commits the user to a CPU grind, which is the
+  // very thing the original bug report was about.
+  it('skips separation when the CPU warning is dismissed with Escape', async () => {
+    vi.mocked(probeWebGPUAdapter).mockResolvedValue(false)
+
+    const { findByText } = render(
+      <AutoAlignFlow song={song} autoStart onClose={vi.fn()} onComplete={vi.fn()} />,
+    )
+
+    expect(await findByText(/No GPU acceleration here/i)).toBeTruthy()
+
+    // Fired on document (capture) because that is where useModalDialog binds —
+    // calling onCancel directly would prove nothing about the key binding.
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    await waitFor(() => expect(transcribeMock).toHaveBeenCalled())
+    expect(separateVocals).not.toHaveBeenCalled()
+    expect(await findByText(/skipped vocal isolation/i)).toBeTruthy()
+  })
 })

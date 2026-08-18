@@ -777,25 +777,33 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
         )}
 
         {/* Only one dialog may own the overlay: the cancel confirmation wins,
-            and its "Keep running" brings the pending question back. */}
+            and its "Keep running" brings the pending question back.
+
+            Both questions put "Keep going" on confirm and "Skip it" on cancel,
+            which reads backwards next to the cancel dialog above but is
+            deliberate: useModalDialog maps Escape to onCancel, so this is what
+            makes Escape mean "back out of the expensive thing". Committing to a
+            multi-minute CPU grind is the costly, hard-to-undo choice here — so
+            it belongs on confirm, and skipping (which still yields aligned
+            lyrics, just from the raw mix) is the safe default Escape lands on. */}
         {!confirmCancel && etaPrompt && (
           <ConfirmDialog
             title="This will take a while"
             message={`Isolating vocals will take ${formatEta(etaPrompt.projectedMs)} on this device. You can skip it and align on the original mix — slightly less accurate, but much faster.`}
-            confirmLabel="Skip it"
-            cancelLabel="Keep going"
-            onConfirm={() => etaPrompt.decide('skip')}
-            onCancel={() => etaPrompt.decide('continue')}
+            confirmLabel="Keep going"
+            cancelLabel="Skip it"
+            onConfirm={() => etaPrompt.decide('continue')}
+            onCancel={() => etaPrompt.decide('skip')}
           />
         )}
         {!confirmCancel && noGpuPrompt && (
           <ConfirmDialog
             title="No GPU acceleration here"
             message="This browser can't use your GPU for vocal isolation, so it would run on the CPU — usually far longer than the song itself. You can skip it and align on the original mix: slightly less accurate, but much faster."
-            confirmLabel="Skip it"
-            cancelLabel="Keep going"
-            onConfirm={() => noGpuPrompt.decide(false)}
-            onCancel={() => noGpuPrompt.decide(true)}
+            confirmLabel="Keep going"
+            cancelLabel="Skip it"
+            onConfirm={() => noGpuPrompt.decide(true)}
+            onCancel={() => noGpuPrompt.decide(false)}
           />
         )}
 
