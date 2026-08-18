@@ -74,7 +74,7 @@ describe('projectSeparationMs', () => {
 
 describe('separationCapMs', () => {
   // The whole point of the cap: Whisper's 20s-per-audio-second budget would
-  // allow ~57 minutes on a 3:50 song, i.e. the exact stall being fixed.
+  // allow ~77 minutes on a 3:50 song, i.e. the exact stall being fixed.
   it('caps a 3:50 song well under an hour', () => {
     const cap = separationCapMs(230)
     expect(cap).toBeLessThan(20 * 60_000)
@@ -152,7 +152,7 @@ export const ETA_PROMPT_THRESHOLD_MS = 5 * 60_000
 export const STALL_TIMEOUT_MS = 90_000
 
 /** Budget per second of audio for the un-negotiated hard cap. Whisper uses 20x
- * (whisperTranscriber.ts), which on a 3:50 song permits ~57 minutes — precisely
+ * (whisperTranscriber.ts), which on a 3:50 song permits ~77 minutes — precisely
  * the stall this module exists to prevent. Separation gets 4x. */
 const CAP_MULTIPLIER = 4_000
 
