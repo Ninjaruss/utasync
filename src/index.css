@@ -92,3 +92,30 @@
     font-size: max(16px, 1em);
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Range sliders: a real touch target.
+ *
+ * Measured 2026-08-18 in the player at 375x812: the volume input rendered
+ * 279x4 — the ONLY control in the player below WCAG 2.5.8's 24x24 minimum, and
+ * far below the 44px Apple's HIG asks for. Tailwind's `h-1` sizes the element
+ * box, not just the visual track, so the entire grab area was 4px tall and
+ * effectively undraggable with a finger.
+ *
+ * Only the height changes. Native rendering and `accent-color` are kept
+ * deliberately: an `appearance: none` rewrite was tried and rejected here,
+ * because it loses the filled portion left of the thumb (WebKit has no
+ * equivalent of `::-moz-range-progress`), which is what communicates the value
+ * at a glance. It is also the lower-risk option cross-browser — these controls
+ * were already natively rendered, so this changes one property rather than
+ * taking over rendering on every engine.
+ *
+ * `accent-color` support (Chrome 93 / Safari 15.4 / Firefox 92) sits at or
+ * below the baseline pinned in vite.config.ts, so it is safe to rely on.
+ * Track thickness still varies slightly by engine; that is cosmetic.
+ * ------------------------------------------------------------------------- */
+.slider-touch {
+  height: 44px;
+  cursor: pointer;
+  touch-action: manipulation;
+}

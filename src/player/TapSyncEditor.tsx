@@ -184,7 +184,7 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
             value={Math.round(volume * 100)}
             onChange={(e) => onVolumeChange(Number(e.target.value) / 100)}
             aria-label="Volume"
-            className="flex-1 accent-cinnabar-accent h-1"
+            className="flex-1 accent-cinnabar-accent slider-touch"
           />
           <span className="text-white/60 text-xs w-9 text-right tabular-nums shrink-0">{Math.round(volume * 100)}%</span>
         </div>

@@ -291,7 +291,7 @@ function CompactVolume({ volumePct, onVolumeChange }: { volumePct: number; onVol
         step={1}
         value={volumePct}
         onChange={(e) => onVolumeChange(Number(e.target.value) / 100)}
-        className="flex-1 accent-cinnabar-accent touch-manipulation h-1"
+        className="flex-1 accent-cinnabar-accent slider-touch"
         aria-label="Volume"
       />
       <span className="text-white/70 text-xs w-10 text-right tabular-nums shrink-0">{volumePct}%</span>
@@ -1037,7 +1037,7 @@ function SpeedControl({
           onChange={(e) => onSpeedChange(Number(e.target.value) / 100)}
           onDoubleClick={() => onSpeedChange(NORMAL_SPEED)}
           onPointerUp={handleSliderPointerUp}
-          className="flex-1 accent-cinnabar-accent touch-manipulation h-1.5"
+          className="flex-1 accent-cinnabar-accent slider-touch"
           aria-label="Playback speed"
           aria-valuetext={`${speedPct} percent`}
         />

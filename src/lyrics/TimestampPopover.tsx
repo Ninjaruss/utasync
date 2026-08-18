@@ -229,7 +229,7 @@ export function TimestampPopover({ line, autoEnd, playhead, onCommit, onClose, o
         onPointerCancel={() => { setDragCenter(null); onScrubEnd?.() }}
         onChange={(e) => move(Number(e.target.value))}
         aria-label={mode === 'start' ? 'Scrub start timestamp' : mode === 'end' ? 'Scrub end timestamp' : 'Move whole line'}
-        className="w-full accent-cinnabar-accent"
+        className="w-full accent-cinnabar-accent slider-touch"
       />
       <div className="flex items-center gap-1.5">
         {([-0.5, -0.1, 0.1, 0.5] as const).map((d) => (
