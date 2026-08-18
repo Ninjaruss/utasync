@@ -14,11 +14,15 @@ export const ETA_PROMPT_THRESHOLD_MS = 5 * 60_000
 export const STALL_TIMEOUT_MS = 90_000
 
 /** Budget per second of audio for the un-negotiated hard cap. Whisper uses 20x
- * (whisperTranscriber.ts), which on a 3:50 song permits ~57 minutes — precisely
+ * (whisperTranscriber.ts), which on a 3:50 song permits ~77 minutes — precisely
  * the stall this module exists to prevent. Separation gets 4x. */
 const CAP_MULTIPLIER = 4_000
 
 const CAP_FLOOR_MS = 10 * 60_000
+
+/** Headroom over an accepted estimate. A user who agreed to wait ~45 minutes
+ * must not be killed at exactly 45 — projections drift. */
+const ACCEPTED_CAP_HEADROOM = 1.5
 
 /** Projected total runtime from chunks completed so far, or null when there is
  * not yet enough information to make an honest estimate. */
@@ -43,7 +47,7 @@ export function separationCapMs(durationSec: number): number {
 /** Cap for a run the user accepted after seeing an estimate. */
 export function acceptedCapMs(projectedMs: number): number {
   if (!Number.isFinite(projectedMs) || projectedMs <= 0) return CAP_FLOOR_MS
-  return Math.round(projectedMs * 1.5)
+  return Math.round(projectedMs * ACCEPTED_CAP_HEADROOM)
 }
 
 /** Human-readable ETA. Never claims precision the projection does not have. */
