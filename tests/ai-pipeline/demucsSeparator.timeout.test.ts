@@ -109,7 +109,9 @@ describe('separateVocals — hard cap', () => {
     load()
 
     // Progress keeps arriving (so the watchdog never fires) but far too slowly.
-    for (let i = 0; i < 40; i++) {
+    // Must exceed separationCapMs(230) — 23 min since the cap was recalibrated
+    // against measured GPU cost — so run well past that rather than just past it.
+    for (let i = 0; i < 60; i++) {
       await vi.advanceTimersByTimeAsync(30_000)
       worker().emit({
         type: 'progress',

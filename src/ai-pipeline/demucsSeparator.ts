@@ -2,7 +2,7 @@
 import { DEMUCS_MODEL_URL } from './demucsModelUrl'
 import type { SeparationProvider } from './separationProvider'
 import {
-  ETA_PROMPT_THRESHOLD_MS,
+  etaPromptThresholdMs,
   STALL_TIMEOUT_MS,
   acceptedCapMs,
   projectSeparationMs,
@@ -73,7 +73,7 @@ export interface SeparateVocalsOptions {
   onProvider?: (provider: SeparationProvider) => void
   /**
    * Fires at most once, after the first chunk, and only when the projected total
-   * exceeds ETA_PROMPT_THRESHOLD_MS. Resolve 'skip' to abandon separation;
+   * exceeds etaPromptThresholdMs(durationSec). Resolve 'skip' to abandon separation;
    * 'continue' accepts the wait and raises the cap accordingly.
    */
   onLongEstimate?: (projectedMs: number) => Promise<'skip' | 'continue'>
@@ -180,7 +180,7 @@ export async function separateVocals(
           payload?.nChunks ?? 0,
           payload?.elapsedMs ?? 0,
         )
-        if (projected === null || projected <= ETA_PROMPT_THRESHOLD_MS) return
+        if (projected === null || projected <= etaPromptThresholdMs(options?.durationSec ?? 0)) return
         askedEstimate = true
         void options
           .onLongEstimate(projected)
