@@ -17,6 +17,7 @@ const settings = vi.hoisted(() => ({ consented: true, vocalSep: null as boolean 
 vi.mock('../../src/ai-pipeline/capability', () => ({
   getDeviceTier: () => deviceTier.current,
   canUseVocalSeparation: () => vocalSepSupported.current,
+  probeWebGPUAdapter: async () => true,
 }))
 
 // Only reached when vocalSepSupported is flipped on (the demucs-missing copy test).
