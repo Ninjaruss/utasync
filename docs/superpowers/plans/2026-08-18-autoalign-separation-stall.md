@@ -1133,6 +1133,59 @@ to:
               cancelRun()
 ```
 
+- [ ] **Step 6b: Ask upfront when there is no WebGPU adapter**
+
+Discovered during Task 2's review: `probeWebGPUAdapter()` had no consumer anywhere in this plan — the worker does its own adapter check (correctly; main-thread and worker adapter availability can differ). A diagnostic that diagnoses nothing should not ship, so it gets wired here.
+
+When the main-thread probe definitively reports no adapter, separation is *certain* to run on WASM. Asking then — before the ~50MB Demucs model is downloaded and before a single chunk runs — is strictly better than asking after chunk 1. It preserves the approved "user decides" semantics from spec §2 rather than refusing on the user's behalf; it just asks earlier and far more cheaply.
+
+The copy must not fabricate a precise ETA, because no chunk has been measured yet. It states the mechanism, not a number.
+
+In `start()`, immediately before the `if (willSeparate) {` block, add:
+
+```tsx
+      // A definitive "no adapter" means separation WILL run on WASM — minutes
+      // become tens of minutes. Ask before paying for the model download, not
+      // after. Uses the same prompt machinery as the post-chunk-1 estimate.
+      let separationAccepted = true
+      if (willSeparate && !(await probeWebGPUAdapter())) {
+        separationAccepted = await new Promise<boolean>((resolve) => {
+          setNoGpuPrompt({ decide: (keepGoing) => { setNoGpuPrompt(null); resolve(keepGoing) } })
+        })
+        if (cancelledRef.current) return
+        if (!separationAccepted) {
+          setRetryNotice('Skipped vocal isolation — aligning on the original mix instead.')
+        }
+      }
+```
+
+and change the separation guard from `if (willSeparate) {` to `if (willSeparate && separationAccepted) {`.
+
+Add the accompanying state beside `etaPrompt`:
+
+```tsx
+  const [noGpuPrompt, setNoGpuPrompt] = useState<{ decide: (keepGoing: boolean) => void } | null>(null)
+```
+
+Add `probeWebGPUAdapter` to the existing `./capability` import.
+
+Render it next to the ETA dialog:
+
+```tsx
+        {noGpuPrompt && (
+          <ConfirmDialog
+            title="No GPU acceleration here"
+            message="This browser can't use your GPU for vocal isolation, so it would run on the CPU — usually far longer than the song itself. You can skip it and align on the original mix: slightly less accurate, but much faster."
+            confirmLabel="Skip it"
+            cancelLabel="Keep going"
+            onConfirm={() => noGpuPrompt.decide(false)}
+            onCancel={() => noGpuPrompt.decide(true)}
+          />
+        )}
+```
+
+Add a test to `AutoAlignFlow.separation-stall.test.tsx` asserting that when `probeWebGPUAdapter` resolves false, `separateVocals` is never called and transcription still runs on the decoded mix. Note the existing mock in that file resolves `probeWebGPUAdapter` to `true`, which keeps every other test in the file on the normal path.
+
 - [ ] **Step 7: Render the ETA question and the remaining-time label**
 
 Immediately after the `{confirmCancel && (...)}` block (which ends at line 694), add:
