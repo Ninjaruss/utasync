@@ -43,6 +43,39 @@ function resample(audio: Float32Array, fromRate: number, toRate: number): Float3
   return out
 }
 
+/** Same union as `SeparationProvider` in demucsSeparator.ts. Declared locally
+ * rather than imported: this file is a worker entry point and must not pull in
+ * the host module. Keep the two in sync. */
+type ProviderName = 'webgpu' | 'wasm'
+
+/**
+ * Creates the session and returns which provider actually backs it.
+ *
+ * Passing `['webgpu', 'wasm']` lets onnxruntime fall back silently, and ORT
+ * exposes no way to ask which one it chose — so a WASM run (hours, not minutes)
+ * was indistinguishable from a WebGPU one. Trying each provider alone makes the
+ * answer knowable, which is the whole point.
+ */
+async function createSession(): Promise<{ session: ort.InferenceSession; provider: ProviderName }> {
+  const gpu = (self.navigator as WorkerNavigator & { gpu?: { requestAdapter?: () => Promise<unknown> } }).gpu
+  if (gpu?.requestAdapter) {
+    try {
+      if (await gpu.requestAdapter()) {
+        const session = await ort.InferenceSession.create(DEMUCS_MODEL_URL, {
+          executionProviders: ['webgpu'],
+        })
+        return { session, provider: 'webgpu' }
+      }
+    } catch (err) {
+      console.warn('[demucs.worker] WebGPU session failed, falling back to WASM:', err)
+    }
+  }
+  const session = await ort.InferenceSession.create(DEMUCS_MODEL_URL, {
+    executionProviders: ['wasm'],
+  })
+  return { session, provider: 'wasm' }
+}
+
 self.onmessage = async (e: MessageEvent) => {
   const { type, payload } = e.data
 
@@ -54,10 +87,9 @@ self.onmessage = async (e: MessageEvent) => {
       // InferenceSession.create.
       ort.env.wasm.wasmPaths = demucsOrtWasmBaseUrl()
       ort.env.wasm.proxy = false
-      session = await ort.InferenceSession.create(DEMUCS_MODEL_URL, {
-        executionProviders: ['webgpu', 'wasm'],
-      })
-      self.postMessage({ type: 'loaded' })
+      const created = await createSession()
+      session = created.session
+      self.postMessage({ type: 'loaded', payload: { provider: created.provider } })
     } catch (err) {
       self.postMessage({
         type: 'error',
@@ -93,6 +125,10 @@ self.onmessage = async (e: MessageEvent) => {
       // 4. Chunked inference
       const nChunks = Math.max(1, Math.ceil((totalFrames - DIM_T) / STEP) + 1)
       const inputData = new Float32Array(4 * DIM_F * DIM_T) // reused each chunk
+
+      // Wall-clock since inference began, so the host can extrapolate a real ETA
+      // from the first completed chunk rather than guessing from a percentage.
+      const runStartMs = Date.now()
 
       for (let c = 0; c < nChunks; c++) {
         const tStart = c * STEP
@@ -137,7 +173,13 @@ self.onmessage = async (e: MessageEvent) => {
 
         self.postMessage({
           type: 'progress',
-          payload: { status: 'separating', progress: 8 + Math.round((c / nChunks) * 82) },
+          payload: {
+            status: 'separating',
+            progress: 8 + Math.round((c / nChunks) * 82),
+            chunk: c + 1,
+            nChunks,
+            elapsedMs: Date.now() - runStartMs,
+          },
         })
       }
 
