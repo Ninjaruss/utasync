@@ -143,13 +143,27 @@ Vitest is configured in `vite.config.ts` with a jsdom environment. Run a single 
 
 ## Browser support
 
+The baseline below is **measured, not asserted**. Run
+`npx vite build && node scripts/bundle-syntax-floor.mjs` to re-derive it — the
+script scans the emitted bundle for syntax and runtime APIs with known browser
+floors and reports the highest. Re-run it after dependency bumps.
+
 | Feature | Requirement |
 |---|---|
-| Core player & YouTube mode | Modern evergreen browser |
+| Core player & YouTube mode | **Chrome/Edge 98+, Safari 15.4+, Firefox 94+** |
 | Local audio + OPFS | Chromium-based or Safari 17+ |
 | Auto-align (Whisper) | WebGPU or WASM fallback; 4 GB+ RAM recommended |
 | Vocal separation | WebGPU + 6 GB+ RAM; demucs model file |
 | PWA install | HTTPS + service worker support |
+
+Below the baseline the app does not degrade — it fails to parse and renders a
+blank page. `build.target` in `vite.config.ts` is pinned to these versions so the
+floor cannot drift upward silently when a dependency adopts newer syntax.
+
+Note that `build.target` downlevels **syntax only**; it never polyfills runtime
+APIs. The Safari 15.4 floor is set by `structuredClone` and `Object.hasOwn` inside
+the transformers worker bundles, so lowering the target would produce a bundle
+that parses and then throws — a worse promise than declining support.
 
 ## Troubleshooting
 

@@ -377,7 +377,23 @@ export default defineConfig({
     },
   },
   build: {
-    target: 'esnext',
+    // Pinned, not 'esnext'. With esnext nothing is downlevelled, so the real
+    // minimum browser is whatever the emitted syntax happens to demand — a
+    // number nobody had measured and no check enforced, which drifts upward
+    // silently every time a dependency adopts newer syntax. The failure mode is
+    // a parse error and a blank page, not degraded behaviour.
+    //
+    // These versions are MEASURED, not guessed: `node scripts/bundle-syntax-floor.mjs`
+    // (after a build) reports what the output actually requires. Re-run it after
+    // dependency bumps; if the floor rises above these, that is a deliberate
+    // support decision to make, not a silent regression.
+    //
+    // Deliberately NOT set lower. build.target downlevels SYNTAX only — it never
+    // polyfills runtime APIs, and the transformers worker bundles call
+    // structuredClone / Object.hasOwn (Safari 15.4). Targeting anything older
+    // would produce a bundle that parses and then throws, which is a worse
+    // promise than not supporting the browser at all.
+    target: ['chrome98', 'edge98', 'firefox94', 'safari15.4'],
   },
   worker: { format: 'es' },
   // Explicitly disable cross-origin isolation so YouTube embeds work in Firefox/Zen.
