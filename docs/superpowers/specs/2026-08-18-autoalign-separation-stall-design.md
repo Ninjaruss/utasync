@@ -79,8 +79,15 @@ without a GPU.
 
 ### 3. Timeout backstop and a Cancel that lands
 
-- **Hard cap** on total separation, sized like Whisper's: `max(10 min, durationSec * 15)`.
-  On expiry, terminate the worker and take the raw-mix fallback.
+- **Hard cap** on total separation: `max(10 min, durationSec * 4 seconds)`. For a 3:50
+  song that is ~15 minutes. Whisper's multiplier (20s of budget per second of audio)
+  is far too generous here — it would permit a ~57 minute run, i.e. exactly the bug
+  being fixed. On expiry, terminate the worker and take the raw-mix fallback.
+- **Accepting a long ETA raises the cap.** If the user was shown a projection and chose
+  "keep going", the cap is raised to `projectedMs * 1.5` for that run. Killing a user at
+  15 minutes after they explicitly accepted a 45-minute estimate would be a worse bug
+  than the one being fixed. The stall watchdog still applies unchanged — accepting a
+  slow run is not accepting a wedged one.
 - **Cancel terminates immediately.** Replace the `isCancelled` polling callback with an
   `AbortSignal` whose `abort` handler calls `worker.terminate()` directly. Correctness no
   longer depends on the worker being responsive enough to send a progress message.
@@ -114,7 +121,8 @@ Deliberately excluded, to keep this shippable and reviewable:
 ## Success criteria
 
 - Auto-align can never sit longer than the hard cap without either finishing, asking the
-  user a question, or falling back.
+  user a question, or falling back. Absent an accepted ETA, that cap is ~15 minutes for a
+  typical song — not the ~57 minutes a Whisper-shaped multiplier would allow.
 - Cancel takes effect within one second regardless of worker state.
 - The resolved execution provider is visible in the console for every separation run.
 - A user on a WASM-only device reaches timed lyrics — via the raw mix — rather than
