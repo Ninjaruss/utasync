@@ -44,3 +44,37 @@ export function getDeviceTier(): DeviceTier {
 export function canUseVocalSeparation(tier: DeviceTier = getDeviceTier()): boolean {
   return tier === 'full'
 }
+
+type GpuLike = { requestAdapter?: () => Promise<unknown> }
+
+let adapterProbe: Promise<boolean> | null = null
+
+/**
+ * True when a WebGPU **adapter** can actually be acquired.
+ *
+ * `hasWebGPU()` only reports that `navigator.gpu` exists, which is not the same
+ * question: on Linux, on blocklisted GPUs, and in some worker contexts
+ * `requestAdapter()` resolves null, onnxruntime falls back to WASM, and a
+ * separation run that should take two minutes takes an hour.
+ *
+ * Memoized — hardware cannot change mid-session, and the probe is not free.
+ */
+export function probeWebGPUAdapter(): Promise<boolean> {
+  if (!adapterProbe) {
+    adapterProbe = (async () => {
+      const gpu = (navigator as Navigator & { gpu?: GpuLike }).gpu
+      if (!gpu?.requestAdapter) return false
+      try {
+        return !!(await gpu.requestAdapter())
+      } catch {
+        return false
+      }
+    })()
+  }
+  return adapterProbe
+}
+
+/** Clears the memoized probe (tests). */
+export function resetWebGPUAdapterProbe(): void {
+  adapterProbe = null
+}
