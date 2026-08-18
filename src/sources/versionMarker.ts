@@ -13,21 +13,32 @@
  * (`\w`, i.e. `[A-Za-z0-9_]`) and a non-word character. Katakana/kanji are not
  * `\w`, so wrapping a whole `(latin|japanese)` alternation in `\b...\b` silently
  * fails to match the Japanese side (both neighbours are non-word, so there is no
- * boundary at all). Each pattern below therefore scopes `\b` to only its Latin
- * alternative(s) and leaves the Japanese alternative(s) unanchored.
+ * boundary at all). But dropping `\b` entirely for the Japanese side just trades
+ * one bug for another: `ライブ` ("live") is then a substring match inside
+ * `東京ライブハウス` ("Tokyo live house", a venue name) or `ライブが始まる`
+ * ("the live begins", a lyric fragment) — neither of which declares a version.
+ *
+ * The fix used below: match the Latin alternative(s) with `\b` against the raw
+ * segment (unambiguous — Latin `\w` boundaries work normally), but require the
+ * Japanese alternative(s) to equal an *entire token* of the segment, where a
+ * token is delimited by whitespace or a small set of title-separator characters
+ * (`・･/／|｜,、`). `山下ヴォーカル・バージョン` tokenizes to
+ * `[山下ヴォーカル, バージョン]`, so `バージョン` matches as a whole token; the
+ * false positives above don't, because their marker substring is glued to
+ * surrounding kanji/kana with no separator in between.
  */
 
 /** Canonical token per marker family, so spelling variants compare equal. */
-const MARKER_PATTERNS: Array<{ token: string; re: RegExp }> = [
-  { token: 'live', re: /\blive\b|ライブ|ライヴ/i },
-  { token: 'acoustic', re: /\bacoustic\b|アコースティック/i },
-  { token: 'instrumental', re: /\binstrumental\b|\binst\.?\b|インスト(ゥルメンタル)?/i },
-  { token: 'remaster', re: /\bremaster(ed)?\b|リマスター/i },
-  { token: 'remix', re: /\bremix\b|リミックス/i },
-  { token: 'karaoke', re: /\bkaraoke\b|off ?vocal|カラオケ/i },
+const MARKER_PATTERNS: Array<{ token: string; latin: RegExp; jp: RegExp }> = [
+  { token: 'live', latin: /\blive\b/i, jp: /^(ライブ|ライヴ)$/ },
+  { token: 'acoustic', latin: /\bacoustic\b/i, jp: /^アコースティック$/ },
+  { token: 'instrumental', latin: /\binstrumental\b|\binst\.?\b/i, jp: /^インスト(ゥルメンタル)?$/ },
+  { token: 'remaster', latin: /\bremaster(ed)?\b/i, jp: /^リマスター$/ },
+  { token: 'remix', latin: /\bremix\b/i, jp: /^リミックス$/ },
+  { token: 'karaoke', latin: /\bkaraoke\b|off ?vocal/i, jp: /^カラオケ$/ },
   // Generic "some other version" — deliberately last, and deliberately broad
   // enough to catch 山下ヴォーカル・バージョン, which is the reported case.
-  { token: 'version', re: /\bver(sion)?\.?\b|バージョン|ヴァージョン/i },
+  { token: 'version', latin: /\bver(sion)?\.?\b/i, jp: /^(バージョン|ヴァージョン)$/ },
 ]
 
 /**
@@ -35,6 +46,9 @@ const MARKER_PATTERNS: Array<{ token: string; re: RegExp }> = [
  * Treating these as versions would penalise almost every correct YouTube match.
  */
 const NOT_A_VERSION = /\b(official|music ?video|m\/?v|lyric[s]?|audio|hd|4k|visualizer|color coded|explicit|clean)\b/i
+
+/** Separators that delimit tokens within a title segment. */
+const TOKEN_SEPARATORS = /[\s・･/／|｜,、]+/
 
 /** The bracketed or trailing-dash segments of a title, where markers live. */
 function candidateSegments(title: string): string[] {
@@ -51,8 +65,10 @@ export function extractVersionMarkers(title: string): string[] {
   const found = new Set<string>()
   for (const seg of candidateSegments(title)) {
     if (NOT_A_VERSION.test(seg)) continue
-    for (const { token, re } of MARKER_PATTERNS) {
-      if (re.test(seg)) {
+    const tokens = seg.split(TOKEN_SEPARATORS).filter(Boolean)
+    for (const { token, latin, jp } of MARKER_PATTERNS) {
+      const matched = latin.test(seg) || tokens.some((t) => jp.test(t))
+      if (matched) {
         found.add(token)
         // One family per segment: "2019 Remastered Version" is a remaster, not
         // also a generic "version".

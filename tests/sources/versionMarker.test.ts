@@ -32,6 +32,17 @@ describe('extractVersionMarkers', () => {
     expect(extractVersionMarkers('Song Name [Acoustic]')).toEqual(['acoustic'])
     expect(extractVersionMarkers('Song Name - Live')).toEqual(['live'])
   })
+
+  it('does not match a marker glued to surrounding text as a substring', () => {
+    // 東京ライブハウス = "Tokyo live house" — a venue name, not a live recording.
+    expect(extractVersionMarkers('アーティスト (東京ライブハウス)')).toEqual([])
+    // ライブが始まる = "the live begins" — a lyric fragment, not a version marker.
+    expect(extractVersionMarkers('曲名 (ライブが始まる)')).toEqual([])
+    // 最新バージョン情報 = "latest version info" — describing software, not the track.
+    expect(extractVersionMarkers('ソフトウェア (最新バージョン情報)')).toEqual([])
+    // プログラムバージョン管理 = "program version control" — a software concept.
+    expect(extractVersionMarkers('曲名 (プログラムバージョン管理)')).toEqual([])
+  })
 })
 
 describe('versionAgreement', () => {
