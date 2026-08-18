@@ -94,4 +94,29 @@ describe('probeWebGPUAdapter', () => {
     await probeWebGPUAdapter()
     expect(calls).toBe(1)
   })
+
+  it('does not cache a thrown error — a later call can still succeed', async () => {
+    vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => { throw new Error('transient') } } })
+    expect(await probeWebGPUAdapter()).toBe(false)
+
+    vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => ({}) } })
+    expect(await probeWebGPUAdapter()).toBe(true)
+  })
+
+  it('caches a definitive null — requestAdapter is not called again', async () => {
+    let calls = 0
+    vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => { calls++; return null } } })
+    await probeWebGPUAdapter()
+    await probeWebGPUAdapter()
+    expect(calls).toBe(1)
+  })
+
+  it('shares one in-flight probe across concurrent callers', async () => {
+    let calls = 0
+    vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => { calls++; return {} } } })
+    const [a, b] = await Promise.all([probeWebGPUAdapter(), probeWebGPUAdapter()])
+    expect(a).toBe(true)
+    expect(b).toBe(true)
+    expect(calls).toBe(1)
+  })
 })

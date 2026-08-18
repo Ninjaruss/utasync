@@ -57,7 +57,13 @@ let adapterProbe: Promise<boolean> | null = null
  * `requestAdapter()` resolves null, onnxruntime falls back to WASM, and a
  * separation run that should take two minutes takes an hour.
  *
- * Memoized — hardware cannot change mid-session, and the probe is not free.
+ * Caching rule: only a *definitive* answer is memoized for the session.
+ * `gpu`/`requestAdapter` missing, or `requestAdapter()` resolving `null`, are
+ * definitive — the browser is telling us there is no adapter, and hardware
+ * cannot change mid-session. A *thrown* error is not definitive — it can come
+ * from a transient condition (context already busy, momentary driver hiccup)
+ * — so it resolves `false` for the caller but is never cached; the next call
+ * re-probes from scratch.
  */
 export function probeWebGPUAdapter(): Promise<boolean> {
   if (!adapterProbe) {
@@ -67,6 +73,7 @@ export function probeWebGPUAdapter(): Promise<boolean> {
       try {
         return !!(await gpu.requestAdapter())
       } catch {
+        adapterProbe = null
         return false
       }
     })()
