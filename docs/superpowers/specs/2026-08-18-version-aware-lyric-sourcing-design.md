@@ -63,6 +63,19 @@ signal needed to tell versions apart: a live take becomes indistinguishable from
 studio master at query time. The Japanese marker in the reported case survived only
 because the pattern is Latin-only.
 
+### 3b. Duration is never persisted
+
+Discovered while planning Phase 1. `Song` (`src/core/types/index.ts`) has **no
+duration field**. `UploadAudioFlow` reads it from audio metadata, passes it to
+`findLyrics`, and discards it. So the only path that benefits is the initial upload;
+a later re-search from `LyricsImportPanel` on the same song cannot supply a duration
+because none was kept.
+
+Design section 1 therefore also requires persisting `durationSec` on `Song` —
+additive and optional, so existing rows need no migration. `usePlayerStore` already
+holds a `duration` for both providers (`src/player/PlayerView.tsx:299`), set from
+`engine.duration`, which is the natural place to capture it for YouTube songs.
+
 ### 3. YouTube duration exists, but arrives after lyrics are resolved
 
 `YouTubeMeta` (`src/sources/youtube.ts:4`) has no duration field — oEmbed does not
