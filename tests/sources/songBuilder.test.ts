@@ -31,6 +31,26 @@ describe('buildSong', () => {
   })
 })
 
+describe('buildSong — durationSec', () => {
+  it('persists a supplied duration', () => {
+    const song = buildSong({ title: 'T', artist: 'A', lines: [], durationSec: 230 })
+    expect(song.durationSec).toBe(230)
+  })
+
+  // Optional field: songs built before this existed must stay valid, and a
+  // YouTube song has no duration until playback starts.
+  it('leaves duration undefined when not supplied', () => {
+    const song = buildSong({ title: 'T', artist: 'A', lines: [] })
+    expect(song.durationSec).toBeUndefined()
+  })
+
+  it('ignores a nonsense duration rather than storing it', () => {
+    expect(buildSong({ title: 'T', artist: 'A', lines: [], durationSec: 0 }).durationSec).toBeUndefined()
+    expect(buildSong({ title: 'T', artist: 'A', lines: [], durationSec: -5 }).durationSec).toBeUndefined()
+    expect(buildSong({ title: 'T', artist: 'A', lines: [], durationSec: Number.NaN }).durationSec).toBeUndefined()
+  })
+})
+
 describe('linesFromPlainText', () => {
   it('splits, trims, drops blanks, yields untimed lines', () => {
     const lines = linesFromPlainText('  hello \n\n  world  \n')

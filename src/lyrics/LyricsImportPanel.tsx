@@ -21,6 +21,7 @@ interface Props {
   artist: string
   videoId?: string | null
   sourceLanguage?: Language
+  durationSec?: number
   /** Called when user confirms a lyrics set. */
   onApply: (lines: TimedLine[]) => void
   onCancel: () => void
@@ -33,6 +34,7 @@ export function LyricsImportPanel({
   artist,
   videoId,
   sourceLanguage,
+  durationSec,
   onApply,
   onCancel,
   onBusyChange,
@@ -58,7 +60,13 @@ export function LyricsImportPanel({
     setLyricsPhase({ kind: 'searching' })
     setError('')
 
-    resolveLyricsForSong({ title, artist, videoId, sourceLanguage: sourceLanguage ?? getDefaultSongLanguage() })
+    resolveLyricsForSong({
+      title,
+      artist,
+      videoId,
+      sourceLanguage: sourceLanguage ?? getDefaultSongLanguage(),
+      durationSec,
+    })
       .then((result) => {
         if (gen !== searchGenRef.current) return
         if (result.lines.length > 0) {

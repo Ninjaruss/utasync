@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
-import { getDeviceTier, canUseVocalSeparation } from '../../src/ai-pipeline/capability'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { getDeviceTier, canUseVocalSeparation, probeWebGPUAdapter, resetWebGPUAdapterProbe } from '../../src/ai-pipeline/capability'
 
 describe('getDeviceTier', () => {
   it('returns full with WebGPU and 6+ GB', () => {
@@ -59,5 +59,64 @@ describe('canUseVocalSeparation', () => {
     expect(canUseVocalSeparation('full')).toBe(true)
     expect(canUseVocalSeparation('lite')).toBe(false)
     expect(canUseVocalSeparation('manual')).toBe(false)
+  })
+})
+
+describe('probeWebGPUAdapter', () => {
+  beforeEach(() => resetWebGPUAdapterProbe())
+
+  it('is true when an adapter is actually granted', async () => {
+    vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => ({}) } })
+    expect(await probeWebGPUAdapter()).toBe(true)
+  })
+
+  // The false positive this function exists to catch: navigator.gpu is present,
+  // but no adapter is available, so ORT silently drops to WASM.
+  it('is false when navigator.gpu exists but grants no adapter', async () => {
+    vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => null } })
+    expect(await probeWebGPUAdapter()).toBe(false)
+  })
+
+  it('is false when requestAdapter throws', async () => {
+    vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => { throw new Error('no gpu') } } })
+    expect(await probeWebGPUAdapter()).toBe(false)
+  })
+
+  it('is false when there is no WebGPU at all', async () => {
+    vi.stubGlobal('navigator', {})
+    expect(await probeWebGPUAdapter()).toBe(false)
+  })
+
+  it('memoizes — the answer cannot change within a session', async () => {
+    let calls = 0
+    vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => { calls++; return {} } } })
+    await probeWebGPUAdapter()
+    await probeWebGPUAdapter()
+    expect(calls).toBe(1)
+  })
+
+  it('does not cache a thrown error — a later call can still succeed', async () => {
+    vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => { throw new Error('transient') } } })
+    expect(await probeWebGPUAdapter()).toBe(false)
+
+    vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => ({}) } })
+    expect(await probeWebGPUAdapter()).toBe(true)
+  })
+
+  it('caches a definitive null — requestAdapter is not called again', async () => {
+    let calls = 0
+    vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => { calls++; return null } } })
+    await probeWebGPUAdapter()
+    await probeWebGPUAdapter()
+    expect(calls).toBe(1)
+  })
+
+  it('shares one in-flight probe across concurrent callers', async () => {
+    let calls = 0
+    vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => { calls++; return {} } } })
+    const [a, b] = await Promise.all([probeWebGPUAdapter(), probeWebGPUAdapter()])
+    expect(a).toBe(true)
+    expect(b).toBe(true)
+    expect(calls).toBe(1)
   })
 })

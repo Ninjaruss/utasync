@@ -164,6 +164,12 @@ export interface Song {
   sources?: SourceRef[]
   activeProvider?: ProviderType
   albumArtUrl?: string
+  /** Track length in seconds, when known. Optional: YouTube songs have none until
+   * playback reports one, and songs stored before this field existed have none.
+   * Feeds version-aware lyric matching — LRCLIB scoring weights duration heavily
+   * (+0.15 within 2s, -0.25 for a large mismatch), which is what tells two masters
+   * of the same song apart. */
+  durationSec?: number
   syncState?: SyncState
 }
 

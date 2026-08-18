@@ -16,6 +16,7 @@ export interface BuildSongInput {
   translationLanguage?: Language
   alignmentMode?: AlignmentMode
   albumArtUrl?: string
+  durationSec?: number
 }
 
 export function buildSong(input: BuildSongInput): Song {
@@ -29,6 +30,13 @@ export function buildSong(input: BuildSongInput): Song {
     sourceUrl: input.sourceUrl,
     audioStoredPath: input.audioStoredPath,
     albumArtUrl: input.albumArtUrl,
+    // Guard here rather than at every call site: metadata parsers return 0 or NaN
+    // for unreadable files, and a bogus duration is worse than none — it would
+    // actively push the matcher toward the wrong master.
+    durationSec:
+      Number.isFinite(input.durationSec) && (input.durationSec as number) > 0
+        ? input.durationSec
+        : undefined,
     lyrics: {
       lines: input.lines,
       sourceLanguage,

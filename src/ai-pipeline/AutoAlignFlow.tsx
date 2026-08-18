@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { canUseVocalSeparation, getDeviceTier } from './capability'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { canUseVocalSeparation, getDeviceTier, probeWebGPUAdapter } from './capability'
 import { canUseHighAccuracy } from './inferenceBackend'
 import { getWhisperDownloadHint } from './models'
 import { decodeAudioFileToMono } from '../core/audio/decodeToMono'
@@ -21,7 +21,8 @@ import { preferredWhisperTimestampMode } from './alignTimestampMode'
 import { detectSheetLanguage } from './whisperLanguage'
 import { isRecoverableTranscriptionError, classifyAlignError } from './workerError'
 import { resetWhisperTranscriber, transcribeAudio, type LoadProgress, type TranscribeProgressStatus } from './whisperTranscriber'
-import { DEMUCS_OUTPUT_SAMPLE_RATE, isDemucsModelAvailable, refreshDemucsModelAvailability, separateVocals } from './demucsSeparator'
+import { DEMUCS_OUTPUT_SAMPLE_RATE, SeparationAbandonedError, isDemucsModelAvailable, refreshDemucsModelAvailability, separateVocals } from './demucsSeparator'
+import { formatEta } from './separationEta'
 import { computeVocalActivity, firstVocalOnset, type VocalActivitySignal } from './vocalActivity'
 import { assessStemQuality, warnIfStemRejected } from './stemQuality'
 import { anchorLeadingEdge, backfillLateStartsToAcousticOnset } from '../lyrics/leadingEdgeAnchor'
@@ -150,6 +151,26 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
   const [lowConfidence, setLowConfidence] = useState(false)
   const [confirmCancel, setConfirmCancel] = useState(false)
   const cancelledRef = useRef(false)
+  const abortRef = useRef<AbortController | null>(null)
+  // Long-run confirmation: holds the pending decision's resolver plus the
+  // projected duration to show. Null when no question is outstanding.
+  const [etaPrompt, setEtaPrompt] = useState<
+    { projectedMs: number; decide: (choice: 'skip' | 'continue') => void } | null
+  >(null)
+  const [noGpuPrompt, setNoGpuPrompt] = useState<{ decide: (keepGoing: boolean) => void } | null>(null)
+  const [remainingLabel, setRemainingLabel] = useState<string | null>(null)
+  // Settles whichever prompt is open with its "give up" answer. Without it, a
+  // cancel (or unmount) while a prompt is showing leaves start() awaiting a
+  // promise that can never resolve.
+  const resolveOpenPromptRef = useRef<(() => void) | null>(null)
+
+  /** Single place that stops a run: flips the polled flag AND aborts the signal,
+   * so a wedged worker is terminated instead of being politely asked. */
+  const cancelRun = useCallback(() => {
+    cancelledRef.current = true
+    abortRef.current?.abort()
+    resolveOpenPromptRef.current?.()
+  }, [])
 
   const highAccuracySupported = canUseHighAccuracy(tier)
   // Reflect the selected model so the download-progress copy shows ~1.5GB during
@@ -174,6 +195,11 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
 
   const start = async (opts?: { forceVocalSeparation?: boolean }) => {
     cancelledRef.current = false
+    abortRef.current = new AbortController()
+    setEtaPrompt(null)
+    setNoGpuPrompt(null)
+    setRemainingLabel(null)
+    resolveOpenPromptRef.current = null
     setError('')
     setErrorDetail(null)
     try {
@@ -207,14 +233,57 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
 
       if (!audioData) { setError('No audio file found. Upload audio first.'); setStage('error'); return }
 
-      if (willSeparate) {
+      // A definitive "no adapter" means separation WILL run on WASM — minutes
+      // become tens of minutes. Ask before paying for the model download, not
+      // after. Uses the same prompt machinery as the post-chunk-1 estimate.
+      let separationAccepted = true
+      if (willSeparate && !(await probeWebGPUAdapter())) {
+        separationAccepted = await new Promise<boolean>((resolve) => {
+          const decide = (keepGoing: boolean) => {
+            resolveOpenPromptRef.current = null
+            setNoGpuPrompt(null)
+            resolve(keepGoing)
+          }
+          resolveOpenPromptRef.current = () => decide(false)
+          setNoGpuPrompt({ decide })
+        })
+        if (cancelledRef.current) return
+        if (!separationAccepted) {
+          // The separation step never runs, so drop it from the progress steps
+          // rather than showing a stage that will be skipped.
+          setVocalSeparationRun(false)
+          setRetryNotice('Skipped vocal isolation — aligning on the original mix instead.')
+        }
+      }
+
+      if (willSeparate && separationAccepted) {
         setStage('separating')
         setProgress(0)
         try {
           const stem = await separateVocals(audioData, {
             sampleRate,
+            durationSec: audioData.length / sampleRate,
+            signal: abortRef.current.signal,
             onProgress: (pct) => setProgress(pct),
             isCancelled: () => cancelledRef.current,
+            onProvider: (provider) => {
+              // No automated test can exercise a real WebGPU device, so this log
+              // is how a "separation took an hour" report gets diagnosed.
+              console.info(`[AutoAlignFlow] vocal separation running on ${provider}`)
+            },
+            onLongEstimate: (projectedMs) =>
+              new Promise<'skip' | 'continue'>((resolve) => {
+                const decide = (choice: 'skip' | 'continue') => {
+                  resolveOpenPromptRef.current = null
+                  setEtaPrompt(null)
+                  resolve(choice)
+                }
+                resolveOpenPromptRef.current = () => decide('skip')
+                setEtaPrompt({ projectedMs, decide })
+              }).then((choice) => {
+                if (choice === 'continue') setRemainingLabel(formatEta(projectedMs))
+                return choice
+              }),
           })
           if (cancelledRef.current) return
           // Sanity-guard the stem BEFORE committing to it. Isolation usually helps,
@@ -247,11 +316,25 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
           // audioData is still the decoded mix here (it's only reassigned to the stem
           // on success), so just fall back to transcribing that — same as stored-song
           // gap recovery and the stem-quality guard. Isolation can only ever help or
-          // no-op, never abort. The classified reason goes to the console for triage.
-          console.warn('[AutoAlignFlow] vocal isolation failed — aligning on the raw mix:', classifyVocalSepError(e))
-          setRetryNotice('Vocal isolation is unavailable here — aligning on the original mix instead.')
+          // no-op, never abort.
+          setRemainingLabel(null)
+          if (e instanceof SeparationAbandonedError) {
+            console.warn(`[AutoAlignFlow] vocal isolation abandoned (${e.reason}) — aligning on the raw mix`)
+            setRetryNotice(
+              e.reason === 'skipped'
+                ? 'Skipped vocal isolation — aligning on the original mix instead.'
+                : e.reason === 'stalled'
+                  ? 'Vocal isolation stopped responding — aligning on the original mix instead.'
+                  : 'Vocal isolation was taking too long on this device — aligning on the original mix instead.',
+            )
+          } else {
+            // The classified reason goes to the console for triage.
+            console.warn('[AutoAlignFlow] vocal isolation failed — aligning on the raw mix:', classifyVocalSepError(e))
+            setRetryNotice('Vocal isolation is unavailable here — aligning on the original mix instead.')
+          }
         }
         if (cancelledRef.current) return
+        setRemainingLabel(null)
       }
 
       // First run downloads the Whisper model
@@ -578,7 +661,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
     // Skip when the first-run consent prompt is showing; consentAndStart() runs it.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: kick off alignment on mount
     if (willAutoStart && modelDownloadConsented) void start()
-    return () => { cancelledRef.current = true }
+    return () => { cancelRun() }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -684,12 +767,43 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
             confirmLabel="Stop"
             cancelLabel="Keep running"
             onConfirm={() => {
-              cancelledRef.current = true
+              cancelRun()
               resetWhisperTranscriber()
               setConfirmCancel(false)
               onClose()
             }}
             onCancel={() => setConfirmCancel(false)}
+          />
+        )}
+
+        {/* Only one dialog may own the overlay: the cancel confirmation wins,
+            and its "Keep running" brings the pending question back.
+
+            Both questions put "Keep going" on confirm and "Skip it" on cancel,
+            which reads backwards next to the cancel dialog above but is
+            deliberate: useModalDialog maps Escape to onCancel, so this is what
+            makes Escape mean "back out of the expensive thing". Committing to a
+            multi-minute CPU grind is the costly, hard-to-undo choice here — so
+            it belongs on confirm, and skipping (which still yields aligned
+            lyrics, just from the raw mix) is the safe default Escape lands on. */}
+        {!confirmCancel && etaPrompt && (
+          <ConfirmDialog
+            title="This will take a while"
+            message={`Isolating vocals will take ${formatEta(etaPrompt.projectedMs)} on this device. You can skip it and align on the original mix — slightly less accurate, but much faster.`}
+            confirmLabel="Keep going"
+            cancelLabel="Skip it"
+            onConfirm={() => etaPrompt.decide('continue')}
+            onCancel={() => etaPrompt.decide('skip')}
+          />
+        )}
+        {!confirmCancel && noGpuPrompt && (
+          <ConfirmDialog
+            title="No GPU acceleration here"
+            message="This browser can't use your GPU for vocal isolation, so it would run on the CPU — usually far longer than the song itself. You can skip it and align on the original mix: slightly less accurate, but much faster."
+            confirmLabel="Keep going"
+            cancelLabel="Skip it"
+            onConfirm={() => noGpuPrompt.decide(true)}
+            onCancel={() => noGpuPrompt.decide(false)}
           />
         )}
 
@@ -776,6 +890,10 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
             taskSubsteps={loadingSubsteps}
             showElapsed={taskProgress == null}
           />
+        )}
+
+        {stage === 'separating' && remainingLabel && (
+          <p className="text-white/55 text-xs text-center">{remainingLabel} remaining</p>
         )}
 
         {stage === 'error' && (

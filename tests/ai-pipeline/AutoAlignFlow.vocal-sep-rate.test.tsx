@@ -16,6 +16,9 @@ import { separateVocals } from '../../src/ai-pipeline/demucsSeparator'
 vi.mock('../../src/ai-pipeline/capability', () => ({
   getDeviceTier: () => 'full',
   canUseVocalSeparation: () => true,
+  // AutoAlignFlow asks before letting separation grind on the CPU; a real
+  // adapter keeps these specs on the normal (no-prompt) path.
+  probeWebGPUAdapter: async () => true,
 }))
 
 vi.mock('../../src/payment/SettingsStore', () => ({

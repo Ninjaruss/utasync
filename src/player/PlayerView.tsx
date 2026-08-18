@@ -597,6 +597,32 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [songId])
 
+  // Learn the track length from playback and keep it. YouTube songs have no
+  // duration until the iframe reports one, and songs added before durationSec
+  // existed have none either — but LRCLIB matching leans on it heavily (it is
+  // the main thing telling two masters of the same song apart), so the first
+  // real value is worth storing.
+  //
+  // Never overwrite: a duration parsed from file metadata is exact, and a
+  // polled one is not. Absent-only keeps the better value.
+  //
+  // Reads the STORE's duration, not engine.duration. engine.load() only runs
+  // for songs with stored audio (see the load effect above), so on a
+  // YouTube-only song engine.duration is permanently 0 — and YouTube is the
+  // case this exists for. YouTubePlayer pushes its polled length straight to
+  // the store, so the store is the one source both providers feed.
+  //
+  // currentSongId guards against reading a length belonging to a different
+  // song: setCurrentSong resets duration to 0 on a song change, but the guard
+  // makes that ordering explicit rather than assumed.
+  useEffect(() => {
+    if (!song || song.durationSec != null) return
+    if (currentSongId !== song.id) return
+    if (!Number.isFinite(duration) || duration <= 0) return
+    const updated: Song = { ...song, durationSec: duration }
+    void db.songs.put(updated).then(() => setSong(updated))
+  }, [song, duration, currentSongId])
+
   useEffect(() => {
     if (canRunWordAlignment()) {
       preloadGlossLexicon()
@@ -1598,6 +1624,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               artist={song.artist}
               videoId={ytVideoId}
               sourceLanguage={song.lyrics.sourceLanguage}
+              durationSec={song.durationSec}
               onApply={handleReplaceLyrics}
               onCancel={requestLyricsReimportClose}
               onBusyChange={setLyricsReimportBusy}

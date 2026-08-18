@@ -56,3 +56,27 @@ describe('resolveLyricsForSong', () => {
     expect(result.source).toBe('lrclib-plain')
   })
 })
+
+describe('resolveLyricsForSong — duration plumbing', () => {
+  beforeEach(() => {
+    vi.mocked(fetchYouTubeCaptionLines).mockReset()
+    vi.mocked(findLyrics).mockReset()
+  })
+
+  /**
+   * Regression: resolveLyricsForSong passed a literal `undefined` for
+   * findLyrics' 4th parameter, so the duration term in lyricsMatchScore
+   * (+0.15 within 2s, -0.25 for a big mismatch) never fired on the YouTube or
+   * import paths. Nothing about the RETURNED lyrics reveals that, which is why
+   * this asserts on the argument rather than the result.
+   */
+  it('forwards durationSec to findLyrics', async () => {
+    await resolveLyricsForSong({ title: 'T', artist: 'A', durationSec: 230 })
+    expect(vi.mocked(findLyrics).mock.calls[0][3]).toBe(230)
+  })
+
+  it('forwards undefined when no duration is known', async () => {
+    await resolveLyricsForSong({ title: 'T', artist: 'A' })
+    expect(vi.mocked(findLyrics).mock.calls[0][3]).toBeUndefined()
+  })
+})

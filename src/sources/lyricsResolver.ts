@@ -52,9 +52,12 @@ export async function resolveLyricsForSong(opts: {
   artist: string
   videoId?: string | null
   sourceLanguage?: Language
+  /** Track length, when known. Drives the duration term in LRCLIB scoring, which
+   * is the main thing distinguishing two masters of the same song. */
+  durationSec?: number
   onStage?: (stage: ResolveLyricsStage) => void
 }): Promise<LyricsResolveResult> {
-  const { title, artist, videoId, sourceLanguage, onStage } = opts
+  const { title, artist, videoId, sourceLanguage, onStage, durationSec } = opts
   const preferLangs = languageHints(sourceLanguage)
 
   if (videoId) {
@@ -72,7 +75,7 @@ export async function resolveLyricsForSong(opts: {
   )
   const found = await findLyrics(title.trim(), artist.trim(), (stage) => {
     onStage?.(stage === 'exact' ? 'lrclib-exact' : 'lrclib-search')
-  }, undefined, preferredLanguage)
+  }, durationSec, preferredLanguage)
   if (found) return fromLrcLookup(found)
 
   return { lines: [], synced: false, source: 'none' }

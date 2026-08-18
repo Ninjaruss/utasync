@@ -15,6 +15,7 @@ import {
   inferPreferredLyricsLanguage,
 } from './lyricsMatch'
 import { JAPANESE_RE } from '../lyrics/bilingual'
+import { versionAgreement } from './versionMarker'
 
 const LRCLIB_EXACT_CONCURRENCY = 4
 const LRCLIB_SEARCH_CONCURRENCY = 3
@@ -368,7 +369,7 @@ export async function findLyrics(
   return null
 }
 
-function lyricsMatchScore(
+export function lyricsMatchScore(
   result: LRCLIBResult,
   trackName: string,
   artistName: string,
@@ -377,6 +378,9 @@ function lyricsMatchScore(
   const titleScore = titleSimilarity(result.name, trackName)
   const artistScore = artistSimilarity(result.artistName, artistName)
   let score = titleScore * 0.65 + artistScore * 0.35
+  // Which recording this is, not just which song. Neutral (0) when neither title
+  // declares a version, so the common case scores exactly as it did before.
+  score += versionAgreement(trackName, result.name)
   if (targetDurationSec != null && result.duration != null) {
     const diff = Math.abs(result.duration - targetDurationSec)
     if (diff <= 2) score += 0.15

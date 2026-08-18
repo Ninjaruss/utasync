@@ -3,6 +3,7 @@ import * as ort from 'onnxruntime-web'
 import { describeWorkerError } from './workerError'
 import { DEMUCS_MODEL_URL } from './demucsModelUrl'
 import { hannWindow, stft, istft } from './fft'
+import type { SeparationProvider } from './separationProvider'
 
 // ---------------------------------------------------------------------------
 // MDX-Net Kim_Vocal_2 parameters — must match what the model was trained with.
@@ -43,6 +44,36 @@ function resample(audio: Float32Array, fromRate: number, toRate: number): Float3
   return out
 }
 
+/**
+ * Creates the session and returns which provider actually backs it.
+ *
+ * Passing `['webgpu', 'wasm']` lets onnxruntime fall back silently, and ORT
+ * exposes no way to ask which one it chose — so a WASM run (hours, not minutes)
+ * was indistinguishable from a WebGPU one. Trying each provider alone makes the
+ * answer knowable, which is the whole point.
+ */
+async function createSession(): Promise<{ session: ort.InferenceSession; provider: SeparationProvider }> {
+  const gpu = (self.navigator as WorkerNavigator & { gpu?: { requestAdapter?: () => Promise<unknown> } }).gpu
+  if (gpu?.requestAdapter) {
+    try {
+      if (await gpu.requestAdapter()) {
+        const session = await ort.InferenceSession.create(DEMUCS_MODEL_URL, {
+          executionProviders: ['webgpu'],
+        })
+        return { session, provider: 'webgpu' }
+      }
+    } catch (err) {
+      console.warn('[demucs.worker] WebGPU session failed, falling back to WASM:', err)
+    }
+  } else {
+    console.info('[demucs.worker] No WebGPU adapter available, using WASM')
+  }
+  const session = await ort.InferenceSession.create(DEMUCS_MODEL_URL, {
+    executionProviders: ['wasm'],
+  })
+  return { session, provider: 'wasm' }
+}
+
 self.onmessage = async (e: MessageEvent) => {
   const { type, payload } = e.data
 
@@ -54,10 +85,9 @@ self.onmessage = async (e: MessageEvent) => {
       // InferenceSession.create.
       ort.env.wasm.wasmPaths = demucsOrtWasmBaseUrl()
       ort.env.wasm.proxy = false
-      session = await ort.InferenceSession.create(DEMUCS_MODEL_URL, {
-        executionProviders: ['webgpu', 'wasm'],
-      })
-      self.postMessage({ type: 'loaded' })
+      const created = await createSession()
+      session = created.session
+      self.postMessage({ type: 'loaded', payload: { provider: created.provider } })
     } catch (err) {
       self.postMessage({
         type: 'error',
@@ -93,6 +123,13 @@ self.onmessage = async (e: MessageEvent) => {
       // 4. Chunked inference
       const nChunks = Math.max(1, Math.ceil((totalFrames - DIM_T) / STEP) + 1)
       const inputData = new Float32Array(4 * DIM_F * DIM_T) // reused each chunk
+
+      // Monotonic clock since inference began, so the host can extrapolate a real
+      // ETA from the first completed chunk rather than guessing from a percentage.
+      // performance.now() (unlike Date.now()) can't jump from an NTP correction
+      // or system clock change mid-run, which would otherwise corrupt the ETA
+      // projection this feeds.
+      const runStartMs = performance.now()
 
       for (let c = 0; c < nChunks; c++) {
         const tStart = c * STEP
@@ -137,7 +174,13 @@ self.onmessage = async (e: MessageEvent) => {
 
         self.postMessage({
           type: 'progress',
-          payload: { status: 'separating', progress: 8 + Math.round((c / nChunks) * 82) },
+          payload: {
+            status: 'separating',
+            progress: 8 + Math.round((c / nChunks) * 82),
+            chunk: c + 1,
+            nChunks,
+            elapsedMs: performance.now() - runStartMs,
+          },
         })
       }
 
