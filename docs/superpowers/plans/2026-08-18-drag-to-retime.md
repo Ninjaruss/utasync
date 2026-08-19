@@ -601,25 +601,27 @@ decision that settles pleasant-vs-maddening. That needs a human listen, so no
 looping was built. Note the app already has A/B loop machinery
 (`abLoopControllerRef`) to reuse.
 
-### Defects found while measuring (not fixed here)
+### Defects found while measuring (fixed in 1036a9a)
 
-- **Clamp-and-mark-good.** Reproduced live: a line 3.8s out of place, with the old
+- **Clamp-and-mark-good.** FIXED. Reproduced live: a line 3.8s out of place, with the old
   ±2.5s window, committed at the clamped edge 1.3s wrong — and `handleTapAnchor`
   cleared its `needs_review` flag, so it was never offered again. This is the
   thread's own headline failure (wrong timing locked in as truth) reintroduced by a
   window that cannot reach. Widening cut it from 59% of offered lines to 27%, but
   did not remove it. Fix: do not clear the quality flag when the committed time sits
   on a window edge — the user ran out of slider, they did not find the spot.
-- **The `retimingLine` latch never releases without a commit.** It is cleared only
+- **The `retimingLine` latch never released without a commit.** FIXED. It is cleared only
   in `onCommit`. Reproduced live: drag line 5, abandon it, click line 1 (seeks to
   0:04), then line 6 (seeks to 1:19) — the strip is still pinned to "Line 5 start
   time", still holding the abandoned value, still inviting a re-time of audio the
   user is nowhere near. There is also no dismiss/skip affordance. The latch itself
-  is correct and must stay (dragging seeks, seeking recomputes `activeLine`); it
-  needs a release on a seek that did not come from `onPreview`.
-- **Dead exported code.** `timeAtFraction` / `fractionAtTime` are called only by
-  their own tests — the strip uses a native `<input type=range>` with `min`/`max`,
-  so the mapping module's two headline functions never run in production.
+  is correct and stays (dragging seeks, seeking recomputes `activeLine`);
+  `seek()` now releases it, and the strip's preview seek passes `fromRetime` so
+  the latch survives the seek it causes.
+- **Dead exported code.** STILL OPEN. `timeAtFraction` / `fractionAtTime` are
+  called only by their own tests — the strip uses a native `<input type=range>`
+  with `min`/`max`, so the mapping module's two headline functions never run in
+  production. (`dragWindowFor` and `isAtWindowEdge` are both live.)
 
 ---
 
