@@ -21,6 +21,15 @@ export const RETIME_LOOP_LEAD_SEC = 0.5
 /** Tail after it: enough to recognise the phrase, not a whole bar. */
 export const RETIME_LOOP_TAIL_SEC = 1.5
 
+/**
+ * Framing for an END rather than a start. A start and an end are judged by opposite
+ * evidence: for a start you need the silence BEFORE it, to hear the entry break in;
+ * for an end you need the tail leading UP to it, to hear whether the line is being
+ * cut off. The silence after an end tells you nothing you did not already know.
+ */
+export const RETIME_END_LEAD_SEC = 1.5
+export const RETIME_END_TAIL_SEC = 0.5
+
 export interface RetimeLoop {
   startSec: number
   endSec: number
@@ -58,4 +67,13 @@ export function retimeLoopFor(
 export function needsWrap(loop: RetimeLoop | null, positionSec: number): boolean {
   if (!loop) return false
   return positionSec >= loop.endSec
+}
+
+/** Loop framed for judging where a line stops, rather than where it starts. */
+export function retimeLoopForEnd(candidateSec: number, durationSec?: number): RetimeLoop {
+  return retimeLoopFor(candidateSec, {
+    durationSec,
+    leadSec: RETIME_END_LEAD_SEC,
+    tailSec: RETIME_END_TAIL_SEC,
+  })
 }

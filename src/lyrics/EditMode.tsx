@@ -4,6 +4,7 @@ import { stampTimes, setText, addLine, deleteLine, shiftLinesFrom } from './line
 import { SecondLanguagePanel } from './SecondLanguagePanel'
 import { useModalDialog } from '../core/ui/useModalDialog'
 import { TimestampPopover } from './TimestampPopover'
+import type { Peaks } from '../player/waveformPeaks'
 import {
   editRowSurface,
   editRowSurfaceActive,
@@ -22,6 +23,14 @@ interface Props {
   playhead: () => number
   /** Current playback position — drives playhead row highlight during edit. */
   playheadPosition?: number
+  /** Preview a candidate time while dragging a timestamp. Distinct from `seek`
+   * because it also loops a short window around the moment, so it repeats while the
+   * user judges it instead of the playhead running away from what they positioned. */
+  onScrubPreview?: (time: number, framing?: 'start' | 'end') => void
+  /** Coarse amplitude peaks for the track, so timing edits can be made against the
+   * audio rather than against a bare number. */
+  peaks?: Peaks | null
+  waveformState?: 'pending' | 'ready' | 'unavailable'
   seek?: (time: number) => void
   onScrubStart?: () => void
   onScrubEnd?: () => void
@@ -143,6 +152,9 @@ interface RowProps {
   popoverOpen: boolean
   playheadActive: boolean
   playhead: () => number
+  /** Preview a candidate time while dragging. Distinct from `seek` because it also
+   * frames a short loop around the moment, so it repeats while you judge it. */
+  onScrubPreview?: (time: number, framing?: 'start' | 'end') => void
   seek?: (time: number) => void
   onScrubStart?: () => void
   onScrubEnd?: () => void
@@ -156,13 +168,18 @@ interface RowProps {
   canCascade: boolean
   alignmentQuality?: LineAlignmentQuality
   showAlignmentQuality?: boolean
+  /** Coarse amplitude peaks for the track, so the timing editor can draw the audio. */
+  peaks?: Peaks | null
+  waveformState?: 'pending' | 'ready' | 'unavailable'
+  positionSec?: number
 }
 
 
 /** One lyric row. Holds local draft text so typing doesn't push a change on every keystroke — committed only on blur, same discipline the old expand-into-panel editor used. */
 function Row({
   line, index, timed, editing, deleteArmed, playheadActive, onStartEdit, onStopEdit, onCommitText, onAdd,
-  onArmDelete, onConfirmDelete, onOpenPopover, popoverOpen, playhead, seek, onScrubStart, onScrubEnd, onCommitTimes, onClosePopover, autoEnd,
+  onArmDelete, onConfirmDelete, onOpenPopover, popoverOpen, playhead, seek, onScrubPreview, onScrubStart, onScrubEnd, onCommitTimes, onClosePopover, autoEnd,
+  peaks, waveformState, positionSec,
   prevStart, canCascade, alignmentQuality, showAlignmentQuality,
 }: RowProps) {
   const [original, setOriginal] = useState(line.original)
@@ -309,7 +326,10 @@ function Row({
           playhead={playhead}
           onCommit={onCommitTimes}
           onClose={onClosePopover}
-          onScrub={seek}
+          onScrub={onScrubPreview ?? seek}
+          peaks={peaks}
+          waveformState={waveformState}
+          positionSec={positionSec}
           onScrubStart={onScrubStart}
           onScrubEnd={onScrubEnd}
           canCascade={canCascade}
@@ -319,7 +339,7 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, autoAlignSupported = true, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus, alignmentConfidence, accurateRealignReason = null, onFixTiming }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPreview, peaks, waveformState, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, autoAlignSupported = true, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus, alignmentConfidence, accurateRealignReason = null, onFixTiming }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
@@ -752,6 +772,10 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
             playheadActive={activePlayheadIndex === i}
             playhead={playhead}
             seek={seek}
+            onScrubPreview={onScrubPreview}
+            peaks={peaks}
+            waveformState={waveformState}
+            positionSec={playheadPosition}
             onScrubStart={onScrubStart}
           onScrubEnd={onScrubEnd}
           onCommitTimes={(patch) => {

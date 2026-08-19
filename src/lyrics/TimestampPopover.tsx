@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import type { TimedLine } from '../core/types'
+import { WaveformStrip, type WaveformMarker } from '../player/WaveformStrip'
+import type { Peaks } from '../player/waveformPeaks'
 
 interface Props {
   line: TimedLine
@@ -10,13 +12,20 @@ interface Props {
    * delta too — the "this whole section drifted" cascade. Omitted/0 = this line only. */
   onCommit: (patch: { start: number; end: number | null; shiftRestBy?: number }) => void
   onClose: () => void
-  onScrub?: (time: number) => void
+  /** Fires while dragging. `framing` says whether the moment is a line's start or
+   * its end, which decides how the preview loop is framed around it. */
+  onScrub?: (time: number, framing?: 'start' | 'end') => void
   onScrubStart?: () => void
   onScrubEnd?: () => void
   /** Whether a following line exists — gates the "shift later lines too" toggle. */
   canCascade?: boolean
   /** Previous line's start, for the context strip's spatial bearing (0 for the first line). */
   prevStart?: number
+  /** Coarse amplitude peaks for the track, so the editor can draw the audio. */
+  peaks?: Peaks | null
+  waveformState?: 'pending' | 'ready' | 'unavailable'
+  /** Live playhead, so the preview loop can be seen sweeping the window. */
+  positionSec?: number
 }
 
 /** Half-width (seconds) of the scrub window on each side of the drag anchor. Small
@@ -45,7 +54,7 @@ const round1 = (t: number) => Math.round(t * 10) / 10
  * position matches the thumb. Neighbours outside the window collapse to an edge
  * arrow instead of vanishing. */
 function ContextStrip({
-  min, max, draftStart, draftEnd, prevStart, nextStart, mode,
+  min, max, draftStart, draftEnd, prevStart, nextStart, mode, peaks, waveformState, positionSec,
 }: {
   min: number
   max: number
@@ -54,9 +63,10 @@ function ContextStrip({
   prevStart?: number
   nextStart: number | null
   mode: Mode
+  peaks?: Peaks | null
+  waveformState?: 'pending' | 'ready' | 'unavailable'
+  positionSec?: number
 }) {
-  const span = max - min
-  const pct = (t: number) => ((t - min) / span) * 100
   const inWindow = (t: number | null | undefined): t is number =>
     typeof t === 'number' && Number.isFinite(t) && t >= min && t <= max
   const gap = (a: number, b?: number) =>
@@ -64,32 +74,44 @@ function ContextStrip({
   const prevGap = gap(draftStart, prevStart)
   const nextGap = gap(draftStart, nextStart ?? undefined)
 
-  const marker = (t: number, cls: string, label?: string, key?: string) => (
-    <div
-      key={key}
-      className="absolute top-0 bottom-0 flex flex-col items-center -translate-x-1/2"
-      style={{ left: `${Math.max(0, Math.min(100, pct(t)))}%` }}
-    >
-      <div className={`w-0.5 h-full rounded-full ${cls}`} />
-      {label && <span className="absolute -bottom-4 text-[9px] leading-none text-white/60 whitespace-nowrap">{label}</span>}
-    </div>
-  )
+  // Neighbours are context, the draft anchors are what is being positioned, and the
+  // one under the active tab is what is being positioned RIGHT NOW — so only that one
+  // is drawn primary. Two equally loud accents would leave the user working out which
+  // of them their drag is moving.
+  const markers: WaveformMarker[] = []
+  if (inWindow(prevStart)) markers.push({ timeSec: prevStart, label: 'prev', variant: 'muted', opens: 'left' })
+  if (inWindow(nextStart)) markers.push({ timeSec: nextStart, label: 'next', variant: 'muted' })
+  if (inWindow(draftStart)) {
+    markers.push({ timeSec: draftStart, label: 'start', variant: mode === 'end' ? 'muted' : 'primary' })
+  }
+  if (draftEnd !== null && inWindow(draftEnd)) {
+    markers.push({ timeSec: draftEnd, label: 'end', variant: mode === 'start' ? 'muted' : 'primary', opens: 'left' })
+  }
 
   return (
     <div className="pb-4">
-      <div className="relative h-6 rounded-md bg-cinnabar-950 border border-cinnabar-800 overflow-hidden">
-        {/* neighbours first (behind), then draft on top */}
-        {inWindow(prevStart) && marker(prevStart, 'bg-white/25', 'prev', 'prev')}
-        {inWindow(nextStart) && marker(nextStart, 'bg-white/25', 'next', 'next')}
-        {/* start always shows as the anchor; in End mode it's the dimmer reference the end moves relative to */}
-        {inWindow(draftStart) && marker(draftStart, mode === 'end' ? 'bg-cinnabar-accent/50' : 'bg-cinnabar-accent', undefined, 'ds')}
-        {draftEnd !== null && inWindow(draftEnd) && marker(draftEnd, mode === 'end' ? 'bg-cinnabar-accent' : 'bg-cinnabar-accent/60', undefined, 'de')}
-        {/* edge arrows when a neighbour is off-window, so the user still has a direction */}
+      <div className="relative">
+        {/* The audio itself, replacing an abstract track of tick marks. That track
+            showed WHERE this line sat relative to its neighbours but not what was
+            actually there to line it up with, which is the only thing that settles a
+            timestamp. The line's own extent is shaded so its span is visible against
+            the sound it is supposed to cover. */}
+        <WaveformStrip
+          className="h-14"
+          peaks={peaks}
+          waveformState={waveformState}
+          minSec={min}
+          maxSec={max}
+          regions={draftEnd !== null ? [{ startSec: draftStart, endSec: draftEnd }] : []}
+          markers={markers}
+          positionSec={positionSec}
+        />
+        {/* Edge arrows when a neighbour is off-window, so there is still a direction. */}
         {typeof prevStart === 'number' && prevStart < min && (
-          <span className="absolute left-1 top-1/2 -translate-y-1/2 text-[9px] text-white/55">◂ prev</span>
+          <span className="absolute left-1 bottom-1 text-[9px] text-white/55">◂ prev</span>
         )}
         {typeof nextStart === 'number' && Number.isFinite(nextStart) && nextStart > max && (
-          <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-white/55">next ▸</span>
+          <span className="absolute right-1 bottom-1 text-[9px] text-white/55">next ▸</span>
         )}
       </div>
       {(prevGap !== null || nextGap !== null) && (
@@ -116,7 +138,7 @@ const anchorTabOff = 'bg-cinnabar-950 text-white/50'
  * With following lines present, "Shift later lines too" propagates the same
  * offset to the rest of the song. Dragging previews the audio position live.
  */
-export function TimestampPopover({ line, autoEnd, playhead, onCommit, onClose, onScrub, onScrubStart, onScrubEnd, canCascade = false, prevStart }: Props) {
+export function TimestampPopover({ line, autoEnd, playhead, onCommit, onClose, onScrub, onScrubStart, onScrubEnd, canCascade = false, prevStart, peaks, waveformState, positionSec }: Props) {
   const hasExplicitEnd = line.endTime > line.startTime
   const [mode, setMode] = useState<Mode>('start')
   const [draftStart, setDraftStart] = useState(line.startTime)
@@ -147,12 +169,12 @@ export function TimestampPopover({ line, autoEnd, playhead, onCommit, onClose, o
     setDraftStart(v)
     // Keep an explicit end from being overtaken while moving the start.
     if (draftEnd !== null && draftEnd < v) setDraftEnd(v)
-    onScrub?.(v)
+    onScrub?.(v, 'start')
   }
   const setEnd = (t: number) => {
     const v = round1(Math.max(draftStart + 0.1, t))
     setDraftEnd(v)
-    onScrub?.(v)
+    onScrub?.(v, 'end')
   }
   // Move the whole line, preserving duration. Clamp at 0 so the start never goes
   // negative (the end slides by the same amount that the start actually moved).
@@ -161,7 +183,7 @@ export function TimestampPopover({ line, autoEnd, playhead, onCommit, onClose, o
     const ns = round1(draftStart + eff)
     setDraftStart(ns)
     if (draftEnd !== null) setDraftEnd(round1(draftEnd + eff))
-    onScrub?.(ns)
+    onScrub?.(ns, 'start')
   }
   const moveLine = (t: number) => shiftLineBy(round1(Math.max(0, t)) - draftStart)
   const move = (t: number) => (mode === 'start' ? setStart(t) : mode === 'end' ? setEnd(t) : moveLine(t))
@@ -217,6 +239,9 @@ export function TimestampPopover({ line, autoEnd, playhead, onCommit, onClose, o
         prevStart={prevStart}
         nextStart={Number.isFinite(autoEnd) ? autoEnd : null}
         mode={mode}
+        peaks={peaks}
+        waveformState={waveformState}
+        positionSec={positionSec}
       />
       <input
         type="range"
@@ -224,9 +249,14 @@ export function TimestampPopover({ line, autoEnd, playhead, onCommit, onClose, o
         max={max}
         step={0.1}
         value={value}
+        // Releasing the thumb does NOT end the preview. It used to, which meant you
+        // could only hear the moment while your finger was on it — the same "evidence
+        // expires before you can judge it" problem the Play-mode strip had. The
+        // preview loop keeps the moment repeating until the editor is closed, so you
+        // can hold still and decide. Only the frozen window centre resets here.
         onPointerDown={() => { setDragCenter(value); onScrubStart?.() }}
-        onPointerUp={() => { setDragCenter(null); onScrubEnd?.() }}
-        onPointerCancel={() => { setDragCenter(null); onScrubEnd?.() }}
+        onPointerUp={() => setDragCenter(null)}
+        onPointerCancel={() => setDragCenter(null)}
         onChange={(e) => move(Number(e.target.value))}
         aria-label={mode === 'start' ? 'Scrub start timestamp' : mode === 'end' ? 'Scrub end timestamp' : 'Move whole line'}
         className="w-full accent-cinnabar-accent slider-touch"
@@ -277,7 +307,7 @@ export function TimestampPopover({ line, autoEnd, playhead, onCommit, onClose, o
           {mode === 'end' && draftEnd !== null && (
             <button
               type="button"
-              onClick={() => { setDraftEnd(null); onScrub?.(autoEndTarget) }}
+              onClick={() => { setDraftEnd(null); onScrub?.(autoEndTarget, 'end') }}
               className="ml-0.5 px-2 py-0.5 rounded-full bg-cinnabar-950 text-white/60 text-[10px] touch-manipulation"
               aria-label="Clear end — follow the next line"
             >
@@ -288,6 +318,8 @@ export function TimestampPopover({ line, autoEnd, playhead, onCommit, onClose, o
         <button
           type="button"
           onClick={() => {
+            // The preview outlives the drag now, so committing is what stops it.
+            onScrubEnd?.()
             onCommit({ start: draftStart, end: draftEnd, shiftRestBy: cascade ? startDelta : undefined })
             onClose()
           }}

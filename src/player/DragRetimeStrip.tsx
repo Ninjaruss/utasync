@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { dragWindowFor, isAtWindowEdge, DRAG_WINDOW_BACK_SEC, DRAG_WINDOW_FORWARD_SEC } from './dragTiming'
-import { peaksWindow, type Peaks } from './waveformPeaks'
+import { type Peaks } from './waveformPeaks'
 import { retimeLoopFor } from './retimeLoop'
+import { WaveformStrip } from './WaveformStrip'
 
 interface Props {
   /** Flagged line to re-time, or null to render nothing. */
@@ -31,25 +32,6 @@ const fmt = (t: number) => {
   const s = t - m * 60
   return `${m}:${s.toFixed(2).padStart(5, '0')}`
 }
-
-/**
- * Build the waveform as a single filled path: one `M x y h w v h h-w Z` subpath per
- * column.
- *
- * The height floor keeps near-silence drawing a hairline — a flat gap in the middle
- * of a waveform reads as broken rather than as quiet.
- */
-function waveformPath(columns: Float32Array): string {
-  let d = ''
-  for (let i = 0; i < columns.length; i++) {
-    const h = Math.max(1.5, columns[i] * 88)
-    d += `M${(i + 0.15).toFixed(2)} ${(50 - h / 2).toFixed(2)}h0.7v${h.toFixed(2)}h-0.7Z`
-  }
-  return d
-}
-
-/** Columns in the waveform. Finer than the strip is ever drawn, so never blocky. */
-const WAVE_COLUMNS = 220
 
 /**
  * Inline re-timing for a line the aligner was unsure of.
@@ -100,29 +82,8 @@ export function DragRetimeStrip({
   if (lineIndex === null) return null
 
   const win = dragWindowFor(centreSec, DRAG_WINDOW_BACK_SEC, DRAG_WINDOW_FORWARD_SEC)
-  const span = win.maxSec - win.minSec
-  /** Fraction along the window — the one axis every mark here shares. */
-  const at = (t: number) => (span > 0 ? Math.min(1, Math.max(0, (t - win.minSec) / span)) : 0)
-  // Not memoized on purpose: 220 columns of a max-reduce is a few hundred ops, and a
-  // useMemo would have to sit above the early return to keep hook order, which reads
-  // worse than just doing the work.
-  const columns = peaksWindow(peaks, win.minSec, win.maxSec, WAVE_COLUMNS)
-  // Whether we HAVE audio to draw, which is not the same as whether this window
-  // happens to contain any. A silent stretch is drawn as the hairline floor below —
-  // "quiet here" — because telling the user their track has no waveform when it has
-  // one they are simply between sounds of is a lie about their audio, and flagged
-  // lines sit next to instrumental gaps more often than not.
-  const canDrawWave = waveformState === 'ready' && peaks != null && peaks.data.length > 0
   const loop = retimeLoopFor(value)
-  const playheadVisible =
-    typeof positionSec === 'number' && positionSec >= win.minSec && positionSec <= win.maxSec
   const more = typeof remaining === 'number' && remaining > 1 ? ` · ${remaining} spots left` : ''
-  // The tab normally opens rightward, the direction the line runs. Near the right
-  // edge that would be clipped by the container, so it flips and keeps its meaning
-  // via the arrow rather than by position alone. One threshold has to serve every
-  // width, which is why the label is kept short: at ~80px it is under a quarter of
-  // even a narrow phone strip, so flipping this late still cannot clip it.
-  const labelOpensLeft = at(value) > 0.76
 
   return (
     <div className="relative shrink-0 px-3 sm:px-4 py-2.5 border-b border-cinnabar-900/80 bg-cinnabar-950/80 space-y-2">
@@ -138,66 +99,16 @@ export function DragRetimeStrip({
 
       {/* One shared geometry: the audio, every marker, and the input that drives
           them all occupy exactly this box, so nothing can drift out of scale. */}
-      <div className="relative h-16 rounded-md bg-black/30 overflow-hidden ring-1 ring-white/5 focus-within:ring-2 focus-within:ring-cinnabar-accent">
-        {canDrawWave ? (
-          <svg
-            viewBox={`0 0 ${WAVE_COLUMNS} 100`}
-            preserveAspectRatio="none"
-            className="absolute inset-0 w-full h-full"
-            aria-hidden="true"
-          >
-            {/* The stretch that repeats, so it is obvious what you are listening to. */}
-            <rect
-              x={at(loop.startSec) * WAVE_COLUMNS}
-              width={Math.max(0.5, (at(loop.endSec) - at(loop.startSec)) * WAVE_COLUMNS)}
-              y="0" height="100" className="fill-white/[0.06]"
-            />
-            {/* One path rather than 220 <rect> elements. The window is frozen while a
-                line is being dragged, so the waveform is IDENTICAL on every step —
-                220 elements per render was allocation and reconciliation bought for
-                nothing, on the interaction whose smoothness is the whole point.
-                Filled subpaths, not a stroke: preserveAspectRatio="none" scales the
-                axes unevenly, which would distort stroke width but not a fill. */}
-            <path className="fill-white/35" d={waveformPath(columns)} />
-          </svg>
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center text-[11px] text-white/35">
-            {waveformState === 'pending' ? 'Reading the audio…' : 'No waveform for this track'}
-          </div>
-        )}
-
-        {/* The live playhead, sweeping the loop. Drawn under the marker so the
-            thing being positioned always stays the most legible mark. */}
-        {playheadVisible ? (
-          <span
-            aria-hidden="true"
-            className="absolute top-0 bottom-0 w-px"
-            style={{
-              left: `${at(positionSec!) * 100}%`,
-              // Dashed, so it never reads as a second boundary marker.
-              backgroundImage: 'repeating-linear-gradient(to bottom, rgba(255,255,255,0.55) 0 3px, transparent 3px 6px)',
-            }}
-          />
-        ) : null}
-
-        {/* Where the line would START. A bare line with a symmetric dot reads as a
-            playhead handle — something that moves through the audio — rather than as
-            the boundary the line begins at. So the marker is directional: a tab that
-            opens the way the line runs, and says what it is in words. Guessing which
-            of two vertical lines means what is not a puzzle worth handing a user. */}
-        <span
-          aria-hidden="true"
-          className="absolute top-0 bottom-0 w-0.5 -translate-x-1/2 bg-cinnabar-accent"
-          style={{ left: `${at(value) * 100}%` }}
-        >
-          <span
-            className={`absolute top-0 flex items-center h-[15px] px-1 bg-cinnabar-accent text-[9px] font-semibold leading-none tracking-wide text-white whitespace-nowrap ${
-              labelOpensLeft ? 'right-0 rounded-l-sm' : 'left-0 rounded-r-sm'
-            }`}
-          >
-            {labelOpensLeft ? '◀ line start' : 'line start ▶'}
-          </span>
-        </span>
+      <div className="relative h-16 rounded-md overflow-hidden focus-within:ring-2 focus-within:ring-cinnabar-accent">
+        <WaveformStrip
+          peaks={peaks}
+          waveformState={waveformState}
+          minSec={win.minSec}
+          maxSec={win.maxSec}
+          regions={[{ startSec: loop.startSec, endSec: loop.endSec }]}
+          markers={[{ timeSec: value, label: 'line start' }]}
+          positionSec={positionSec}
+        />
 
         {/* The real control, kept for pointer, keyboard and screen readers. Invisible
             because everything it would draw is drawn above, on the audio's axis. */}
