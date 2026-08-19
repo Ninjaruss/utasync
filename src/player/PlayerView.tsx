@@ -1212,7 +1212,16 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         audioFile: file,
         youtubeThumbnailUrl: song.albumArtUrl,
       })
-      const updated: Song = { ...song, audioStoredPath, ...(albumArtUrl ? { albumArtUrl } : {}) }
+      // The stored vocal-activity envelope describes the OLD audio. Keeping it
+      // would snap re-timed lines onto onsets from a track that is no longer
+      // playing, which is worse than not snapping — so it goes with the audio.
+      const { vocalActivity: _staleSignal, ...lyricsWithoutSignal } = song.lyrics
+      const updated: Song = {
+        ...song,
+        audioStoredPath,
+        lyrics: lyricsWithoutSignal,
+        ...(albumArtUrl ? { albumArtUrl } : {}),
+      }
       await db.songs.put(updated)
       const audioFile = await getAudioFile(song.id)
       const loadVolume = usePlayerStore.getState().volume

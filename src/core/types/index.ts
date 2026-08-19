@@ -1,3 +1,8 @@
+// Type-only, so this is erased at build time: no runtime coupling from core to
+// the pipeline, and no import cycle. vocalActivity.ts depends on nothing but its
+// own FFT helpers.
+import type { VocalActivitySignal } from '../../ai-pipeline/vocalActivity'
+
 export type Language = 'ja' | 'en'
 /** Language the alignment pipeline operates in. Unlike the stored song
  * `Language`, this is detected from the lyric sheet itself so an English or
@@ -122,6 +127,21 @@ export interface LyricsData {
   anchorSources?: ('lcs' | 'interpolated' | 'interjection')[]
   /** Per-line quality from the last validation pass (same order as `lines`). */
   lineAlignmentQuality?: LineAlignmentQuality[]
+  /** Vocal-activity envelope from the last auto-align, kept so drag re-timing can
+   * snap a chosen time onto a real vocal onset without re-running the pipeline.
+   *
+   * PERSISTED rather than recomputed, because the signal worth snapping to is the
+   * STEM one and recomputing that means re-running Demucs (~1.4x audio length —
+   * minutes). Recomputing from the raw mix instead is cheap (~430ms decode plus
+   * STFT) but the mix is a documented weaker prior, and snapping a vocal entry to
+   * a drum transient is worse than not snapping. Measured cost of keeping it:
+   * ~42KB raw for a 230s song (~93KB on disk with IndexedDB overhead) against a
+   * ~3.7MB mp3 — a couple of percent. Typed arrays survive IndexedDB's structured
+   * clone bit-exact; there is no JSON blow-up.
+   *
+   * Cleared whenever the audio is replaced — a signal describing different audio
+   * is worse than none. */
+  vocalActivity?: VocalActivitySignal
   /** Hard timing pins from user taps (and any auto start/end edges). Line timing is
    * re-fit locally around these via refitAroundAnchors, and they survive re-align.
    * Absent ⇒ legacy behavior (no pins). */

@@ -610,7 +610,19 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
           // on the next open — it would re-decode + re-load Whisper to re-attempt the
           // exact same audio/text. applyRefinedAlignment doesn't carry it, so pass it
           // in the lyrics arg (mirrors transcriptWords).
-          { ...song.lyrics, alignmentMode: 'auto', transcriptWords, gapRecoveryVersion: GAP_RECOVERY_VERSION },
+          {
+            ...song.lyrics,
+            alignmentMode: 'auto',
+            transcriptWords,
+            gapRecoveryVersion: GAP_RECOVERY_VERSION,
+            // Keep the envelope so drag re-timing can snap onto a real vocal
+            // onset later without re-running Demucs. Only the STEM signal is
+            // worth keeping: the mix-derived one is a weaker prior, and snapping
+            // a vocal entry to a drum transient is worse than not snapping. An
+            // undefined value here (isolation off, stem rejected, YouTube) drops
+            // the field and correctly disables snapping rather than faking it.
+            vocalActivity: stemAccepted && vocalSig ? vocalSig : undefined,
+          },
           refined,
         ),
         syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines: refined.lines } }),
