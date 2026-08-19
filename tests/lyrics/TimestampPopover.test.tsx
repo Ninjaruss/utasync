@@ -7,7 +7,7 @@ import { computePeaks } from '../../src/player/waveformPeaks'
 const line = (startTime: number, endTime = startTime): TimedLine => ({ startTime, endTime, original: 'a', translation: '' })
 
 const renderPopover = (l: TimedLine, over: Partial<Parameters<typeof TimestampPopover>[0]> = {}) =>
-  render(<TimestampPopover line={l} autoEnd={l.startTime + 4} playhead={() => 0} onCommit={vi.fn()} onClose={vi.fn()} {...over} />)
+  render(<TimestampPopover line={l} autoEnd={l.startTime + 4} onCommit={vi.fn()} onClose={vi.fn()} {...over} />)
 
 describe('TimestampPopover', () => {
   it('shows a scrub slider seeded with the line start', () => {
@@ -94,8 +94,8 @@ describe('TimestampPopover', () => {
     expect(onCommit).toHaveBeenCalledWith({ start: 14, end: 14 })
   })
 
-  // Wave 2, item 2: nudge buttons + "Use current position" + a draft-relative
-  // window so a badly-misplaced line can actually be moved, not just wiggled.
+  // Wave 2, item 2: nudge buttons + a draft-relative window so a badly-misplaced line
+  // can actually be moved, not just wiggled.
   it('nudging +0.1s raises the draft start', () => {
     const onCommit = vi.fn()
     renderPopover(line(10), { onCommit })
@@ -121,25 +121,46 @@ describe('TimestampPopover', () => {
     expect(onCommit).toHaveBeenCalledWith({ start: 10, end: 15.5 })
   })
 
-  it('"Use current position" snaps the draft start to the current playhead', () => {
-    const onCommit = vi.fn()
-    const onScrub = vi.fn()
-    renderPopover(line(10), { onCommit, onScrub, playhead: () => 88 })
-    fireEvent.click(screen.getByRole('button', { name: /use current position/i }))
-    // 88s is well outside the original ±15s window — the readout still shows it.
-    expect(screen.getByText('1:28.0')).toBeTruthy()
-    expect(onScrub).toHaveBeenCalledWith(88, 'start')
-    fireEvent.click(screen.getByText('Done'))
-    expect(onCommit).toHaveBeenCalledWith({ start: 88, end: null })
+  // "Use current position" used to sit here. It stamped the playhead at the instant
+  // of the click, so it carried the user's reaction latency — ~250-400ms, and always
+  // in the same direction, late — straight into stored timing. That is the exact
+  // defect drag-to-retime was built to remove from tapping, kept alive in the one
+  // screen dedicated to precise timing. A guard, not a formality: the button is
+  // cheap to re-add and its harm is invisible in use.
+  it('offers no way to stamp the playhead at the instant of a click', () => {
+    renderPopover(line(10))
+    expect(screen.queryByRole('button', { name: /use current position/i })).toBeNull()
+    expect(screen.queryByText(/current position/i)).toBeNull()
   })
 
-  it('re-centers the scrub window on the draft so it never dead-ends at the edge', () => {
-    renderPopover(line(10), { playhead: () => 88 })
-    fireEvent.click(screen.getByRole('button', { name: /use current position/i }))
+  // What replaced it: the same moment is reachable by dragging, which has no latency
+  // term because the time comes from where the marker IS, not from when you clicked.
+  it('still reaches a far-off time by dragging', () => {
+    const onCommit = vi.fn()
+    renderPopover(line(10), { onCommit })
+    fireEvent.change(screen.getByLabelText('Scrub start timestamp'), { target: { value: '16' } })
+    fireEvent.click(screen.getByText('Done'))
+    expect(onCommit).toHaveBeenCalledWith({ start: 16, end: null })
+  })
+
+  // The window is frozen while a drag is in flight so the range cannot shift under
+  // the finger, then re-centres on release — which is what lets a badly-misplaced
+  // line be walked further than one window instead of dead-ending at the edge.
+  it('re-centers the scrub window on release so it never dead-ends at the edge', () => {
+    renderPopover(line(10))
     const slider = screen.getByLabelText('Scrub start timestamp') as HTMLInputElement
-    // Window followed the jump to 88 rather than staying pinned near 10.
-    expect(Number(slider.max)).toBeGreaterThan(88)
-    expect(Number(slider.min)).toBeGreaterThan(60)
+    const firstMax = Number(slider.max)
+    const firstMin = Number(slider.min)
+
+    fireEvent.pointerDown(slider)
+    fireEvent.change(slider, { target: { value: String(firstMax) } })
+    // Frozen mid-gesture: the range must not move while the thumb is held.
+    expect(Number(slider.max)).toBe(firstMax)
+    fireEvent.pointerUp(slider)
+
+    // Released: re-anchored on the new value, so the next grab reaches further.
+    expect(Number(slider.max)).toBeGreaterThan(firstMax)
+    expect(Number(slider.min)).toBeGreaterThan(firstMin)
   })
 
   // Whole-line "Line" mode: shift start+end together (the late/early fix).
