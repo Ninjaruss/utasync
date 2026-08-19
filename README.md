@@ -4,10 +4,10 @@
 
 Utasync is an offline-first PWA that turns YouTube links or your own audio files into a bilingual practice player. Paste a link or upload a track, sync the lyrics, and study line by line with readings, translations, and tools built for language learners. Playback and AI processing run in your browser — no account, no backend server, no subscription.
 
-> **🎤 Try it now → [utasync.app](https://utasync.app)**  
+> **🎤 Try it now → [utasync.ninjaruss.net](https://utasync.ninjaruss.net)**  
 > The official hosted version is a fully offline PWA with one-click model downloads, automatic updates, and zero setup — free to use.
 
-*Utasync is built and maintained by a solo developer, and stays private, ad-free, and independent. If it helps your studies, you can [support development on Ko-fi](https://ko-fi.com/ninjaruss).*
+*Utasync is built and maintained by a solo developer, and stays private, ad-free, and independent. If it helps your studies, you can [support development on Patreon](https://patreon.ninjaruss.net).*
 
 ## What you can do
 
@@ -32,7 +32,8 @@ Utasync is an offline-first PWA that turns YouTube links or your own audio files
 - **Play / Edit modes** — practice in Play; refine lyrics and timing in Edit.
 - **Tap-to-sync** — stamp line starts while audio plays (YouTube or local).
 - **Manual editing** — edit line text, add/delete lines, and adjust timing per line: nudge a single edge, shift a whole line earlier/later, or shift every following line together when a section has drifted. Undo/redo (⌘/Ctrl+Z) covers every edit.
-- **Tap to fix timing** — in Play mode the app flags the few lines it's unsure about; tap when each one starts to pin it (one tap to undo), and the surrounding lines re-fit around the anchor.
+- **Drag to fix timing** — in Play mode the app flags the few lines it's unsure about and offers a waveform for each: drag the marker onto the start of the vocal while a short loop repeats it, so you can hear the same moment as many times as you need. Committing pins that line (one tap to undo) and the surrounding lines re-fit around the anchor; where the audio gives a clear vocal onset, the committed time snaps onto it. Dragging rather than tapping is deliberate — a tap records *when you reacted*, which is consistently a little late.
+- **Time against the waveform in Edit** — the timestamp editor draws the audio for the window you're working in, marks the line's start and end on it, and shades its span. Dragging either edge loops that moment until you commit, framed to suit it: a start plays the silence breaking into the entry, an end plays the tail running up to the stop.
 - **Replace lyrics** — re-fetch from captions/LRCLIB or import a new file without re-adding the song.
 - **AI auto-align** — on-device Whisper transcription with content-based lyric matching (local audio required). Full-tier devices isolate vocals (Demucs) before transcription **by default**; a sanity check falls back to the raw mix if a separation comes back empty, so it never makes alignment worse.
 - **Attach local audio** — YouTube-only songs can add an audio file later to unlock auto-align and A/B export while keeping the same library entry.
@@ -76,12 +77,14 @@ AI models (Whisper, text embeddings, Demucs vocal isolation) download once on fi
 | Tier | Requirements | AI capabilities |
 |---|---|---|
 | **Full** | WebGPU + 6 GB+ RAM | Vocal isolation (on by default) + Whisper + word alignment |
-| **Lite** | WebGPU + 4 GB+ RAM | Whisper + word alignment (no separation) |
-| **Manual** | Any modern browser | Tap-sync and manual tools only |
+| **Lite** | WebGPU + 4 GB+ RAM — **or** a desktop with 6 GB+ and no WebGPU, running on WASM | Whisper + word alignment (no separation) |
+| **Manual** | Everything else, including mobile without WebGPU | Tap-sync and manual tools only |
+
+Missing WebGPU is a property of the *browser*, not the machine — Firefox forks on Linux and SteamOS, and older Safari, all lack it. Those still reach the Lite tier on a desktop-class machine, because Whisper transcribes on WASM regardless. Mobile stays Manual: WASM Whisper on a phone CPU is too slow to offer honestly.
 
 ## For contributors & self-hosters
 
-If you just want to use the app, visit **[utasync.app](https://utasync.app)** — no build required.  
+If you just want to use the app, visit **[utasync.ninjaruss.net](https://utasync.ninjaruss.net)** — no build required.  
 The instructions below are for developers who want to run the code locally or contribute.
 
 ```bash
@@ -137,7 +140,7 @@ Design specs and phase plans live under [`docs/superpowers/`](docs/superpowers/)
 
 ## Support the project
 
-Utasync is free to use. If it helps you learn a language, you can support ongoing development on **[Ko-fi](https://ko-fi.com/ninjaruss)** — it keeps the project private, ad-free, and independent.
+Utasync is free to use. If it helps you learn a language, you can support ongoing development on **[Patreon](https://patreon.ninjaruss.net)** — it keeps the project private, ad-free, and independent.
 
 ## License
 
