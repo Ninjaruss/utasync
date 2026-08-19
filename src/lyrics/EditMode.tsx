@@ -151,7 +151,6 @@ interface RowProps {
   onOpenPopover: () => void
   popoverOpen: boolean
   playheadActive: boolean
-  playhead: () => number
   /** Preview a candidate time while dragging. Distinct from `seek` because it also
    * frames a short loop around the moment, so it repeats while you judge it. */
   onScrubPreview?: (time: number, framing?: 'start' | 'end') => void
@@ -178,7 +177,7 @@ interface RowProps {
 /** One lyric row. Holds local draft text so typing doesn't push a change on every keystroke — committed only on blur, same discipline the old expand-into-panel editor used. */
 function Row({
   line, index, timed, editing, deleteArmed, playheadActive, onStartEdit, onStopEdit, onCommitText, onAdd,
-  onArmDelete, onConfirmDelete, onOpenPopover, popoverOpen, playhead, seek, onScrubPreview, onScrubStart, onScrubEnd, onCommitTimes, onClosePopover, autoEnd,
+  onArmDelete, onConfirmDelete, onOpenPopover, popoverOpen, seek, onScrubPreview, onScrubStart, onScrubEnd, onCommitTimes, onClosePopover, autoEnd,
   peaks, waveformState, positionSec,
   prevStart, canCascade, alignmentQuality, showAlignmentQuality,
 }: RowProps) {
@@ -323,7 +322,6 @@ function Row({
           line={line}
           autoEnd={autoEnd}
           prevStart={prevStart}
-          playhead={playhead}
           onCommit={onCommitTimes}
           onClose={onClosePopover}
           onScrub={onScrubPreview ?? seek}
@@ -770,7 +768,6 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
             onOpenPopover={() => openTimestampPopover(i)}
             popoverOpen={openPopover === i}
             playheadActive={activePlayheadIndex === i}
-            playhead={playhead}
             seek={seek}
             onScrubPreview={onScrubPreview}
             peaks={peaks}

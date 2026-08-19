@@ -7,7 +7,6 @@ interface Props {
   line: TimedLine
   /** Where an auto end lands right now (next line's start), for slider init/display. */
   autoEnd: number
-  playhead: () => number
   /** `shiftRestBy` (seconds) asks the editor to shift every following line by that
    * delta too — the "this whole section drifted" cascade. Omitted/0 = this line only. */
   onCommit: (patch: { start: number; end: number | null; shiftRestBy?: number }) => void
@@ -138,7 +137,7 @@ const anchorTabOff = 'bg-cinnabar-950 text-white/50'
  * With following lines present, "Shift later lines too" propagates the same
  * offset to the rest of the song. Dragging previews the audio position live.
  */
-export function TimestampPopover({ line, autoEnd, playhead, onCommit, onClose, onScrub, onScrubStart, onScrubEnd, canCascade = false, prevStart, peaks, waveformState, positionSec }: Props) {
+export function TimestampPopover({ line, autoEnd, onCommit, onClose, onScrub, onScrubStart, onScrubEnd, canCascade = false, prevStart, peaks, waveformState, positionSec }: Props) {
   const hasExplicitEnd = line.endTime > line.startTime
   const [mode, setMode] = useState<Mode>('start')
   const [draftStart, setDraftStart] = useState(line.startTime)
@@ -146,8 +145,8 @@ export function TimestampPopover({ line, autoEnd, playhead, onCommit, onClose, o
   const [cascade, setCascade] = useState(false)
   // While a drag is active this holds the window centre captured at pointer-down,
   // so min/max stay FIXED for the whole gesture and the thumb tracks the finger.
-  // null = idle, window re-centres on the current value (so the next grab, or a
-  // "Use current position" jump, starts anchored under the thumb).
+  // null = idle, window re-centres on the current value, so the next grab starts
+  // anchored under the thumb and can travel further than one window.
   const [dragCenter, setDragCenter] = useState<number | null>(null)
 
   // Slider value for the active mode. An auto end scrubs from where it currently
@@ -191,14 +190,6 @@ export function TimestampPopover({ line, autoEnd, playhead, onCommit, onClose, o
     mode === 'start' ? setStart(draftStart + delta)
     : mode === 'end' ? setEnd(effectiveEnd + delta)
     : shiftLineBy(delta)
-  const useCurrentPosition = () => {
-    const p = playhead()
-    if (!Number.isFinite(p)) return
-    if (mode === 'start') setStart(p)
-    else if (mode === 'end') setEnd(p)
-    else moveLine(p)
-  }
-
   const startDelta = round1(draftStart - line.startTime)
   const selectMode = (m: Mode) => {
     setMode(m)
@@ -274,13 +265,6 @@ export function TimestampPopover({ line, autoEnd, playhead, onCommit, onClose, o
           </button>
         ))}
       </div>
-      <button
-        type="button"
-        onClick={useCurrentPosition}
-        className="w-full min-h-11 rounded-lg border border-dashed border-cinnabar-800 text-white/60 text-xs touch-manipulation hover:border-cinnabar-accent/50 hover:text-white transition-[color,border-color,transform] duration-150 ease-out active:scale-[0.96]"
-      >
-        Use current position
-      </button>
       {canCascade && mode === 'line' && (
         <label className="flex items-center gap-2 min-h-11 px-1 text-xs text-white/70 touch-manipulation cursor-pointer">
           <input
