@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { TimestampPopover } from '../../src/lyrics/TimestampPopover'
 import type { TimedLine } from '../../src/core/types'
+import { computePeaks } from '../../src/player/waveformPeaks'
 
 const line = (startTime: number, endTime = startTime): TimedLine => ({ startTime, endTime, original: 'a', translation: '' })
 
@@ -23,7 +24,7 @@ describe('TimestampPopover', () => {
     fireEvent.change(screen.getByLabelText('Scrub start timestamp'), { target: { value: '45' } })
     // Readout keeps tenths so sub-second nudges are visible.
     expect(screen.getByText('0:45.0')).toBeTruthy()
-    expect(onScrub).toHaveBeenCalledWith(45)
+    expect(onScrub).toHaveBeenCalledWith(45, 'start')
     expect(onCommit).not.toHaveBeenCalled()
   })
 
@@ -127,7 +128,7 @@ describe('TimestampPopover', () => {
     fireEvent.click(screen.getByRole('button', { name: /use current position/i }))
     // 88s is well outside the original ±15s window — the readout still shows it.
     expect(screen.getByText('1:28.0')).toBeTruthy()
-    expect(onScrub).toHaveBeenCalledWith(88)
+    expect(onScrub).toHaveBeenCalledWith(88, 'start')
     fireEvent.click(screen.getByText('Done'))
     expect(onCommit).toHaveBeenCalledWith({ start: 88, end: null })
   })
@@ -182,5 +183,98 @@ describe('TimestampPopover', () => {
     fireEvent.click(screen.getByRole('button', { name: /forward 0\.5 seconds/i }))
     fireEvent.click(screen.getByText('Done'))
     expect(onCommit.mock.calls[0][0].shiftRestBy).toBeUndefined()
+  })
+})
+
+/**
+ * Editing a timestamp used to mean dragging a number over an abstract track of tick
+ * marks: it showed WHERE the line sat relative to its neighbours, but not what was
+ * actually there to line it up with — and a timestamp is only ever settled against a
+ * sound. This is the same control the Play-mode re-timing strip uses, for the same
+ * reason.
+ */
+describe('TimestampPopover waveform', () => {
+  const peaksWithBurst = (burstSec: number) => {
+    const sr = 1000
+    const pcm = new Float32Array(120 * sr)
+    for (let i = Math.floor(burstSec * sr); i < Math.floor((burstSec + 0.4) * sr); i++) pcm[i] = 0.9
+    return computePeaks(pcm, sr)
+  }
+
+  it('draws the audio for the window being edited', () => {
+    const { container } = renderPopover(line(30, 34), { peaks: peaksWithBurst(30), waveformState: 'ready' })
+    const path = container.querySelector('svg path')
+    expect(path).toBeTruthy()
+    expect((path!.getAttribute('d') || '').split('M').length).toBeGreaterThan(50)
+  })
+
+  // Scoped to the arrow-bearing marker tabs: the mode toggle also has Start/End
+  // buttons, and matching those would prove nothing about what is drawn on the audio.
+  it('names both ends of the line, not just the one being dragged', () => {
+    renderPopover(line(30, 34), { peaks: peaksWithBurst(30), waveformState: 'ready' })
+    expect(screen.getByText(/^start ▶|^◀ start/)).toBeTruthy()
+    expect(screen.getByText(/^end ▶|^◀ end/)).toBeTruthy()
+  })
+
+  // Two equally loud accents would leave the user working out which one their drag is
+  // actually moving.
+  it('draws only the anchor under the active tab as primary', () => {
+    const { container } = renderPopover(line(30, 34), { peaks: peaksWithBurst(30), waveformState: 'ready' })
+    const primary = () => [...container.querySelectorAll('span')]
+      .filter((e) => e.className.includes('bg-cinnabar-accent') && /start|end/i.test(e.textContent || ''))
+      .map((e) => (e.textContent || '').replace(/[◀▶\s]/g, ''))
+    expect(primary()).toContain('start')
+    fireEvent.click(screen.getByRole('tab', { name: 'End' }))
+    expect(primary()).toContain('end')
+  })
+
+  it('says it is still reading rather than drawing a flat line', () => {
+    renderPopover(line(30, 34), { peaks: null, waveformState: 'pending' })
+    expect(screen.getByText(/reading the audio/i)).toBeTruthy()
+  })
+
+  // YouTube songs have no PCM. Editing timestamps has to keep working without it.
+  it('still edits timing with no waveform available', () => {
+    const onCommit = vi.fn()
+    renderPopover(line(30, 34), { peaks: null, waveformState: 'unavailable', onCommit })
+    fireEvent.change(screen.getByLabelText('Scrub start timestamp'), { target: { value: '29.5' } })
+    fireEvent.click(screen.getByText('Done'))
+    expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ start: 29.5 }))
+  })
+})
+
+/**
+ * The preview used to stop the instant the thumb was released, so the moment could
+ * only be heard while a finger was on it — the same "evidence expires before you can
+ * judge it" problem the Play-mode strip had. It now runs until the editor is closed.
+ */
+describe('TimestampPopover preview lifetime', () => {
+  it('keeps previewing after the thumb is released', () => {
+    const onScrubEnd = vi.fn()
+    renderPopover(line(30, 34), { onScrubEnd })
+    const slider = screen.getByLabelText('Scrub start timestamp')
+    fireEvent.pointerDown(slider)
+    fireEvent.change(slider, { target: { value: '29.5' } })
+    fireEvent.pointerUp(slider)
+    expect(onScrubEnd).not.toHaveBeenCalled()
+  })
+
+  it('stops previewing once the edit is committed', () => {
+    const onScrubEnd = vi.fn()
+    renderPopover(line(30, 34), { onScrubEnd })
+    fireEvent.click(screen.getByText('Done'))
+    expect(onScrubEnd).toHaveBeenCalled()
+  })
+
+  // A start and an end are judged by opposite evidence, so the caller is told which
+  // it is and frames the loop accordingly.
+  it('reports which moment is being moved', () => {
+    const onScrub = vi.fn()
+    renderPopover(line(30, 34), { onScrub })
+    fireEvent.change(screen.getByLabelText('Scrub start timestamp'), { target: { value: '29.5' } })
+    expect(onScrub).toHaveBeenLastCalledWith(29.5, 'start')
+    fireEvent.click(screen.getByRole('tab', { name: 'End' }))
+    fireEvent.change(screen.getByLabelText('Scrub end timestamp'), { target: { value: '35' } })
+    expect(onScrub).toHaveBeenLastCalledWith(35, 'end')
   })
 })

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   retimeLoopFor,
+  retimeLoopForEnd,
   needsWrap,
   RETIME_LOOP_LEAD_SEC,
   RETIME_LOOP_TAIL_SEC,
@@ -82,5 +83,45 @@ describe('needsWrap', () => {
 
   it('is inert with no loop', () => {
     expect(needsWrap(null, 999)).toBe(false)
+  })
+})
+
+/**
+ * A start and an end are judged by opposite evidence. For a start you need the
+ * silence BEFORE it, so you can hear the entry break in. For an end you need the
+ * tail leading up to it, so you can hear whether the line is being cut off — the
+ * silence after tells you nothing you did not already know.
+ */
+describe('framing an end rather than a start', () => {
+  it('puts most of the window before the moment when asked to', () => {
+    const l = retimeLoopFor(30, { leadSec: 1.5, tailSec: 0.5 })
+    expect(30 - l.startSec).toBeCloseTo(1.5, 5)
+    expect(l.endSec - 30).toBeCloseTo(0.5, 5)
+  })
+
+  it('still cannot produce an empty window near the track edges', () => {
+    for (const t of [0, 0.2, 119.9]) {
+      const l = retimeLoopFor(t, { durationSec: 120, leadSec: 1.5, tailSec: 0.5 })
+      expect(l.endSec).toBeGreaterThan(l.startSec)
+      expect(l.startSec).toBeGreaterThanOrEqual(0)
+    }
+  })
+
+  it('defaults to start framing when no override is given', () => {
+    const l = retimeLoopFor(30)
+    expect(l.endSec - 30).toBeGreaterThan(30 - l.startSec)
+  })
+
+  it('retimeLoopForEnd frames the tail, the mirror of the start default', () => {
+    const end = retimeLoopForEnd(30)
+    const start = retimeLoopFor(30)
+    expect(30 - end.startSec).toBeGreaterThan(end.endSec - 30)
+    expect(start.endSec - 30).toBeGreaterThan(30 - start.startSec)
+  })
+
+  it('retimeLoopForEnd respects the track length', () => {
+    const l = retimeLoopForEnd(119.9, 120)
+    expect(l.endSec).toBeLessThanOrEqual(120)
+    expect(l.endSec).toBeGreaterThan(l.startSec)
   })
 })

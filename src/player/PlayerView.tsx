@@ -12,7 +12,7 @@ import { ABLoopController } from './ABLoop'
 import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, AlignmentLanguage } from '../core/types'
 import { DragRetimeStrip } from './DragRetimeStrip'
 import { snapToOnset } from './onsetSnap'
-import { retimeLoopFor, needsWrap, type RetimeLoop } from './retimeLoop'
+import { retimeLoopFor, retimeLoopForEnd, needsWrap, type RetimeLoop } from './retimeLoop'
 import { computePeaks, type Peaks } from './waveformPeaks'
 import { Banner } from '../core/ui/Banner'
 import { refitAroundAnchors, selectAnchorTargets, selectActiveAnchorTarget, type TimingAnchor } from '../lyrics/anchorRefit'
@@ -808,7 +808,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   // only, since YouTube exposes no PCM.
   useEffect(() => {
     const id = song?.id
-    if (anchorTargetActive === null || !id) return
+    if ((anchorTargetActive === null && mode !== 'edit') || !id) return
     if (waveRequestedForRef.current === id) return
     if (!song?.audioStoredPath || isYouTube) return
     waveRequestedForRef.current = id
@@ -826,7 +826,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     })()
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchorTargetActive, song?.id, isYouTube])
+  }, [anchorTargetActive, mode, song?.id, isYouTube])
   // Derived rather than stored, so nothing has to be written during an effect, and
   // peaks belonging to another song simply do not count as ready.
   const peaksForSong = song && wavePeaks?.songId === song.id ? wavePeaks.peaks : null
@@ -882,8 +882,12 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
    * ("drag until it lines up with what you hear") true at all — dragging a paused
    * song produced no sound whatsoever.
    */
-  const startRetimeLoop = (candidateSec: number) => {
-    const loop = retimeLoopFor(candidateSec, { durationSec: duration || undefined })
+  const startRetimeLoop = (candidateSec: number, framing: 'start' | 'end' = 'start') => {
+    // A start and an end are judged by opposite evidence — silence breaking into the
+    // entry, versus the tail running up to the stop — so they get mirrored windows.
+    const loop = framing === 'end'
+      ? retimeLoopForEnd(candidateSec, duration || undefined)
+      : retimeLoopFor(candidateSec, { durationSec: duration || undefined })
     if (!retimeLoopRef.current) retimeWasPausedRef.current = playbackState !== 'playing'
     retimeLoopRef.current = loop
     seek(loop.startSec, { fromRetime: true })
@@ -960,6 +964,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   }
 
   const onScrubEnd = () => {
+    endRetimeLoop()
     if (scrubStartedPlayRef.current) {
       scrubStartedPlayRef.current = false
       if (isYouTube) ytRef.current?.pause(); else engine.pause()
@@ -1651,6 +1656,9 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               playhead={() => (isYouTube ? position : engine.position)}
               playheadPosition={position}
               seek={seek}
+              onScrubPreview={(t, framing) => startRetimeLoop(t, framing)}
+              peaks={peaksForSong}
+              waveformState={waveformState}
               onScrubStart={onScrubStart}
               onScrubEnd={onScrubEnd}
               hasLocalAudio={hasStoredAudio}

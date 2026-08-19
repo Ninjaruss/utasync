@@ -61,7 +61,7 @@ describe('EditMode', () => {
     const { onChangeLines } = renderEditMode({ seek, onScrubStart: vi.fn(), onScrubEnd, playhead: () => 4 })
     fireEvent.click(screen.getByRole('button', { name: /edit timestamp for line 2/i }))
     fireEvent.change(screen.getByLabelText('Scrub start timestamp'), { target: { value: '5' } })
-    expect(seek).toHaveBeenCalledWith(5)
+    expect(seek).toHaveBeenCalledWith(5, 'start')
     const list = screen.getByLabelText('Lyric lines')
     fireEvent.click(list)
     expect(onChangeLines).not.toHaveBeenCalled()
