@@ -3,32 +3,33 @@ import {
   dragWindowFor,
   timeAtFraction,
   fractionAtTime,
-  DRAG_WINDOW_HALF_SEC,
+  DRAG_WINDOW_BACK_SEC,
+  DRAG_WINDOW_FORWARD_SEC,
 } from '../../src/player/dragTiming'
 
 describe('dragWindowFor', () => {
-  it('centres the window on the current start', () => {
-    const w = dragWindowFor(30, 2.5)
+  it('opens the window around the current start', () => {
+    const w = dragWindowFor(30, 2.5, 6)
     expect(w.minSec).toBe(27.5)
-    expect(w.maxSec).toBe(32.5)
+    expect(w.maxSec).toBe(36)
   })
 
   // A line near t=0 must not offer negative times to drag to.
   it('clamps the window at the start of the track', () => {
-    const w = dragWindowFor(1, 2.5)
+    const w = dragWindowFor(1, 2.5, 6)
     expect(w.minSec).toBe(0)
-    expect(w.maxSec).toBe(3.5)
+    expect(w.maxSec).toBe(7)
   })
 
   it('falls back to a valid window for a nonsense start', () => {
-    const w = dragWindowFor(Number.NaN, 2.5)
+    const w = dragWindowFor(Number.NaN, 2.5, 6)
     expect(w.minSec).toBe(0)
     expect(w.maxSec).toBeGreaterThan(0)
   })
 })
 
 describe('timeAtFraction / fractionAtTime', () => {
-  const w = dragWindowFor(30, 2.5)
+  const w = dragWindowFor(30, 2.5, 2.5)
 
   it('maps the ends and the centre', () => {
     expect(timeAtFraction(w, 0)).toBe(27.5)
@@ -61,11 +62,21 @@ describe('timeAtFraction / fractionAtTime', () => {
   })
 })
 
-describe('DRAG_WINDOW_HALF_SEC', () => {
-  // Provisional per the spec — a later task measures it. Pinned here so a change
-  // is a deliberate edit with a test to update, not a silent drift.
-  it('is a small local window, not the popover-sized one', () => {
-    expect(DRAG_WINDOW_HALF_SEC).toBeGreaterThan(0)
-    expect(DRAG_WINDOW_HALF_SEC).toBeLessThan(6)
+describe('the measured window', () => {
+  // scripts/audit-drag-window.mjs: over the 22 lines the strip is actually
+  // offered for across the 4 LRC-truth corpus songs, 19 sit EARLIER than truth.
+  // The forward reach must therefore exceed the backward reach, or the window
+  // spends its precision budget on the direction corrections rarely travel.
+  it('reaches further forward than back, because flagged lines run early', () => {
+    expect(DRAG_WINDOW_FORWARD_SEC).toBeGreaterThan(DRAG_WINDOW_BACK_SEC)
+  })
+
+  // Same audit: a +/-2.5s window reached only 41% of those lines (it missed the
+  // median one), 2.5/6 reaches 73%. Wider buys little and costs ms-per-pixel.
+  it('spans enough to reach the measured median error, without going slack', () => {
+    const span = DRAG_WINDOW_BACK_SEC + DRAG_WINDOW_FORWARD_SEC
+    expect(DRAG_WINDOW_FORWARD_SEC).toBeGreaterThanOrEqual(3.06)
+    expect(span).toBeGreaterThanOrEqual(8)
+    expect(span).toBeLessThanOrEqual(10.5)
   })
 })

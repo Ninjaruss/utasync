@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { dragWindowFor, DRAG_WINDOW_HALF_SEC } from './dragTiming'
+import { dragWindowFor, DRAG_WINDOW_BACK_SEC, DRAG_WINDOW_FORWARD_SEC } from './dragTiming'
 
 interface Props {
   /** Flagged line to re-time, or null to render nothing. */
@@ -19,7 +19,7 @@ interface Props {
 const fmt = (t: number) => {
   const m = Math.floor(t / 60)
   const s = t - m * 60
-  return `${m}:${s.toFixed(1).padStart(4, '0')}`
+  return `${m}:${s.toFixed(2).padStart(5, '0')}`
 }
 
 /**
@@ -62,7 +62,7 @@ export function DragRetimeStrip({
 
   if (lineIndex === null) return null
 
-  const win = dragWindowFor(centreSec, DRAG_WINDOW_HALF_SEC)
+  const win = dragWindowFor(centreSec, DRAG_WINDOW_BACK_SEC, DRAG_WINDOW_FORWARD_SEC)
   const more = typeof remaining === 'number' && remaining > 1 ? ` · ${remaining} spots left` : ''
 
   return (
@@ -90,7 +90,7 @@ export function DragRetimeStrip({
             onPreview(t)
           }}
         />
-        <span className="text-white/70 text-xs tabular-nums w-14 text-right">{fmt(value)}</span>
+        <span className="text-white/70 text-xs tabular-nums w-16 text-right">{fmt(value)}</span>
         <button
           type="button"
           onClick={() => onCommit(lineIndex, value)}
