@@ -42,3 +42,8 @@ tests/ai-pipeline/fixtures/*.wav
 public/e2e/
 
 scripts/.cache/
+
+# Local drag-retime test fixture: seeds a synthetic song into the browser.
+# Kept out of the tree deliberately — anything under public/ is SERVED, and a page
+# that writes a fake song into a visitor's storage has no business in production.
+public/seed-drag-fixture.html
