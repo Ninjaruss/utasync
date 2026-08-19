@@ -12,6 +12,7 @@ import { ABLoopController } from './ABLoop'
 import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, AlignmentLanguage } from '../core/types'
 import { DragRetimeStrip } from './DragRetimeStrip'
 import { snapToOnset } from './onsetSnap'
+import { retimeLoopFor, needsWrap, type RetimeLoop } from './retimeLoop'
 import { Banner } from '../core/ui/Banner'
 import { refitAroundAnchors, selectAnchorTargets, selectActiveAnchorTarget, type TimingAnchor } from '../lyrics/anchorRefit'
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
@@ -293,6 +294,16 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   if (engineRef.current === null) engineRef.current = new AudioEngine()
   const engine = engineRef.current
   const abLoopControllerRef = useRef<ABLoopController | null>(null)
+  // seek() has to be able to end the loop, but endRetimeLoop is defined after it
+  // (it calls seek). Same indirection the file already uses for seekRef.
+  const endRetimeLoopRef = useRef<() => void>(() => {})
+  // Refs, not state: the loop restarts on every drag step (measured as the
+  // preferred feel), so putting the window in state would re-render the whole
+  // view on each 0.05s move for something only the position effect reads.
+  const retimeLoopRef = useRef<RetimeLoop | null>(null)
+  // Whether the song was paused when re-timing began, so finishing can put it
+  // back rather than leaving it running.
+  const retimeWasPausedRef = useRef(false)
   const ytRef = useRef<YouTubePlayerHandle>(null)
   // Tracks whether timestamp-scrubbing started playback, so onScrubEnd only
   // stops audio it itself started (leaves pre-existing playback alone).
@@ -670,6 +681,15 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   }, [])
 
   useEffect(() => {
+    // The re-timing loop takes precedence while it is up, but must not disturb the
+    // user's A/B points — placing those is real work, and they have to survive a
+    // line correction. So this wraps and returns rather than clearing anything.
+    const loop = retimeLoopRef.current
+    if (loop) {
+      if (needsWrap(loop, position)) seekRef.current(loop.startSec)
+      else abLoopControllerRef.current?.syncPosition(position)
+      return
+    }
     abLoopControllerRef.current?.tick()
   }, [position])
 
@@ -782,7 +802,12 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     // let go of the line they were adjusting. Without this the latch below never
     // released without a commit, and the strip followed the user around the song
     // offering to re-time audio they were nowhere near.
-    if (!opts?.fromRetime) setRetimingLine(null)
+    if (!opts?.fromRetime) {
+      setRetimingLine(null)
+      // The loop belongs to the drag. Leaving it running after the user navigates
+      // would haul the playhead back to a line they have left.
+      endRetimeLoopRef.current()
+    }
     if (isYouTube) {
       ytRef.current?.seekTo(time)
     } else {
@@ -794,6 +819,39 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   }
   useEffect(() => {
     seekRef.current = seek
+  })
+
+  /**
+   * Begin (or restart) the loop around a candidate time. Restarts on EVERY drag
+   * step: while the thumb is moving you hear fragments, and the moment it stops
+   * the window settles into a clean ~2s cycle that repeats the entry until you
+   * have decided. Also starts playback, which is what makes the strip's promise
+   * ("drag until it lines up with what you hear") true at all — dragging a paused
+   * song produced no sound whatsoever.
+   */
+  const startRetimeLoop = (candidateSec: number) => {
+    const loop = retimeLoopFor(candidateSec, { durationSec: duration || undefined })
+    if (!retimeLoopRef.current) retimeWasPausedRef.current = playbackState !== 'playing'
+    retimeLoopRef.current = loop
+    seek(loop.startSec, { fromRetime: true })
+    if (playbackState !== 'playing') {
+      if (isYouTube) ytRef.current?.play(); else engine.play()
+      setPlaybackState('playing')
+    }
+  }
+
+  /** Finish re-timing: drop the loop and restore the transport we interrupted. */
+  const endRetimeLoop = () => {
+    if (!retimeLoopRef.current) return
+    retimeLoopRef.current = null
+    if (retimeWasPausedRef.current && playbackState === 'playing') {
+      if (isYouTube) ytRef.current?.pause(); else engine.pause()
+      setPlaybackState('paused')
+    }
+    retimeWasPausedRef.current = false
+  }
+  useEffect(() => {
+    endRetimeLoopRef.current = endRetimeLoop
   })
 
   /** Stops loop playlist + manual A/B loop so the user can navigate freely. */
@@ -1437,10 +1495,11 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
             // would otherwise drop the target out from under this control. The
             // flag is what stops seek() from releasing the latch it just set.
             setRetimingLine(anchorTargetActive)
-            seek(t, { fromRetime: true })
+            startRetimeLoop(t)
           }}
           onCommit={(i, t, o) => {
             setRetimingLine(null)
+            endRetimeLoop()
             void handleTapAnchor(i, t, o)
           }}
         />

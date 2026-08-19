@@ -16,14 +16,15 @@ import { ToastProvider } from '../../src/core/ui/Toast'
  */
 
 vi.mock('../../src/core/opfs/audio', () => ({ getAudioFile: vi.fn(async () => new File([], 'x.mp3')) }))
+export const engineCalls: { seeks: number[]; plays: number; pauses: number } = { seeks: [], plays: 0, pauses: 0 }
 vi.mock('../../src/player/AudioEngine', () => ({
   AudioEngine: class {
     duration = 120
     position = 0
     async load() {}
-    play() {}
-    pause() {}
-    seek() {}
+    play() { engineCalls.plays++ }
+    pause() { engineCalls.pauses++ }
+    seek(t: number) { engineCalls.seeks.push(t) }
     destroy() {}
     setRate() {}
     setVolume() {}
@@ -54,7 +55,8 @@ const song = () => ({
 })
 
 beforeEach(async () => {
-  usePlayerStore.setState({ duration: 0, position: 0, currentSongId: null })
+  engineCalls.seeks = []; engineCalls.plays = 0; engineCalls.pauses = 0
+  usePlayerStore.setState({ duration: 0, position: 0, currentSongId: null, abLoop: { a: null, b: null } })
   await db.songs.clear()
   await db.songs.put(song() as never)
 })
@@ -320,5 +322,118 @@ describe('snapping a committed time to a vocal onset', () => {
       expect(saved?.lyrics.lines[1].startTime).toBeCloseTo(max, 3)
       expect(saved?.lyrics.lineAlignmentQuality?.[1]).toBe('needs_review')
     })
+  })
+})
+
+/**
+ * Plain seek-on-drag was measured insufficient: dragging a paused song made no
+ * sound at all, and while playing the playhead ran ~2.5s past the candidate within
+ * 1.5s, so the onset under test was gone before it could be judged. The loop
+ * restarts on every step, which is the feel that was chosen after listening.
+ */
+describe('the loop that plays while re-timing', () => {
+  it('starts playback, because dragging a paused song was silent', async () => {
+    await openOnFlaggedLine()
+    await waitFor(() => expect(slider()).toBeTruthy())
+    expect(engineCalls.plays).toBe(0)
+
+    fireEvent.change(slider(), { target: { value: '29.4' } })
+
+    expect(engineCalls.plays).toBeGreaterThan(0)
+  })
+
+  it('seeks to a lead-in before the candidate, not onto it', async () => {
+    await openOnFlaggedLine()
+    await waitFor(() => expect(slider()).toBeTruthy())
+
+    fireEvent.change(slider(), { target: { value: '29.4' } })
+
+    const last = engineCalls.seeks[engineCalls.seeks.length - 1]
+    // You judge an entry by hearing the silence break, so the loop must open early.
+    expect(last).toBeLessThan(29.4)
+    expect(last).toBeGreaterThan(28.5)
+  })
+
+  it('restarts on every step, which is the chosen feel', async () => {
+    await openOnFlaggedLine()
+    await waitFor(() => expect(slider()).toBeTruthy())
+
+    for (const v of ['29.4', '29.2', '29.0']) {
+      fireEvent.change(slider(), { target: { value: v } })
+    }
+    // Three moves, three fresh lead-ins, each earlier than the last.
+    const tail = engineCalls.seeks.slice(-3)
+    expect(tail).toHaveLength(3)
+    expect(tail[0]).toBeGreaterThan(tail[1])
+    expect(tail[1]).toBeGreaterThan(tail[2])
+  })
+
+  it('sends the playhead back when it runs out of the window', async () => {
+    await openOnFlaggedLine()
+    await waitFor(() => expect(slider()).toBeTruthy())
+    fireEvent.change(slider(), { target: { value: '30.5' } })
+    const lead = engineCalls.seeks[engineCalls.seeks.length - 1]
+    expect(lead).toBeGreaterThan(0)
+
+    // Playback runs past the end of the loop.
+    await act(async () => { usePlayerStore.setState({ position: 40 }) })
+
+    expect(engineCalls.seeks[engineCalls.seeks.length - 1]).toBeCloseTo(lead, 5)
+  })
+
+  it('stops looping once the time is committed', async () => {
+    await openOnFlaggedLine()
+    await waitFor(() => expect(slider()).toBeTruthy())
+    fireEvent.change(slider(), { target: { value: '30.5' } })
+    fireEvent.click(screen.getByRole('button', { name: /use this/i }))
+    await waitFor(async () => {
+      expect((await db.songs.get('drag-1'))?.lyrics.timingAnchors?.length).toBe(1)
+    })
+
+    const before = engineCalls.seeks.length
+    await act(async () => { usePlayerStore.setState({ position: 90 }) })
+    // No wrap: the loop is gone, so the playhead is free.
+    expect(engineCalls.seeks.length).toBe(before)
+  })
+
+  it('puts playback back where it found it', async () => {
+    await openOnFlaggedLine()
+    await waitFor(() => expect(slider()).toBeTruthy())
+    // Song was paused when the drag began.
+    fireEvent.change(slider(), { target: { value: '30.5' } })
+    expect(engineCalls.plays).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: /use this/i }))
+
+    await waitFor(() => expect(engineCalls.pauses).toBeGreaterThan(0))
+  })
+
+  // Placing A/B points is real work and has to survive a line correction.
+  it('does not disturb the user A-B loop', async () => {
+    await openOnFlaggedLine()
+    await act(async () => { usePlayerStore.setState({ abLoop: { a: 10, b: 20 } }) })
+    await waitFor(() => expect(slider()).toBeTruthy())
+
+    fireEvent.change(slider(), { target: { value: '30.5' } })
+    await act(async () => { usePlayerStore.setState({ position: 40 }) })
+    fireEvent.click(screen.getByRole('button', { name: /use this/i }))
+
+    expect(usePlayerStore.getState().abLoop).toEqual({ a: 10, b: 20 })
+  })
+
+  it('lets go of the loop when the user navigates away mid-drag', async () => {
+    await openOnFlaggedLine()
+    await waitFor(() => expect(slider()).toBeTruthy())
+    fireEvent.change(slider(), { target: { value: '30.5' } })
+
+    fireEvent.click(screen.getByText('first line'))
+    await act(async () => {
+      useLyricsStore.setState({ activeLine: 0 })
+      usePlayerStore.setState({ position: 1 })
+    })
+
+    const before = engineCalls.seeks.length
+    await act(async () => { usePlayerStore.setState({ position: 95 }) })
+    expect(engineCalls.seeks.length).toBe(before)
   })
 })
