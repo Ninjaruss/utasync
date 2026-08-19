@@ -5,6 +5,7 @@ import { db } from '../../src/core/db/schema'
 import { usePlayerStore } from '../../src/player/PlayerStore'
 import { useLyricsStore } from '../../src/lyrics/LyricsStore'
 import { PlayerView } from '../../src/player/PlayerView'
+import { ToastProvider } from '../../src/core/ui/Toast'
 
 /**
  * Correction used to commit the playhead at the instant of a click, carrying the
@@ -205,5 +206,119 @@ describe('abandoning a drag', () => {
       expect(screen.queryByRole('slider', { name: /start time/i })).toBeTruthy()
     }
     expect(slider().value).toBe('29.1')
+  })
+})
+
+/**
+ * Snapping is the endgame of a drag, not a replacement for it. The window sizing
+ * gets the thumb to roughly the right second; the strip is 194 CSS px wide and
+ * spans 8.5s, so 44ms rides on every pixel and even a steady hand leaves tens of
+ * milliseconds. Snapping removes that residual — but only where there is a real
+ * onset to remove it to.
+ */
+describe('snapping a committed time to a vocal onset', () => {
+  const hopSec = 0.02
+  /** Strong onset at onsetSec, nothing anywhere else. */
+  const signalWithOnset = (onsetSec: number, durSec = 120) => {
+    const frames = Math.ceil(durSec / hopSec)
+    const activity = new Float32Array(frames)
+    const onset = new Float32Array(frames)
+    const oi = Math.floor(onsetSec / hopSec)
+    for (let f = oi; f < frames; f++) activity[f] = 1
+    onset[oi] = 1
+    return { hopSec, activity, onset, source: 'stem' as const }
+  }
+
+  const seedWithSignal = async (sig: unknown) => {
+    const s = song() as Record<string, never>
+    ;(s.lyrics as unknown as Record<string, unknown>).vocalActivity = sig
+    await db.songs.put(s as never)
+  }
+
+  it('pulls a slightly-late commit back onto the real onset', async () => {
+    await seedWithSignal(signalWithOnset(29))
+    await openOnFlaggedLine()
+    await waitFor(() => expect(slider()).toBeTruthy())
+
+    // The user gets close — one or two slider pixels late.
+    fireEvent.change(slider(), { target: { value: '29.15' } })
+    fireEvent.click(screen.getByRole('button', { name: /use this/i }))
+
+    await waitFor(async () => {
+      const saved = await db.songs.get('drag-1')
+      expect(saved?.lyrics.lines[1].startTime).toBeCloseTo(29, 2)
+    })
+  })
+
+  // The regression guard for YouTube songs, which have no PCM and so no signal.
+  // Their corrections must land exactly where the user put them.
+  it('commits exactly what the user chose when there is no signal', async () => {
+    await openOnFlaggedLine()
+    await waitFor(() => expect(slider()).toBeTruthy())
+
+    fireEvent.change(slider(), { target: { value: '29.15' } })
+    fireEvent.click(screen.getByRole('button', { name: /use this/i }))
+
+    await waitFor(async () => {
+      const saved = await db.songs.get('drag-1')
+      expect(saved?.lyrics.lines[1].startTime).toBeCloseTo(29.15, 3)
+    })
+  })
+
+  // A signal with nothing nearby must not drag the choice to the closest bump it
+  // can find. The user's judgement wins when the audio has nothing to say.
+  it('leaves the choice alone when no onset is near it', async () => {
+    await seedWithSignal(signalWithOnset(5))
+    await openOnFlaggedLine()
+    await waitFor(() => expect(slider()).toBeTruthy())
+
+    fireEvent.change(slider(), { target: { value: '29.15' } })
+    fireEvent.click(screen.getByRole('button', { name: /use this/i }))
+
+    await waitFor(async () => {
+      const saved = await db.songs.get('drag-1')
+      expect(saved?.lyrics.lines[1].startTime).toBeCloseTo(29.15, 3)
+    })
+  })
+
+  // Silently moving the user's explicit choice is worse than not moving it. Needs
+  // a real ToastProvider — the bare context default is a no-op, so rendering
+  // PlayerView alone would assert nothing.
+  it('says so when it moved the time', async () => {
+    await seedWithSignal(signalWithOnset(29))
+    render(
+      <ToastProvider>
+        <PlayerView songId="drag-1" onBack={vi.fn()} />
+      </ToastProvider>,
+    )
+    await waitFor(() => expect(screen.getByText('flagged line')).toBeTruthy())
+    usePlayerStore.setState({ currentSongId: 'drag-1', position: 31, duration: 120 })
+    await act(async () => {
+      useLyricsStore.setState({ activeLine: 1 })
+    })
+    await waitFor(() => expect(slider()).toBeTruthy())
+
+    fireEvent.change(slider(), { target: { value: '29.15' } })
+    fireEvent.click(screen.getByRole('button', { name: /use this/i }))
+
+    await waitFor(() => expect(screen.getByText(/snapped to vocal onset/i)).toBeTruthy())
+  })
+
+  // A clamped commit is the user running out of slider, not a considered choice.
+  // Snapping it would dress a known-wrong time up as a precise one.
+  it('does not snap a commit that was clamped by the window edge', async () => {
+    await seedWithSignal(signalWithOnset(36.2))
+    await openOnFlaggedLine()
+    await waitFor(() => expect(slider()).toBeTruthy())
+    const max = Number(slider().max)
+
+    fireEvent.change(slider(), { target: { value: String(max) } })
+    fireEvent.click(screen.getByRole('button', { name: /use this/i }))
+
+    await waitFor(async () => {
+      const saved = await db.songs.get('drag-1')
+      expect(saved?.lyrics.lines[1].startTime).toBeCloseTo(max, 3)
+      expect(saved?.lyrics.lineAlignmentQuality?.[1]).toBe('needs_review')
+    })
   })
 })

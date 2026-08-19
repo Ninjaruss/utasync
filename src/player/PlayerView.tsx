@@ -11,6 +11,7 @@ import { resolveYouTubeVideoId } from '../sources/youtube'
 import { ABLoopController } from './ABLoop'
 import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, AlignmentLanguage } from '../core/types'
 import { DragRetimeStrip } from './DragRetimeStrip'
+import { snapToOnset } from './onsetSnap'
 import { Banner } from '../core/ui/Banner'
 import { refitAroundAnchors, selectAnchorTargets, selectActiveAnchorTarget, type TimingAnchor } from '../lyrics/anchorRefit'
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
@@ -715,9 +716,18 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const handleTapAnchor = async (lineIndex: number, time: number, opts?: { clamped?: boolean }) => {
     if (!song) return
     const prevSong = song
+    // Snap on commit, never during the drag — mid-drag it would fight the finger.
+    // Skipped for a clamped commit: that is the user running out of slider, not a
+    // considered choice, and snapping it would dress a known-wrong time up as a
+    // precise one. With no stored signal (YouTube, isolation off, rejected stem)
+    // snapToOnset returns the chosen time untouched.
+    const snap = opts?.clamped
+      ? { timeSec: time, snapped: false }
+      : snapToOnset(song.lyrics.vocalActivity, time)
+    const anchorTime = snap.timeSec
     const anchors: TimingAnchor[] = [
       ...(song.lyrics.timingAnchors ?? []).filter((a) => a.lineIndex !== lineIndex),
-      { lineIndex, time, source: 'user' },
+      { lineIndex, time: anchorTime, source: 'user' },
     ]
     const newLines = refitAroundAnchors(
       song.lyrics.lines,
@@ -742,11 +752,15 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     setLines(newLines)
     setSong(updated)
     await db.songs.put(updated)
-    toast(
-      opts?.clamped ? `Line ${lineIndex + 1} moved as far as the slider reaches — adjust again` : `Line ${lineIndex + 1} re-timed`,
-      'info',
-      { label: 'Undo', onClick: () => void restoreSong(prevSong) },
-    )
+    // Say when the time moved. Silently adjusting the user's explicit choice is
+    // worse than not adjusting it — they need to know why the line sits where it
+    // does, and Undo has to mean something they can reason about.
+    const message = opts?.clamped
+      ? `Line ${lineIndex + 1} moved as far as the slider reaches — adjust again`
+      : snap.snapped
+        ? `Line ${lineIndex + 1} snapped to vocal onset`
+        : `Line ${lineIndex + 1} re-timed`
+    toast(message, 'info', { label: 'Undo', onClick: () => void restoreSong(prevSong) })
   }
   const showYouTubeVideo = youtubeNeedsVisibleEmbed()
   const lyricsUntimed = lines.length > 0 && !linesAreTimed(lines)
