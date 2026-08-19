@@ -91,7 +91,12 @@ export function DragRetimeStrip({
   // useMemo would have to sit above the early return to keep hook order, which reads
   // worse than just doing the work.
   const columns = peaksWindow(peaks, win.minSec, win.maxSec, WAVE_COLUMNS)
-  const hasWave = columns.some((v) => v > 0.001)
+  // Whether we HAVE audio to draw, which is not the same as whether this window
+  // happens to contain any. A silent stretch is drawn as the hairline floor below —
+  // "quiet here" — because telling the user their track has no waveform when it has
+  // one they are simply between sounds of is a lie about their audio, and flagged
+  // lines sit next to instrumental gaps more often than not.
+  const canDrawWave = waveformState === 'ready' && peaks != null && peaks.data.length > 0
   const loop = retimeLoopFor(value)
   const playheadVisible =
     typeof positionSec === 'number' && positionSec >= win.minSec && positionSec <= win.maxSec
@@ -117,7 +122,7 @@ export function DragRetimeStrip({
       {/* One shared geometry: the audio, every marker, and the input that drives
           them all occupy exactly this box, so nothing can drift out of scale. */}
       <div className="relative h-16 rounded-md bg-black/30 overflow-hidden ring-1 ring-white/5 focus-within:ring-2 focus-within:ring-cinnabar-accent">
-        {hasWave ? (
+        {canDrawWave ? (
           <svg
             viewBox={`0 0 ${WAVE_COLUMNS} 100`}
             preserveAspectRatio="none"

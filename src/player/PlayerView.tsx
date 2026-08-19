@@ -306,11 +306,15 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   // Whether the song was paused when re-timing began, so finishing can put it
   // back rather than leaving it running.
   const retimeWasPausedRef = useRef(false)
-  const [wavePeaks, setWavePeaks] = useState<Peaks | null>(null)
-  const [waveFailed, setWaveFailed] = useState(false)
-  // Guards the one-shot decode without a state write, so the effect below never
-  // setStates synchronously (which would cascade renders).
-  const waveRequestedRef = useRef(false)
+  // Tagged with the song they describe. PlayerView is REUSED across songs — App
+  // swaps the songId prop rather than remounting — so untagged peaks would follow
+  // the user to the next track and draw a confident picture of audio that is not
+  // playing. Same hazard the stored vocal-activity signal has, same answer.
+  const [wavePeaks, setWavePeaks] = useState<{ songId: string; peaks: Peaks } | null>(null)
+  const [waveFailedFor, setWaveFailedFor] = useState<string | null>(null)
+  // Which song we have already kicked a decode off for. A ref, not state, so the
+  // effect below never setStates synchronously (which would cascade renders).
+  const waveRequestedForRef = useRef<string | null>(null)
   const ytRef = useRef<YouTubePlayerHandle>(null)
   // Tracks whether timestamp-scrubbing started playback, so onScrubEnd only
   // stops audio it itself started (leaves pre-existing playback alone).
@@ -735,6 +739,14 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   // recomputed target no longer matches — so the strip unmounts mid-drag.
   const [retimingLine, setRetimingLine] = useState<number | null>(null)
   const anchorTargetActive = mode === 'play' ? (retimingLine ?? anchorTargetSuggested) : null
+  // Hiding the strip is not the same as stopping what it started. The mode gate and
+  // the latch can both drop the target out from under a running loop — switching to
+  // Edit, or committing — and a loop still wrapping the playhead with nothing on
+  // screen to explain it would fight every seek the user made afterwards.
+  useEffect(() => {
+    if (anchorTargetActive === null) endRetimeLoopRef.current()
+  }, [anchorTargetActive])
+
   // Restore the whole song to a pre-tap snapshot (undo for the instantly-persisted
   // tap-anchor). Reverts the anchor, the refit, and the cleared uncertainty flag.
   const restoreSong = async (snapshot: Song) => {
@@ -795,28 +807,32 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   // listen must not pay a decode it will never look at. Once per song; local audio
   // only, since YouTube exposes no PCM.
   useEffect(() => {
-    if (anchorTargetActive === null || waveRequestedRef.current) return
+    const id = song?.id
+    if (anchorTargetActive === null || !id) return
+    if (waveRequestedForRef.current === id) return
     if (!song?.audioStoredPath || isYouTube) return
-    waveRequestedRef.current = true
+    waveRequestedForRef.current = id
     let cancelled = false
     void (async () => {
       try {
-        const file = await getAudioFile(song.id)
+        const file = await getAudioFile(id)
         const { data, sampleRate } = await decodeAudioFileToMono(file)
-        if (!cancelled) setWavePeaks(computePeaks(data, sampleRate))
+        if (!cancelled) setWavePeaks({ songId: id, peaks: computePeaks(data, sampleRate) })
       } catch {
         // A waveform is an assist. Losing it must never break re-timing, which
         // works from the slider and the audio alone.
-        if (!cancelled) setWaveFailed(true)
+        if (!cancelled) setWaveFailedFor(id)
       }
     })()
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchorTargetActive, song?.id, isYouTube])
-  // Derived rather than stored, so nothing has to be written during an effect.
+  // Derived rather than stored, so nothing has to be written during an effect, and
+  // peaks belonging to another song simply do not count as ready.
+  const peaksForSong = song && wavePeaks?.songId === song.id ? wavePeaks.peaks : null
   const waveformState: 'pending' | 'ready' | 'unavailable' =
-    wavePeaks ? 'ready'
-      : !song?.audioStoredPath || isYouTube || waveFailed ? 'unavailable'
+    peaksForSong ? 'ready'
+      : !song?.audioStoredPath || isYouTube || waveFailedFor === song?.id ? 'unavailable'
         : 'pending'
 
   const showYouTubeVideo = youtubeNeedsVisibleEmbed()
@@ -1325,7 +1341,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       // would snap re-timed lines onto onsets from a track that is no longer
       // playing, which is worse than not snapping — so it goes with the audio.
       // The decoded waveform describes the old audio as surely as the envelope does.
-      setWavePeaks(null); setWaveFailed(false); waveRequestedRef.current = false
+      setWavePeaks(null); setWaveFailedFor(null); waveRequestedForRef.current = null
       const { vocalActivity: _staleSignal, ...lyricsWithoutSignal } = song.lyrics
       const updated: Song = {
         ...song,
@@ -1529,7 +1545,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           lineText={lines[anchorTargetActive]?.original}
           startSec={lines[anchorTargetActive]?.startTime ?? 0}
           remaining={anchorTargets.length}
-          peaks={wavePeaks}
+          peaks={peaksForSong}
           waveformState={waveformState}
           positionSec={position}
           onPreview={(t) => {

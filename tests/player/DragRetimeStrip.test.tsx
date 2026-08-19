@@ -293,3 +293,30 @@ describe('DragRetimeStrip start marker', () => {
     expect(slider()).toHaveAccessibleName()
   })
 })
+
+/**
+ * A window can be genuinely silent — flagged lines often sit next to instrumental
+ * gaps, which is part of why they were flagged. "This window is quiet" and "this
+ * track has no waveform" are different statements, and conflating them tells the
+ * user their audio is unreadable when it is merely quiet there.
+ */
+describe('DragRetimeStrip silent windows', () => {
+  const silentPeaks = () => computePeaks(new Float32Array(120 * 1000), 1000)
+
+  it('still draws the audio when the window happens to be silent', () => {
+    const { container } = render(
+      <DragRetimeStrip lineIndex={3} startSec={30} peaks={silentPeaks()} waveformState="ready"
+        onPreview={vi.fn()} onCommit={vi.fn()} />,
+    )
+    expect(container.querySelector('svg')).toBeTruthy()
+    expect(screen.queryByText(/no waveform/i)).toBeNull()
+  })
+
+  it('reserves the no-waveform message for tracks that truly have none', () => {
+    render(
+      <DragRetimeStrip lineIndex={3} startSec={30} peaks={null} waveformState="unavailable"
+        onPreview={vi.fn()} onCommit={vi.fn()} />,
+    )
+    expect(screen.getByText(/no waveform/i)).toBeTruthy()
+  })
+})
