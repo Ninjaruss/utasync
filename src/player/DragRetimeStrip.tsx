@@ -32,6 +32,22 @@ const fmt = (t: number) => {
   return `${m}:${s.toFixed(2).padStart(5, '0')}`
 }
 
+/**
+ * Build the waveform as a single filled path: one `M x y h w v h h-w Z` subpath per
+ * column.
+ *
+ * The height floor keeps near-silence drawing a hairline — a flat gap in the middle
+ * of a waveform reads as broken rather than as quiet.
+ */
+function waveformPath(columns: Float32Array): string {
+  let d = ''
+  for (let i = 0; i < columns.length; i++) {
+    const h = Math.max(1.5, columns[i] * 88)
+    d += `M${(i + 0.15).toFixed(2)} ${(50 - h / 2).toFixed(2)}h0.7v${h.toFixed(2)}h-0.7Z`
+  }
+  return d
+}
+
 /** Columns in the waveform. Finer than the strip is ever drawn, so never blocky. */
 const WAVE_COLUMNS = 220
 
@@ -109,12 +125,13 @@ export function DragRetimeStrip({
   const labelOpensLeft = at(value) > 0.76
 
   return (
-    <div
-      role="status"
-      className="relative shrink-0 px-3 sm:px-4 py-2.5 border-b border-cinnabar-900/80 bg-cinnabar-950/80 space-y-2"
-    >
+    <div className="relative shrink-0 px-3 sm:px-4 py-2.5 border-b border-cinnabar-900/80 bg-cinnabar-950/80 space-y-2">
       <span aria-hidden="true" className="absolute inset-y-0 left-0 w-0.5 bg-cinnabar-accent" />
-      <p className="text-xs text-white/70 leading-snug">
+      {/* The live region is the standing instruction ONLY. It used to wrap the whole
+          strip, which meant every 0.05s of drag re-announced everything inside —
+          a screen reader barrage aimed at the users least able to absorb it. What
+          changes during a drag is the slider's own value, which it reports itself. */}
+      <p role="status" className="text-xs text-white/70 leading-snug">
         Drag the marker to the first sound of this line{more}
         {lineText ? <span className="block text-white/45 truncate">{lineText}</span> : null}
       </p>
@@ -135,14 +152,13 @@ export function DragRetimeStrip({
               width={Math.max(0.5, (at(loop.endSec) - at(loop.startSec)) * WAVE_COLUMNS)}
               y="0" height="100" className="fill-white/[0.06]"
             />
-            {Array.from(columns).map((v, i) => {
-              // Floor so near-silence still draws a hairline: a flat gap in the
-              // middle of a waveform reads as broken rather than as quiet.
-              const h = Math.max(1.5, v * 88)
-              return (
-                <rect key={i} x={i + 0.15} width="0.7" y={50 - h / 2} height={h} className="fill-white/35" />
-              )
-            })}
+            {/* One path rather than 220 <rect> elements. The window is frozen while a
+                line is being dragged, so the waveform is IDENTICAL on every step —
+                220 elements per render was allocation and reconciliation bought for
+                nothing, on the interaction whose smoothness is the whole point.
+                Filled subpaths, not a stroke: preserveAspectRatio="none" scales the
+                axes unevenly, which would distort stroke width but not a fill. */}
+            <path className="fill-white/35" d={waveformPath(columns)} />
           </svg>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center text-[11px] text-white/35">
@@ -202,7 +218,7 @@ export function DragRetimeStrip({
       </div>
 
       <div className="flex items-center justify-end gap-3">
-        <span className="text-white/70 text-xs tabular-nums">{fmt(value)}</span>
+        <span aria-hidden="true" className="text-white/70 text-xs tabular-nums">{fmt(value)}</span>
         <button
           type="button"
           onClick={() => onCommit(lineIndex, value, { clamped: isAtWindowEdge(win, value) })}

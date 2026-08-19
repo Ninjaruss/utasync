@@ -162,8 +162,11 @@ describe('DragRetimeStrip waveform', () => {
       />,
     )
     expect(container.querySelector('svg')).toBeTruthy()
-    // More than a couple of bars, i.e. an actual waveform rather than a placeholder.
-    expect(container.querySelectorAll('svg rect').length).toBeGreaterThan(50)
+    // One path holding every column, rather than 220 elements rebuilt per drag step.
+    const path = container.querySelector('svg path')
+    expect(path).toBeTruthy()
+    // Enough subpaths to be an actual waveform rather than a placeholder.
+    expect((path!.getAttribute('d') || '').split('M').length).toBeGreaterThan(50)
   })
 
   it('says it is still reading rather than showing a flat line', () => {
@@ -318,5 +321,41 @@ describe('DragRetimeStrip silent windows', () => {
         onPreview={vi.fn()} onCommit={vi.fn()} />,
     )
     expect(screen.getByText(/no waveform/i)).toBeTruthy()
+  })
+})
+
+/**
+ * The strip began life as a static banner, where role=status was right. It now holds
+ * a value that changes on every 0.05s of drag, and a live region wrapping that would
+ * announce the whole strip continuously — turning a screen reader into a barrage for
+ * the exact users who can least afford one. The live region belongs on the standing
+ * instruction; the value belongs to the slider, which announces itself natively.
+ */
+describe('DragRetimeStrip announcements', () => {
+  const setup2 = () => render(
+    <DragRetimeStrip lineIndex={3} startSec={30} remaining={2} waveformState="unavailable"
+      onPreview={vi.fn()} onCommit={vi.fn()} />,
+  )
+
+  it('does not wrap the whole live-updating strip in a live region', () => {
+    setup2()
+    const live = document.querySelector('[role="status"]')
+    expect(live).toBeTruthy()
+    // Whatever is announced must not contain the slider or the numeric readout.
+    expect(live!.contains(slider())).toBe(false)
+  })
+
+  it('announces the standing instruction', () => {
+    setup2()
+    expect(document.querySelector('[role="status"]')!.textContent).toMatch(/first sound of this line/i)
+  })
+
+  // The slider already reports its value to assistive tech; the visible number is a
+  // duplicate, and a changing duplicate is worse than a silent one.
+  it('keeps the numeric readout out of the accessibility tree', () => {
+    const { container } = setup2()
+    const readout = [...container.querySelectorAll('span')].find((e) => /^\d:\d\d\.\d\d$/.test(e.textContent || ''))
+    expect(readout).toBeTruthy()
+    expect(readout!.closest('[aria-hidden="true"]')).toBeTruthy()
   })
 })
