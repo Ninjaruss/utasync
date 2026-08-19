@@ -548,21 +548,78 @@ The spec flags two values as provisional. Settle them by use, not intuition.
 
 **Files:** possibly `src/player/dragTiming.ts` (the constant) — measurement otherwise.
 
-- [ ] **Step 1: Drive it live**
+- [x] **Step 1: Drive it live**
 
 Start the dev server and open a song with a flagged line (seed `lineAlignmentQuality` if needed). Use the drag strip on several lines.
 
-- [ ] **Step 2: Judge the window**
+- [x] **Step 2: Judge the window**
 
 `DRAG_WINDOW_HALF_SEC` is 2.5s provisionally. Too wide and small movements are imprecise; too narrow and a badly-placed line cannot be reached without repeated passes. Try 1.5s, 2.5s and 4s and report which is usable, with reasoning.
 
-- [ ] **Step 3: Judge the feedback**
+- [x] **Step 3: Judge the feedback**
 
 The strip currently seeks on drag (`onPreview`). The spec asks whether *looping* a short window around the line is better or maddening. Try it. **A finding of "looping is worse, plain scrub is better" is a legitimate and useful result** — do not implement looping just because the spec mentioned it.
 
-- [ ] **Step 4: Record**
+- [x] **Step 4: Record**
 
 Update the constant if measurement justifies it, replace the "PROVISIONAL" comment with what was measured and why, and commit. If the value stands, say so explicitly rather than silently leaving it.
+
+### Task 4 results (2026-08-18)
+
+**The window: changed, and its shape changed too.** `scripts/audit-drag-window.mjs`
+(new) runs the real aligner over the four corpus songs with LRC truth and measures,
+for exactly the lines `selectAnchorTargets` offers the strip, how far each must
+travel to reach truth. Over 22 such lines: **19 of 22 sit earlier than truth**
+(corrections drag *later*), median distance **3.06s**. So `±2.5s` reached only
+**41%** — it could not reach the median line it was offered for. Symmetry was the
+bigger error than the number: **back 2.5s / forward 6s** reaches **73%** in an 8.5s
+span, matching symmetric ±6s while spanning 29% less, i.e. 44ms/CSS-px instead of
+62ms on the 194px strip a 375px phone gets. Shipped as
+`DRAG_WINDOW_BACK_SEC` / `DRAG_WINDOW_FORWARD_SEC`.
+
+Also: at a 0.05s step the one-decimal readout printed `0:35.0` for both 35.00 and
+35.05, so two adjacent slider positions were indistinguishable. Now two decimals.
+
+**Looping vs plain seek: not settled, but plain seek is measurably not enough.**
+Two structural findings, neither of which needed ears:
+
+1. `onPreview` calls `seek()` only. `AudioEngine.seek` is `howl.seek()`, which does
+   not start playback — so when the strip is reached by tapping a lyric row (song
+   paused), dragging is **silent**. The strip's own copy, "Drag until it lines up
+   with what you hear", is false in that state.
+2. While playing, seek-and-continue means the evidence expires. Measured live: with
+   the slider held at 62.5s, the playhead was at 65s 1.5s later — 2.5s past the
+   candidate — while the strip still read 62.5. At the moment the user judges "was
+   that right?", the onset they positioned is already gone, and the only way to
+   re-hear it is to move the slider again. That is exactly the "hold still and
+   confirm" affordance the drag was supposed to buy over a tap.
+
+Both point at looping a short window around the candidate. What is **not**
+established is whether it is pleasant: a loop that restarts on every 0.05s `input`
+event would stutter, and restart-on-drag-end vs restart-on-every-step is the
+decision that settles pleasant-vs-maddening. That needs a human listen, so no
+looping was built. Note the app already has A/B loop machinery
+(`abLoopControllerRef`) to reuse.
+
+### Defects found while measuring (not fixed here)
+
+- **Clamp-and-mark-good.** Reproduced live: a line 3.8s out of place, with the old
+  ±2.5s window, committed at the clamped edge 1.3s wrong — and `handleTapAnchor`
+  cleared its `needs_review` flag, so it was never offered again. This is the
+  thread's own headline failure (wrong timing locked in as truth) reintroduced by a
+  window that cannot reach. Widening cut it from 59% of offered lines to 27%, but
+  did not remove it. Fix: do not clear the quality flag when the committed time sits
+  on a window edge — the user ran out of slider, they did not find the spot.
+- **The `retimingLine` latch never releases without a commit.** It is cleared only
+  in `onCommit`. Reproduced live: drag line 5, abandon it, click line 1 (seeks to
+  0:04), then line 6 (seeks to 1:19) — the strip is still pinned to "Line 5 start
+  time", still holding the abandoned value, still inviting a re-time of audio the
+  user is nowhere near. There is also no dismiss/skip affordance. The latch itself
+  is correct and must stay (dragging seeks, seeking recomputes `activeLine`); it
+  needs a release on a seek that did not come from `onPreview`.
+- **Dead exported code.** `timeAtFraction` / `fractionAtTime` are called only by
+  their own tests — the strip uses a native `<input type=range>` with `min`/`max`,
+  so the mapping module's two headline functions never run in production.
 
 ---
 
