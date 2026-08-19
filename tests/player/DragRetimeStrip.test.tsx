@@ -234,3 +234,62 @@ describe('DragRetimeStrip keyboard affordance', () => {
     expect(el.step).toBe('0.05')
   })
 })
+
+/**
+ * A bare vertical line with a symmetric dot reads as a playhead handle — something
+ * that travels through the audio — not as the boundary a line begins at. With a live
+ * playhead drawn in the same box, that left the user guessing which of two vertical
+ * lines meant what. The marker therefore says what it is, and points the way the
+ * line runs.
+ */
+describe('DragRetimeStrip start marker', () => {
+  it('names itself, rather than leaving the user to infer a bare line', () => {
+    render(
+      <DragRetimeStrip lineIndex={3} startSec={30} waveformState="unavailable"
+        onPreview={vi.fn()} onCommit={vi.fn()} />,
+    )
+    expect(screen.getByText(/^line start/i)).toBeTruthy()
+  })
+
+  it('points the way the line runs', () => {
+    render(
+      <DragRetimeStrip lineIndex={3} startSec={30} waveformState="unavailable"
+        onPreview={vi.fn()} onCommit={vi.fn()} />,
+    )
+    // Opens rightward at rest: the window reaches much further forward than back,
+    // so the marker sits left of centre and has room.
+    expect(screen.getByText(/line start ▶/)).toBeTruthy()
+  })
+
+  // Near the right edge a right-opening tab would be clipped by the container, so it
+  // flips — and keeps its meaning through the arrow rather than through position.
+  it('flips at the right edge instead of being clipped', () => {
+    render(
+      <DragRetimeStrip lineIndex={3} startSec={30} waveformState="unavailable"
+        onPreview={vi.fn()} onCommit={vi.fn()} />,
+    )
+    fireEvent.change(slider(), { target: { value: slider().max } })
+    expect(screen.getByText(/◀ line start/)).toBeTruthy()
+    expect(screen.queryByText(/line start ▶/)).toBeNull()
+  })
+
+  it('keeps naming itself while being dragged', () => {
+    render(
+      <DragRetimeStrip lineIndex={3} startSec={30} waveformState="unavailable"
+        onPreview={vi.fn()} onCommit={vi.fn()} />,
+    )
+    fireEvent.change(slider(), { target: { value: '29.5' } })
+    expect(screen.getByText(/^line start/i)).toBeTruthy()
+  })
+
+  // The marker is decoration for the eye; the slider already carries the accessible
+  // name and value, so the label must not be read out as a second control.
+  it('is hidden from assistive tech, which reads the slider instead', () => {
+    render(
+      <DragRetimeStrip lineIndex={3} startSec={30} waveformState="unavailable"
+        onPreview={vi.fn()} onCommit={vi.fn()} />,
+    )
+    expect(screen.getByText(/^line start/i).closest('[aria-hidden="true"]')).toBeTruthy()
+    expect(slider()).toHaveAccessibleName()
+  })
+})

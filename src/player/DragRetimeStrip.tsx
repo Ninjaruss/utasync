@@ -96,6 +96,12 @@ export function DragRetimeStrip({
   const playheadVisible =
     typeof positionSec === 'number' && positionSec >= win.minSec && positionSec <= win.maxSec
   const more = typeof remaining === 'number' && remaining > 1 ? ` · ${remaining} spots left` : ''
+  // The tab normally opens rightward, the direction the line runs. Near the right
+  // edge that would be clipped by the container, so it flips and keeps its meaning
+  // via the arrow rather than by position alone. One threshold has to serve every
+  // width, which is why the label is kept short: at ~80px it is under a quarter of
+  // even a narrow phone strip, so flipping this late still cannot clip it.
+  const labelOpensLeft = at(value) > 0.76
 
   return (
     <div
@@ -104,7 +110,7 @@ export function DragRetimeStrip({
     >
       <span aria-hidden="true" className="absolute inset-y-0 left-0 w-0.5 bg-cinnabar-accent" />
       <p className="text-xs text-white/70 leading-snug">
-        Drag until the marker sits on the start of the vocal{more}
+        Drag the marker to the first sound of this line{more}
         {lineText ? <span className="block text-white/45 truncate">{lineText}</span> : null}
       </p>
 
@@ -144,18 +150,32 @@ export function DragRetimeStrip({
         {playheadVisible ? (
           <span
             aria-hidden="true"
-            className="absolute top-0 bottom-0 w-px bg-white/60"
-            style={{ left: `${at(positionSec!) * 100}%` }}
+            className="absolute top-0 bottom-0 w-px"
+            style={{
+              left: `${at(positionSec!) * 100}%`,
+              // Dashed, so it never reads as a second boundary marker.
+              backgroundImage: 'repeating-linear-gradient(to bottom, rgba(255,255,255,0.55) 0 3px, transparent 3px 6px)',
+            }}
           />
         ) : null}
 
-        {/* Where the line would start: the thing being positioned. */}
+        {/* Where the line would START. A bare line with a symmetric dot reads as a
+            playhead handle — something that moves through the audio — rather than as
+            the boundary the line begins at. So the marker is directional: a tab that
+            opens the way the line runs, and says what it is in words. Guessing which
+            of two vertical lines means what is not a puzzle worth handing a user. */}
         <span
           aria-hidden="true"
           className="absolute top-0 bottom-0 w-0.5 -translate-x-1/2 bg-cinnabar-accent"
           style={{ left: `${at(value) * 100}%` }}
         >
-          <span className="absolute -top-px left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-cinnabar-accent" />
+          <span
+            className={`absolute top-0 flex items-center h-[15px] px-1 bg-cinnabar-accent text-[9px] font-semibold leading-none tracking-wide text-white whitespace-nowrap ${
+              labelOpensLeft ? 'right-0 rounded-l-sm' : 'left-0 rounded-r-sm'
+            }`}
+          >
+            {labelOpensLeft ? '◀ line start' : 'line start ▶'}
+          </span>
         </span>
 
         {/* The real control, kept for pointer, keyboard and screen readers. Invisible
