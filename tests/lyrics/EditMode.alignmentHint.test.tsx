@@ -90,11 +90,14 @@ describe('EditMode alignment notice', () => {
     expect(screen.getByText(/lines may be off/i)).toBeTruthy()
   })
 
-  it('offers "Fix by tapping" (the tap-anchor bridge) when one is available', () => {
+  // The bridge into Play-mode correction. Its copy said "tap them in time",
+  // which stopped being true when correction became a drag — tapping was the
+  // mechanic that carried reaction latency into the fix.
+  it('offers the timing-fix bridge when one is available', () => {
     const onFixTiming = vi.fn()
     renderHint({ lineAlignmentQuality: ['needs_review', 'good'], alignmentConfidence: 0.9, onFixTiming })
-    expect(screen.getByText(/tap them in time to fix/i)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /fix by tapping/i }))
+    expect(screen.getByText(/drag them into place/i)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /fix timing/i }))
     expect(onFixTiming).toHaveBeenCalledTimes(1)
   })
 

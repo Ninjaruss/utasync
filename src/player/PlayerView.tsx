@@ -10,7 +10,7 @@ import { youtubeErrorMessage, youtubeNeedsVisibleEmbed } from './youtubeEmbedPol
 import { resolveYouTubeVideoId } from '../sources/youtube'
 import { ABLoopController } from './ABLoop'
 import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, AlignmentLanguage } from '../core/types'
-import { TapAnchorPrompt } from './TapAnchorPrompt'
+import { DragRetimeStrip } from './DragRetimeStrip'
 import { Banner } from '../core/ui/Banner'
 import { refitAroundAnchors, selectAnchorTargets, selectActiveAnchorTarget, type TimingAnchor } from '../lyrics/anchorRefit'
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
@@ -690,8 +690,14 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   // Latched rather than an exact match on the active line: see
   // selectActiveAnchorTarget — a flagged line's stored timing is wrong, so the
   // real vocal lands after the app has already moved on.
-  const anchorTargetActive =
+  const anchorTargetSuggested =
     mode === 'play' ? selectActiveAnchorTarget(activeLine, anchorTargets) : null
+  // Once the user starts adjusting a line, that line stays the target until they
+  // commit or leave Play mode. Without this latch the control destroys itself:
+  // dragging seeks for live feedback, seeking recomputes activeLine, and the
+  // recomputed target no longer matches — so the strip unmounts mid-drag.
+  const [retimingLine, setRetimingLine] = useState<number | null>(null)
+  const anchorTargetActive = mode === 'play' ? (retimingLine ?? anchorTargetSuggested) : null
   // Restore the whole song to a pre-tap snapshot (undo for the instantly-persisted
   // tap-anchor). Reverts the anchor, the refit, and the cleared uncertainty flag.
   const restoreSong = async (snapshot: Song) => {
@@ -1378,12 +1384,22 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         </Banner>
       )}
 
-      {mode === 'play' && canPlayback && (
-        <TapAnchorPrompt
+      {mode === 'play' && canPlayback && anchorTargetActive !== null && (
+        <DragRetimeStrip
           lineIndex={anchorTargetActive}
+          lineText={lines[anchorTargetActive]?.original}
+          startSec={lines[anchorTargetActive]?.startTime ?? 0}
           remaining={anchorTargets.length}
-          getTime={() => (isYouTube ? position : engine.position)}
-          onAnchor={handleTapAnchor}
+          onPreview={(t) => {
+            // Latch the line before seeking — seek recomputes activeLine, which
+            // would otherwise drop the target out from under this control.
+            setRetimingLine(anchorTargetActive)
+            seek(t)
+          }}
+          onCommit={(i, t) => {
+            setRetimingLine(null)
+            void handleTapAnchor(i, t)
+          }}
         />
       )}
 

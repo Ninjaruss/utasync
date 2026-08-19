@@ -716,11 +716,11 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubStart
               {offTimingCount > 0
                 ? `${offTimingCount} line${offTimingCount === 1 ? '' : 's'} may be off.`
                 : 'Some line timings are approximate.'}
-              {onFixTiming ? ' Tap them in time to fix.' : ' Nudge the times below.'}
+              {onFixTiming ? ' Play the song and drag them into place.' : ' Nudge the times below.'}
             </p>
             {onFixTiming && (
               <button type="button" onClick={onFixTiming} className={`${toolbarActionBtn} self-start`}>
-                Fix by tapping
+                Fix timing
               </button>
             )}
           </div>
