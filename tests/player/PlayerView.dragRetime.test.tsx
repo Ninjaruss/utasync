@@ -368,6 +368,30 @@ describe('the loop that plays while re-timing', () => {
     expect(tail[1]).toBeGreaterThan(tail[2])
   })
 
+  // Regression guard: the wrap seeks, and a seek releases the re-timing latch unless
+  // it declares itself. Without that flag the loop tore itself down on its FIRST
+  // cycle — it looped exactly once and then let go, which a single-wrap test misses.
+  it('keeps looping across repeated cycles', async () => {
+    await openOnFlaggedLine()
+    await waitFor(() => expect(slider()).toBeTruthy())
+    fireEvent.change(slider(), { target: { value: '30.5' } })
+    const lead = engineCalls.seeks[engineCalls.seeks.length - 1]
+
+    // Count wraps, do not just re-read the last seek: a torn-down loop leaves the
+    // previous wrap sitting at the end of the array, so an equality check on it
+    // passes while nothing is looping any more.
+    const wrapsBefore = engineCalls.seeks.length
+    for (let cycle = 0; cycle < 3; cycle++) {
+      await act(async () => { usePlayerStore.setState({ position: 40 }) })
+      await act(async () => { usePlayerStore.setState({ position: lead }) })
+    }
+    const wraps = engineCalls.seeks.slice(wrapsBefore)
+    expect(wraps).toHaveLength(3)
+    for (const w of wraps) expect(w).toBeCloseTo(lead, 5)
+    // And the control is still there to keep adjusting with.
+    expect(slider()).toBeTruthy()
+  })
+
   it('sends the playhead back when it runs out of the window', async () => {
     await openOnFlaggedLine()
     await waitFor(() => expect(slider()).toBeTruthy())

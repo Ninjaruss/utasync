@@ -13,6 +13,7 @@ import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, Alignm
 import { DragRetimeStrip } from './DragRetimeStrip'
 import { snapToOnset } from './onsetSnap'
 import { retimeLoopFor, needsWrap, type RetimeLoop } from './retimeLoop'
+import { computePeaks, type Peaks } from './waveformPeaks'
 import { Banner } from '../core/ui/Banner'
 import { refitAroundAnchors, selectAnchorTargets, selectActiveAnchorTarget, type TimingAnchor } from '../lyrics/anchorRefit'
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
@@ -63,6 +64,7 @@ import { exportAbLoopClip, exportAbLoopPlaylistClip, abLoopHasTimedLyrics, abLoo
 import { createPlaylistEntry, shouldAdvancePlaylistAfterCycle, wrapPlaylistIndex } from './abLoopPlaylist'
 import { useAbLoopPlaylistStore } from './abLoopPlaylistStore'
 import { getAudioFile } from '../core/opfs/audio'
+import { decodeAudioFileToMono } from '../core/audio/decodeToMono'
 import { PlayerControls } from './PlayerControls'
 import { DisplayMenu } from './DisplayMenu'
 import { YouTubePlaybackPanel } from './YouTubePlaybackPanel'
@@ -304,6 +306,11 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   // Whether the song was paused when re-timing began, so finishing can put it
   // back rather than leaving it running.
   const retimeWasPausedRef = useRef(false)
+  const [wavePeaks, setWavePeaks] = useState<Peaks | null>(null)
+  const [waveFailed, setWaveFailed] = useState(false)
+  // Guards the one-shot decode without a state write, so the effect below never
+  // setStates synchronously (which would cascade renders).
+  const waveRequestedRef = useRef(false)
   const ytRef = useRef<YouTubePlayerHandle>(null)
   // Tracks whether timestamp-scrubbing started playback, so onScrubEnd only
   // stops audio it itself started (leaves pre-existing playback alone).
@@ -350,7 +357,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   // Gated on `song` too, because that is what the dialog's own render is gated
   // on — enabling the hook while the element is absent would leave it unarmed.
   useModalDialog(lyricsReimportRef, requestLyricsReimportClose, showLyricsReimport && !!song)
-  const seekRef = useRef<(time: number) => void>(() => {})
+  const seekRef = useRef<(time: number, opts?: { fromRetime?: boolean }) => void>(() => {})
   const enrichmentJobRef = useRef(0)
   const wordColorJobRef = useRef(0)
   const playlistCyclesRef = useRef(0)
@@ -686,7 +693,9 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     // line correction. So this wraps and returns rather than clearing anything.
     const loop = retimeLoopRef.current
     if (loop) {
-      if (needsWrap(loop, position)) seekRef.current(loop.startSec)
+      // fromRetime is essential: without it the loop's own wrap would release the
+      // latch and tear the loop down on its very first cycle.
+      if (needsWrap(loop, position)) seekRef.current(loop.startSec, { fromRetime: true })
       else abLoopControllerRef.current?.syncPosition(position)
       return
     }
@@ -782,6 +791,34 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         : `Line ${lineIndex + 1} re-timed`
     toast(message, 'info', { label: 'Undo', onClick: () => void restoreSong(prevSong) })
   }
+  // Decode for the waveform only when the strip is actually offered — an ordinary
+  // listen must not pay a decode it will never look at. Once per song; local audio
+  // only, since YouTube exposes no PCM.
+  useEffect(() => {
+    if (anchorTargetActive === null || waveRequestedRef.current) return
+    if (!song?.audioStoredPath || isYouTube) return
+    waveRequestedRef.current = true
+    let cancelled = false
+    void (async () => {
+      try {
+        const file = await getAudioFile(song.id)
+        const { data, sampleRate } = await decodeAudioFileToMono(file)
+        if (!cancelled) setWavePeaks(computePeaks(data, sampleRate))
+      } catch {
+        // A waveform is an assist. Losing it must never break re-timing, which
+        // works from the slider and the audio alone.
+        if (!cancelled) setWaveFailed(true)
+      }
+    })()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchorTargetActive, song?.id, isYouTube])
+  // Derived rather than stored, so nothing has to be written during an effect.
+  const waveformState: 'pending' | 'ready' | 'unavailable' =
+    wavePeaks ? 'ready'
+      : !song?.audioStoredPath || isYouTube || waveFailed ? 'unavailable'
+        : 'pending'
+
   const showYouTubeVideo = youtubeNeedsVisibleEmbed()
   const lyricsUntimed = lines.length > 0 && !linesAreTimed(lines)
   const onYouTubeError = (code: number) => toast(youtubeErrorMessage(code), 'warning')
@@ -1287,6 +1324,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       // The stored vocal-activity envelope describes the OLD audio. Keeping it
       // would snap re-timed lines onto onsets from a track that is no longer
       // playing, which is worse than not snapping — so it goes with the audio.
+      // The decoded waveform describes the old audio as surely as the envelope does.
+      setWavePeaks(null); setWaveFailed(false); waveRequestedRef.current = false
       const { vocalActivity: _staleSignal, ...lyricsWithoutSignal } = song.lyrics
       const updated: Song = {
         ...song,
@@ -1490,6 +1529,9 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           lineText={lines[anchorTargetActive]?.original}
           startSec={lines[anchorTargetActive]?.startTime ?? 0}
           remaining={anchorTargets.length}
+          peaks={wavePeaks}
+          waveformState={waveformState}
+          positionSec={position}
           onPreview={(t) => {
             // Latch the line before seeking — seek recomputes activeLine, which
             // would otherwise drop the target out from under this control. The

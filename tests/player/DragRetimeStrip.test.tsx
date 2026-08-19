@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { DragRetimeStrip } from '../../src/player/DragRetimeStrip'
+import { computePeaks } from '../../src/player/waveformPeaks'
 
 /**
  * The mechanic this replaces committed the playhead at the instant of a click,
@@ -135,5 +136,101 @@ describe('DragRetimeStrip', () => {
       <DragRetimeStrip lineIndex={4} startSec={44} onPreview={onPreview} onCommit={onCommit} />,
     )
     expect(Number(slider().value)).toBeCloseTo(44, 5)
+  })
+})
+
+/**
+ * Re-timing by ear alone gave the eye nothing to aim at — usable, but a poor
+ * experience to sync with. The waveform is that anchor, and it has to degrade
+ * honestly: a track with no PCM (YouTube) must say so rather than showing a flat
+ * line that looks like silence.
+ */
+describe('DragRetimeStrip waveform', () => {
+  /** Silence with a burst at burstSec, at a sample rate cheap enough for a test. */
+  const peaksWithBurst = (burstSec: number) => {
+    const sr = 1000
+    const pcm = new Float32Array(120 * sr)
+    for (let i = Math.floor(burstSec * sr); i < Math.floor((burstSec + 0.4) * sr); i++) pcm[i] = 0.9
+    return computePeaks(pcm, sr)
+  }
+
+  it('draws the audio when peaks are available', () => {
+    const { container } = render(
+      <DragRetimeStrip
+        lineIndex={3} startSec={30} peaks={peaksWithBurst(30)} waveformState="ready"
+        onPreview={vi.fn()} onCommit={vi.fn()}
+      />,
+    )
+    expect(container.querySelector('svg')).toBeTruthy()
+    // More than a couple of bars, i.e. an actual waveform rather than a placeholder.
+    expect(container.querySelectorAll('svg rect').length).toBeGreaterThan(50)
+  })
+
+  it('says it is still reading rather than showing a flat line', () => {
+    render(
+      <DragRetimeStrip
+        lineIndex={3} startSec={30} peaks={null} waveformState="pending"
+        onPreview={vi.fn()} onCommit={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/reading the audio/i)).toBeTruthy()
+  })
+
+  // The YouTube case. A flat line would read as "this part is silent", which is a
+  // lie about the audio.
+  it('says a track has no waveform when there is no PCM to read', () => {
+    render(
+      <DragRetimeStrip
+        lineIndex={3} startSec={30} peaks={null} waveformState="unavailable"
+        onPreview={vi.fn()} onCommit={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/no waveform/i)).toBeTruthy()
+  })
+
+  // Losing the waveform must never cost the control itself.
+  it('still re-times with no waveform at all', () => {
+    const onCommit = vi.fn()
+    render(
+      <DragRetimeStrip
+        lineIndex={3} startSec={30} waveformState="unavailable"
+        onPreview={vi.fn()} onCommit={onCommit}
+      />,
+    )
+    fireEvent.change(slider(), { target: { value: '29.5' } })
+    fireEvent.click(screen.getByRole('button', { name: /use this/i }))
+    expect(onCommit).toHaveBeenCalledWith(3, 29.5, { clamped: false })
+  })
+})
+
+/**
+ * The range input is transparent — every mark is drawn on the audio's axis instead,
+ * because the native thumb is sized by the browser and a marker aligned to it in
+ * Chromium drifts in Gecko. That makes the focus ring load-bearing: without it a
+ * keyboard user gets an invisible control.
+ */
+describe('DragRetimeStrip keyboard affordance', () => {
+  it('shows focus on the waveform when the hidden input takes focus', () => {
+    const { container } = render(
+      <DragRetimeStrip lineIndex={3} startSec={30} waveformState="unavailable"
+        onPreview={vi.fn()} onCommit={vi.fn()} />,
+    )
+    // The container that owns the shared geometry carries the focus style, since the
+    // input itself is invisible.
+    const box = container.querySelector('[class*="focus-within:ring"]')
+    expect(box).toBeTruthy()
+    expect(box!.contains(slider())).toBe(true)
+  })
+
+  it('keeps the slider role, label and keyboard stepping', () => {
+    render(
+      <DragRetimeStrip lineIndex={3} startSec={30} waveformState="unavailable"
+        onPreview={vi.fn()} onCommit={vi.fn()} />,
+    )
+    const el = slider()
+    el.focus()
+    expect(document.activeElement).toBe(el)
+    expect(el).toHaveAccessibleName()
+    expect(el.step).toBe('0.05')
   })
 })
