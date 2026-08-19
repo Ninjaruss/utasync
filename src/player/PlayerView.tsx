@@ -10,7 +10,10 @@ import { youtubeErrorMessage, youtubeNeedsVisibleEmbed } from './youtubeEmbedPol
 import { resolveYouTubeVideoId } from '../sources/youtube'
 import { ABLoopController } from './ABLoop'
 import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, AlignmentLanguage } from '../core/types'
-import { TapAnchorPrompt } from './TapAnchorPrompt'
+import { DragRetimeStrip } from './DragRetimeStrip'
+import { snapToOnset } from './onsetSnap'
+import { retimeLoopFor, needsWrap, type RetimeLoop } from './retimeLoop'
+import { computePeaks, type Peaks } from './waveformPeaks'
 import { Banner } from '../core/ui/Banner'
 import { refitAroundAnchors, selectAnchorTargets, selectActiveAnchorTarget, type TimingAnchor } from '../lyrics/anchorRefit'
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
@@ -61,6 +64,7 @@ import { exportAbLoopClip, exportAbLoopPlaylistClip, abLoopHasTimedLyrics, abLoo
 import { createPlaylistEntry, shouldAdvancePlaylistAfterCycle, wrapPlaylistIndex } from './abLoopPlaylist'
 import { useAbLoopPlaylistStore } from './abLoopPlaylistStore'
 import { getAudioFile } from '../core/opfs/audio'
+import { decodeAudioFileToMono } from '../core/audio/decodeToMono'
 import { PlayerControls } from './PlayerControls'
 import { DisplayMenu } from './DisplayMenu'
 import { YouTubePlaybackPanel } from './YouTubePlaybackPanel'
@@ -292,6 +296,25 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   if (engineRef.current === null) engineRef.current = new AudioEngine()
   const engine = engineRef.current
   const abLoopControllerRef = useRef<ABLoopController | null>(null)
+  // seek() has to be able to end the loop, but endRetimeLoop is defined after it
+  // (it calls seek). Same indirection the file already uses for seekRef.
+  const endRetimeLoopRef = useRef<() => void>(() => {})
+  // Refs, not state: the loop restarts on every drag step (measured as the
+  // preferred feel), so putting the window in state would re-render the whole
+  // view on each 0.05s move for something only the position effect reads.
+  const retimeLoopRef = useRef<RetimeLoop | null>(null)
+  // Whether the song was paused when re-timing began, so finishing can put it
+  // back rather than leaving it running.
+  const retimeWasPausedRef = useRef(false)
+  // Tagged with the song they describe. PlayerView is REUSED across songs — App
+  // swaps the songId prop rather than remounting — so untagged peaks would follow
+  // the user to the next track and draw a confident picture of audio that is not
+  // playing. Same hazard the stored vocal-activity signal has, same answer.
+  const [wavePeaks, setWavePeaks] = useState<{ songId: string; peaks: Peaks } | null>(null)
+  const [waveFailedFor, setWaveFailedFor] = useState<string | null>(null)
+  // Which song we have already kicked a decode off for. A ref, not state, so the
+  // effect below never setStates synchronously (which would cascade renders).
+  const waveRequestedForRef = useRef<string | null>(null)
   const ytRef = useRef<YouTubePlayerHandle>(null)
   // Tracks whether timestamp-scrubbing started playback, so onScrubEnd only
   // stops audio it itself started (leaves pre-existing playback alone).
@@ -338,7 +361,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   // Gated on `song` too, because that is what the dialog's own render is gated
   // on — enabling the hook while the element is absent would leave it unarmed.
   useModalDialog(lyricsReimportRef, requestLyricsReimportClose, showLyricsReimport && !!song)
-  const seekRef = useRef<(time: number) => void>(() => {})
+  const seekRef = useRef<(time: number, opts?: { fromRetime?: boolean }) => void>(() => {})
   const enrichmentJobRef = useRef(0)
   const wordColorJobRef = useRef(0)
   const playlistCyclesRef = useRef(0)
@@ -669,6 +692,17 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   }, [])
 
   useEffect(() => {
+    // The re-timing loop takes precedence while it is up, but must not disturb the
+    // user's A/B points — placing those is real work, and they have to survive a
+    // line correction. So this wraps and returns rather than clearing anything.
+    const loop = retimeLoopRef.current
+    if (loop) {
+      // fromRetime is essential: without it the loop's own wrap would release the
+      // latch and tear the loop down on its very first cycle.
+      if (needsWrap(loop, position)) seekRef.current(loop.startSec, { fromRetime: true })
+      else abLoopControllerRef.current?.syncPosition(position)
+      return
+    }
     abLoopControllerRef.current?.tick()
   }, [position])
 
@@ -684,14 +718,35 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const anchorTargets =
     song?.lyrics.alignmentMode === 'auto'
       ? selectAnchorTargets(song.lyrics.lines, song.lyrics.lineAlignmentQuality, {
-          alreadyAnchored: (song.lyrics.timingAnchors ?? []).map((a) => a.lineIndex),
+          // An anchor normally retires a line. Not when the user was clamped by
+          // the edge of the drag window: that commit deliberately left the line
+          // flagged, and suppressing it here would strand it one anchor short of
+          // truth with no way back. Each pass re-centres on the new start, so
+          // walking a badly-placed line converges rather than looping.
+          alreadyAnchored: (song.lyrics.timingAnchors ?? [])
+            .map((a) => a.lineIndex)
+            .filter((i) => song.lyrics.lineAlignmentQuality?.[i] === 'good'),
         })
       : []
   // Latched rather than an exact match on the active line: see
   // selectActiveAnchorTarget — a flagged line's stored timing is wrong, so the
   // real vocal lands after the app has already moved on.
-  const anchorTargetActive =
+  const anchorTargetSuggested =
     mode === 'play' ? selectActiveAnchorTarget(activeLine, anchorTargets) : null
+  // Once the user starts adjusting a line, that line stays the target until they
+  // commit or leave Play mode. Without this latch the control destroys itself:
+  // dragging seeks for live feedback, seeking recomputes activeLine, and the
+  // recomputed target no longer matches — so the strip unmounts mid-drag.
+  const [retimingLine, setRetimingLine] = useState<number | null>(null)
+  const anchorTargetActive = mode === 'play' ? (retimingLine ?? anchorTargetSuggested) : null
+  // Hiding the strip is not the same as stopping what it started. The mode gate and
+  // the latch can both drop the target out from under a running loop — switching to
+  // Edit, or committing — and a loop still wrapping the playhead with nothing on
+  // screen to explain it would fight every seek the user made afterwards.
+  useEffect(() => {
+    if (anchorTargetActive === null) endRetimeLoopRef.current()
+  }, [anchorTargetActive])
+
   // Restore the whole song to a pre-tap snapshot (undo for the instantly-persisted
   // tap-anchor). Reverts the anchor, the refit, and the cleared uncertainty flag.
   const restoreSong = async (snapshot: Song) => {
@@ -699,12 +754,21 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     setSong(snapshot)
     await db.songs.put(snapshot)
   }
-  const handleTapAnchor = async (lineIndex: number, time: number) => {
+  const handleTapAnchor = async (lineIndex: number, time: number, opts?: { clamped?: boolean }) => {
     if (!song) return
     const prevSong = song
+    // Snap on commit, never during the drag — mid-drag it would fight the finger.
+    // Skipped for a clamped commit: that is the user running out of slider, not a
+    // considered choice, and snapping it would dress a known-wrong time up as a
+    // precise one. With no stored signal (YouTube, isolation off, rejected stem)
+    // snapToOnset returns the chosen time untouched.
+    const snap = opts?.clamped
+      ? { timeSec: time, snapped: false }
+      : snapToOnset(song.lyrics.vocalActivity, time)
+    const anchorTime = snap.timeSec
     const anchors: TimingAnchor[] = [
       ...(song.lyrics.timingAnchors ?? []).filter((a) => a.lineIndex !== lineIndex),
-      { lineIndex, time, source: 'user' },
+      { lineIndex, time: anchorTime, source: 'user' },
     ]
     const newLines = refitAroundAnchors(
       song.lyrics.lines,
@@ -712,10 +776,13 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       song.lyrics.sourceLanguage as AlignmentLanguage,
       { quality: song.lyrics.lineAlignmentQuality },
     )
-    // The tap IS ground truth for this row — clear its uncertainty flag so it drops
-    // out of the remaining targets.
+    // A time the user settled on IS ground truth for this row — clear its
+    // uncertainty flag so it drops out of the remaining targets. A CLAMPED one is
+    // not: they ran out of slider before they found the spot. Marking that 'good'
+    // is precisely how wrong timing used to get locked in and never revisited, so
+    // the flag stays and the line is offered again, re-centred on its new start.
     const quality = song.lyrics.lineAlignmentQuality ? [...song.lyrics.lineAlignmentQuality] : undefined
-    if (quality) quality[lineIndex] = 'good'
+    if (quality && !opts?.clamped) quality[lineIndex] = 'good'
     const lyrics = {
       ...song.lyrics,
       lines: newLines,
@@ -726,8 +793,48 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     setLines(newLines)
     setSong(updated)
     await db.songs.put(updated)
-    toast(`Line ${lineIndex + 1} re-timed`, 'info', { label: 'Undo', onClick: () => void restoreSong(prevSong) })
+    // Say when the time moved. Silently adjusting the user's explicit choice is
+    // worse than not adjusting it — they need to know why the line sits where it
+    // does, and Undo has to mean something they can reason about.
+    const message = opts?.clamped
+      ? `Line ${lineIndex + 1} moved as far as the slider reaches — adjust again`
+      : snap.snapped
+        ? `Line ${lineIndex + 1} snapped to vocal onset`
+        : `Line ${lineIndex + 1} re-timed`
+    toast(message, 'info', { label: 'Undo', onClick: () => void restoreSong(prevSong) })
   }
+  // Decode for the waveform only when the strip is actually offered — an ordinary
+  // listen must not pay a decode it will never look at. Once per song; local audio
+  // only, since YouTube exposes no PCM.
+  useEffect(() => {
+    const id = song?.id
+    if (anchorTargetActive === null || !id) return
+    if (waveRequestedForRef.current === id) return
+    if (!song?.audioStoredPath || isYouTube) return
+    waveRequestedForRef.current = id
+    let cancelled = false
+    void (async () => {
+      try {
+        const file = await getAudioFile(id)
+        const { data, sampleRate } = await decodeAudioFileToMono(file)
+        if (!cancelled) setWavePeaks({ songId: id, peaks: computePeaks(data, sampleRate) })
+      } catch {
+        // A waveform is an assist. Losing it must never break re-timing, which
+        // works from the slider and the audio alone.
+        if (!cancelled) setWaveFailedFor(id)
+      }
+    })()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchorTargetActive, song?.id, isYouTube])
+  // Derived rather than stored, so nothing has to be written during an effect, and
+  // peaks belonging to another song simply do not count as ready.
+  const peaksForSong = song && wavePeaks?.songId === song.id ? wavePeaks.peaks : null
+  const waveformState: 'pending' | 'ready' | 'unavailable' =
+    peaksForSong ? 'ready'
+      : !song?.audioStoredPath || isYouTube || waveFailedFor === song?.id ? 'unavailable'
+        : 'pending'
+
   const showYouTubeVideo = youtubeNeedsVisibleEmbed()
   const lyricsUntimed = lines.length > 0 && !linesAreTimed(lines)
   const onYouTubeError = (code: number) => toast(youtubeErrorMessage(code), 'warning')
@@ -743,7 +850,17 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
   }
 
-  const seek = (time: number) => {
+  const seek = (time: number, opts?: { fromRetime?: boolean }) => {
+    // Any seek the re-timing strip did NOT cause means the user has moved on, so
+    // let go of the line they were adjusting. Without this the latch below never
+    // released without a commit, and the strip followed the user around the song
+    // offering to re-time audio they were nowhere near.
+    if (!opts?.fromRetime) {
+      setRetimingLine(null)
+      // The loop belongs to the drag. Leaving it running after the user navigates
+      // would haul the playhead back to a line they have left.
+      endRetimeLoopRef.current()
+    }
     if (isYouTube) {
       ytRef.current?.seekTo(time)
     } else {
@@ -755,6 +872,39 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   }
   useEffect(() => {
     seekRef.current = seek
+  })
+
+  /**
+   * Begin (or restart) the loop around a candidate time. Restarts on EVERY drag
+   * step: while the thumb is moving you hear fragments, and the moment it stops
+   * the window settles into a clean ~2s cycle that repeats the entry until you
+   * have decided. Also starts playback, which is what makes the strip's promise
+   * ("drag until it lines up with what you hear") true at all — dragging a paused
+   * song produced no sound whatsoever.
+   */
+  const startRetimeLoop = (candidateSec: number) => {
+    const loop = retimeLoopFor(candidateSec, { durationSec: duration || undefined })
+    if (!retimeLoopRef.current) retimeWasPausedRef.current = playbackState !== 'playing'
+    retimeLoopRef.current = loop
+    seek(loop.startSec, { fromRetime: true })
+    if (playbackState !== 'playing') {
+      if (isYouTube) ytRef.current?.play(); else engine.play()
+      setPlaybackState('playing')
+    }
+  }
+
+  /** Finish re-timing: drop the loop and restore the transport we interrupted. */
+  const endRetimeLoop = () => {
+    if (!retimeLoopRef.current) return
+    retimeLoopRef.current = null
+    if (retimeWasPausedRef.current && playbackState === 'playing') {
+      if (isYouTube) ytRef.current?.pause(); else engine.pause()
+      setPlaybackState('paused')
+    }
+    retimeWasPausedRef.current = false
+  }
+  useEffect(() => {
+    endRetimeLoopRef.current = endRetimeLoop
   })
 
   /** Stops loop playlist + manual A/B loop so the user can navigate freely. */
@@ -1187,7 +1337,18 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         audioFile: file,
         youtubeThumbnailUrl: song.albumArtUrl,
       })
-      const updated: Song = { ...song, audioStoredPath, ...(albumArtUrl ? { albumArtUrl } : {}) }
+      // The stored vocal-activity envelope describes the OLD audio. Keeping it
+      // would snap re-timed lines onto onsets from a track that is no longer
+      // playing, which is worse than not snapping — so it goes with the audio.
+      // The decoded waveform describes the old audio as surely as the envelope does.
+      setWavePeaks(null); setWaveFailedFor(null); waveRequestedForRef.current = null
+      const { vocalActivity: _staleSignal, ...lyricsWithoutSignal } = song.lyrics
+      const updated: Song = {
+        ...song,
+        audioStoredPath,
+        lyrics: lyricsWithoutSignal,
+        ...(albumArtUrl ? { albumArtUrl } : {}),
+      }
       await db.songs.put(updated)
       const audioFile = await getAudioFile(song.id)
       const loadVolume = usePlayerStore.getState().volume
@@ -1378,12 +1539,27 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         </Banner>
       )}
 
-      {mode === 'play' && canPlayback && (
-        <TapAnchorPrompt
+      {mode === 'play' && canPlayback && anchorTargetActive !== null && (
+        <DragRetimeStrip
           lineIndex={anchorTargetActive}
+          lineText={lines[anchorTargetActive]?.original}
+          startSec={lines[anchorTargetActive]?.startTime ?? 0}
           remaining={anchorTargets.length}
-          getTime={() => (isYouTube ? position : engine.position)}
-          onAnchor={handleTapAnchor}
+          peaks={peaksForSong}
+          waveformState={waveformState}
+          positionSec={position}
+          onPreview={(t) => {
+            // Latch the line before seeking — seek recomputes activeLine, which
+            // would otherwise drop the target out from under this control. The
+            // flag is what stops seek() from releasing the latch it just set.
+            setRetimingLine(anchorTargetActive)
+            startRetimeLoop(t)
+          }}
+          onCommit={(i, t, o) => {
+            setRetimingLine(null)
+            endRetimeLoop()
+            void handleTapAnchor(i, t, o)
+          }}
         />
       )}
 
