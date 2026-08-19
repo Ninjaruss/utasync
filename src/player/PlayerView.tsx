@@ -684,7 +684,14 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   const anchorTargets =
     song?.lyrics.alignmentMode === 'auto'
       ? selectAnchorTargets(song.lyrics.lines, song.lyrics.lineAlignmentQuality, {
-          alreadyAnchored: (song.lyrics.timingAnchors ?? []).map((a) => a.lineIndex),
+          // An anchor normally retires a line. Not when the user was clamped by
+          // the edge of the drag window: that commit deliberately left the line
+          // flagged, and suppressing it here would strand it one anchor short of
+          // truth with no way back. Each pass re-centres on the new start, so
+          // walking a badly-placed line converges rather than looping.
+          alreadyAnchored: (song.lyrics.timingAnchors ?? [])
+            .map((a) => a.lineIndex)
+            .filter((i) => song.lyrics.lineAlignmentQuality?.[i] === 'good'),
         })
       : []
   // Latched rather than an exact match on the active line: see
@@ -705,7 +712,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     setSong(snapshot)
     await db.songs.put(snapshot)
   }
-  const handleTapAnchor = async (lineIndex: number, time: number) => {
+  const handleTapAnchor = async (lineIndex: number, time: number, opts?: { clamped?: boolean }) => {
     if (!song) return
     const prevSong = song
     const anchors: TimingAnchor[] = [
@@ -718,10 +725,13 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       song.lyrics.sourceLanguage as AlignmentLanguage,
       { quality: song.lyrics.lineAlignmentQuality },
     )
-    // The tap IS ground truth for this row — clear its uncertainty flag so it drops
-    // out of the remaining targets.
+    // A time the user settled on IS ground truth for this row — clear its
+    // uncertainty flag so it drops out of the remaining targets. A CLAMPED one is
+    // not: they ran out of slider before they found the spot. Marking that 'good'
+    // is precisely how wrong timing used to get locked in and never revisited, so
+    // the flag stays and the line is offered again, re-centred on its new start.
     const quality = song.lyrics.lineAlignmentQuality ? [...song.lyrics.lineAlignmentQuality] : undefined
-    if (quality) quality[lineIndex] = 'good'
+    if (quality && !opts?.clamped) quality[lineIndex] = 'good'
     const lyrics = {
       ...song.lyrics,
       lines: newLines,
@@ -732,7 +742,11 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     setLines(newLines)
     setSong(updated)
     await db.songs.put(updated)
-    toast(`Line ${lineIndex + 1} re-timed`, 'info', { label: 'Undo', onClick: () => void restoreSong(prevSong) })
+    toast(
+      opts?.clamped ? `Line ${lineIndex + 1} moved as far as the slider reaches — adjust again` : `Line ${lineIndex + 1} re-timed`,
+      'info',
+      { label: 'Undo', onClick: () => void restoreSong(prevSong) },
+    )
   }
   const showYouTubeVideo = youtubeNeedsVisibleEmbed()
   const lyricsUntimed = lines.length > 0 && !linesAreTimed(lines)
@@ -749,7 +763,12 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
   }
 
-  const seek = (time: number) => {
+  const seek = (time: number, opts?: { fromRetime?: boolean }) => {
+    // Any seek the re-timing strip did NOT cause means the user has moved on, so
+    // let go of the line they were adjusting. Without this the latch below never
+    // released without a commit, and the strip followed the user around the song
+    // offering to re-time audio they were nowhere near.
+    if (!opts?.fromRetime) setRetimingLine(null)
     if (isYouTube) {
       ytRef.current?.seekTo(time)
     } else {
@@ -1392,13 +1411,14 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           remaining={anchorTargets.length}
           onPreview={(t) => {
             // Latch the line before seeking — seek recomputes activeLine, which
-            // would otherwise drop the target out from under this control.
+            // would otherwise drop the target out from under this control. The
+            // flag is what stops seek() from releasing the latch it just set.
             setRetimingLine(anchorTargetActive)
-            seek(t)
+            seek(t, { fromRetime: true })
           }}
-          onCommit={(i, t) => {
+          onCommit={(i, t, o) => {
             setRetimingLine(null)
-            void handleTapAnchor(i, t)
+            void handleTapAnchor(i, t, o)
           }}
         />
       )}

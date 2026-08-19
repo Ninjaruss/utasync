@@ -56,7 +56,7 @@ describe('DragRetimeStrip', () => {
     const { onCommit } = setup()
     fireEvent.change(slider(), { target: { value: '28.8' } })
     fireEvent.click(screen.getByRole('button', { name: /use this/i }))
-    expect(onCommit).toHaveBeenCalledWith(3, 28.8)
+    expect(onCommit).toHaveBeenCalledWith(3, 28.8, { clamped: false })
   })
 
   it('shows how many spots remain', () => {
@@ -95,23 +95,33 @@ describe('DragRetimeStrip', () => {
     expect(Number(slider().value)).toBeCloseTo(28.5, 5)
   })
 
-  // The window centre is frozen while the strip points at one line. If the range
-  // were derived from the live startSec, a parent update mid-drag would shift the
-  // whole range under the user's finger — the same hazard TimestampPopover freezes
-  // its scrub centre to avoid.
-  it('keeps the range fixed when the same line reports a changed start', () => {
+  // The range must not shift under the user's finger, so it is frozen against
+  // ordinary parent re-renders (asserted above, where startSec is unchanged).
+  // It is NOT frozen against the same line's start genuinely moving: after a
+  // clamped commit the line is deliberately left flagged and offered again, and
+  // a window still centred on the old start would hand the user the same
+  // unreachable edge forever instead of letting them walk the line home.
+  it('re-centres when the same line reports a genuinely moved start', () => {
     const onPreview = vi.fn()
     const onCommit = vi.fn()
     const { rerender } = render(
       <DragRetimeStrip lineIndex={3} startSec={30} onPreview={onPreview} onCommit={onCommit} />,
     )
-    const min = Number(slider().min)
     const max = Number(slider().max)
     rerender(
-      <DragRetimeStrip lineIndex={3} startSec={41} onPreview={onPreview} onCommit={onCommit} />,
+      <DragRetimeStrip lineIndex={3} startSec={max} onPreview={onPreview} onCommit={onCommit} />,
     )
-    expect(Number(slider().min)).toBeCloseTo(min, 5)
-    expect(Number(slider().max)).toBeCloseTo(max, 5)
+    expect(Number(slider().value)).toBeCloseTo(max, 5)
+    expect(Number(slider().max)).toBeGreaterThan(max)
+  })
+
+  // The other half: a commit made against the window's edge has to say so, or
+  // the caller cannot tell "I found the spot" from "I ran out of slider".
+  it('reports a commit made at the edge of the window as clamped', () => {
+    const { onCommit } = setup()
+    fireEvent.change(slider(), { target: { value: slider().max } })
+    fireEvent.click(screen.getByRole('button', { name: /use this/i }))
+    expect(onCommit).toHaveBeenCalledWith(3, expect.any(Number), { clamped: true })
   })
 
   it('re-centres when it moves to a different line', () => {

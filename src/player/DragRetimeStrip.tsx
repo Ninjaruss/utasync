@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { dragWindowFor, DRAG_WINDOW_BACK_SEC, DRAG_WINDOW_FORWARD_SEC } from './dragTiming'
+import { dragWindowFor, isAtWindowEdge, DRAG_WINDOW_BACK_SEC, DRAG_WINDOW_FORWARD_SEC } from './dragTiming'
 
 interface Props {
   /** Flagged line to re-time, or null to render nothing. */
@@ -12,8 +12,11 @@ interface Props {
   remaining?: number
   /** Fires continuously while dragging so the caller can seek and preview. */
   onPreview: (timeSec: number) => void
-  /** Fires once, with the chosen time, when the user accepts. */
-  onCommit: (lineIndex: number, timeSec: number) => void
+  /** Fires once, with the chosen time, when the user accepts. `clamped` means
+   * the thumb was against a window edge — the line needed to travel further
+   * than the control reaches, so the time is the best available, not the right
+   * one. */
+  onCommit: (lineIndex: number, timeSec: number, opts: { clamped: boolean }) => void
 }
 
 const fmt = (t: number) => {
@@ -49,13 +52,18 @@ export function DragRetimeStrip({
   // TimestampPopover's frozen scrub centre.
   const [centreSec, setCentreSec] = useState(startSec)
   const [targetLine, setTargetLine] = useState(lineIndex)
+  const [seenStartSec, setSeenStartSec] = useState(startSec)
 
   // React's documented "adjusting state when a prop changes" pattern, not an
-  // effect: re-centre only when the TARGET line changes. Doing this in an effect
-  // would cascade an extra render, and keying it on startSec as well would reset
-  // the thumb whenever the parent re-rendered with an updated line.
-  if (lineIndex !== targetLine) {
+  // effect: an effect would cascade an extra render. Re-centre when the target
+  // line changes, and also when the SAME line's stored start moves — which
+  // happens after a clamped commit, where the line is deliberately left flagged
+  // and offered again so the user can walk it further. Comparing against the
+  // last start we saw (rather than against centreSec) means an ordinary parent
+  // re-render cannot yank the thumb mid-drag; only a genuine change does.
+  if (lineIndex !== targetLine || startSec !== seenStartSec) {
     setTargetLine(lineIndex)
+    setSeenStartSec(startSec)
     setCentreSec(startSec)
     setValue(startSec)
   }
@@ -93,7 +101,7 @@ export function DragRetimeStrip({
         <span className="text-white/70 text-xs tabular-nums w-16 text-right">{fmt(value)}</span>
         <button
           type="button"
-          onClick={() => onCommit(lineIndex, value)}
+          onClick={() => onCommit(lineIndex, value, { clamped: isAtWindowEdge(win, value) })}
           className="shrink-0 min-h-11 px-3 rounded-lg bg-cinnabar-accent text-white text-[11px] font-semibold touch-manipulation transition-transform duration-150 ease-out active:scale-[0.96]"
         >
           Use this

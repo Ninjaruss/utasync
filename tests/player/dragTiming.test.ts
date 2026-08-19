@@ -3,6 +3,7 @@ import {
   dragWindowFor,
   timeAtFraction,
   fractionAtTime,
+  isAtWindowEdge,
   DRAG_WINDOW_BACK_SEC,
   DRAG_WINDOW_FORWARD_SEC,
 } from '../../src/player/dragTiming'
@@ -78,5 +79,34 @@ describe('the measured window', () => {
     expect(DRAG_WINDOW_FORWARD_SEC).toBeGreaterThanOrEqual(3.06)
     expect(span).toBeGreaterThanOrEqual(8)
     expect(span).toBeLessThanOrEqual(10.5)
+  })
+})
+
+describe('isAtWindowEdge', () => {
+  const w = dragWindowFor(30, 2.5, 6)
+
+  // Landing on an edge means the slider ran out, not that the spot was found.
+  // The caller uses this to avoid labelling a knowingly-wrong time as truth.
+  it('reports both edges', () => {
+    expect(isAtWindowEdge(w, w.minSec)).toBe(true)
+    expect(isAtWindowEdge(w, w.maxSec)).toBe(true)
+  })
+
+  it('does not report a time the user actually settled on', () => {
+    expect(isAtWindowEdge(w, 30)).toBe(false)
+    expect(isAtWindowEdge(w, 28)).toBe(false)
+    expect(isAtWindowEdge(w, 34)).toBe(false)
+  })
+
+  // The last reachable slider position IS the edge — at a 0.05s step, nothing
+  // sits closer, so requiring an exact hit would never fire.
+  it('counts the final step as the edge', () => {
+    expect(isAtWindowEdge(w, w.maxSec - 0.05)).toBe(true)
+    expect(isAtWindowEdge(w, w.minSec + 0.05)).toBe(true)
+    expect(isAtWindowEdge(w, w.maxSec - 0.2)).toBe(false)
+  })
+
+  it('treats a degenerate window as entirely edge', () => {
+    expect(isAtWindowEdge({ minSec: 5, maxSec: 5 }, 5)).toBe(true)
   })
 })

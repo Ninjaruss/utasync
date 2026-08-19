@@ -67,3 +67,18 @@ export function fractionAtTime(window: DragWindow, timeSec: number): number {
   if (!(span > 0)) return 0
   return clamp01((timeSec - window.minSec) / span)
 }
+
+/**
+ * True when a chosen time sits on a window edge.
+ *
+ * The user who lands here ran out of slider — they did not find the spot. That
+ * distinction matters at commit time: recording a clamped value as a confident
+ * correction is how a knowingly-wrong time gets labelled truth and stops being
+ * offered, which is the failure this whole control exists to remove.
+ *
+ * The tolerance is one slider step, so the last reachable position counts as
+ * the edge it is.
+ */
+export function isAtWindowEdge(window: DragWindow, timeSec: number, tolSec = 0.051): boolean {
+  return timeSec <= window.minSec + tolSec || timeSec >= window.maxSec - tolSec
+}
