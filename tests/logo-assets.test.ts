@@ -38,7 +38,12 @@ describe('logo assets', () => {
   it('index.html wires icons and social meta', () => {
     const html = readFileSync(join(root, 'index.html'), 'utf8')
     expect(html).toContain('rel="apple-touch-icon"')
-    expect(html).toContain('property="og:image" content="https://utasync.app/og.png"')
+    // Absolute and pointing at the live host: a relative og:image is ignored by
+    // most scrapers, and the previous absolute one pointed at a domain that no
+    // longer resolves, so every shared link previewed blank.
+    expect(html).toContain('property="og:image" content="https://utasync.ninjaruss.net/og.png"')
+    expect(html).toContain('property="og:url" content="https://utasync.ninjaruss.net/"')
+    expect(html).not.toContain('utasync.app')
     expect(html).toContain('name="twitter:card" content="summary_large_image"')
   })
 })
