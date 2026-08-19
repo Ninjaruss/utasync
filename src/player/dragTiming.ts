@@ -1,8 +1,12 @@
 /**
  * Drag→time mapping for inline line re-timing.
  *
- * Pure and DOM-free so the mapping can be tested without a pointer: given a
- * window and a fraction along it, what time does the user mean.
+ * Pure and DOM-free so the window logic can be tested without a pointer.
+ *
+ * There is deliberately no position->time mapping here: the strip uses a native
+ * `<input type="range">` with these bounds as min/max, so the browser owns that
+ * arithmetic. A hand-rolled timeAtFraction/fractionAtTime pair lived here for a
+ * while, fully tested and never called by anything but its own tests.
  *
  * The point of dragging rather than tapping: a tap commits the playhead at the
  * moment of the click, so it carries the user's reaction latency (~250-400ms,
@@ -52,20 +56,6 @@ export function dragWindowFor(
   const minSec = Math.max(0, centre - back)
   const maxSec = centre + forward
   return { minSec, maxSec }
-}
-
-const clamp01 = (n: number) => (Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0)
-
-/** Time at a fraction (0..1) along the window. Out-of-range fractions clamp. */
-export function timeAtFraction(window: DragWindow, fraction: number): number {
-  return window.minSec + (window.maxSec - window.minSec) * clamp01(fraction)
-}
-
-/** Inverse of timeAtFraction. A zero-width window yields 0 rather than NaN. */
-export function fractionAtTime(window: DragWindow, timeSec: number): number {
-  const span = window.maxSec - window.minSec
-  if (!(span > 0)) return 0
-  return clamp01((timeSec - window.minSec) / span)
 }
 
 /**
