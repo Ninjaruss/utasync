@@ -625,7 +625,7 @@ looping was built. Note the app already has A/B loop machinery
 
 ---
 
-## Task 5: Onset snapping (pure)
+## Task 5: Onset snapping (pure) — DONE (cd74c36)
 
 Assist, not a second mechanism. Everything from here is additive to a working feature.
 
@@ -749,7 +749,7 @@ git commit -m "feat(player): snap a chosen time to a nearby vocal onset"
 
 ---
 
-## Task 6: Decide how the signal becomes available
+## Task 6: Decide how the signal becomes available — DONE (ba59299)
 
 `VocalActivitySignal` is computed during alignment and discarded — it is not on the stored model. Snapping needs it at correction time. **Measure before choosing.**
 
@@ -760,7 +760,18 @@ git commit -m "feat(player): snap a chosen time to a nearby vocal onset"
 - **Persist:** compute the byte size of a real song's `activity` + `onset` arrays as `Float32Array` (frames = duration / hopSec, two arrays). Confirm Dexie stores typed arrays without a JSON blow-up — test it, do not assume.
 - **Recompute:** time `computeVocalActivity` on a decoded song on this machine. Include the decode.
 
-- [ ] **Step 2: Choose and record**
+- [x] **Step 2: Choose and record**
+
+**Chosen: persist.** Measured on a 230s track: recomputing the STEM signal means
+re-running Demucs (~1.4x audio length — minutes, far over the ~2s bar the plan set
+for preferring recompute). Recomputing from the raw MIX is cheap (~430ms decode
+plus STFT) but the mix is a documented weaker prior, and snapping a vocal entry to
+a drum transient is worse than not snapping — so cheap-and-wrong is not a saving.
+Persisting costs ~42KB raw (5391 frames x 2 Float32 arrays), ~93KB on disk with
+IndexedDB overhead, against a ~3.7MB mp3: a couple of percent. Typed arrays were
+tested rather than assumed — they survive structured clone as real Float32Arrays,
+bit-exact, no JSON blow-up. Staleness (the plan's stated risk of persisting) is
+handled by dropping the signal whenever the audio is replaced.
 
 Persisting costs storage on every song, including ones never corrected. Recomputing costs a wait at the moment the user wants to fix something. Pick, and write the measured numbers into the code comment justifying it.
 
@@ -770,7 +781,7 @@ If recompute is fast enough (say under ~2s), prefer it — no migration, no stor
 
 ---
 
-## Task 7: Wire snapping into the strip
+## Task 7: Wire snapping into the strip — DONE (6abb57f)
 
 **Files:** `src/player/DragRetimeStrip.tsx`, `src/player/PlayerView.tsx`, tests.
 
@@ -800,3 +811,35 @@ Run the full suite. `npx vitest run && npx tsc -b && npx eslint src`
 - Changing `refitAroundAnchors`, `selectAnchorTargets`, or any alignment behaviour.
 - Removing `TimestampPopover` — it stays for deliberate single-line editing, including end times.
 - `TapSyncEditor`'s raw `audioPosition()` bias (thread C3). It has the same defect; fixing it is a larger change and is not attempted here.
+
+
+---
+
+## Outcome
+
+Tasks 1–7 complete. The mechanism claim the plan authorised: **the systematic
+reaction-latency term is gone by construction** — the committed time comes from
+the thumb's position, never from when the click happened, asserted directly in
+`tests/player/PlayerView.dragRetime.test.tsx`. As the plan instructed, no claim is
+made that mean error improved; that would need a human repeatedly tapping a real
+song, which nothing here did.
+
+Two things the plan did not anticipate, both found by measuring and both fixed:
+
+- The provisional window was wrong in **shape**, not just size. 19 of 22 offered
+  lines sit earlier than truth, so a symmetric window spends half its precision on
+  a direction corrections rarely travel (`scripts/audit-drag-window.mjs`).
+- A window that cannot reach re-created the very failure the thread exists to
+  remove: a clamped commit was recorded as truth and the line never offered again.
+
+Still open:
+
+- **Looping vs plain seek is unresolved.** Plain seek is measurably not enough
+  (silent while paused; the playhead outruns the candidate by ~2.5s per 1.5s of
+  thinking time), but whether looping is pleasant or maddening needs a human
+  listen. Not built. `abLoopControllerRef` is there to reuse.
+- **Dead exported code.** `timeAtFraction` / `fractionAtTime` are still called only
+  by their own tests; the strip uses a native range input.
+- 6 of 22 offered lines remain out of reach in one pass (7.9–16.4s out: an intro
+  crammed at t=0, and the known mixed-merge collapse). They can now be walked home
+  in two passes rather than silently locked in, but they want the alignment fix.
