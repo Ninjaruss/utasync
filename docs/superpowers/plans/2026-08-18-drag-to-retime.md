@@ -817,7 +817,7 @@ Run the full suite. `npx vitest run && npx tsc -b && npx eslint src`
 
 ## Outcome
 
-Tasks 1–7 complete. The mechanism claim the plan authorised: **the systematic
+Tasks 1–7 complete, plus a post-listening round (loop + waveform). The mechanism claim the plan authorised: **the systematic
 reaction-latency term is gone by construction** — the committed time comes from
 the thumb's position, never from when the click happened, asserted directly in
 `tests/player/PlayerView.dragRetime.test.tsx`. As the plan instructed, no claim is
@@ -834,12 +834,14 @@ Two things the plan did not anticipate, both found by measuring and both fixed:
 
 Still open:
 
-- **Looping vs plain seek is unresolved.** Plain seek is measurably not enough
-  (silent while paused; the playhead outruns the candidate by ~2.5s per 1.5s of
-  thinking time), but whether looping is pleasant or maddening needs a human
-  listen. Not built. `abLoopControllerRef` is there to reuse.
-- **Dead exported code.** `timeAtFraction` / `fractionAtTime` are still called only
-  by their own tests; the strip uses a native range input.
+- ~~Looping vs plain seek is unresolved.~~ **RESOLVED by listening.** Verdict: the
+  drag is usable and 44ms/px reads as precise, so the measured window stands
+  unchanged — but the experience was *visually* poor to sync with, and looping
+  "would be fine on step". Both acted on: a ~2s loop around the candidate that
+  restarts on every drag step, and the waveform now drawn on one shared axis with
+  the marker, the loop band and the live playhead. Deliberately does not reuse
+  `abLoopControllerRef` — A/B points are real work and must survive a correction.
+- ~~Dead exported code.~~ Removed.
 - 6 of 22 offered lines remain out of reach in one pass (7.9–16.4s out: an intro
   crammed at t=0, and the known mixed-merge collapse). They can now be walked home
   in two passes rather than silently locked in, but they want the alignment fix.
