@@ -1,5 +1,5 @@
 /**
- * Drag→time mapping for inline line re-timing.
+ * The drag window for inline line re-timing.
  *
  * Pure and DOM-free so the window logic can be tested without a pointer.
  *
