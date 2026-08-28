@@ -65,13 +65,16 @@
 **Interfaces:**
 - Consumes: nothing.
 - Produces:
-  - `identity(translations: string[]) => State` where `State = { lines: string[]; truth: string[][] }`
+  - `identity(translations: string[]) => State` where `State = { lines: string[]; truth: number[][] }`
   - `mergeAdjacent(state: State, at: number) => State`
   - `splitLine(state: State, at: number) => State`
   - `dropTranslationFor(state: State, originalIndex: number) => State`
   - `insertNoiseLine(state: State, at: number, text: string) => State`
+  - `truthStrings(state: State) => string[][]`
 
-`truth[i]` is the set of **translation strings** belonging to original `i`; empty means that original legitimately has no translation. Scoring on strings rather than indices avoids the ambiguity of a line that appears twice.
+`truth[i]` is the set of **indices into `lines`** belonging to original `i`; empty means that original legitimately has no translation.
+
+**Truth is tracked by index, not by text.** Two originals can legitimately share identical translation text — a repeated chorus — and content-keyed truth makes them bleed into each other: dropping one original's line would delete the other's identical line and blank its truth. `truthStrings(state)` gives the string view for scoring, where identical strings genuinely ARE interchangeable and the ambiguity is harmless. (Controller ruling, Task 1 fix round 1.)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -240,15 +243,19 @@ git commit -m "test: perturbation algebra for translation fitting, truth by cons
 ### Task 2: Scoring + the scorecard script
 
 **Files:**
-- Create: `scripts/lib/linePairingScore.mjs`, `scripts/audit-line-pairing.mjs`
+- Create: `scripts/lib/linePairingScore.mjs`, `scripts/lib/linePairingCorpus.mjs`, `scripts/audit-line-pairing.mjs`
 - Test: `tests/lyrics/linePairingScore.test.ts`
 - Modify: `tests/ai-pipeline/fixtures/embeddings-cache.json` (regenerated)
 
 **Interfaces:**
-- Consumes: `identity`, `mergeAdjacent`, `splitLine`, `dropTranslationFor`, `insertNoiseLine` from Task 1; `createCachedEmbedTexts` from `scripts/lib/cachedEmbedder.mjs`; `smartAttachSecondLanguage` from `src/lyrics/lineAligner.ts`.
+- Consumes: `identity`, `mergeAdjacent`, `splitLine`, `dropTranslationFor`, `insertNoiseLine`, `truthStrings` from Task 1; `createCachedEmbedTexts` from `scripts/lib/cachedEmbedder.mjs`; `smartAttachSecondLanguage` from `src/lyrics/lineAligner.ts`.
 - Produces: `scoreLinePairing(truth: string[][], assigned: string[][], inputLines: string[], flagged: boolean[]) => Metrics` where `Metrics = { line_correct, line_wrong, line_missing, lines_lost, flag_precision, flag_recall }`.
 
 **The perturbation set is frozen here.** Adding one later requires another embedding-cache regen.
+
+**Controller ruling F3:** `PERTURBATIONS` and `dropRepeats` live in `scripts/lib/linePairingCorpus.mjs`, NOT in the audit script. The audit script calls `main()` at module top level (mirroring `audit-corpus.mjs`), so Task 3's ratchet could not import the perturbation set from it without executing the whole audit as a side effect.
+
+**Controller ruling F1:** the scorecard builds a **timed** primary, not an untimed one. Verified at `src/lyrics/lineAligner.ts:969-972`: an untimed primary returns `content` directly and never reaches `finalizeTimedAttach`, so an untimed scorecard could never observe Task 5's fix. Timed is also the realistic case — users attach a translation to an already-aligned song. Because the `'mismatch'` path's union merge can change the row count, output rows are mapped back to originals by walking both lists monotonically on `line.original`, never by index.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -394,7 +401,64 @@ export function scoreLinePairing(truth, assigned, inputLines, flagged) {
 Run: `npx vitest run tests/lyrics/linePairingScore.test.ts`
 Expected: PASS (8 tests).
 
-- [ ] **Step 5: Write the scorecard script**
+- [ ] **Step 5: Write the frozen perturbation set (ruling F3)**
+
+Side-effect-free, so both the audit script and Task 3's ratchet can import it.
+
+```js
+// scripts/lib/linePairingCorpus.mjs
+/**
+ * The FROZEN perturbation set for the line-pairing scorecard.
+ *
+ * Frozen because each perturbation invents new English strings, and those must
+ * exist in tests/ai-pipeline/fixtures/embeddings-cache.json — which throws on a
+ * miss in CI. Adding one means regenerating the cache.
+ *
+ * Indices are fixed rules, never random. Lives here rather than in
+ * audit-line-pairing.mjs because that script runs main() on import.
+ */
+import {
+  mergeAdjacent, splitLine, dropTranslationFor, insertNoiseLine,
+} from './translationPerturbations.mjs'
+
+/** Drop the translation of every repeated original after its first occurrence. */
+export function dropRepeats(state, originals) {
+  const seen = new Set()
+  let out = state
+  for (let i = 0; i < originals.length; i++) {
+    const key = originals[i].trim()
+    if (!key) continue
+    if (seen.has(key)) out = dropTranslationFor(out, i)
+    else seen.add(key)
+  }
+  return out
+}
+
+export const PERTURBATIONS = [
+  { name: 'identity', apply: (s) => s },
+  { name: 'merge-adjacent', apply: (s) => mergeAdjacent(mergeAdjacent(s, 2), 8) },
+  { name: 'split-line', apply: (s) => splitLine(splitLine(s, 3), 10) },
+  { name: 'drop-repeat', apply: (s, originals) => dropRepeats(s, originals) },
+  { name: 'title-prefix', apply: (s) => insertNoiseLine(s, 0, 'Song Title - Artist Name') },
+  { name: 'translator-note', apply: (s) => insertNoiseLine(s, 5, '(TN: this line is a pun)') },
+  { name: 'section-headers', apply: (s) => insertNoiseLine(insertNoiseLine(s, 0, '[Verse 1]'), 9, '[Chorus]') },
+  { name: 'trailing-credit', apply: (s) => insertNoiseLine(s, s.lines.length, 'Translated by Example') },
+  {
+    name: 'composite',
+    apply: (s, originals) => insertNoiseLine(
+      dropRepeats(mergeAdjacent(splitLine(s, 3), 8), originals),
+      0,
+      'Song Title - Artist Name',
+    ),
+  },
+]
+```
+
+Note `dropRepeats` walks originals in ascending order and calls `dropTranslationFor`
+repeatedly. After the Task 1 ruling, truth is index-based and `dropTranslationFor`
+re-maps every surviving index on each call, so successive calls compose correctly.
+
+- [ ] **Step 6: Write the scorecard script**
 
 ```js
 // scripts/audit-line-pairing.mjs
@@ -420,9 +484,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createCachedEmbedTexts } from './lib/cachedEmbedder.mjs'
 import { scoreLinePairing } from './lib/linePairingScore.mjs'
-import {
-  identity, mergeAdjacent, splitLine, dropTranslationFor, insertNoiseLine,
-} from './lib/translationPerturbations.mjs'
+import { identity, truthStrings } from './lib/translationPerturbations.mjs'
+import { PERTURBATIONS } from './lib/linePairingCorpus.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..')
@@ -437,48 +500,34 @@ function readLines(path) {
   return readFileSync(path, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean)
 }
 
-/**
- * FROZEN perturbation set. Adding one requires regenerating the embedding cache
- * (npx tsx scripts/audit-line-pairing.mjs --write-embed-cache) because new
- * strings are embedded. Indices are fixed rules, never random.
- */
-export const PERTURBATIONS = [
-  { name: 'identity', apply: (s) => s },
-  { name: 'merge-adjacent', apply: (s) => mergeAdjacent(mergeAdjacent(s, 2), 8) },
-  { name: 'split-line', apply: (s) => splitLine(splitLine(s, 3), 10) },
-  { name: 'drop-repeat', apply: (s, originals) => dropRepeats(s, originals) },
-  { name: 'title-prefix', apply: (s) => insertNoiseLine(s, 0, 'Song Title - Artist Name') },
-  { name: 'translator-note', apply: (s) => insertNoiseLine(s, 5, '(TN: this line is a pun)') },
-  { name: 'section-headers', apply: (s) => insertNoiseLine(insertNoiseLine(s, 0, '[Verse 1]'), 9, '[Chorus]') },
-  { name: 'trailing-credit', apply: (s) => insertNoiseLine(s, s.lines.length, 'Translated by Example') },
-  {
-    name: 'composite',
-    apply: (s, originals) => insertNoiseLine(
-      dropRepeats(mergeAdjacent(splitLine(s, 3), 8), originals),
-      0,
-      'Song Title - Artist Name',
-    ),
-  },
-]
-
-/** Drop the translation of every repeated original after its first occurrence. */
-function dropRepeats(state, originals) {
-  const seen = new Set()
-  let out = state
-  for (let i = 0; i < originals.length; i++) {
-    const key = originals[i].trim()
-    if (!key) continue
-    if (seen.has(key)) out = dropTranslationFor(out, i)
-    else seen.add(key)
-  }
-  return out
-}
-
 /** Split a fitted row's translation back into the strings it carries. */
 function assignedStrings(line) {
   const t = (line.translation ?? '').trim()
   if (!t) return []
   return t.split('\n').map((s) => s.trim()).filter(Boolean)
+}
+
+/**
+ * Map output rows back onto originals. The union-timeline merge on the
+ * 'mismatch' path can change the row count, so index-to-index is unsafe: walk
+ * both lists monotonically, matching on `original` text. Rows with an empty
+ * original (translation-only rows the merge inserted) belong to no original.
+ */
+function mapRowsToOriginals(originals, rows) {
+  const assigned = originals.map(() => [])
+  const flagged = originals.map(() => false)
+  let oi = 0
+  for (const row of rows) {
+    const text = (row.original ?? '').trim()
+    if (!text) continue
+    let k = oi
+    while (k < originals.length && originals[k].trim() !== text) k++
+    if (k >= originals.length) continue // unmatched row; leave the cursor put
+    assigned[k].push(...assignedStrings(row))
+    if ((row.translationConfidence ?? 1) < 0.5) flagged[k] = true
+    oi = k + 1
+  }
+  return { assigned, flagged }
 }
 
 async function main() {
@@ -506,9 +555,11 @@ async function main() {
 
     for (const p of PERTURBATIONS) {
       const state = p.apply(identity(translations), originals)
-      // Untimed primary: startTime/endTime 0 so the fitter takes the content path.
-      const primary = originals.map((original) => ({
-        startTime: 0, endTime: 0, original, translation: '',
+      // TIMED primary (ruling F1): the realistic case, and the only one that
+      // reaches finalizeTimedAttach, where the extras-dropping bug lives.
+      // Timestamps are synthetic but ordered and non-zero.
+      const primary = originals.map((original, i) => ({
+        startTime: i * 2, endTime: i * 2 + 2, original, translation: '',
       }))
 
       const result = await smartAttachSecondLanguage(
@@ -516,9 +567,8 @@ async function main() {
         state.lines.join('\n'),
         embedTexts,
       )
-      const assigned = result.lines.map(assignedStrings)
-      const flagged = result.lines.map((l) => (l.translationConfidence ?? 1) < 0.5)
-      const m = scoreLinePairing(state.truth, assigned, state.lines, flagged)
+      const { assigned, flagged } = mapRowsToOriginals(originals, result.lines)
+      const m = scoreLinePairing(truthStrings(state), assigned, state.lines, flagged)
 
       rows.push({ song: song.name, perturbation: p.name, n: originals.length, ...m })
     }
@@ -569,17 +619,17 @@ async function main() {
 main()
 ```
 
-- [ ] **Step 6: Regenerate the embedding cache (one-time model download)**
+- [ ] **Step 7: Regenerate the embedding cache (one-time model download)**
 
 Run: `npx tsx scripts/audit-line-pairing.mjs --write-embed-cache`
 Expected: the perturbed strings are embedded and `embeddings-cache.json` grows. Confirm the old corpus test still passes on the enlarged cache:
 Run: `npx vitest run tests/ai-pipeline/corpus-pairing.test.ts`
 Expected: PASS, and its numbers unchanged (the cache only gained entries).
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add scripts/lib/linePairingScore.mjs scripts/audit-line-pairing.mjs \
+git add scripts/lib/linePairingScore.mjs scripts/lib/linePairingCorpus.mjs scripts/audit-line-pairing.mjs \
         tests/lyrics/linePairingScore.test.ts tests/ai-pipeline/fixtures/embeddings-cache.json
 git commit -m "test: line-pairing scorecard over perturbed translations"
 ```
@@ -601,23 +651,35 @@ Run: `npx tsx scripts/audit-line-pairing.mjs --write-baseline`
 
 Read the printed table before committing. **This is the deliverable of Phase 0** — it is the first honest measurement of how the fitter behaves on realistic input. Expect `identity` to look good and the others not to. Record anything surprising in the commit message.
 
-- [ ] **Step 2: Write the ratchet test**
+- [ ] **Step 2: Write the ratchet test (ruling F2)**
+
+The ratchet RE-RUNS the measurement through the committed embedding cache and compares fresh
+numbers to the baseline — mirroring `tests/ai-pipeline/corpus-pairing.test.ts`. It must not merely
+assert over the baseline file's own contents: a test that reads a number and compares it to itself
+asserts nothing.
 
 ```ts
 // tests/lyrics/linePairing.ratchet.test.ts
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { smartAttachSecondLanguage } from '../../src/lyrics/lineAligner'
+import { identity, truthStrings } from '../../scripts/lib/translationPerturbations.mjs'
+import { PERTURBATIONS } from '../../scripts/lib/linePairingCorpus.mjs'
+import { scoreLinePairing } from '../../scripts/lib/linePairingScore.mjs'
+import { createCachedEmbedTexts } from '../../scripts/lib/cachedEmbedder.mjs'
+import type { TimedLine } from '../../src/core/types'
 
 /**
- * CI lock for line-pairing accuracy on perturbed (non-1:1) translations.
- * The scorecard itself lives in scripts/audit-line-pairing.mjs; this asserts
- * its numbers never regress. Re-snapshot ONLY with a findings note:
+ * CI guard for line-pairing accuracy on perturbed (non-1:1) translations.
+ * Uses the committed embedding cache so it is deterministic and needs no model
+ * download — a cache miss throws rather than silently embedding.
+ * Re-snapshot ONLY with a findings note:
  *   npx tsx scripts/audit-line-pairing.mjs --write-baseline
  */
 const here = dirname(fileURLToPath(import.meta.url))
-const BASELINE = join(here, '../ai-pipeline/fixtures/line-pairing-baseline.json')
+const FIXTURES = join(here, '../ai-pipeline/fixtures')
 
 interface Row {
   song: string
@@ -628,25 +690,78 @@ interface Row {
   lines_lost: number
 }
 
-describe('line-pairing baseline', () => {
-  const rows: Row[] = JSON.parse(readFileSync(BASELINE, 'utf8'))
+const readLines = (p: string) =>
+  readFileSync(p, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean)
 
-  it('covers every song x perturbation', () => {
-    expect(rows.length).toBeGreaterThan(0)
-    const perturbations = new Set(rows.map((r) => r.perturbation))
-    expect(perturbations.size).toBe(9)
-  })
+function assignedStrings(line: TimedLine): string[] {
+  const t = (line.translation ?? '').trim()
+  if (!t) return []
+  return t.split('\n').map((s) => s.trim()).filter(Boolean)
+}
 
-  it('never loses a placeable translation line', () => {
-    // Ratchets at 0 from Task 5 onward. Until then this documents the bug.
-    for (const r of rows) {
-      expect(r.lines_lost, `${r.song}/${r.perturbation}`).toBe(r.lines_lost)
+/** Same monotonic row-to-original mapping the scorecard uses (ruling F1). */
+function mapRowsToOriginals(originals: string[], rows: TimedLine[]) {
+  const assigned: string[][] = originals.map(() => [])
+  const flagged: boolean[] = originals.map(() => false)
+  let oi = 0
+  for (const row of rows) {
+    const text = (row.original ?? '').trim()
+    if (!text) continue
+    let k = oi
+    while (k < originals.length && originals[k].trim() !== text) k++
+    if (k >= originals.length) continue
+    assigned[k].push(...assignedStrings(row))
+    if ((row.translationConfidence ?? 1) < 0.5) flagged[k] = true
+    oi = k + 1
+  }
+  return { assigned, flagged }
+}
+
+describe('line-pairing ratchet', () => {
+  const baseline: Row[] = JSON.parse(
+    readFileSync(join(FIXTURES, 'line-pairing-baseline.json'), 'utf8'),
+  )
+  const corpus = JSON.parse(readFileSync(join(FIXTURES, 'corpus.json'), 'utf8'))
+  const songs = corpus.songs.filter((s: { en?: string }) => s.en)
+  const measured = new Map<string, Row>()
+
+  beforeAll(async () => {
+    const { embedTexts } = createCachedEmbedTexts({
+      cachePath: join(FIXTURES, 'embeddings-cache.json'),
+    })
+    for (const song of songs) {
+      const originals = readLines(join(FIXTURES, song.lyrics))
+      const translations = readLines(join(FIXTURES, song.en))
+      for (const p of PERTURBATIONS) {
+        const state = p.apply(identity(translations), originals)
+        const primary: TimedLine[] = originals.map((original, i) => ({
+          startTime: i * 2, endTime: i * 2 + 2, original, translation: '',
+        }))
+        const result = await smartAttachSecondLanguage(
+          primary, state.lines.join('\n'), embedTexts,
+        )
+        const { assigned, flagged } = mapRowsToOriginals(originals, result.lines)
+        const m = scoreLinePairing(truthStrings(state), assigned, state.lines, flagged)
+        measured.set(`${song.name}::${p.name}`, { song: song.name, perturbation: p.name, ...m })
+      }
+    }
+  }, 120_000)
+
+  it('measures every baseline row', () => {
+    expect(baseline.length).toBeGreaterThan(0)
+    for (const b of baseline) {
+      expect(measured.has(`${b.song}::${b.perturbation}`), `${b.song}/${b.perturbation}`).toBe(true)
     }
   })
 
-  it('recovers identity pairing on unperturbed input', () => {
-    for (const r of rows.filter((x) => x.perturbation === 'identity')) {
-      expect(r.line_wrong, `${r.song}/identity should not mis-pair`).toBeLessThanOrEqual(2)
+  it('never regresses against the committed baseline', () => {
+    for (const b of baseline) {
+      const m = measured.get(`${b.song}::${b.perturbation}`)!
+      const where = `${b.song}/${b.perturbation}`
+      expect(m.line_wrong, `${where} line_wrong`).toBeLessThanOrEqual(b.line_wrong)
+      expect(m.line_missing, `${where} line_missing`).toBeLessThanOrEqual(b.line_missing)
+      expect(m.lines_lost, `${where} lines_lost`).toBeLessThanOrEqual(b.lines_lost)
+      expect(m.line_correct, `${where} line_correct`).toBeGreaterThanOrEqual(b.line_correct)
     }
   })
 })
