@@ -805,9 +805,12 @@ function finalizeTimedAttach(
   ) || isSyncedSecondaryLRC(secondary)
   return {
     lines,
-    mismatchedBlocks: [],
+    // Propagate rather than hardcode: smartAttachSecondLanguageFromLines already
+    // computed these correctly, and blanking them here is what made unplaced
+    // translation lines vanish without telling anyone.
+    mismatchedBlocks: content.mismatchedBlocks,
     method: usedTimeline && content.method === 'mismatch' ? 'timeline' : content.method,
-    extras: [],
+    extras: content.extras ?? [],
   }
 }
 
