@@ -393,12 +393,13 @@ const MIN_ORIGINAL_GLYPHS_FOR_EN_MERGE = 16
 function applyTranslations(
   primary: TimedLine[],
   merged: string[],
-  confidence?: number[],
+  confidence?: (number | undefined)[],
 ): TimedLine[] {
   return primary.map((line, i) => {
     const raw = merged[i] ?? ''
     const translation = trimTranslationForRepetitionLine(line.original, raw)
-    const translationConfidence = confidence?.[i]
+    const c = confidence?.[i]
+    const translationConfidence = typeof c === 'number' ? c : undefined
     return applyLineTextPatch(line, { translation, translationConfidence })
   })
 }
@@ -639,7 +640,7 @@ export interface SmartAttachResult {
   /** Translation lines not mapped to any primary row (timed union merge spreads these on the song tail). */
   extras?: string[]
   /** Per-primary-row pairing confidence, 0-1. Missing/1 means the row was trusted without a DP score. */
-  confidence?: number[]
+  confidence?: (number | undefined)[]
 }
 
 export interface SmartAttachOptions {
@@ -778,17 +779,20 @@ async function semanticAlignToPrimaryLines(
   translations: string[],
   embedFn: (texts: string[]) => Promise<number[][]>,
   options?: SmartAttachOptions,
-): Promise<{ aligned: string[]; extras: string[]; confidence: number[] }> {
+): Promise<{ aligned: string[]; extras: string[]; confidence: (number | undefined)[] }> {
   const { indices, texts } = pairablePrimaryLines(primary, translations, options)
   if (texts.length === 0) {
-    return { aligned: primary.map(() => ''), extras: translations, confidence: primary.map(() => 0) }
+    return { aligned: primary.map(() => ''), extras: translations, confidence: primary.map(() => undefined) }
   }
   const { aligned: partial, extras, confidence: partialConf } = await autoAlignLines(texts, translations, embedFn)
   const aligned = primary.map(() => '')
-  const confidence = primary.map(() => 0)
+  // undefined, NOT 0: a row the fitter deliberately declined to pair (metadata, header,
+  // duplicate) has NO applicable confidence. Reporting 0 would claim we tried and failed,
+  // which is a different — and false — statement.
+  const confidence: (number | undefined)[] = primary.map(() => undefined)
   for (let k = 0; k < indices.length; k++) {
     aligned[indices[k]] = partial[k] ?? ''
-    confidence[indices[k]] = partialConf[k] ?? 0
+    confidence[indices[k]] = partialConf[k]
   }
   return { aligned, extras, confidence }
 }
