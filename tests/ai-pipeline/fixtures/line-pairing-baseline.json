@@ -20,8 +20,8 @@
     "line_missing": 3,
     "lines_unplaced": 1,
     "lines_lost": 0,
-    "flag_precision": null,
-    "flag_recall": 0
+    "flag_precision": 0.0967741935483871,
+    "flag_recall": 0.75
   },
   {
     "song": "veil",
@@ -44,8 +44,8 @@
     "line_missing": 1,
     "lines_unplaced": 1,
     "lines_lost": 0,
-    "flag_precision": null,
-    "flag_recall": 0
+    "flag_precision": 0.03225806451612903,
+    "flag_recall": 0.5
   },
   {
     "song": "veil",
@@ -56,7 +56,7 @@
     "line_missing": 0,
     "lines_unplaced": 0,
     "lines_lost": 0,
-    "flag_precision": null,
+    "flag_precision": 0,
     "flag_recall": null
   },
   {
@@ -92,7 +92,7 @@
     "line_missing": 0,
     "lines_unplaced": 0,
     "lines_lost": 0,
-    "flag_precision": null,
+    "flag_precision": 0,
     "flag_recall": null
   },
   {
@@ -104,8 +104,8 @@
     "line_missing": 2,
     "lines_unplaced": 1,
     "lines_lost": 0,
-    "flag_precision": null,
-    "flag_recall": 0
+    "flag_precision": 0.0625,
+    "flag_recall": 0.6666666666666666
   },
   {
     "song": "akfg-firsttake-word",
@@ -128,8 +128,8 @@
     "line_missing": 3,
     "lines_unplaced": 0,
     "lines_lost": 0,
-    "flag_precision": null,
-    "flag_recall": 0
+    "flag_precision": 0.3,
+    "flag_recall": 0.75
   },
   {
     "song": "akfg-firsttake-word",
@@ -152,8 +152,8 @@
     "line_missing": 1,
     "lines_unplaced": 0,
     "lines_lost": 0,
-    "flag_precision": null,
-    "flag_recall": 0
+    "flag_precision": 0.1,
+    "flag_recall": 0.5
   },
   {
     "song": "akfg-firsttake-word",
@@ -212,8 +212,8 @@
     "line_missing": 2,
     "lines_unplaced": 0,
     "lines_lost": 0,
-    "flag_precision": null,
-    "flag_recall": 0
+    "flag_precision": 0.2,
+    "flag_recall": 0.6666666666666666
   },
   {
     "song": "guitar-loneliness-word",
@@ -236,8 +236,8 @@
     "line_missing": 2,
     "lines_unplaced": 0,
     "lines_lost": 0,
-    "flag_precision": null,
-    "flag_recall": 0
+    "flag_precision": 0.13333333333333333,
+    "flag_recall": 1
   },
   {
     "song": "guitar-loneliness-word",
@@ -248,7 +248,7 @@
     "line_missing": 0,
     "lines_unplaced": 1,
     "lines_lost": 0,
-    "flag_precision": null,
+    "flag_precision": 0,
     "flag_recall": 0
   },
   {
@@ -260,7 +260,7 @@
     "line_missing": 0,
     "lines_unplaced": 0,
     "lines_lost": 0,
-    "flag_precision": null,
+    "flag_precision": 0,
     "flag_recall": null
   },
   {
@@ -308,7 +308,7 @@
     "line_missing": 0,
     "lines_unplaced": 0,
     "lines_lost": 0,
-    "flag_precision": null,
+    "flag_precision": 0,
     "flag_recall": null
   },
   {
@@ -320,7 +320,7 @@
     "line_missing": 1,
     "lines_unplaced": 0,
     "lines_lost": 0,
-    "flag_precision": null,
-    "flag_recall": 0
+    "flag_precision": 0.05,
+    "flag_recall": 1
   }
 ]

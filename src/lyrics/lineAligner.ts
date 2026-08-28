@@ -390,11 +390,16 @@ export function trimTranslationForRepetitionLine(original: string, translation: 
 /** Minimum non-space glyphs on a primary line before two EN rows may merge onto it. */
 const MIN_ORIGINAL_GLYPHS_FOR_EN_MERGE = 16
 
-function applyTranslations(primary: TimedLine[], merged: string[]): TimedLine[] {
+function applyTranslations(
+  primary: TimedLine[],
+  merged: string[],
+  confidence?: number[],
+): TimedLine[] {
   return primary.map((line, i) => {
     const raw = merged[i] ?? ''
     const translation = trimTranslationForRepetitionLine(line.original, raw)
-    return applyLineTextPatch(line, { translation })
+    const translationConfidence = confidence?.[i]
+    return applyLineTextPatch(line, { translation, translationConfidence })
   })
 }
 
@@ -525,11 +530,11 @@ export async function autoAlignLines(
   originals: string[],
   translations: string[],
   embedFn: (texts: string[]) => Promise<number[][]>,
-): Promise<{ aligned: string[]; extras: string[] }> {
+): Promise<{ aligned: string[]; extras: string[]; confidence: number[] }> {
   const n = originals.length
   const m = translations.length
-  if (n === 0) return { aligned: [], extras: translations }
-  if (m === 0) return { aligned: new Array(n).fill(''), extras: [] }
+  if (n === 0) return { aligned: [], extras: translations, confidence: [] }
+  if (m === 0) return { aligned: new Array(n).fill(''), extras: [], confidence: new Array(n).fill(0) }
 
   const mergedTexts =
     m >= 2 ? translations.slice(0, -1).map((t, j) => `${t}\n${translations[j + 1]}`) : []
@@ -590,6 +595,7 @@ export async function autoAlignLines(
   }
 
   const buckets: string[][] = Array.from({ length: n }, () => [])
+  const rowScore: number[] = new Array(n).fill(0)
   const usedTrans = new Set<number>()
   let i = n
   let j = m
@@ -599,12 +605,14 @@ export async function autoAlignLines(
     const b = back[i][j]
     if (b === 'D') {
       buckets[i - 1].unshift(translations[j - 1])
+      rowScore[i - 1] = scoreAt(i - 1, j - 1)
       usedTrans.add(j - 1)
       i--
       j--
     } else if (b === 'M') {
       buckets[i - 1].unshift(translations[j - 1])
       buckets[i - 1].unshift(translations[j - 2])
+      rowScore[i - 1] = pairScore(i - 1, `${translations[j - 2]}\n${translations[j - 1]}`, mergedVecs[j - 2])
       usedTrans.add(j - 1)
       usedTrans.add(j - 2)
       i--
@@ -618,7 +626,10 @@ export async function autoAlignLines(
 
   const aligned = buckets.map((parts) => parts.join('\n'))
   const extras = translations.filter((_, idx) => !usedTrans.has(idx))
-  return { aligned, extras }
+  const confidence = rowScore.map((s, idx) =>
+    buckets[idx].length === 0 ? 0 : Math.max(0, Math.min(1, s)),
+  )
+  return { aligned, extras, confidence }
 }
 
 export interface SmartAttachResult {
@@ -627,6 +638,8 @@ export interface SmartAttachResult {
   method: PairingMethod
   /** Translation lines not mapped to any primary row (timed union merge spreads these on the song tail). */
   extras?: string[]
+  /** Per-primary-row pairing confidence, 0-1. Missing/1 means the row was trusted without a DP score. */
+  confidence?: number[]
 }
 
 export interface SmartAttachOptions {
@@ -765,17 +778,19 @@ async function semanticAlignToPrimaryLines(
   translations: string[],
   embedFn: (texts: string[]) => Promise<number[][]>,
   options?: SmartAttachOptions,
-): Promise<{ aligned: string[]; extras: string[] }> {
+): Promise<{ aligned: string[]; extras: string[]; confidence: number[] }> {
   const { indices, texts } = pairablePrimaryLines(primary, translations, options)
   if (texts.length === 0) {
-    return { aligned: primary.map(() => ''), extras: translations }
+    return { aligned: primary.map(() => ''), extras: translations, confidence: primary.map(() => 0) }
   }
-  const { aligned: partial, extras } = await autoAlignLines(texts, translations, embedFn)
+  const { aligned: partial, extras, confidence: partialConf } = await autoAlignLines(texts, translations, embedFn)
   const aligned = primary.map(() => '')
+  const confidence = primary.map(() => 0)
   for (let k = 0; k < indices.length; k++) {
     aligned[indices[k]] = partial[k] ?? ''
+    confidence[indices[k]] = partialConf[k] ?? 0
   }
-  return { aligned, extras }
+  return { aligned, extras, confidence }
 }
 
 function worstPairingMethod(a: PairingMethod, b: PairingMethod): PairingMethod {
@@ -811,6 +826,7 @@ function finalizeTimedAttach(
     mismatchedBlocks: content.mismatchedBlocks,
     method: usedTimeline && content.method === 'mismatch' ? 'timeline' : content.method,
     extras: content.extras ?? [],
+    confidence: content.confidence,
   }
 }
 
@@ -832,11 +848,21 @@ async function smartAttachSecondLanguageFromLines(
   if (structural.method === 'slots') {
     const slots = expandSlotsAdaptive(originals, trans.length)
     if (slotPairingIsTrustworthy(originals, trans, slots)) {
-      return { lines: structural.lines, mismatchedBlocks: [], method: 'slots' }
+      return {
+        lines: structural.lines,
+        mismatchedBlocks: [],
+        method: 'slots',
+        confidence: primary.map(() => 1),
+      }
     }
   }
   if (structural.method === 'index') {
-    return { lines: structural.lines, mismatchedBlocks: [], method: 'index' }
+    return {
+      lines: structural.lines,
+      mismatchedBlocks: [],
+      method: 'index',
+      confidence: primary.map(() => 1),
+    }
   }
 
   if (options?.preferFast) {
@@ -879,7 +905,7 @@ async function smartAttachSecondLanguageFromLines(
   try {
     const runSemantic = async (): Promise<SmartAttachResult> => {
       if (slots.length === trans.length && slots.length > 0) {
-        const { aligned, extras } = await autoAlignLines(
+        const { aligned, extras, confidence: _slotConfidence } = await autoAlignLines(
           slots.map((s) => s.hint),
           trans,
           embedFn!,
@@ -895,12 +921,13 @@ async function smartAttachSecondLanguageFromLines(
         }
       }
 
-      const { aligned, extras } = await semanticAlignToPrimaryLines(primary, trans, embedFn!, options)
+      const { aligned, extras, confidence } = await semanticAlignToPrimaryLines(primary, trans, embedFn!, options)
       return {
-        lines: applyTranslations(primary, aligned),
+        lines: applyTranslations(primary, aligned, confidence),
         mismatchedBlocks: extras.length > 0 ? [0] : [],
         method: 'semantic',
         extras,
+        confidence,
       }
     }
 

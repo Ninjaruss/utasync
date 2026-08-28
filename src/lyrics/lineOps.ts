@@ -64,7 +64,7 @@ export function stampTimes(
  */
 export function applyLineTextPatch(
   line: TimedLine,
-  patch: { original?: string; translation?: string },
+  patch: { original?: string; translation?: string; translationConfidence?: number },
 ): TimedLine {
   const next: TimedLine = { ...line, ...patch }
   const originalChanged = patch.original !== undefined && patch.original !== line.original
