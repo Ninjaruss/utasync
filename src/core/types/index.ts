@@ -78,6 +78,14 @@ export interface TimedLine {
   /** Ruby HTML (kuroshiro furigana) for rendering readings above kanji. */
   furigana?: string
   grammarAnnotations?: GrammarAnnotation[]
+  /** Rows sharing an id share ONE translation, rendered once and bracketed
+   * across them (a translator folded two sung lines into one thought).
+   * Every row in a group carries the SAME `translation` string, so consumers
+   * that ignore this field degrade to repeating it — never to a blank row.
+   * Absent ⇒ this row is its own group (legacy behavior). */
+  translationGroup?: number
+  /** 0–1 confidence in this row's translation pairing. Absent ⇒ unflagged. */
+  translationConfidence?: number
 }
 
 /** How a phrase's timing was anchored. Mirrors LineAnchorSource plus 'manual'. */
@@ -154,6 +162,21 @@ export interface LyricsData {
   /** The pasted-layout rows captured when switching to 'sung', so the user can
    * one-tap restore their original sheet (Phase 3). */
   sheetLinesSnapshot?: TimedLine[]
+  /** Pasted translation lines the fitter could not place, with the row they were
+   * expected after — so repair can show them in context, not as a nameless tail. */
+  unplacedTranslations?: { text: string; afterLineIndex: number }[]
+  /** The raw pasted translation block, retained so a later fitter improvement can
+   * re-fit without asking the user to paste again. `translationPairing.version`
+   * is inert without this. */
+  translationSource?: string
+  /** Summary of the last translation fit. `version` is a CONTENT version for the
+   * pairing, independent of the DB schema and of alignmentPipelineVersion. */
+  translationPairing?: {
+    method: 'index' | 'slots' | 'semantic' | 'timeline' | 'mismatch'
+    meanConfidence: number
+    flaggedLineCount: number
+    version: number
+  }
 }
 
 export interface WordAlignment {
