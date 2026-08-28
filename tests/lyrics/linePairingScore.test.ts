@@ -82,6 +82,30 @@ describe('scoreLinePairing', () => {
     )
     expect(m.lines_lost).toBe(2)
   })
+
+  it('a line rescued into extras is unplaced but NOT lost', () => {
+    const m = scoreLinePairing(
+      [['a'], ['b']], [['a'], []], ['a', 'b'], [false, false], ['b'],
+    )
+    expect(m.lines_unplaced).toBe(1)
+    expect(m.lines_lost).toBe(0)
+  })
+
+  it('a line in neither rows nor extras is both unplaced and lost', () => {
+    const m = scoreLinePairing(
+      [['a'], ['b']], [['a'], []], ['a', 'b'], [false, false], [],
+    )
+    expect(m.lines_unplaced).toBe(1)
+    expect(m.lines_lost).toBe(1)
+  })
+
+  it('counts a rescued occurrence of a repeated line', () => {
+    const m = scoreLinePairing(
+      [['r'], ['r']], [['r'], []], ['r', 'r'], [false, false], ['r'],
+    )
+    expect(m.lines_unplaced).toBe(1)
+    expect(m.lines_lost).toBe(0)
+  })
 })
 
 describe('mapRowsToOriginals', () => {

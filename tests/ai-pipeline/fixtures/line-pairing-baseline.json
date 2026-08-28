@@ -6,6 +6,7 @@
     "line_correct": 48,
     "line_wrong": 0,
     "line_missing": 0,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": null
@@ -17,7 +18,8 @@
     "line_correct": 44,
     "line_wrong": 1,
     "line_missing": 3,
-    "lines_lost": 1,
+    "lines_unplaced": 1,
+    "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": 0
   },
@@ -28,6 +30,7 @@
     "line_correct": 48,
     "line_wrong": 0,
     "line_missing": 0,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": null
@@ -39,7 +42,8 @@
     "line_correct": 46,
     "line_wrong": 1,
     "line_missing": 1,
-    "lines_lost": 1,
+    "lines_unplaced": 1,
+    "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": 0
   },
@@ -50,6 +54,7 @@
     "line_correct": 48,
     "line_wrong": 0,
     "line_missing": 0,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": null
@@ -61,6 +66,7 @@
     "line_correct": 48,
     "line_wrong": 0,
     "line_missing": 0,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": null
@@ -72,6 +78,7 @@
     "line_correct": 48,
     "line_wrong": 0,
     "line_missing": 0,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": null
@@ -83,6 +90,7 @@
     "line_correct": 48,
     "line_wrong": 0,
     "line_missing": 0,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": null
@@ -94,7 +102,8 @@
     "line_correct": 45,
     "line_wrong": 1,
     "line_missing": 2,
-    "lines_lost": 1,
+    "lines_unplaced": 1,
+    "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": 0
   },
@@ -105,6 +114,7 @@
     "line_correct": 28,
     "line_wrong": 1,
     "line_missing": 1,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": 0
@@ -116,6 +126,7 @@
     "line_correct": 26,
     "line_wrong": 1,
     "line_missing": 3,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": 0
@@ -127,6 +138,7 @@
     "line_correct": 28,
     "line_wrong": 1,
     "line_missing": 1,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": 0
@@ -138,6 +150,7 @@
     "line_correct": 28,
     "line_wrong": 1,
     "line_missing": 1,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": 0
@@ -149,6 +162,7 @@
     "line_correct": 25,
     "line_wrong": 4,
     "line_missing": 1,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": 0
@@ -160,6 +174,7 @@
     "line_correct": 28,
     "line_wrong": 1,
     "line_missing": 1,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": 0
@@ -171,6 +186,7 @@
     "line_correct": 28,
     "line_wrong": 1,
     "line_missing": 1,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": 0
@@ -182,6 +198,7 @@
     "line_correct": 24,
     "line_wrong": 4,
     "line_missing": 2,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": 0
@@ -193,6 +210,7 @@
     "line_correct": 27,
     "line_wrong": 1,
     "line_missing": 2,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": 0
@@ -204,6 +222,7 @@
     "line_correct": 47,
     "line_wrong": 0,
     "line_missing": 0,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": null
@@ -215,6 +234,7 @@
     "line_correct": 45,
     "line_wrong": 0,
     "line_missing": 2,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": 0
@@ -226,7 +246,8 @@
     "line_correct": 46,
     "line_wrong": 1,
     "line_missing": 0,
-    "lines_lost": 1,
+    "lines_unplaced": 1,
+    "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": 0
   },
@@ -237,6 +258,7 @@
     "line_correct": 47,
     "line_wrong": 0,
     "line_missing": 0,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": null
@@ -248,6 +270,7 @@
     "line_correct": 46,
     "line_wrong": 1,
     "line_missing": 0,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": 0
@@ -259,6 +282,7 @@
     "line_correct": 47,
     "line_wrong": 0,
     "line_missing": 0,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": null
@@ -270,6 +294,7 @@
     "line_correct": 47,
     "line_wrong": 0,
     "line_missing": 0,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": null
@@ -281,6 +306,7 @@
     "line_correct": 47,
     "line_wrong": 0,
     "line_missing": 0,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": null
@@ -292,6 +318,7 @@
     "line_correct": 46,
     "line_wrong": 0,
     "line_missing": 1,
+    "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
     "flag_recall": 0

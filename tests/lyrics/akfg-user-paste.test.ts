@@ -104,7 +104,10 @@ describe('AKFG user paste — line pairing', () => {
 
   it('semantically pairs without duplicating chorus English on every row', async () => {
     const result = await smartAttachSecondLanguage(primary, USER_EN_BLOCK, akfgEmbed)
-    expect(result.mismatchedBlocks).toEqual([])
+    // mismatchedBlocks is non-empty here by design: finalizeTimedAttach used to
+    // blank it unconditionally, which is the bug this change fixed. A pasted
+    // translation that cannot cover every row SHOULD report the mismatch.
+    expect(result.mismatchedBlocks).toEqual([0])
     expect(['semantic', 'slots', 'index']).toContain(result.method)
 
     const world = result.lines.find((l) => l.original.includes('世界を僕は塗り'))

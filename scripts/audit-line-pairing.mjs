@@ -12,8 +12,10 @@
  *   npx tsx scripts/audit-line-pairing.mjs --write-baseline
  *   npx tsx scripts/audit-line-pairing.mjs --check-baseline
  *
- * Lower is better for line_wrong / line_missing / lines_lost; higher for
- * line_correct / flag_precision / flag_recall.
+ * Lower is better for line_wrong / line_missing / lines_unplaced / lines_lost;
+ * higher for line_correct / flag_precision / flag_recall.
+ * lines_unplaced = not on any row (fitting quality, expected non-zero).
+ * lines_lost = on no row AND not in extras either (data loss; ratchets at 0).
  */
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -77,7 +79,7 @@ async function main() {
         embedTexts,
       )
       const { assigned, flagged } = mapRowsToOriginals(originals, result.lines)
-      const m = scoreLinePairing(truthStrings(state), assigned, state.lines, flagged)
+      const m = scoreLinePairing(truthStrings(state), assigned, state.lines, flagged, result.extras ?? [])
 
       rows.push({ song: song.name, perturbation: p.name, n: originals.length, ...m })
     }
@@ -88,7 +90,8 @@ async function main() {
     console.log(
       `${r.song.padEnd(24)} ${r.perturbation.padEnd(16)} ` +
       `ok ${fmt(r.line_correct).padStart(3)}  wrong ${fmt(r.line_wrong).padStart(3)}  ` +
-      `missing ${fmt(r.line_missing).padStart(3)}  lost ${fmt(r.lines_lost).padStart(3)}  ` +
+      `missing ${fmt(r.line_missing).padStart(3)}  unplaced ${fmt(r.lines_unplaced).padStart(3)}  ` +
+      `lost ${fmt(r.lines_lost).padStart(3)}  ` +
       `flagP ${fmt(r.flag_precision).padStart(5)}  flagR ${fmt(r.flag_recall).padStart(5)}`,
     )
   }
@@ -109,7 +112,7 @@ async function main() {
     for (const r of rows) {
       const b = byKey.get(key(r))
       if (!b) { console.error(`NEW ROW ${key(r)}`); failed = true; continue }
-      for (const metric of ['line_wrong', 'line_missing', 'lines_lost']) {
+      for (const metric of ['line_wrong', 'line_missing', 'lines_unplaced', 'lines_lost']) {
         if (r[metric] > b[metric]) {
           console.error(`REGRESSION ${key(r)} ${metric}: ${b[metric]} -> ${r[metric]}`)
           failed = true

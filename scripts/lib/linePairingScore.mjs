@@ -13,7 +13,7 @@ function sameSet(a, b) {
   return left.every((v, i) => v === right[i])
 }
 
-export function scoreLinePairing(truth, assigned, inputLines, flagged) {
+export function scoreLinePairing(truth, assigned, inputLines, flagged, extras = []) {
   let line_correct = 0
   let line_wrong = 0
   let line_missing = 0
@@ -34,15 +34,8 @@ export function scoreLinePairing(truth, assigned, inputLines, flagged) {
     }
   }
 
-  // Only lines that SHOULD have been placed can be lost. A header the fitter
-  // correctly discarded is not a loss.
-  //
-  // Counted per OCCURRENCE, not by set membership: a repeated chorus line appears
-  // twice in the input, and losing one of them is a real loss even though the
-  // other still shows up. Set-based comparison reported 0 for exactly that case.
-  //
-  // A line legitimately shared across rows (the merge case) appears ONCE in the
-  // input but twice in the output, so max(0, ...) correctly yields no loss.
+  // Only lines that SHOULD have been placed can be lost/unplaced. A header the
+  // fitter correctly discarded is not a loss.
   //
   // Accepted limitation: if a noise line's text coincidentally equals a real
   // lyric line, it inflates inputCount and can over-report by one. The frozen
@@ -50,16 +43,28 @@ export function scoreLinePairing(truth, assigned, inputLines, flagged) {
   // Example", "(TN: ...)"), so this cannot arise today.
   const countOf = (arr) => {
     const m = new Map()
-    for (const s of arr) m.set(s, (m.get(s) ?? 0) + 1)
+    for (const t of arr) m.set(t, (m.get(t) ?? 0) + 1)
     return m
   }
   const placeable = new Set(truth.flat())
   const inputCount = countOf(inputLines)
   const emittedCount = countOf(assigned.flat())
+  const extrasCount = countOf(extras)
+
+  // Two different questions, both worth watching:
+  //   lines_unplaced — the fitter could not put it on a row (fitting quality)
+  //   lines_lost     — it is on no row AND not in extras, i.e. the app destroyed it
+  // Counted per OCCURRENCE: a repeated chorus line appears twice in the input and
+  // losing one of them is a real loss even though the other still shows up.
+  // max(0, ...) keeps a legitimately shared (merged) line — once in, twice out — at zero.
+  let lines_unplaced = 0
   let lines_lost = 0
   for (const [line, n] of inputCount) {
     if (!placeable.has(line)) continue
-    lines_lost += Math.max(0, n - (emittedCount.get(line) ?? 0))
+    const placed = emittedCount.get(line) ?? 0
+    const kept = placed + (extrasCount.get(line) ?? 0)
+    lines_unplaced += Math.max(0, n - placed)
+    lines_lost += Math.max(0, n - kept)
   }
 
   let flaggedCount = 0
@@ -75,6 +80,7 @@ export function scoreLinePairing(truth, assigned, inputLines, flagged) {
     line_correct,
     line_wrong,
     line_missing,
+    lines_unplaced,
     lines_lost,
     flag_precision: flaggedCount === 0 ? null : flaggedAndWrong / flaggedCount,
     flag_recall: wrongCount === 0 ? null : flaggedAndWrong / wrongCount,

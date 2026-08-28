@@ -25,6 +25,7 @@ interface Row {
   line_correct: number
   line_wrong: number
   line_missing: number
+  lines_unplaced: number
   lines_lost: number
 }
 
@@ -55,7 +56,7 @@ describe('line-pairing ratchet', () => {
           primary, state.lines.join('\n'), embedTexts,
         )
         const { assigned, flagged } = mapRowsToOriginals(originals, result.lines)
-        const m = scoreLinePairing(truthStrings(state), assigned, state.lines, flagged)
+        const m = scoreLinePairing(truthStrings(state), assigned, state.lines, flagged, result.extras ?? [])
         measured.set(`${song.name}::${p.name}`, { song: song.name, perturbation: p.name, ...m })
       }
     }
@@ -74,6 +75,7 @@ describe('line-pairing ratchet', () => {
       const where = `${b.song}/${b.perturbation}`
       expect(m.line_wrong, `${where} line_wrong`).toBeLessThanOrEqual(b.line_wrong)
       expect(m.line_missing, `${where} line_missing`).toBeLessThanOrEqual(b.line_missing)
+      expect(m.lines_unplaced, `${where} lines_unplaced`).toBeLessThanOrEqual(b.lines_unplaced)
       expect(m.lines_lost, `${where} lines_lost`).toBeLessThanOrEqual(b.lines_lost)
       expect(m.line_correct, `${where} line_correct`).toBeGreaterThanOrEqual(b.line_correct)
     }
