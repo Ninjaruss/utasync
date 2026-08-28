@@ -262,7 +262,7 @@ git commit -m "test: perturbation algebra for translation fitting, truth by cons
 ```ts
 // tests/lyrics/linePairingScore.test.ts
 import { describe, it, expect } from 'vitest'
-import { scoreLinePairing } from '../../scripts/lib/linePairingScore.mjs'
+import { scoreLinePairing, mapRowsToOriginals } from '../../scripts/lib/linePairingScore.mjs'
 
 describe('scoreLinePairing', () => {
   it('counts an exact match as correct', () => {
@@ -319,6 +319,74 @@ describe('scoreLinePairing', () => {
     expect(m.flag_precision).toBeNull()  // nothing flagged
     expect(m.flag_recall).toBeNull()     // nothing wrong
   })
+
+  it('counts a lost occurrence of a REPEATED line', () => {
+    // Same text as two separate input lines; the fitter placed only one.
+    const m = scoreLinePairing(
+      [['refrain'], ['verse'], ['refrain']],
+      [['refrain'], ['verse'], []],
+      ['refrain', 'verse', 'refrain'],
+      [false, false, false],
+    )
+    expect(m.lines_lost).toBe(1)
+  })
+
+  it('does not count a shared (merged) line as lost', () => {
+    // ONE input line legitimately covering two rows: output repeats it, input had it once.
+    const m = scoreLinePairing(
+      [['both'], ['both']], [['both'], ['both']], ['both'], [false, false],
+    )
+    expect(m.lines_lost).toBe(0)
+  })
+
+  it('counts every lost occurrence when a line repeats three times', () => {
+    const m = scoreLinePairing(
+      [['x'], ['x'], ['x']], [['x'], [], []], ['x', 'x', 'x'], [false, false, false],
+    )
+    expect(m.lines_lost).toBe(2)
+  })
+})
+
+describe('mapRowsToOriginals', () => {
+  const row = (original: string, translation: string, translationConfidence?: number) =>
+    ({ startTime: 0, endTime: 1, original, translation, translationConfidence })
+
+  it('maps rows to originals positionally', () => {
+    const { assigned } = mapRowsToOriginals(['a', 'b'], [row('a', 'x'), row('b', 'y')])
+    expect(assigned).toEqual([['x'], ['y']])
+  })
+
+  it('distinguishes two non-adjacent originals with identical text', () => {
+    const { assigned } = mapRowsToOriginals(
+      ['same', 'other', 'same'],
+      [row('same', 'first'), row('other', 'mid'), row('same', 'third')],
+    )
+    expect(assigned).toEqual([['first'], ['mid'], ['third']])
+  })
+
+  it('skips rows with an empty original', () => {
+    const { assigned } = mapRowsToOriginals(
+      ['a', 'b'], [row('a', 'x'), row('', 'orphan'), row('b', 'y')],
+    )
+    expect(assigned).toEqual([['x'], ['y']])
+  })
+
+  it('ignores a row matching no original without losing the cursor', () => {
+    const { assigned } = mapRowsToOriginals(
+      ['a', 'b'], [row('a', 'x'), row('ghost', 'no'), row('b', 'y')],
+    )
+    expect(assigned).toEqual([['x'], ['y']])
+  })
+
+  it('splits a multi-line translation into its parts', () => {
+    const { assigned } = mapRowsToOriginals(['a'], [row('a', 'one\ntwo')])
+    expect(assigned).toEqual([['one', 'two']])
+  })
+
+  it('flags a row below the confidence threshold', () => {
+    const { flagged } = mapRowsToOriginals(['a', 'b'], [row('a', 'x', 0.2), row('b', 'y', 0.9)])
+    expect(flagged).toEqual([true, false])
+  })
 })
 ```
 
@@ -369,11 +437,30 @@ export function scoreLinePairing(truth, assigned, inputLines, flagged) {
 
   // Only lines that SHOULD have been placed can be lost. A header the fitter
   // correctly discarded is not a loss.
+  //
+  // Counted per OCCURRENCE, not by set membership: a repeated chorus line appears
+  // twice in the input, and losing one of them is a real loss even though the other
+  // still shows up. Set-based comparison reported 0 for exactly that case, which
+  // would have made the Task 5 `lines_lost == 0` ratchet a false guarantee.
+  //
+  // A line legitimately shared across rows (the merge case) appears ONCE in the
+  // input but twice in the output, so max(0, ...) correctly yields no loss.
+  //
+  // Limitation: a noise line whose text coincides with a real lyric line inflates
+  // inputCount and can over-report by one. The frozen perturbation set uses
+  // distinctive noise text, so this cannot arise today.
+  const countOf = (arr) => {
+    const m = new Map()
+    for (const t of arr) m.set(t, (m.get(t) ?? 0) + 1)
+    return m
+  }
   const placeable = new Set(truth.flat())
-  const emitted = new Set(assigned.flat())
+  const inputCount = countOf(inputLines)
+  const emittedCount = countOf(assigned.flat())
   let lines_lost = 0
-  for (const line of new Set(inputLines)) {
-    if (placeable.has(line) && !emitted.has(line)) lines_lost++
+  for (const [line, n] of inputCount) {
+    if (!placeable.has(line)) continue
+    lines_lost += Math.max(0, n - (emittedCount.get(line) ?? 0))
   }
 
   let flaggedCount = 0
@@ -393,6 +480,41 @@ export function scoreLinePairing(truth, assigned, inputLines, flagged) {
     flag_precision: flaggedCount === 0 ? null : flaggedAndWrong / flaggedCount,
     flag_recall: wrongCount === 0 ? null : flaggedAndWrong / wrongCount,
   }
+}
+
+/** Split a fitted row's translation back into the strings it carries. */
+export function assignedStrings(line) {
+  const t = (line.translation ?? '').trim()
+  if (!t) return []
+  return t.split('\n').map((s) => s.trim()).filter(Boolean)
+}
+
+/**
+ * Map output rows back onto originals. The union-timeline merge on the 'mismatch'
+ * path can change the row count, so index-to-index is unsafe: walk both lists
+ * monotonically, matching on `original` text. Rows with an empty original
+ * (translation-only rows the merge inserted) belong to no original.
+ *
+ * Leans on mergeTimedTracks collapsing adjacent rows that share an `original`
+ * (src/lyrics/bilingual.ts:209-214), so two consecutive rows never carry the same
+ * original text. The monotonic cursor would mis-assign the second one if that
+ * ever changed.
+ */
+export function mapRowsToOriginals(originals, rows) {
+  const assigned = originals.map(() => [])
+  const flagged = originals.map(() => false)
+  let oi = 0
+  for (const row of rows) {
+    const text = (row.original ?? '').trim()
+    if (!text) continue
+    let k = oi
+    while (k < originals.length && originals[k].trim() !== text) k++
+    if (k >= originals.length) continue // unmatched row; leave the cursor put
+    assigned[k].push(...assignedStrings(row))
+    if ((row.translationConfidence ?? 1) < 0.5) flagged[k] = true
+    oi = k + 1
+  }
+  return { assigned, flagged }
 }
 ```
 
@@ -483,7 +605,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createCachedEmbedTexts } from './lib/cachedEmbedder.mjs'
-import { scoreLinePairing } from './lib/linePairingScore.mjs'
+import { scoreLinePairing, mapRowsToOriginals } from './lib/linePairingScore.mjs'
 import { identity, truthStrings } from './lib/translationPerturbations.mjs'
 import { PERTURBATIONS } from './lib/linePairingCorpus.mjs'
 
@@ -500,36 +622,6 @@ function readLines(path) {
   return readFileSync(path, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean)
 }
 
-/** Split a fitted row's translation back into the strings it carries. */
-function assignedStrings(line) {
-  const t = (line.translation ?? '').trim()
-  if (!t) return []
-  return t.split('\n').map((s) => s.trim()).filter(Boolean)
-}
-
-/**
- * Map output rows back onto originals. The union-timeline merge on the
- * 'mismatch' path can change the row count, so index-to-index is unsafe: walk
- * both lists monotonically, matching on `original` text. Rows with an empty
- * original (translation-only rows the merge inserted) belong to no original.
- */
-function mapRowsToOriginals(originals, rows) {
-  const assigned = originals.map(() => [])
-  const flagged = originals.map(() => false)
-  let oi = 0
-  for (const row of rows) {
-    const text = (row.original ?? '').trim()
-    if (!text) continue
-    let k = oi
-    while (k < originals.length && originals[k].trim() !== text) k++
-    if (k >= originals.length) continue // unmatched row; leave the cursor put
-    assigned[k].push(...assignedStrings(row))
-    if ((row.translationConfidence ?? 1) < 0.5) flagged[k] = true
-    oi = k + 1
-  }
-  return { assigned, flagged }
-}
-
 async function main() {
   const corpus = JSON.parse(readFileSync(join(FIXTURES, 'corpus.json'), 'utf8'))
   const { smartAttachSecondLanguage } = await import(
@@ -538,7 +630,14 @@ async function main() {
 
   let fallback = null
   if (WRITE_EMBED_CACHE) {
-    const mod = await import(pathToFileURL(join(root, 'src/ai-pipeline/textEmbedder.ts')).href)
+    // NOT src/ai-pipeline/textEmbedder.ts — that requires a browser Worker and
+    // throws "Worker is not defined" under Node. scripts/lib/nodeEmbedder.mjs is
+    // the same model without the worker, and audit-corpus.mjs:131 already uses it
+    // this way. Getting this wrong fails SILENTLY: smartAttachSecondLanguage
+    // swallows embedding errors (lineAligner.ts:867) into an index-pairing
+    // fallback, so the cache never grows and the scorecard measures structural
+    // fallback instead of semantic alignment. (Controller ruling, Task 2.)
+    const mod = await import(pathToFileURL(join(root, 'scripts/lib/nodeEmbedder.mjs')).href)
     fallback = mod.embedTexts
   }
   const { embedTexts, flush } = createCachedEmbedTexts({
@@ -667,7 +766,7 @@ import { fileURLToPath } from 'node:url'
 import { smartAttachSecondLanguage } from '../../src/lyrics/lineAligner'
 import { identity, truthStrings } from '../../scripts/lib/translationPerturbations.mjs'
 import { PERTURBATIONS } from '../../scripts/lib/linePairingCorpus.mjs'
-import { scoreLinePairing } from '../../scripts/lib/linePairingScore.mjs'
+import { scoreLinePairing, mapRowsToOriginals } from '../../scripts/lib/linePairingScore.mjs'
 import { createCachedEmbedTexts } from '../../scripts/lib/cachedEmbedder.mjs'
 import type { TimedLine } from '../../src/core/types'
 
@@ -692,30 +791,6 @@ interface Row {
 
 const readLines = (p: string) =>
   readFileSync(p, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean)
-
-function assignedStrings(line: TimedLine): string[] {
-  const t = (line.translation ?? '').trim()
-  if (!t) return []
-  return t.split('\n').map((s) => s.trim()).filter(Boolean)
-}
-
-/** Same monotonic row-to-original mapping the scorecard uses (ruling F1). */
-function mapRowsToOriginals(originals: string[], rows: TimedLine[]) {
-  const assigned: string[][] = originals.map(() => [])
-  const flagged: boolean[] = originals.map(() => false)
-  let oi = 0
-  for (const row of rows) {
-    const text = (row.original ?? '').trim()
-    if (!text) continue
-    let k = oi
-    while (k < originals.length && originals[k].trim() !== text) k++
-    if (k >= originals.length) continue
-    assigned[k].push(...assignedStrings(row))
-    if ((row.translationConfidence ?? 1) < 0.5) flagged[k] = true
-    oi = k + 1
-  }
-  return { assigned, flagged }
-}
 
 describe('line-pairing ratchet', () => {
   const baseline: Row[] = JSON.parse(
