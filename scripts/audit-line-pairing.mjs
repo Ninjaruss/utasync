@@ -19,7 +19,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createCachedEmbedTexts } from './lib/cachedEmbedder.mjs'
-import { scoreLinePairing } from './lib/linePairingScore.mjs'
+import { scoreLinePairing, mapRowsToOriginals } from './lib/linePairingScore.mjs'
 import { identity, truthStrings } from './lib/translationPerturbations.mjs'
 import { PERTURBATIONS } from './lib/linePairingCorpus.mjs'
 
@@ -34,36 +34,6 @@ const WRITE_EMBED_CACHE = process.argv.includes('--write-embed-cache')
 
 function readLines(path) {
   return readFileSync(path, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean)
-}
-
-/** Split a fitted row's translation back into the strings it carries. */
-function assignedStrings(line) {
-  const t = (line.translation ?? '').trim()
-  if (!t) return []
-  return t.split('\n').map((s) => s.trim()).filter(Boolean)
-}
-
-/**
- * Map output rows back onto originals. The union-timeline merge on the
- * 'mismatch' path can change the row count, so index-to-index is unsafe: walk
- * both lists monotonically, matching on `original` text. Rows with an empty
- * original (translation-only rows the merge inserted) belong to no original.
- */
-function mapRowsToOriginals(originals, rows) {
-  const assigned = originals.map(() => [])
-  const flagged = originals.map(() => false)
-  let oi = 0
-  for (const row of rows) {
-    const text = (row.original ?? '').trim()
-    if (!text) continue
-    let k = oi
-    while (k < originals.length && originals[k].trim() !== text) k++
-    if (k >= originals.length) continue // unmatched row; leave the cursor put
-    assigned[k].push(...assignedStrings(row))
-    if ((row.translationConfidence ?? 1) < 0.5) flagged[k] = true
-    oi = k + 1
-  }
-  return { assigned, flagged }
 }
 
 async function main() {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { scoreLinePairing } from '../../scripts/lib/linePairingScore.mjs'
+import { scoreLinePairing, mapRowsToOriginals } from '../../scripts/lib/linePairingScore.mjs'
 
 describe('scoreLinePairing', () => {
   it('counts an exact match as correct', () => {
@@ -55,5 +55,71 @@ describe('scoreLinePairing', () => {
     const m = scoreLinePairing([['a']], [['a']], ['a'], [false])
     expect(m.flag_precision).toBeNull()  // nothing flagged
     expect(m.flag_recall).toBeNull()     // nothing wrong
+  })
+
+  it('counts a lost occurrence of a REPEATED line', () => {
+    // Same text as two separate input lines; the fitter placed only one.
+    const m = scoreLinePairing(
+      [['refrain'], ['verse'], ['refrain']],
+      [['refrain'], ['verse'], []],
+      ['refrain', 'verse', 'refrain'],
+      [false, false, false],
+    )
+    expect(m.lines_lost).toBe(1)
+  })
+
+  it('does not count a shared (merged) line as lost', () => {
+    // ONE input line legitimately covering two rows — output repeats it, input had it once.
+    const m = scoreLinePairing(
+      [['both'], ['both']], [['both'], ['both']], ['both'], [false, false],
+    )
+    expect(m.lines_lost).toBe(0)
+  })
+
+  it('counts every lost occurrence when a line repeats three times', () => {
+    const m = scoreLinePairing(
+      [['x'], ['x'], ['x']], [['x'], [], []], ['x', 'x', 'x'], [false, false, false],
+    )
+    expect(m.lines_lost).toBe(2)
+  })
+})
+
+describe('mapRowsToOriginals', () => {
+  const row = (original: string, translation: string, translationConfidence?: number) =>
+    ({ startTime: 0, endTime: 1, original, translation, translationConfidence })
+
+  it('maps rows to originals positionally', () => {
+    const { assigned } = mapRowsToOriginals(['a', 'b'], [row('a', 'x'), row('b', 'y')])
+    expect(assigned).toEqual([['x'], ['y']])
+  })
+
+  it('distinguishes two non-adjacent originals with identical text', () => {
+    const { assigned } = mapRowsToOriginals(
+      ['same', 'other', 'same'],
+      [row('same', 'first'), row('other', 'mid'), row('same', 'third')],
+    )
+    expect(assigned).toEqual([['first'], ['mid'], ['third']])
+  })
+
+  it('skips rows with an empty original', () => {
+    const { assigned } = mapRowsToOriginals(['a', 'b'], [row('a', 'x'), row('', 'orphan'), row('b', 'y')])
+    expect(assigned).toEqual([['x'], ['y']])
+  })
+
+  it('ignores a row matching no original without losing the cursor', () => {
+    const { assigned } = mapRowsToOriginals(
+      ['a', 'b'], [row('a', 'x'), row('ghost', 'no'), row('b', 'y')],
+    )
+    expect(assigned).toEqual([['x'], ['y']])
+  })
+
+  it('splits a multi-line translation into its parts', () => {
+    const { assigned } = mapRowsToOriginals(['a'], [row('a', 'one\ntwo')])
+    expect(assigned).toEqual([['one', 'two']])
+  })
+
+  it('flags a row below the confidence threshold', () => {
+    const { flagged } = mapRowsToOriginals(['a', 'b'], [row('a', 'x', 0.2), row('b', 'y', 0.9)])
+    expect(flagged).toEqual([true, false])
   })
 })

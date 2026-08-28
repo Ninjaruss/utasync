@@ -36,11 +36,30 @@ export function scoreLinePairing(truth, assigned, inputLines, flagged) {
 
   // Only lines that SHOULD have been placed can be lost. A header the fitter
   // correctly discarded is not a loss.
+  //
+  // Counted per OCCURRENCE, not by set membership: a repeated chorus line appears
+  // twice in the input, and losing one of them is a real loss even though the
+  // other still shows up. Set-based comparison reported 0 for exactly that case.
+  //
+  // A line legitimately shared across rows (the merge case) appears ONCE in the
+  // input but twice in the output, so max(0, ...) correctly yields no loss.
+  //
+  // Accepted limitation: if a noise line's text coincidentally equals a real
+  // lyric line, it inflates inputCount and can over-report by one. The frozen
+  // perturbation set uses distinctive noise text ("[Verse 1]", "Translated by
+  // Example", "(TN: ...)"), so this cannot arise today.
+  const countOf = (arr) => {
+    const m = new Map()
+    for (const s of arr) m.set(s, (m.get(s) ?? 0) + 1)
+    return m
+  }
   const placeable = new Set(truth.flat())
-  const emitted = new Set(assigned.flat())
+  const inputCount = countOf(inputLines)
+  const emittedCount = countOf(assigned.flat())
   let lines_lost = 0
-  for (const line of new Set(inputLines)) {
-    if (placeable.has(line) && !emitted.has(line)) lines_lost++
+  for (const [line, n] of inputCount) {
+    if (!placeable.has(line)) continue
+    lines_lost += Math.max(0, n - (emittedCount.get(line) ?? 0))
   }
 
   let flaggedCount = 0
@@ -60,4 +79,39 @@ export function scoreLinePairing(truth, assigned, inputLines, flagged) {
     flag_precision: flaggedCount === 0 ? null : flaggedAndWrong / flaggedCount,
     flag_recall: wrongCount === 0 ? null : flaggedAndWrong / wrongCount,
   }
+}
+
+/** Split a fitted row's translation back into the strings it carries. */
+export function assignedStrings(line) {
+  const t = (line.translation ?? '').trim()
+  if (!t) return []
+  return t.split('\n').map((s) => s.trim()).filter(Boolean)
+}
+
+/**
+ * Map output rows back onto originals. The union-timeline merge on the
+ * 'mismatch' path can change the row count, so index-to-index is unsafe: walk
+ * both lists monotonically, matching on `original` text. Rows with an empty
+ * original (translation-only rows the merge inserted) belong to no original.
+ *
+ * Leans on mergeTimedTracks collapsing adjacent rows that share an `original`
+ * (src/lyrics/bilingual.ts:209-214), so two consecutive rows never carry the same
+ * original text. The monotonic cursor would mis-assign the second one if that
+ * ever changed.
+ */
+export function mapRowsToOriginals(originals, rows) {
+  const assigned = originals.map(() => [])
+  const flagged = originals.map(() => false)
+  let oi = 0
+  for (const row of rows) {
+    const text = (row.original ?? '').trim()
+    if (!text) continue
+    let k = oi
+    while (k < originals.length && originals[k].trim() !== text) k++
+    if (k >= originals.length) continue // unmatched row; leave the cursor put
+    assigned[k].push(...assignedStrings(row))
+    if ((row.translationConfidence ?? 1) < 0.5) flagged[k] = true
+    oi = k + 1
+  }
+  return { assigned, flagged }
 }
