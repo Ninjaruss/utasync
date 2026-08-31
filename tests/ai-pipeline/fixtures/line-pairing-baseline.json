@@ -15,13 +15,13 @@
     "song": "veil",
     "perturbation": "merge-adjacent",
     "n": 48,
-    "line_correct": 44,
+    "line_correct": 45,
     "line_wrong": 1,
-    "line_missing": 3,
+    "line_missing": 2,
     "lines_unplaced": 1,
     "lines_lost": 0,
-    "flag_precision": 0.0967741935483871,
-    "flag_recall": 0.75
+    "flag_precision": 0.06896551724137931,
+    "flag_recall": 0.6666666666666666
   },
   {
     "song": "veil",
@@ -99,13 +99,13 @@
     "song": "veil",
     "perturbation": "composite",
     "n": 48,
-    "line_correct": 45,
+    "line_correct": 46,
     "line_wrong": 1,
-    "line_missing": 2,
+    "line_missing": 1,
     "lines_unplaced": 1,
     "lines_lost": 0,
-    "flag_precision": 0.0625,
-    "flag_recall": 0.6666666666666666
+    "flag_precision": 0.03333333333333333,
+    "flag_recall": 0.5
   },
   {
     "song": "akfg-firsttake-word",
@@ -123,13 +123,13 @@
     "song": "akfg-firsttake-word",
     "perturbation": "merge-adjacent",
     "n": 30,
-    "line_correct": 26,
+    "line_correct": 27,
     "line_wrong": 1,
-    "line_missing": 3,
+    "line_missing": 2,
     "lines_unplaced": 0,
     "lines_lost": 0,
-    "flag_precision": 0.3,
-    "flag_recall": 0.75
+    "flag_precision": 0.2222222222222222,
+    "flag_recall": 0.6666666666666666
   },
   {
     "song": "akfg-firsttake-word",
@@ -231,12 +231,12 @@
     "song": "guitar-loneliness-word",
     "perturbation": "merge-adjacent",
     "n": 47,
-    "line_correct": 45,
+    "line_correct": 46,
     "line_wrong": 0,
-    "line_missing": 2,
+    "line_missing": 1,
     "lines_unplaced": 0,
     "lines_lost": 0,
-    "flag_precision": 0.13333333333333333,
+    "flag_precision": 0.07142857142857142,
     "flag_recall": 1
   },
   {
