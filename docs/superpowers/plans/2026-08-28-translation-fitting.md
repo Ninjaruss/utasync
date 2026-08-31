@@ -1898,6 +1898,55 @@ git commit -m "feat: apply a clean translation fit without a confirmation gate"
 - Consumes: `TimedLine.translationConfidence`, `LyricsData.unplacedTranslations`, `groupRanges`.
 - Produces: `<TranslationRepairPopover lineIndex candidates onChoose onClose />` where `candidates: Array<{ text: string; score: number; source: 'nearby' | 'unplaced' }>`.
 
+- [ ] **Step 0: Persist the pairing provenance (controller-added — this step was MISSING)**
+
+`unplacedTranslations`, `translationSource` and `translationPairing` were declared on `LyricsData` in
+Task 4, but **nothing in `src/` ever writes them**. Task 11 reads `unplacedTranslations` and Task 12
+needs `translationSource`, so without this step both are built on fields that are always undefined.
+
+Widen the panel's apply callback to carry the provenance, and persist it where lines are saved:
+
+```ts
+// src/lyrics/SecondLanguagePanel.tsx — Props
+onApply: (
+  lines: TimedLine[],
+  meta?: {
+    source: string
+    unplaced: { text: string; afterLineIndex: number }[]
+    pairing: NonNullable<LyricsData['translationPairing']>
+  },
+) => void
+```
+
+At the apply site, build it from the `SmartAttachResult` already in hand:
+
+```ts
+/** Bump when the fitter changes materially, so stored songs can be re-fitted. */
+export const TRANSLATION_PAIRING_VERSION = 1
+
+const conf = (result.confidence ?? []).filter((c): c is number => typeof c === 'number')
+const meanConfidence = conf.length ? conf.reduce((a, b) => a + b, 0) / conf.length : 1
+onApply(result.lines, {
+  source: secondary,
+  // afterLineIndex: the extras array is ordered; anchor each to the last row that
+  // has a translation, so repair can show it in context rather than as a tail.
+  unplaced: (result.extras ?? []).map((text) => ({ text, afterLineIndex: lastTranslatedRowIndex(result.lines) })),
+  pairing: {
+    method: result.method,
+    meanConfidence,
+    flaggedLineCount: result.lines.filter((l) => !hasVisibleTranslation(l)).length,
+    version: TRANSLATION_PAIRING_VERSION,
+  },
+})
+```
+
+Then persist all three fields alongside `lines` in the handler that writes the song
+(`src/player/PlayerView.tsx`'s edit-lines path). `meta` is optional so every existing caller of
+`onApply` keeps compiling and keeps today's behaviour.
+
+**Keep `undefined` entries out of the mean** — they mean "the fitter declined to pair this row",
+not "low confidence", and zeroing them would drag every mean down and misfire Task 10's gate.
+
 - [ ] **Step 1: Write the failing test**
 
 ```tsx
