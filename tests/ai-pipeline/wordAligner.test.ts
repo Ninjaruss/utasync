@@ -423,6 +423,56 @@ describe('alignLinesTokens', () => {
     expect(onBatchProgress).toHaveBeenNthCalledWith(1, 1, 2)
     expect(onBatchProgress).toHaveBeenNthCalledWith(2, 2, 2)
   })
+
+  describe('translation groups', () => {
+    // 愛 has a curated gloss ('ai' -> love, exact match); 君 only embeds close
+    // to 'love' (0.9 cosine) with no gloss relation. Without combining the two
+    // rows' pools, each independently claims the single shared word (its own
+    // best match, which for 君 alone would clear MATCH_THRESHOLD). Combined,
+    // exclusive one-to-one assignment must give the shared word to the
+    // stronger claimant (愛) and leave 君 unmatched.
+    const groupEmbed = async (texts: string[]): Promise<number[][]> =>
+      texts.map((t) => {
+        if (t === '愛') return [1, 0]
+        if (t === '君') return [0.9, Math.sqrt(1 - 0.9 * 0.9)]
+        if (t === 'love') return [1, 0]
+        return [0, 0]
+      })
+
+    it('gives adjacent same-group jobs one exclusive shared target pool', async () => {
+      const jobs = [
+        { tokens: [tok('君')], targetWords: ['love'], groupId: 5 },
+        { tokens: [tok('愛')], targetWords: ['love'], groupId: 5 },
+      ]
+      const [row1, row2] = await alignLinesTokens(jobs, groupEmbed)
+      expect(row2[0].alignmentIndices).toEqual([0])
+      expect(row1[0].alignmentIndices).toEqual([])
+    })
+
+    it('does not merge jobs without a shared groupId (today\'s independent behavior)', async () => {
+      const jobs = [
+        { tokens: [tok('君')], targetWords: ['love'] },
+        { tokens: [tok('愛')], targetWords: ['love'] },
+      ]
+      const [row1, row2] = await alignLinesTokens(jobs, groupEmbed)
+      // Each row independently claims its own best match to the single word —
+      // the exact bug the group-merge exists to fix, preserved here as the
+      // documented baseline for ungrouped rows.
+      expect(row1[0].alignmentIndices).toEqual([0])
+      expect(row2[0].alignmentIndices).toEqual([0])
+    })
+
+    it('does not merge non-adjacent jobs that happen to share a groupId', async () => {
+      const jobs = [
+        { tokens: [tok('君')], targetWords: ['love'], groupId: 5 },
+        { tokens: [tok('好き')], targetWords: ['like'] },
+        { tokens: [tok('愛')], targetWords: ['love'], groupId: 5 },
+      ]
+      const [row1, , row3] = await alignLinesTokens(jobs, groupEmbed)
+      expect(row1[0].alignmentIndices).toEqual([0])
+      expect(row3[0].alignmentIndices).toEqual([0])
+    })
+  })
 })
 
 describe('countEmbedBatches', () => {

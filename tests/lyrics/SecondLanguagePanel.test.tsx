@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { SecondLanguagePanel } from '../../src/lyrics/SecondLanguagePanel'
 import type { TimedLine } from '../../src/core/types'
 
@@ -87,26 +87,27 @@ describe('SecondLanguagePanel', () => {
     expect(screen.getByPlaceholderText(/english translation/i)).toBeTruthy()
   })
 
-  it('shows a confirm banner after pasting matched lyrics', async () => {
-    render(<SecondLanguagePanel lines={primary} title="t" artist="a" sourceLanguage="ja" onApply={vi.fn()} onClose={vi.fn()} />)
-    fireEvent.click(screen.getByRole('button', { name: /paste lyrics/i }))
-    fireEvent.change(screen.getByPlaceholderText(/english translation/i), { target: { value: 'Your eyes\nIn the night' } })
-    fireEvent.click(screen.getByRole('button', { name: /attach/i }))
-    expect(await screen.findByText(/does this pairing look right/i)).toBeTruthy()
-    expect(screen.getByRole('button', { name: /looks good/i })).toBeTruthy()
-  })
-
-  it('applies the matched translation on "Looks good"', async () => {
+  it('applies a clean fit without asking for confirmation', async () => {
     const onApply = vi.fn()
     render(<SecondLanguagePanel lines={primary} title="t" artist="a" sourceLanguage="ja" onApply={onApply} onClose={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /paste lyrics/i }))
     fireEvent.change(screen.getByPlaceholderText(/english translation/i), { target: { value: 'Your eyes\nIn the night' } })
     fireEvent.click(screen.getByRole('button', { name: /attach/i }))
-    fireEvent.click(await screen.findByRole('button', { name: /looks good/i }))
+    await waitFor(() => expect(onApply).toHaveBeenCalled())
+    expect(screen.queryByText(/does this pairing look right/i)).not.toBeInTheDocument()
     const applied = onApply.mock.calls[0][0] as TimedLine[]
     expect(applied[0].translation).toBe('Your eyes')
     expect(applied[1].translation).toBe('In the night')
     expect(applied[0].startTime).toBe(1)
+    // Provenance (Task 11 Step 0): pairing metadata reaches the caller alongside
+    // the lines, so it can be persisted for repair and re-fit.
+    const meta = onApply.mock.calls[0][1]
+    expect(meta).toBeDefined()
+    expect(meta.source).toBe('Your eyes\nIn the night')
+    expect(meta.unplaced).toEqual([])
+    expect(meta.pairing.method).toBeTruthy()
+    expect(typeof meta.pairing.meanConfidence).toBe('number')
+    expect(meta.pairing.version).toBe(1)
   })
 
   it('shows the alignment editor when pasted line count differs on untimed lyrics', async () => {
@@ -137,5 +138,37 @@ describe('SecondLanguagePanel', () => {
     await screen.findByText(/align translations/i)
     const discardButtons = await screen.findAllByRole('button', { name: /discard extra line/i })
     expect(discardButtons).toHaveLength(2)
+  })
+
+  // IMPORTANT 3 + IMPORTANT 4 regression: the messiest-paste route (manual
+  // AlignmentEditor confirm) used to write NO meta at all. It must now persist
+  // translationSource, recompute unplaced from what's actually left, and mark
+  // the pairing user-edited so a later automatic re-fit never overwrites it.
+  it('writes provenance (source, unplaced, userEdited) when confirming the alignment editor', async () => {
+    const untimed: TimedLine[] = [
+      { original: 'line one', startTime: 0, endTime: 0, translation: '' },
+      { original: 'line two', startTime: 0, endTime: 0, translation: '' },
+    ]
+    const onApply = vi.fn()
+    render(<SecondLanguagePanel lines={untimed} title="t" artist="a" sourceLanguage="ja" onApply={onApply} onClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /paste lyrics/i }))
+    const box = await screen.findByPlaceholderText(/english translation/i)
+    fireEvent.change(box, { target: { value: 'alpha\nbravo\ncharlie' } })
+    fireEvent.click(screen.getByRole('button', { name: /attach/i }))
+    await screen.findByText(/align translations/i)
+
+    // How many extra lines the editor is actually showing right before
+    // confirm — the real fitter (semantic alignment) decides the pairing, so
+    // this test doesn't assume which row got which text, only that whatever
+    // is left over is what gets reported (not the stale pre-editor snapshot).
+    const extrasBeforeConfirm = screen.queryAllByRole('button', { name: /discard extra line/i }).length
+    fireEvent.click(screen.getByRole('button', { name: /confirm pairings/i }))
+
+    expect(onApply).toHaveBeenCalledTimes(1)
+    const [, meta] = onApply.mock.calls[0]
+    expect(meta).toBeDefined()
+    expect(meta.source).toBe('alpha\nbravo\ncharlie')
+    expect(meta.pairing.userEdited).toBe(true)
+    expect(meta.unplaced).toHaveLength(extrasBeforeConfirm)
   })
 })

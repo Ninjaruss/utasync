@@ -64,7 +64,7 @@ export function stampTimes(
  */
 export function applyLineTextPatch(
   line: TimedLine,
-  patch: { original?: string; translation?: string },
+  patch: { original?: string; translation?: string; translationConfidence?: number },
 ): TimedLine {
   const next: TimedLine = { ...line, ...patch }
   const originalChanged = patch.original !== undefined && patch.original !== line.original
@@ -76,6 +76,14 @@ export function applyLineTextPatch(
   }
   if (originalChanged || translationChanged) {
     delete next.tokens
+  }
+  // A row whose translation was hand-edited is no longer part of whatever
+  // shared-translation group it was in (CRITICAL 1) — leaving a stale
+  // `translationGroup` makes the edit invisible: `groupRanges` keeps
+  // bracketing this row to its old neighbour instead of showing the text the
+  // user just chose.
+  if (translationChanged) {
+    delete next.translationGroup
   }
   return next
 }

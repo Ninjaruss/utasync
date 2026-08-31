@@ -166,6 +166,21 @@ describe('setText', () => {
     expect(out[0].tokens).toEqual([])
     expect(out[0].grammarAnnotations).toEqual([])
   })
+
+  // CRITICAL 1 regression: a row whose translation was hand-edited must not
+  // keep rendering as a bracketed continuation of its old group — the
+  // translation the user just chose has to actually show up.
+  it('clears a stale translationGroup when the translation changes', () => {
+    const grouped: TimedLine = { ...L(0, 'a', 'shared'), translationGroup: 7 }
+    const out = setText([grouped], 0, { translation: 'a fixed pairing' })
+    expect(out[0].translationGroup).toBeUndefined()
+  })
+
+  it('leaves translationGroup alone when the translation is untouched', () => {
+    const grouped: TimedLine = { ...L(0, 'a', 'shared'), translationGroup: 7 }
+    const out = setText([grouped], 0, { original: 'a2' })
+    expect(out[0].translationGroup).toBe(7)
+  })
 })
 
 describe('addLine', () => {

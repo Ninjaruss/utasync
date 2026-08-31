@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { TimedLine, Language, LineAlignmentQuality } from '../core/types'
 import { stampTimes, setText, addLine, deleteLine, shiftLinesFrom } from './lineOps'
-import { SecondLanguagePanel } from './SecondLanguagePanel'
+import { SecondLanguagePanel, type TranslationApplyMeta } from './SecondLanguagePanel'
+import { AlignmentEditor } from './AlignmentEditor'
+import { pairsToTimedLines, hasVisibleTranslation } from './bilingual'
+import { lastTranslatedRowIndex, TRANSLATION_PAIRING_VERSION } from './translationRefit'
 import { useModalDialog } from '../core/ui/useModalDialog'
 import { TimestampPopover } from './TimestampPopover'
 import type { Peaks } from '../player/waveformPeaks'
@@ -39,7 +42,7 @@ interface Props {
   title: string
   artist: string
   sourceLanguage: Language
-  onChangeLines: (lines: TimedLine[]) => void
+  onChangeLines: (lines: TimedLine[], meta?: TranslationApplyMeta) => void
   /** Sole re-align entry point (Play mode intentionally has no duplicate control). */
   onAutoAlign: () => void
   /** Tap-through timing while audio plays (YouTube or local). */
@@ -82,6 +85,15 @@ interface Props {
    * time (the tap-to-anchor flow) — the reliable fix for a few off lines. Undefined
    * when there's nothing to tap or no playable audio. */
   onFixTiming?: () => void
+  /** Pasted translation lines the fitter could not place, with the row they were
+   * expected after — the real escape hatch for "Fix all pairings" (Task 12).
+   * Absent/empty ⇒ the menu item still opens the editor, just with no extras
+   * pre-populated (AlignmentEditor falls back to computing them from a slice). */
+  unplacedTranslations?: { text: string; afterLineIndex: number }[]
+  /** The raw pasted translation block currently stored for this song, so the
+   * AlignmentEditor "Fix all pairings" confirm can persist it as provenance
+   * (IMPORTANT 4) instead of writing no meta at all. */
+  translationSource?: string
 }
 
 const DELETE_CONFIRM_MS = 3000
@@ -337,12 +349,13 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPreview, peaks, waveformState, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, autoAlignSupported = true, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus, alignmentConfidence, accurateRealignReason = null, onFixTiming }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPreview, peaks, waveformState, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, autoAlignSupported = true, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus, alignmentConfidence, accurateRealignReason = null, onFixTiming, unplacedTranslations, translationSource }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
   const [confirmAutoAlign, setConfirmAutoAlign] = useState(false)
   const [showSecondLang, setShowSecondLang] = useState(false)
+  const [showAlignmentEditor, setShowAlignmentEditor] = useState(false)
   const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const previewReturnRef = useRef(0)
   const hasSecondLang = lines.some((l) => l.translation)
@@ -386,14 +399,14 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
     currentLines.current = lines
   }, [lines])
 
-  const applyChange = (next: TimedLine[]) => {
+  const applyChange = (next: TimedLine[], meta?: TranslationApplyMeta) => {
     undoStack.current.push(currentLines.current)
     if (undoStack.current.length > 50) undoStack.current.shift()
     redoStack.current = []
     currentLines.current = next
     setCanUndo(true)
     setCanRedo(false)
-    onChangeLines(next)
+    onChangeLines(next, meta)
   }
 
   const undo = () => {
@@ -444,6 +457,11 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
   const openSecondLang = () => {
     onPausePlayback?.()
     setShowSecondLang(true)
+  }
+
+  const openAlignmentEditor = () => {
+    onPausePlayback?.()
+    setShowAlignmentEditor(true)
   }
 
   useEffect(() => () => { if (deleteTimer.current) clearTimeout(deleteTimer.current) }, [])
@@ -641,6 +659,11 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
                   <button type="button" onClick={() => { setShowMore(false); openSecondLang() }} className={moreMenuItem}>
                     {hasSecondLang ? '2nd language' : '+ Translation'}
                   </button>
+                  {hasSecondLang && (
+                    <button type="button" onClick={() => { setShowMore(false); openAlignmentEditor() }} className={moreMenuItem}>
+                      Fix all pairings
+                    </button>
+                  )}
                   {/* "Re-align (word-level)" lived here. Word-level timestamps
                       became the default, so it ran exactly the same alignment as
                       the Auto-align button beside this menu — while skipping its
@@ -812,9 +835,48 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
           title={title}
           artist={artist}
           sourceLanguage={sourceLanguage}
-          onApply={(next) => applyChange(next)}
+          onApply={(next, meta) => applyChange(next, meta)}
           onClose={() => setShowSecondLang(false)}
         />
+      )}
+
+      {showAlignmentEditor && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-cinnabar-950 overflow-hidden">
+          <AlignmentEditor
+            originalLines={lines.map((l) => l.original)}
+            translationLines={lines.map((l) => l.translation)}
+            // Real unplaced lines from storage — the old call site passed a
+            // hardcoded empty array here, which defeats the whole point of an
+            // escape hatch: the lines it exists to recover never showed up.
+            extraLines={(unplacedTranslations ?? []).map((u) => u.text)}
+            onConfirm={(pairs, remainingExtras) => {
+              const nextLines = pairsToTimedLines(lines, pairs)
+              // Provenance for the AlignmentEditor route (IMPORTANT 4): this
+              // used to write no meta at all, so the messiest-paste route
+              // stored no translationSource and never cleared resolved
+              // orphans from unplacedTranslations. userEdited also stops a
+              // later automatic re-fit from overwriting this hand-built
+              // pairing.
+              const meta: TranslationApplyMeta = {
+                source: translationSource ?? '',
+                unplaced: remainingExtras.map((text) => ({
+                  text,
+                  afterLineIndex: lastTranslatedRowIndex(nextLines),
+                })),
+                pairing: {
+                  method: 'index',
+                  meanConfidence: 1,
+                  flaggedLineCount: nextLines.filter((l) => !hasVisibleTranslation(l)).length,
+                  version: TRANSLATION_PAIRING_VERSION,
+                  userEdited: true,
+                },
+              }
+              applyChange(nextLines, meta)
+              setShowAlignmentEditor(false)
+            }}
+            onCancel={() => setShowAlignmentEditor(false)}
+          />
+        </div>
       )}
     </div>
   )

@@ -21,7 +21,17 @@ const embeddingCache = new Map<string, number[]>()
 export interface EmbedTextsOptions {
   /** Fired for chunked embed calls (done/total uncached texts within one request). */
   onProgress?: (done: number, total: number) => void
+  /** Fired once, synchronously, when this call needs the model and it has never
+   * finished loading in this session — the caller can tell the user a model is
+   * downloading instead of showing a static "working" step for a long silent wait. */
+  onModelLoading?: () => void
 }
+
+// Set once the worker has ever finished loading a model in this session. Reset
+// is deliberately NOT tied to scheduleWorkerRelease tearing the worker down —
+// a re-load after idle release re-reads from the browser's model cache and is
+// fast, so it isn't the "downloading" wait onModelLoading exists to explain.
+let hasLoadedOnce = false
 
 function getWorker(): Worker {
   cancelWorkerRelease()
@@ -81,7 +91,7 @@ function ensureLoaded(): Promise<void> {
     loaded = new Promise((resolve, reject) => {
       const w = getWorker()
       const onMessage = (e: MessageEvent) => {
-        if (e.data.type === 'loaded') { w.removeEventListener('message', onMessage); resolve() }
+        if (e.data.type === 'loaded') { w.removeEventListener('message', onMessage); hasLoadedOnce = true; resolve() }
         else if (e.data.type === 'error') { w.removeEventListener('message', onMessage); reject(new Error(e.data.payload)) }
       }
       w.addEventListener('message', onMessage)
@@ -160,6 +170,7 @@ function embedViaWorker(texts: string[], options?: EmbedTextsOptions): Promise<n
  */
 export async function embedTexts(texts: string[], options?: EmbedTextsOptions): Promise<number[][]> {
   if (texts.length === 0) return []
+  if (!hasLoadedOnce) options?.onModelLoading?.()
   await ensureLoaded()
 
   const keys = texts.map(embedCacheKey)

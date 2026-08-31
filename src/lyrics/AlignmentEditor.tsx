@@ -6,7 +6,11 @@ interface Props {
   /** Pre-computed unmatched translation lines (e.g. from auto-aligner). When
    *  provided these are used instead of computing extras from the slice. */
   extraLines?: string[]
-  onConfirm: (pairs: Array<{ original: string; translation: string }>) => void
+  /** `remainingExtras` are the extra lines still unresolved when the user
+   * confirms — whatever they didn't promote into a row or discard. Callers use
+   * this to recompute `unplacedTranslations` from what was actually resolved
+   * (IMPORTANT 4), instead of leaving the pre-editor snapshot stale. */
+  onConfirm: (pairs: Array<{ original: string; translation: string }>, remainingExtras: string[]) => void
   /** Leave the editor WITHOUT applying any pairing (the only other exit confirms). */
   onCancel: () => void
 }
@@ -63,7 +67,7 @@ export function AlignmentEditor({ originalLines, translationLines, extraLines, o
       original,
       translation: translations[i] ?? '',
     }))
-    onConfirm(pairs.filter((p) => p.original))
+    onConfirm(pairs.filter((p) => p.original), extras)
   }
 
   const emptyCount = translations.filter((t) => !t.trim()).length

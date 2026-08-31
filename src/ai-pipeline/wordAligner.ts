@@ -508,6 +508,15 @@ export function extendManyToOne(
   primary: MatchPair[],
   threshold = MATCH_THRESHOLD,
   sourceSurfaces?: string[],
+  /**
+   * Source index where two independently-tokenized rows were concatenated
+   * into one pool (translation-group alignment). Adjacent-neighbor extension
+   * below is a positional heuristic ("contiguous source phrase") that must
+   * not treat the boundary seam as a real within-line adjacency — a token at
+   * the end of row A is not grammatically adjacent to row B's first token
+   * just because they sit next to each other in the concatenated array.
+   */
+  noExtendAcrossBoundary?: number,
 ): MatchPair[] {
   const matchedSources = new Set(primary.map((m) => m.sourceIndex))
   const targetBySource = new Map(primary.map((m) => [m.sourceIndex, m.targetIndex]))
@@ -560,6 +569,10 @@ export function extendManyToOne(
     const bestTarget = argmaxTarget(scores[i])
     for (const neighbor of [i - 1, i + 1]) {
       if (neighbor < 0 || neighbor >= scores.length) continue
+      if (
+        noExtendAcrossBoundary != null &&
+        (Math.min(i, neighbor) < noExtendAcrossBoundary) !== (Math.max(i, neighbor) < noExtendAcrossBoundary)
+      ) continue
       const neighborTarget = targetBySource.get(neighbor)
       if (neighborTarget === undefined || neighborTarget !== bestTarget) continue
       const score = scores[i][neighborTarget]
@@ -588,6 +601,8 @@ export function matchTokens(
   threshold = MATCH_THRESHOLD,
   sourceSurfaces?: string[],
   sourceGlossOnly?: boolean[],
+  /** See `extendManyToOne` — source index where a translation-group's two rows meet. */
+  noExtendAcrossBoundary?: number,
 ): MatchPair[] {
   const runMatch = (targets: string[], tVecs: number[][]) => {
     const scores = buildScoreMatrix(
@@ -609,6 +624,7 @@ export function matchTokens(
       primary,
       threshold,
       sourceSurfaces,
+      noExtendAcrossBoundary,
     )
     const matches = [...primary, ...extended]
     const total = matches.reduce((sum, m) => sum + m.score, 0)
@@ -1053,6 +1069,15 @@ export interface LineAlignJob {
   targetIndexMap?: number[]
   /** Per-phrase alignment for dual-phrase Japanese lines. */
   segments?: AlignmentSegment[]
+  /** Mirrors `TimedLine.translationGroup`: rows sharing this id share ONE
+   * translation. An adjacent pair of jobs with the same id is aligned as a
+   * single combined token pool against that shared translation — so the two
+   * rows' words compete for it jointly instead of each independently being
+   * offered the whole sentence — then the winning matches are split back to
+   * each job's own tokens. Units are still built per job (never on a
+   * concatenated token stream), so a compound-merge can never straddle the
+   * row boundary; see `noExtendAcrossBoundary` for the matching-side guard. */
+  groupId?: number
 }
 
 interface EmbedSlice {
@@ -1061,11 +1086,35 @@ interface EmbedSlice {
   targetWords: string[]
   alignTokenIndices?: ReadonlySet<number>
   targetIndexMap?: number[]
+  /** Set only for a merged translation-group slice: the second job's line
+   * index, and the unit-index boundary where its units begin within `units`. */
+  secondaryLineIndex?: number
+  groupBoundary?: number
+}
+
+function sameIndexMap(a?: number[], b?: number[]): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  return a.length === b.length && a.every((v, k) => v === b[k])
+}
+
+function canMergeGroupJobs(job: LineAlignJob, next: LineAlignJob | undefined): next is LineAlignJob {
+  return (
+    !!next &&
+    job.groupId != null &&
+    next.groupId === job.groupId &&
+    !job.segments?.length &&
+    !next.segments?.length &&
+    job.targetWords.length === next.targetWords.length &&
+    job.targetWords.every((w, k) => w === next.targetWords[k]) &&
+    sameIndexMap(job.targetIndexMap, next.targetIndexMap)
+  )
 }
 
 function planEmbedBatches(jobs: LineAlignJob[], maxTextsPerBatch: number): EmbedSlice[][] {
   const slices: EmbedSlice[] = []
-  for (let lineIndex = 0; lineIndex < jobs.length; lineIndex++) {
+  let lineIndex = 0
+  while (lineIndex < jobs.length) {
     const { tokens, targetWords, alignTokenIndices, targetIndexMap, segments } = jobs[lineIndex]
     if (segments && segments.length > 0) {
       for (const segment of segments) {
@@ -1080,12 +1129,36 @@ function planEmbedBatches(jobs: LineAlignJob[], maxTextsPerBatch: number): Embed
           targetIndexMap: segment.targetIndexMap,
         })
       }
+      lineIndex++
       continue
     }
+
+    const next = jobs[lineIndex + 1]
+    if (canMergeGroupJobs(jobs[lineIndex], next)) {
+      const alignSet = alignTokenIndices ? new Set(alignTokenIndices) : undefined
+      const unitsA = buildAlignmentUnits(tokens, alignSet)
+      const nextAlignSet = next.alignTokenIndices ? new Set(next.alignTokenIndices) : undefined
+      const unitsB = buildAlignmentUnits(next.tokens, nextAlignSet)
+      if ((unitsA.length > 0 || unitsB.length > 0) && targetWords.length > 0) {
+        slices.push({
+          lineIndex,
+          secondaryLineIndex: lineIndex + 1,
+          units: [...unitsA, ...unitsB],
+          groupBoundary: unitsA.length,
+          targetWords,
+          targetIndexMap,
+        })
+      }
+      lineIndex += 2
+      continue
+    }
+
     const alignSet = alignTokenIndices ? new Set(alignTokenIndices) : undefined
     const units = buildAlignmentUnits(tokens, alignSet)
-    if (units.length === 0 || targetWords.length === 0) continue
-    slices.push({ lineIndex, units, targetWords, alignTokenIndices: alignSet, targetIndexMap })
+    if (units.length > 0 && targetWords.length > 0) {
+      slices.push({ lineIndex, units, targetWords, alignTokenIndices: alignSet, targetIndexMap })
+    }
+    lineIndex++
   }
 
   if (slices.length === 0) return []
@@ -1113,6 +1186,25 @@ export function countEmbedBatches(jobs: LineAlignJob[], maxTextsPerBatch = Infin
   return planEmbedBatches(jobs, maxTextsPerBatch).length
 }
 
+/** Applies already-computed matches (source index into `units`) to `tokens`. */
+function applyMatchesToTokens(
+  tokens: Token[],
+  units: AlignmentUnit[],
+  matches: MatchPair[],
+  targetIndexMap?: number[],
+): Token[] {
+  const updated = tokens.map((t) => ({ ...t }))
+  for (const m of matches) {
+    const unit = units[m.sourceIndex]
+    if (!unit) continue
+    const fullTargetIndex = targetIndexMap?.[m.targetIndex] ?? m.targetIndex
+    for (const tokenIndex of unit.tokenIndices) {
+      updated[tokenIndex] = { ...updated[tokenIndex], alignmentIndices: [fullTargetIndex] }
+    }
+  }
+  return finalizeAlignmentTokens(updated, new Set(units.flatMap((u) => u.tokenIndices)))
+}
+
 function applyUnitMatches(
   tokens: Token[],
   units: AlignmentUnit[],
@@ -1125,15 +1217,7 @@ function applyUnitMatches(
   const sourceSurfaces = units.map((u) => u.embedText)
   const sourceGlossOnly = units.map((u) => u.glossOnly === true)
   const matches = matchTokens(sourceTexts, targetTexts, sourceVecs, targetVecs, MATCH_THRESHOLD, sourceSurfaces, sourceGlossOnly)
-  const updated = tokens.map((t) => ({ ...t }))
-  for (const m of matches) {
-    const unit = units[m.sourceIndex]
-    const fullTargetIndex = targetIndexMap?.[m.targetIndex] ?? m.targetIndex
-    for (const tokenIndex of unit.tokenIndices) {
-      updated[tokenIndex] = { ...updated[tokenIndex], alignmentIndices: [fullTargetIndex] }
-    }
-  }
-  return finalizeAlignmentTokens(updated, new Set(units.flatMap((u) => u.tokenIndices)))
+  return applyMatchesToTokens(tokens, units, matches, targetIndexMap)
 }
 
 /** Marks alignable tokens that were aligned with `[]` when pairing found no match. */
@@ -1188,6 +1272,42 @@ export async function alignLinesTokens(
       offset += slice.units.length
       const targetVecs = vecs.slice(offset, offset + slice.targetWords.length)
       offset += slice.targetWords.length
+
+      if (slice.groupBoundary != null && slice.secondaryLineIndex != null) {
+        // One joint match pass over the combined pool (so the two rows'
+        // tokens compete for the shared translation instead of each
+        // independently claiming all of it), then split the winning matches
+        // back to each row's own tokens by which side of the boundary their
+        // source index falls on.
+        const sourceSurfaces = slice.units.map((u) => u.embedText)
+        const sourceGlossOnly = slice.units.map((u) => u.glossOnly === true)
+        const matches = matchTokens(
+          sourceTexts,
+          targetTexts,
+          sourceVecs,
+          targetVecs,
+          MATCH_THRESHOLD,
+          sourceSurfaces,
+          sourceGlossOnly,
+          slice.groupBoundary,
+        )
+        const boundary = slice.groupBoundary
+        const unitsA = slice.units.slice(0, boundary)
+        const unitsB = slice.units.slice(boundary)
+        const matchesA = matches.filter((m) => m.sourceIndex < boundary)
+        const matchesB = matches
+          .filter((m) => m.sourceIndex >= boundary)
+          .map((m) => ({ ...m, sourceIndex: m.sourceIndex - boundary }))
+        results[slice.lineIndex] = applyMatchesToTokens(results[slice.lineIndex], unitsA, matchesA, slice.targetIndexMap)
+        results[slice.secondaryLineIndex] = applyMatchesToTokens(
+          results[slice.secondaryLineIndex],
+          unitsB,
+          matchesB,
+          slice.targetIndexMap,
+        )
+        continue
+      }
+
       results[slice.lineIndex] = applyUnitMatches(
         results[slice.lineIndex],
         slice.units,

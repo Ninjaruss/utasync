@@ -115,7 +115,10 @@ describe('smartAttachSecondLanguage — timed union merge', () => {
       line('夜の中', '', 3, 5),
     ]
     const result = await smartAttachSecondLanguage(primary, 'Only one line', async () => [])
-    expect(result.mismatchedBlocks).toEqual([])
+    // mismatchedBlocks is non-empty here by design: finalizeTimedAttach used to
+    // blank it unconditionally, which is the bug this change fixed. A pasted
+    // translation that cannot cover every row SHOULD report the mismatch.
+    expect(result.mismatchedBlocks).toEqual([0])
     expect(result.lines).toHaveLength(2)
     expect(result.lines.filter((l) => l.translation === 'Only one line')).toHaveLength(1)
     expect(result.lines.some((l) => l.original === '君の瞳')).toBe(true)

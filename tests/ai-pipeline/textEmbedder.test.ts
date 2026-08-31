@@ -170,6 +170,31 @@ describe('embedTexts concurrency (request id matching)', () => {
     await expect(callPromise).resolves.toEqual([[1], [2], [3]])
     expect(onProgress).toHaveBeenCalledWith(2, 3)
   })
+
+  it('fires onModelLoading once on the first-ever load, and not on a later call after the model is warm', async () => {
+    const { embedTexts } = await import('../../src/ai-pipeline/textEmbedder')
+
+    const onModelLoading = vi.fn()
+    const first = embedTexts(['a'], { onModelLoading })
+    expect(onModelLoading).toHaveBeenCalledTimes(1)
+    await Promise.resolve()
+    fakeWorker.emit({ type: 'loaded' })
+    await Promise.resolve()
+    await Promise.resolve()
+    const id1 = (fakeWorker.posted.find((m) => m.type === 'embed')!.payload as { requestId: number }).requestId
+    fakeWorker.emit({ type: 'result', payload: { requestId: id1, vecs: [[1]] } })
+    await first
+
+    const onModelLoading2 = vi.fn()
+    const second = embedTexts(['b'], { onModelLoading: onModelLoading2 })
+    await Promise.resolve()
+    await Promise.resolve()
+    const id2 = (fakeWorker.posted.filter((m) => m.type === 'embed').at(-1)!.payload as { requestId: number }).requestId
+    fakeWorker.emit({ type: 'result', payload: { requestId: id2, vecs: [[2]] } })
+    await second
+
+    expect(onModelLoading2).not.toHaveBeenCalled()
+  })
 })
 
 describe('embedTexts session cache', () => {

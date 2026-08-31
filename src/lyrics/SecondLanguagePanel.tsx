@@ -1,11 +1,17 @@
 import { useState } from 'react'
-import type { TimedLine, Language } from '../core/types'
+import type { TimedLine, Language, LyricsData } from '../core/types'
 import { extractSecondLanguageLines, pairsToTimedLines, hasVisibleTranslation } from './bilingual'
 import { AlignmentEditor } from './AlignmentEditor'
 import { smartAttachSecondLanguage } from './lineAligner'
 import { ProgressOverlay } from '../core/ui/ProgressOverlay'
 import { SECOND_LANGUAGE_ALIGN_STEPS } from '../sources/addSongProgress'
 import { getSecondLanguageSearchSection } from './lyricSiteLinks'
+import {
+  buildApplyMeta,
+  lastTranslatedRowIndex,
+  TRANSLATION_PAIRING_VERSION,
+  WRONG_SONG_MEAN_CONFIDENCE,
+} from './translationRefit'
 
 // Secondary action on the cinnabar-900 panel: a lifted, bordered surface so the
 // button reads as a control instead of blending into the panel (accent stays
@@ -15,21 +21,43 @@ const secondaryPanelBtn =
   'px-3 py-1.5 rounded-lg bg-cinnabar-950 border border-cinnabar-800 text-white/80 text-sm min-h-11 hover:bg-cinnabar-800 transition-colors'
 const accentPanelBtn = 'px-3 py-1.5 rounded-lg bg-cinnabar-accent text-white text-sm min-h-11'
 
+/** Provenance carried alongside a translation fit, so it can be persisted for
+ * repair (Task 11) and re-fitting (Task 12) without re-asking the user to paste. */
+export interface TranslationApplyMeta {
+  source: string
+  unplaced: { text: string; afterLineIndex: number }[]
+  pairing: NonNullable<LyricsData['translationPairing']>
+}
+
 interface Props {
   lines: TimedLine[]
   title: string
   artist: string
   sourceLanguage: Language
-  onApply: (lines: TimedLine[]) => void
+  onApply: (lines: TimedLine[], meta?: TranslationApplyMeta) => void
   onClose: () => void
 }
 
 type Phase =
   | { kind: 'current' }
-  | { kind: 'confirm'; paired: TimedLine[]; secondary: string }
   | { kind: 'aligning' }
-  | { kind: 'align'; originalLines: string[]; translationLines: string[]; extraLines: string[] }
+  | { kind: 'wrong-song'; paired: TimedLine[]; secondary: string; mean: number; meta: TranslationApplyMeta }
+  | {
+      kind: 'align'
+      originalLines: string[]
+      translationLines: string[]
+      extraLines: string[]
+      /** The raw paste this alignment came from, so a manual confirm can
+       * persist `translationSource` (IMPORTANT 4) the same way a clean fit does. */
+      secondary: string
+    }
   | { kind: 'paste' }
+
+// WRONG_SONG_MEAN_CONFIDENCE (below this mean confidence, a fit is probably
+// for the wrong song) now lives in translationRefit.ts — imported above — so
+// the automatic re-fit (refitStaleTranslation) can share the same gate
+// without an import cycle between the two modules. See that constant's own
+// doc comment for how 0.3 was measured.
 
 function FindLyricsOnlineSection({
   title,
@@ -74,6 +102,11 @@ function FindLyricsOnlineSection({
 export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onApply, onClose }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: 'current' })
   const [pasted, setPasted] = useState('')
+  // Real attach progress (chunked embed done/total) and a one-time "model is
+  // downloading" flag, so the overlay reflects what's actually happening instead
+  // of a static step that looks hung on a slow first-use model download.
+  const [alignProgress, setAlignProgress] = useState<{ done: number; total: number } | null>(null)
+  const [modelLoading, setModelLoading] = useState(false)
   const searchSection = getSecondLanguageSearchSection(title, artist, sourceLanguage)
 
   const translatedLines = lines.filter((l) => hasVisibleTranslation(l))
@@ -90,23 +123,49 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
  */
   const route = async (secondary: string) => {
     setPhase({ kind: 'aligning' })
+    setAlignProgress(null)
+    setModelLoading(false)
     try {
       const result = await smartAttachSecondLanguage(lines, secondary, undefined, {
         songTitle: title,
         artist,
+        onModelLoading: () => setModelLoading(true),
+        onProgress: (done, total) => {
+          setModelLoading(false)
+          setAlignProgress({ done, total })
+        },
       })
       if (result.mismatchedBlocks.length === 0) {
-        setPhase({ kind: 'confirm', paired: result.lines, secondary })
+        // undefined means the fitter declined to pair that row (metadata/header/
+        // duplicate), not low confidence — excluded from the mean rather than
+        // treated as zero.
+        const defined = (result.confidence ?? []).filter(
+          (c): c is number => typeof c === 'number',
+        )
+        const mean = defined.length ? defined.reduce((a, b) => a + b, 0) / defined.length : 1
+        const meta = buildApplyMeta(result, secondary, mean)
+        if (mean < WRONG_SONG_MEAN_CONFIDENCE) {
+          setPhase({ kind: 'wrong-song', paired: result.lines, secondary, mean, meta })
+          return
+        }
+        onApply(result.lines, meta)
+        onClose()
         return
       }
-      // Surface translation lines beyond the primary count so the editor's
-      // "extra lines" section can appear (they were silently dropped before).
+      // Prefer the fitter's real extras (IMPORTANT 5) over a rebuilt positional
+      // tail — a positional slice can only ever represent lines past the
+      // primary's end, so on EQUAL line counts it always shows zero extras even
+      // when the fitter reported a genuine mid-song miss. Only fall back to the
+      // slice when the fitter path didn't compute extras at all (e.g. the
+      // device-tier/index/mismatch fallbacks), so the surplus-lines case (a
+      // real count mismatch, no `extras` field) still surfaces its overflow.
       const rawTrans = extractSecondLanguageLines(secondary)
       setPhase({
         kind: 'align',
         originalLines: lines.map((l) => l.original),
         translationLines: result.lines.map((l) => l.translation),
-        extraLines: rawTrans.slice(lines.length),
+        extraLines: result.extras ?? rawTrans.slice(lines.length),
+        secondary,
       })
     } catch {
       const transLines = extractSecondLanguageLines(secondary)
@@ -115,6 +174,7 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
         originalLines: lines.map((l) => l.original),
         translationLines: transLines,
         extraLines: transLines.slice(lines.length),
+        secondary,
       })
     }
   }
@@ -124,7 +184,18 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
       <ProgressOverlay
         steps={SECOND_LANGUAGE_ALIGN_STEPS}
         currentStepIndex={0}
-        taskStatus="Matching translation lines to your lyrics…"
+        taskStatus={
+          modelLoading
+            ? 'Downloading translation model…'
+            : alignProgress
+              ? `Matching translation lines… (${alignProgress.done}/${alignProgress.total})`
+              : 'Matching translation lines to your lyrics…'
+        }
+        taskProgress={
+          alignProgress && alignProgress.total > 0
+            ? (alignProgress.done / alignProgress.total) * 100
+            : null
+        }
       />
     )
   }
@@ -136,7 +207,31 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
           originalLines={phase.originalLines}
           translationLines={phase.translationLines}
           extraLines={phase.extraLines}
-          onConfirm={(pairs) => { onApply(pairsToTimedLines(lines, pairs)); onClose() }}
+          onConfirm={(pairs, remainingExtras) => {
+            const nextLines = pairsToTimedLines(lines, pairs)
+            // Write provenance for the messiest-paste route too (IMPORTANT 4):
+            // translationSource so a later re-fit has something to work from,
+            // and unplacedTranslations recomputed from what the user actually
+            // left unresolved rather than the stale pre-editor snapshot. The
+            // pairing is marked userEdited so an automatic re-fit never
+            // silently overwrites this hand-built pairing.
+            const meta: TranslationApplyMeta = {
+              source: phase.secondary,
+              unplaced: remainingExtras.map((text) => ({
+                text,
+                afterLineIndex: lastTranslatedRowIndex(nextLines),
+              })),
+              pairing: {
+                method: 'index',
+                meanConfidence: 1,
+                flaggedLineCount: nextLines.filter((l) => !hasVisibleTranslation(l)).length,
+                version: TRANSLATION_PAIRING_VERSION,
+                userEdited: true,
+              },
+            }
+            onApply(nextLines, meta)
+            onClose()
+          }}
           // Non-destructive exit: 'align' is only ever reached after a paste
           // (route() runs from the paste phase; 'confirm' is downstream of it),
           // so return to the paste step with the pasted text intact — nothing
@@ -196,29 +291,18 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
           </div>
         )}
 
-        {phase.kind === 'confirm' && (
+        {phase.kind === 'wrong-song' && (
           <div className="space-y-3">
-            <p className="text-white/70 text-sm">Does this pairing look right?</p>
-            <ul className="space-y-1 max-h-40 overflow-y-auto rounded-lg bg-cinnabar-950 border border-cinnabar-800 p-2">
-              {phase.paired.slice(0, 4).map((l, i) => (
-                <li key={i} className="text-xs">
-                  <span className="text-white/70 font-jp">{l.original}</span>
-                  <span className="text-white/60 italic block">{l.translation || '—'}</span>
-                </li>
-              ))}
-              {phase.paired.length > 4 && (
-                <li className="text-[10px] text-white/55">+{phase.paired.length - 4} more…</li>
-              )}
-            </ul>
+            <p className="text-white/70 text-sm">This doesn&apos;t look like a translation of this song.</p>
+            <p className="text-white/55 text-xs">
+              The pasted lyrics don&apos;t line up well with the original — you may have pasted the
+              wrong song, or an unrelated block of text.
+            </p>
             <div className="flex flex-wrap gap-2">
-              <button onClick={() => { onApply(phase.paired); onClose() }}
-                className="px-3 py-1.5 rounded-lg bg-cinnabar-accent text-white text-sm min-h-11">Looks good</button>
-              <button onClick={() => {
-                const origLines = phase.paired.map((l) => l.original)
-                const transLines = phase.paired.map((l) => l.translation)
-                setPhase({ kind: 'align', originalLines: origLines, translationLines: transLines, extraLines: [] })
-              }} className={secondaryPanelBtn}>Fix pairings</button>
-              <button onClick={openPaste} className={secondaryPanelBtn}>Use different / paste</button>
+              <button onClick={() => { onApply(phase.paired, phase.meta); onClose() }}
+                className={secondaryPanelBtn}>Apply anyway</button>
+              <button onClick={openPaste}
+                className="px-3 py-1.5 rounded-lg bg-cinnabar-accent text-white text-sm min-h-11">Paste different</button>
             </div>
           </div>
         )}
