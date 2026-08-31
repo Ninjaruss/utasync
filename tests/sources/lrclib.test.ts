@@ -3,10 +3,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 global.fetch = vi.fn()
 const mockFetch = (value: unknown) => vi.mocked(fetch).mockResolvedValue(value as Response)
 
-import { searchLRCLIB, fetchLRCFromLRCLIB, findSecondLanguageInLRCLIB, findLyrics, lyricsMatchScore } from '../../src/sources/lrclib'
+import { searchLRCLIB, fetchLRCFromLRCLIB, findSecondLanguageInLRCLIB, findLyrics, lyricsMatchScore, __resetLyricsRequestCache } from '../../src/sources/lrclib'
 
 describe('searchLRCLIB', () => {
-  beforeEach(() => { vi.resetAllMocks() })
+  beforeEach(() => { vi.resetAllMocks(); __resetLyricsRequestCache() })
 
   it('returns parsed TimedLine[] on success', async () => {
     mockFetch({
@@ -31,7 +31,7 @@ describe('searchLRCLIB', () => {
 })
 
 describe('findSecondLanguageInLRCLIB', () => {
-  beforeEach(() => { vi.resetAllMocks() })
+  beforeEach(() => { vi.resetAllMocks(); __resetLyricsRequestCache() })
 
   it('picks a result whose script differs from the primary language', async () => {
     mockFetch({
@@ -72,7 +72,7 @@ describe('findSecondLanguageInLRCLIB', () => {
 })
 
 describe('fetchLRCFromLRCLIB', () => {
-  beforeEach(() => { vi.resetAllMocks() })
+  beforeEach(() => { vi.resetAllMocks(); __resetLyricsRequestCache() })
 
   it('returns synced lyrics string', async () => {
     mockFetch({
@@ -96,7 +96,7 @@ describe('fetchLRCFromLRCLIB', () => {
 })
 
 describe('findLyrics', () => {
-  beforeEach(() => { vi.resetAllMocks() })
+  beforeEach(() => { vi.resetAllMocks(); __resetLyricsRequestCache() })
 
   it('picks the best fuzzy title match from search results', async () => {
     vi.mocked(fetch).mockImplementation(async (input) => {
@@ -113,7 +113,7 @@ describe('findLyrics', () => {
       } as Response
     })
 
-    const result = await findLyrics('Blinding Lghts', 'The Weeknd', undefined, undefined, 'en')
+    const { lookup: result } = await findLyrics('Blinding Lghts', 'The Weeknd', undefined, undefined, 'en')
     expect(result?.lrc).toContain('Right song')
     expect(result?.synced).toBe(true)
     expect(result?.match?.track).toBe('Blinding Lights')
@@ -161,7 +161,7 @@ describe('findLyrics', () => {
       return { ok: true, json: async () => [] } as Response
     })
 
-    const result = await findLyrics('Rock n Roll Morning Light Falls Onto You', 'Asian Kung-Fu Generation')
+    const { lookup: result } = await findLyrics('Rock n Roll Morning Light Falls Onto You', 'Asian Kung-Fu Generation')
     expect(result?.lrc).toContain('Dekireba')
     expect(result?.synced).toBe(true)
   })
@@ -181,7 +181,7 @@ describe('findLyrics', () => {
       } as Response
     })
 
-    const result = await findLyrics('Home', 'Cover Band', undefined, 185)
+    const { lookup: result } = await findLyrics('Home', 'Cover Band', undefined, 185)
     expect(result?.lrc).toBe('[00:01.00]Right take')
   })
 
@@ -210,7 +210,7 @@ describe('findLyrics', () => {
       } as Response
     })
 
-    const result = await findLyrics('Blinding Lights', 'The Weeknd')
+    const { lookup: result } = await findLyrics('Blinding Lights', 'The Weeknd')
     expect(result?.lrc).toContain('I been on my own')
     expect(result?.synced).toBe(true)
   })
@@ -240,7 +240,7 @@ describe('findLyrics', () => {
       } as Response
     })
 
-    const result = await findLyrics('Veil', 'Keina Suda', undefined, undefined, 'ja')
+    const { lookup: result } = await findLyrics('Veil', 'Keina Suda', undefined, undefined, 'ja')
     expect(result?.lrc).toContain('君のままで')
     expect(result?.match?.artist).toBe('須田景瑚')
   })
@@ -316,7 +316,7 @@ describe('findLyrics', () => {
       return { ok: true, json: async () => [] } as Response
     })
 
-    const result = await findLyrics(
+    const { lookup: result } = await findLyrics(
       'Rockn Roll Morning Lights Falls On You',
       'ASIAN KUNG-FU GENERATION',
     )

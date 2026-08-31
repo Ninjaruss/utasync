@@ -73,10 +73,10 @@ export async function resolveLyricsForSong(opts: {
     artist.trim(),
     sourceLanguage ?? 'ja',
   )
-  const found = await findLyrics(title.trim(), artist.trim(), (stage) => {
+  const { lookup } = await findLyrics(title.trim(), artist.trim(), (stage) => {
     onStage?.(stage === 'exact' ? 'lrclib-exact' : 'lrclib-search')
   }, durationSec, preferredLanguage)
-  if (found) return fromLrcLookup(found)
+  if (lookup) return fromLrcLookup(lookup)
 
   return { lines: [], synced: false, source: 'none' }
 }

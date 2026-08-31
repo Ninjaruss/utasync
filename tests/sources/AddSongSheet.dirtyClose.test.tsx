@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { AddSongSheet } from '../../src/sources/AddSongSheet'
 
 vi.mock('../../src/sources/lrclib', () => ({
-  findLyrics: vi.fn(async () => null),
+  findLyrics: vi.fn(async () => ({ lookup: null, outcome: 'no-entry' })),
 }))
 
 import { extractAudioMetadata } from '../../src/sources/audioMetadata'
@@ -16,7 +16,7 @@ beforeEach(async () => {
   vi.mocked(extractAudioMetadata).mockResolvedValue({})
   const lrclib = await import('../../src/sources/lrclib')
   vi.mocked(lrclib.findLyrics).mockReset()
-  vi.mocked(lrclib.findLyrics).mockResolvedValue(null)
+  vi.mocked(lrclib.findLyrics).mockResolvedValue({ lookup: null, outcome: 'no-entry' })
 })
 
 const backdrop = () => screen.getByRole('button', { name: /dismiss/i })

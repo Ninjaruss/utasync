@@ -4,7 +4,7 @@ import { db } from '../core/db/schema'
 import { ingestAudioFile } from './audioIngest'
 import { buildSong, linesFromPlainText, linesFromPaste } from './songBuilder'
 import { LrcTimingNotice } from '../lyrics/LrcTimingNotice'
-import { findLyrics, type FindLyricsStage, type LyricsLookupMatch } from './lrclib'
+import { findLyrics, type FindLyricsStage, type LyricsLookupMatch, type LookupOutcome } from './lrclib'
 import { detectLanguage } from '../lyrics/bilingual'
 import type { Language } from '../core/types'
 import { parseLRC } from '../lyrics/lrc-parser'
@@ -49,7 +49,9 @@ type LyricsPhase =
   | { kind: 'idle' }
   | { kind: 'searching' }
   | { kind: 'found'; lines: TimedLine[]; synced: boolean; match?: LyricsLookupMatch }
-  | { kind: 'manual'; source: ManualLyricSource }
+  // `outcome` is absent when the user CHOSE to skip the search — only a failed
+  // search has a reason to report.
+  | { kind: 'manual'; source: ManualLyricSource; outcome?: LookupOutcome }
 
 interface Props {
   onSongReady: (songId: string) => void
@@ -64,6 +66,27 @@ interface Props {
 const SOURCE_LABEL: Record<MetadataFieldSource, string> = {
   tag: 'From file tags',
   filename: 'From filename',
+}
+
+/**
+ * Say what actually happened. Every failure used to render "No match in the
+ * lyrics database", which is a claim about the CATALOGUE — untrue when the user
+ * was offline, we were rate-limited, or the request never got through.
+ */
+function manualLyricsMessage(outcome?: LookupOutcome): string {
+  switch (outcome) {
+    case 'offline':
+      return "You're offline — reconnect and search again, or paste lyrics below."
+    case 'rate-limited':
+      return 'The lyrics service is busy right now — try again in a moment, or paste lyrics below.'
+    case 'error':
+      return "Couldn't reach the lyrics service — try again, or paste lyrics below."
+    case 'no-entry':
+      return 'No match in the lyrics database — paste lyrics or choose a subtitle file.'
+    default:
+      // The user chose to skip the search; nothing failed.
+      return 'Paste lyrics, or choose a subtitle file.'
+  }
 }
 
 function FieldSourceBadge({ source }: { source: MetadataFieldSource | null }) {
@@ -146,6 +169,17 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
     if (lyricsPhase.kind === 'found' || lyricsPhase.kind === 'searching') {
       searchGenRef.current++
       setLyricsPhase({ kind: 'idle' })
+      return
+    }
+    // A search that FAILED should be retried once the user corrects the title —
+    // previously the phase stayed 'manual' forever and they had to find the
+    // "Search again" button. Only re-arm when there is nothing of theirs to
+    // lose: re-searching would replace the lyrics panel and discard a paste or
+    // a chosen subtitle file, which is worse than the problem being fixed.
+    const failed = lyricsPhase.kind === 'manual' && lyricsPhase.outcome != null
+    if (failed && !pasted.trim() && !subtitleFile) {
+      searchGenRef.current++
+      setLyricsPhase({ kind: 'idle' })
     }
   }
 
@@ -179,21 +213,21 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
         if (gen !== searchGenRef.current) return
         setLyricSearchStage(stage)
       }, durationSec, inferPreferredLyricsLanguage(title.trim(), artist.trim(), getDefaultSongLanguage()))
-        .then((found) => {
+        .then(({ lookup, outcome }) => {
           if (gen !== searchGenRef.current) return
           setLyricSearchStage(null)
-          if (found) {
-            const lines = found.synced ? parseLRC(found.lrc) : linesFromPlainText(found.lrc)
+          if (lookup) {
+            const lines = lookup.synced ? parseLRC(lookup.lrc) : linesFromPlainText(lookup.lrc)
             setMatchConfirmed(false)
-            setLyricsPhase({ kind: 'found', lines, synced: found.synced, match: found.match })
+            setLyricsPhase({ kind: 'found', lines, synced: lookup.synced, match: lookup.match })
           } else {
-            setLyricsPhase({ kind: 'manual', source: 'paste' })
+            setLyricsPhase({ kind: 'manual', source: 'paste', outcome })
           }
         })
         .catch(() => {
           if (gen !== searchGenRef.current) return
           setLyricSearchStage(null)
-          setLyricsPhase({ kind: 'manual', source: 'paste' })
+          setLyricsPhase({ kind: 'manual', source: 'paste', outcome: 'error' })
         })
     }, LYRIC_SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timer)
@@ -441,7 +475,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
 
             {lyricsPhase.kind === 'manual' && (
               <>
-                <p className="text-white/60 text-xs">No match in the lyrics database — paste lyrics or choose a subtitle file.</p>
+                <p className="text-white/60 text-xs">{manualLyricsMessage(lyricsPhase.outcome)}</p>
                 {skipSearchButtons}
 
                 {lyricsPhase.source === 'paste' && (

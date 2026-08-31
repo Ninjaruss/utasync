@@ -64,12 +64,12 @@ export async function fetchItunesCoverArt(title: string, artist: string): Promis
   if (!term) return null
 
   const params = new URLSearchParams({ term, entity: 'song', limit: '8' })
-  const data = await fetchJson<{ results?: ItunesTrackResult[] }>(
+  const r = await fetchJson<{ results?: ItunesTrackResult[] }>(
     `https://itunes.apple.com/search?${params}`,
     undefined,
     ITUNES_LOOKUP_TIMEOUT_MS,
   )
-  const results = data?.results ?? []
+  const results = (r.ok ? r.data.results : undefined) ?? []
   if (results.length === 0) return null
 
   let best: { url: string; score: number } | null = null
