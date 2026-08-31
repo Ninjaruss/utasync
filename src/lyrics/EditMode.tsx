@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { TimedLine, Language, LineAlignmentQuality } from '../core/types'
 import { stampTimes, setText, addLine, deleteLine, shiftLinesFrom } from './lineOps'
 import { SecondLanguagePanel, type TranslationApplyMeta } from './SecondLanguagePanel'
+import { AlignmentEditor } from './AlignmentEditor'
+import { pairsToTimedLines } from './bilingual'
 import { useModalDialog } from '../core/ui/useModalDialog'
 import { TimestampPopover } from './TimestampPopover'
 import type { Peaks } from '../player/waveformPeaks'
@@ -82,6 +84,11 @@ interface Props {
    * time (the tap-to-anchor flow) — the reliable fix for a few off lines. Undefined
    * when there's nothing to tap or no playable audio. */
   onFixTiming?: () => void
+  /** Pasted translation lines the fitter could not place, with the row they were
+   * expected after — the real escape hatch for "Fix all pairings" (Task 12).
+   * Absent/empty ⇒ the menu item still opens the editor, just with no extras
+   * pre-populated (AlignmentEditor falls back to computing them from a slice). */
+  unplacedTranslations?: { text: string; afterLineIndex: number }[]
 }
 
 const DELETE_CONFIRM_MS = 3000
@@ -337,12 +344,13 @@ function Row({
   )
 }
 
-export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPreview, peaks, waveformState, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, autoAlignSupported = true, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus, alignmentConfidence, accurateRealignReason = null, onFixTiming }: Props) {
+export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPreview, peaks, waveformState, onScrubStart, onScrubEnd, hasLocalAudio, title, artist, sourceLanguage, onChangeLines, onAutoAlign, showTapSync, onTapSync, autoAlignSupported = true, onReplaceLyrics, onPausePlayback, lineAlignmentQuality, showAlignmentQuality = true, needsMixedRealign = false, recoverableGapCount = 0, onRecoverGaps, recoveringGaps = false, recoverGapsStatus, alignmentConfidence, accurateRealignReason = null, onFixTiming, unplacedTranslations }: Props) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [openPopover, setOpenPopover] = useState<number | null>(null)
   const [deleteArmed, setDeleteArmed] = useState<number | null>(null)
   const [confirmAutoAlign, setConfirmAutoAlign] = useState(false)
   const [showSecondLang, setShowSecondLang] = useState(false)
+  const [showAlignmentEditor, setShowAlignmentEditor] = useState(false)
   const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const previewReturnRef = useRef(0)
   const hasSecondLang = lines.some((l) => l.translation)
@@ -444,6 +452,11 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
   const openSecondLang = () => {
     onPausePlayback?.()
     setShowSecondLang(true)
+  }
+
+  const openAlignmentEditor = () => {
+    onPausePlayback?.()
+    setShowAlignmentEditor(true)
   }
 
   useEffect(() => () => { if (deleteTimer.current) clearTimeout(deleteTimer.current) }, [])
@@ -641,6 +654,11 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
                   <button type="button" onClick={() => { setShowMore(false); openSecondLang() }} className={moreMenuItem}>
                     {hasSecondLang ? '2nd language' : '+ Translation'}
                   </button>
+                  {hasSecondLang && (
+                    <button type="button" onClick={() => { setShowMore(false); openAlignmentEditor() }} className={moreMenuItem}>
+                      Fix all pairings
+                    </button>
+                  )}
                   {/* "Re-align (word-level)" lived here. Word-level timestamps
                       became the default, so it ran exactly the same alignment as
                       the Auto-align button beside this menu — while skipping its
@@ -815,6 +833,21 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
           onApply={(next, meta) => applyChange(next, meta)}
           onClose={() => setShowSecondLang(false)}
         />
+      )}
+
+      {showAlignmentEditor && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-cinnabar-950 overflow-hidden">
+          <AlignmentEditor
+            originalLines={lines.map((l) => l.original)}
+            translationLines={lines.map((l) => l.translation)}
+            // Real unplaced lines from storage — the old call site passed a
+            // hardcoded empty array here, which defeats the whole point of an
+            // escape hatch: the lines it exists to recover never showed up.
+            extraLines={(unplacedTranslations ?? []).map((u) => u.text)}
+            onConfirm={(pairs) => { applyChange(pairsToTimedLines(lines, pairs)); setShowAlignmentEditor(false) }}
+            onCancel={() => setShowAlignmentEditor(false)}
+          />
+        </div>
       )}
     </div>
   )

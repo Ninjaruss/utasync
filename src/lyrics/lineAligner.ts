@@ -9,6 +9,18 @@ import type { LineAlignJob } from '../ai-pipeline/wordAligner'
 
 export type PairingMethod = 'index' | 'slots' | 'semantic' | 'timeline' | 'mismatch'
 
+/** Progress/status hooks threaded down into the embedder, so a slow first-use
+ * model download (or a long batch) isn't a silent multi-second stall in the UI.
+ * Structurally compatible with textEmbedder's EmbedTextsOptions — no import needed,
+ * and any narrower embedFn (tests, cached-vector mocks) that ignores this argument
+ * still satisfies this type. */
+export interface AlignEmbedHooks {
+  onProgress?: (done: number, total: number) => void
+  onModelLoading?: () => void
+}
+
+export type EmbedFn = (texts: string[], hooks?: AlignEmbedHooks) => Promise<number[][]>
+
 const LATIN_WORD = /[A-Za-z]/
 /** Both halves of a split Japanese line must reach this length (excludes 「ねえ いつか」). */
 const MIN_JA_PHRASE_CHARS = 4
@@ -542,7 +554,8 @@ function scorePrimaryTranslation(
 export async function autoAlignLines(
   originals: string[],
   translations: string[],
-  embedFn: (texts: string[]) => Promise<number[][]>,
+  embedFn: EmbedFn,
+  hooks?: AlignEmbedHooks,
 ): Promise<{ aligned: string[]; extras: string[]; confidence: number[]; groups: number[] }> {
   const n = originals.length
   const m = translations.length
@@ -562,7 +575,7 @@ export async function autoAlignLines(
   // translation can be scored against two source lines taken together.
   const groupedOriginals =
     n >= 2 ? originals.slice(0, -1).map((o, i) => `${o}\n${originals[i + 1]}`) : []
-  const vecs = await embedFn([...originals, ...translations, ...mergedTexts, ...groupedOriginals])
+  const vecs = await embedFn([...originals, ...translations, ...mergedTexts, ...groupedOriginals], hooks)
   const origVecs = vecs.slice(0, n)
   const transVecs = vecs.slice(n, n + m)
   const mergedVecs = vecs.slice(n + m, n + m + mergedTexts.length)
@@ -747,6 +760,12 @@ export interface SmartAttachOptions {
   songTitle?: string
   /** Artist name — Latin title/artist rows in synced LRC are skipped when pairing. */
   artist?: string
+  /** Chunked embed progress (done/total), so the caller can show real attach progress
+   * instead of a static "working" step. */
+  onProgress?: (done: number, total: number) => void
+  /** Fired once when the on-device model isn't warm yet, so the caller can say a
+   * model is downloading rather than looking hung. */
+  onModelLoading?: () => void
 }
 
 // High enough to cover a full song on both sides (originals + translations);
@@ -870,7 +889,7 @@ function pairablePrimaryLines(
 async function semanticAlignToPrimaryLines(
   primary: TimedLine[],
   translations: string[],
-  embedFn: (texts: string[]) => Promise<number[][]>,
+  embedFn: EmbedFn,
   options?: SmartAttachOptions,
 ): Promise<{ aligned: string[]; extras: string[]; confidence: (number | undefined)[]; groups: number[] }> {
   const { indices, texts } = pairablePrimaryLines(primary, translations, options)
@@ -887,7 +906,10 @@ async function semanticAlignToPrimaryLines(
     }
   }
   const { aligned: partial, extras, confidence: partialConf, groups: partialGroups } =
-    await autoAlignLines(texts, translations, embedFn)
+    await autoAlignLines(texts, translations, embedFn, {
+      onProgress: options?.onProgress,
+      onModelLoading: options?.onModelLoading,
+    })
   const aligned = primary.map(() => '')
   // undefined, NOT 0: a row the fitter deliberately declined to pair (metadata, header,
   // duplicate) has NO applicable confidence. Reporting 0 would claim we tried and failed,
@@ -946,7 +968,7 @@ function finalizeTimedAttach(
 async function smartAttachSecondLanguageFromLines(
   primary: TimedLine[],
   trans: string[],
-  embedFn?: (texts: string[]) => Promise<number[][]>,
+  embedFn?: EmbedFn,
   options?: SmartAttachOptions,
 ): Promise<SmartAttachResult> {
   const structural = pairTranslationsToPrimary(primary, trans)
@@ -1018,6 +1040,7 @@ async function smartAttachSecondLanguageFromLines(
           slots.map((s) => s.hint),
           trans,
           embedFn!,
+          { onProgress: options?.onProgress, onModelLoading: options?.onModelLoading },
         )
         if (extras.length === 0) {
           const merged = mergeSlotTranslations(primary.length, slots, aligned)
@@ -1052,7 +1075,7 @@ async function smartAttachSecondLanguageFromLines(
 export async function smartAttachSecondLanguage(
   primary: TimedLine[],
   secondary: string,
-  embedFn?: (texts: string[]) => Promise<number[][]>,
+  embedFn?: EmbedFn,
   options?: SmartAttachOptions,
 ): Promise<SmartAttachResult> {
   const timed = primaryHasTiming(primary)

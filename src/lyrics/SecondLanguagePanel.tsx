@@ -2,10 +2,11 @@ import { useState } from 'react'
 import type { TimedLine, Language, LyricsData } from '../core/types'
 import { extractSecondLanguageLines, pairsToTimedLines, hasVisibleTranslation } from './bilingual'
 import { AlignmentEditor } from './AlignmentEditor'
-import { smartAttachSecondLanguage, type SmartAttachResult } from './lineAligner'
+import { smartAttachSecondLanguage } from './lineAligner'
 import { ProgressOverlay } from '../core/ui/ProgressOverlay'
 import { SECOND_LANGUAGE_ALIGN_STEPS } from '../sources/addSongProgress'
 import { getSecondLanguageSearchSection } from './lyricSiteLinks'
+import { buildApplyMeta } from './translationRefit'
 
 // Secondary action on the cinnabar-900 panel: a lifted, bordered surface so the
 // button reads as a control instead of blending into the panel (accent stays
@@ -38,37 +39,6 @@ type Phase =
   | { kind: 'wrong-song'; paired: TimedLine[]; secondary: string; mean: number; meta: TranslationApplyMeta }
   | { kind: 'align'; originalLines: string[]; translationLines: string[]; extraLines: string[] }
   | { kind: 'paste' }
-
-/** Bump when the fitter changes materially, so stored songs can be re-fitted. */
-export const TRANSLATION_PAIRING_VERSION = 1
-
-/** Anchor every unplaced line to the last row that actually has a translation,
- * so repair can show it in context rather than as a nameless tail. */
-function lastTranslatedRowIndex(lines: TimedLine[]): number {
-  let idx = -1
-  lines.forEach((l, i) => {
-    if (hasVisibleTranslation(l)) idx = i
-  })
-  return idx
-}
-
-function buildApplyMeta(result: SmartAttachResult, secondary: string, meanConfidence: number): TranslationApplyMeta {
-  return {
-    source: secondary,
-    // undefined means the fitter declined to pair that row (metadata/header/
-    // duplicate) — excluded from the mean rather than treated as zero.
-    unplaced: (result.extras ?? []).map((text) => ({
-      text,
-      afterLineIndex: lastTranslatedRowIndex(result.lines),
-    })),
-    pairing: {
-      method: result.method,
-      meanConfidence,
-      flaggedLineCount: result.lines.filter((l) => !hasVisibleTranslation(l)).length,
-      version: TRANSLATION_PAIRING_VERSION,
-    },
-  }
-}
 
 /**
  * Below this mean confidence the paste is probably for a different song.
@@ -133,6 +103,11 @@ function FindLyricsOnlineSection({
 export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onApply, onClose }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: 'current' })
   const [pasted, setPasted] = useState('')
+  // Real attach progress (chunked embed done/total) and a one-time "model is
+  // downloading" flag, so the overlay reflects what's actually happening instead
+  // of a static step that looks hung on a slow first-use model download.
+  const [alignProgress, setAlignProgress] = useState<{ done: number; total: number } | null>(null)
+  const [modelLoading, setModelLoading] = useState(false)
   const searchSection = getSecondLanguageSearchSection(title, artist, sourceLanguage)
 
   const translatedLines = lines.filter((l) => hasVisibleTranslation(l))
@@ -149,10 +124,17 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
  */
   const route = async (secondary: string) => {
     setPhase({ kind: 'aligning' })
+    setAlignProgress(null)
+    setModelLoading(false)
     try {
       const result = await smartAttachSecondLanguage(lines, secondary, undefined, {
         songTitle: title,
         artist,
+        onModelLoading: () => setModelLoading(true),
+        onProgress: (done, total) => {
+          setModelLoading(false)
+          setAlignProgress({ done, total })
+        },
       })
       if (result.mismatchedBlocks.length === 0) {
         // undefined means the fitter declined to pair that row (metadata/header/
@@ -196,7 +178,18 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
       <ProgressOverlay
         steps={SECOND_LANGUAGE_ALIGN_STEPS}
         currentStepIndex={0}
-        taskStatus="Matching translation lines to your lyrics…"
+        taskStatus={
+          modelLoading
+            ? 'Downloading translation model…'
+            : alignProgress
+              ? `Matching translation lines… (${alignProgress.done}/${alignProgress.total})`
+              : 'Matching translation lines to your lyrics…'
+        }
+        taskProgress={
+          alignProgress && alignProgress.total > 0
+            ? (alignProgress.done / alignProgress.total) * 100
+            : null
+        }
       />
     )
   }

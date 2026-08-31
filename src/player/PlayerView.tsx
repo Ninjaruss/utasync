@@ -9,7 +9,7 @@ import { YouTubePlayer, type YouTubePlayerHandle } from './YouTubePlayer'
 import { youtubeErrorMessage, youtubeNeedsVisibleEmbed } from './youtubeEmbedPolicy'
 import { resolveYouTubeVideoId } from '../sources/youtube'
 import { ABLoopController } from './ABLoop'
-import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, AlignmentLanguage } from '../core/types'
+import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, AlignmentLanguage, LyricsData } from '../core/types'
 import { DragRetimeStrip } from './DragRetimeStrip'
 import { snapToOnset } from './onsetSnap'
 import { retimeLoopFor, retimeLoopForEnd, needsWrap, type RetimeLoop } from './retimeLoop'
@@ -56,7 +56,8 @@ import { retimeQuality } from '../lyrics/retimeQuality'
 import { runWhenIdle, yieldToMainThread } from '../core/idle'
 import { alignLinesTokens, countEmbedBatches } from '../ai-pipeline/wordAligner'
 import { preloadGlossLexicon } from '../ai-pipeline/lyricGloss'
-import { buildAlignJobs } from '../lyrics/lineAligner'
+import { buildAlignJobs, smartAttachSecondLanguage } from '../lyrics/lineAligner'
+import { shouldRefitTranslation, buildApplyMeta } from '../lyrics/translationRefit'
 import { reconcileLinesReadingsAsync, reconcileLineReadingsAsync } from '../ai-pipeline/readingReconciler'
 import { fixAdjacentTranslationOrder } from '../ai-pipeline/translationOrder'
 import { LoadingOverlay } from '../core/ui/LoadingOverlay'
@@ -272,6 +273,46 @@ function wantsWordPairColoring(): boolean {
 
 function canRunWordAlignment(): boolean {
   return getDeviceTier() !== 'manual'
+}
+
+/** Re-fits a previously-stored translation pairing after auto-align or gap
+ * recovery may have changed line boundaries out from under it (Task 12): both
+ * can re-time AND re-split/re-merge lines relative to what the pairing was built
+ * against, silently leaving it describing rows that no longer exist. Re-fits
+ * ONLY when the primary text/line-count actually changed (shouldRefitTranslation
+ * keys on text, never timing) and only when a `translationSource` is stored to
+ * re-fit against — costs one cached embedding pass, which is cheap next to
+ * shipping a translation that quietly no longer lines up. Returns the input
+ * `lyrics` unchanged (by reference) when no re-fit is needed or possible, so
+ * callers can cheaply detect "nothing to do" with `!==`. */
+async function refitStaleTranslation(
+  prevLines: TimedLine[],
+  lyrics: LyricsData,
+  meta: { title: string; artist: string },
+): Promise<LyricsData> {
+  if (!lyrics.translationSource) return lyrics
+  if (!shouldRefitTranslation(prevLines, lyrics.lines)) return lyrics
+  try {
+    const result = await smartAttachSecondLanguage(lyrics.lines, lyrics.translationSource, undefined, {
+      songTitle: meta.title,
+      artist: meta.artist,
+    })
+    const defined = (result.confidence ?? []).filter((c): c is number => typeof c === 'number')
+    const mean = defined.length ? defined.reduce((a, b) => a + b, 0) / defined.length : 1
+    const applyMeta = buildApplyMeta(result, lyrics.translationSource, mean)
+    return {
+      ...lyrics,
+      lines: result.lines,
+      unplacedTranslations: applyMeta.unplaced,
+      translationSource: applyMeta.source,
+      translationPairing: applyMeta.pairing,
+    }
+  } catch {
+    // A failed re-fit must not lose the song's timing/text — the caller already
+    // has that in `lyrics`; leave the (now possibly stale) pairing as-is rather
+    // than throwing away a successful align/gap-recovery over a re-fit error.
+    return lyrics
+  }
 }
 
 /** Anything that owns its own keystrokes: a text field, a real control, or the
@@ -595,7 +636,14 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               timestampMode: 'segment',
             })
             if (result && !cancelled) {
-              loaded = { ...loaded, lyrics: result.lyrics }
+              // Same re-fit as the manual "Recover gaps" path (Task 12): this
+              // auto-once pass can fill/retime holes relative to whatever a
+              // stored translation was fitted against.
+              const refittedLyrics = await refitStaleTranslation(loaded.lyrics.lines, result.lyrics, {
+                title: loaded.title,
+                artist: loaded.artist,
+              })
+              loaded = { ...loaded, lyrics: refittedLyrics }
               await db.songs.put(loaded)
               if (!cancelled) {
                 setSong(loaded)
@@ -1024,7 +1072,14 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         toast('No unaligned sections to recover.', 'info')
         return
       }
-      const updated = { ...song, lyrics: result.lyrics }
+      // Gap recovery can fill/retime holes relative to whatever a stored
+      // translation was fitted against — re-fit before persisting so the
+      // pairing never ships stale (Task 12).
+      const refittedLyrics = await refitStaleTranslation(song.lyrics.lines, result.lyrics, {
+        title: song.title,
+        artist: song.artist,
+      })
+      const updated = { ...song, lyrics: refittedLyrics }
       await db.songs.put(updated)
       setSong(updated)
       setLines(updated.lyrics.lines)
@@ -1056,7 +1111,20 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
    * had no idea whether the result was trustworthy. The flow closes itself
    * through its own Close button instead. Tap-through has no result screen, so
    * it still closes on completion. */
-  const applyAlignedSong = (updated: Song, { closeFlow = true }: { closeFlow?: boolean } = {}) => {
+  const applyAlignedSong = async (updated: Song, { closeFlow = true }: { closeFlow?: boolean } = {}) => {
+    // Auto-align (and tap-through, via handleTapComplete) can re-time AND
+    // re-split lines relative to whatever a stored translation was fitted
+    // against — re-fit before adopting the new lines so the pairing never
+    // ships stale.
+    const prevLines = song?.lyrics.lines ?? []
+    const refitted = await refitStaleTranslation(prevLines, updated.lyrics, {
+      title: updated.title,
+      artist: updated.artist,
+    })
+    if (refitted !== updated.lyrics) {
+      updated = { ...updated, lyrics: refitted }
+      await db.songs.put(updated)
+    }
     setSong(updated)
     setLines(updated.lyrics.lines)
     if (closeFlow) setAlignMode(null)
@@ -1129,7 +1197,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines } }),
     }
     await db.songs.put(updated)
-    applyAlignedSong(updated)
+    await applyAlignedSong(updated)
   }
 
   const handleEditLines = async (lines: TimedLine[], meta?: TranslationApplyMeta) => {
@@ -1753,6 +1821,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
                   ? () => { setMode('play'); goToLyricLine(anchorTargets[0]) }
                   : undefined
               }
+              unplacedTranslations={song?.lyrics.unplacedTranslations}
             />
           )}
         </div>
@@ -1930,7 +1999,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           <AutoAlignFlow
             song={song}
             autoStart={autoAlignOnOpen}
-            onComplete={(updated) => applyAlignedSong(updated, { closeFlow: false })}
+            onComplete={(updated) => void applyAlignedSong(updated, { closeFlow: false })}
             onClose={() => setAlignMode(null)}
           />
         </Suspense>
