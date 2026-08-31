@@ -10,6 +10,7 @@ import type { ABLoop, ABLoopPlaylistEntry } from '../core/types'
 import { isABLoopActive, lyricLoopHighlight, type LyricLoopHighlight } from '../player/abLoopUtils'
 import { lyricRowLoopRegion, lyricRowPlayheadActive, lyricRowPlaylistCurrent, lyricRowPlaylistRegion } from '../core/ui/toolbarClasses'
 import { WordLookupPopover } from './WordLookupPopover'
+import { TranslationRepairPopover, type RepairCandidate } from './TranslationRepairPopover'
 import { hasJapanese } from '../language/japanese/wordLookup'
 import { prefersReducedMotion } from '../core/ui/reducedMotion'
 import { groupRanges } from './translationGroups'
@@ -145,6 +146,21 @@ interface Props {
   playlistIndex?: number
   /** Set while the user is placing an A or B loop point by tapping a line. */
   armingAB?: 'a' | 'b' | null
+  /** Pasted translation lines the fitter could not place anywhere (Task 11
+   * Step 0/6) — drives the "N lines weren't placed" affordance and feeds the
+   * repair popover's candidate list. */
+  unplacedTranslations?: { text: string; afterLineIndex: number }[]
+  /** True when the last translation fit's pairing `method` was 'mismatch' — the
+   * fitter couldn't localize which row went wrong, so every translated row is
+   * flagged rather than none (a structural fact, never `translationConfidence`
+   * — that score measured AUC 0.399 on this population, below chance). */
+  translationMismatch?: boolean
+  /** Score repair candidates for one flagged row (nearby translations + the
+   * unplaced lines), via the cached embedder. Owned by the caller — it needs
+   * the full-song context this component doesn't hold. */
+  onFetchRepairCandidates?: (lineIndex: number) => Promise<RepairCandidate[]>
+  /** Commit a chosen replacement translation for one row. */
+  onChooseRepair?: (lineIndex: number, text: string) => void
 }
 
 /** Renders the Japanese (primary) text honoring the furigana/romaji mode. */
@@ -272,8 +288,10 @@ function loopHighlightClass(highlight: LyricLoopHighlight | null, isActive: bool
   }
 }
 
-function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, armingAB, cloze, onReveal, groupRole = 'solo' }: {
+function Line({ line, lineIndex, isActive, loopHighlight, onLineClick, lineRef, onWordTap, armingAB, cloze, onReveal, groupRole = 'solo', flagged = false, onFetchRepairCandidates, onChooseRepair }: {
   line: TimedLine
+  /** This row's position in `lines` — identifies it to the repair callbacks. */
+  lineIndex: number
   isActive: boolean
   loopHighlight: LyricLoopHighlight | null
   onLineClick: (line: TimedLine) => void
@@ -287,10 +305,17 @@ function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, 
    * shared translation, 'member' for a later row in the group, which shows a
    * bracket tying it back to 'start' instead of repeating the text. */
   groupRole?: 'solo' | 'start' | 'member'
+  /** Structural-fact marker (Task 11) — a hole in an otherwise-translated song,
+   * or a song-wide pairing 'mismatch'. Never driven by translationConfidence. */
+  flagged?: boolean
+  onFetchRepairCandidates?: (lineIndex: number) => Promise<RepairCandidate[]>
+  onChooseRepair?: (lineIndex: number, text: string) => void
 }) {
   const { furiganaMode, showTranslation, lyricsLayout } = useLyricsStore()
   const readingMode = useSettingsStore((s) => s.readingMode)
   const [hoveredPair, setHoveredPair] = useState<HoveredPair | null>(null)
+  const [repairOpen, setRepairOpen] = useState(false)
+  const [repairCandidates, setRepairCandidates] = useState<RepairCandidate[]>([])
   const hasTranslation = hasVisibleTranslation(line)
   // A line whose translation duplicates the original has no second column, so it falls back to the stacked layout even in side-by-side mode.
   const sideBySide = lyricsLayout === 'sideBySide' && hasTranslation
@@ -329,6 +354,60 @@ function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, 
       className={[sideBySide ? 'text-left' : 'mt-1.5', 'flex items-center', isActive ? 'h-5' : 'h-4'].join(' ')}
     >
       <span className="inline-block w-0.5 h-full rounded-full bg-white/15" />
+    </div>
+  ) : null
+
+  // Structural-fact marker (Task 11): a hole (no translation on an otherwise-
+  // translated song) or a song-wide pairing mismatch. A dotted underline —
+  // deliberately not a colour or dim treatment, since ColoredTranslation
+  // already spends colour on token-alignment meaning, and deliberately
+  // distinct from the timing needs_review flag shown in Edit mode. Suppressed
+  // during cloze drilling (nothing here should hint at the blanked answer) and
+  // on a translation-sharing 'member' row (the flag belongs to 'start', which
+  // owns the actual text this would repair).
+  const translationDisplayOn = showTranslation || sideBySide
+  const showFlag = flagged && translationDisplayOn && !cloze && groupRole !== 'member'
+
+  const openRepair = async (e: React.MouseEvent | React.KeyboardEvent) => {
+    e.stopPropagation()
+    setRepairOpen(true)
+    if (!onFetchRepairCandidates) return
+    try {
+      setRepairCandidates(await onFetchRepairCandidates(lineIndex))
+    } catch {
+      setRepairCandidates([])
+    }
+  }
+
+  const flagEl = showFlag ? (
+    <div className="relative" onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        onClick={openRepair}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return
+          e.preventDefault()
+          void openRepair(e)
+        }}
+        aria-label={hasTranslation
+          ? `Check translation for line ${lineIndex + 1}`
+          : `Translation missing for line ${lineIndex + 1}`}
+        className={[
+          sideBySide ? 'text-left' : '',
+          'mt-1 text-[11px] touch-manipulation underline decoration-dotted decoration-current underline-offset-4',
+          isActive ? 'text-white/55 hover:text-white/75' : 'text-white/40 hover:text-white/60',
+        ].join(' ')}
+      >
+        {hasTranslation ? 'Check this translation' : 'Translation missing'}
+      </button>
+      {repairOpen && (
+        <TranslationRepairPopover
+          lineIndex={lineIndex}
+          candidates={repairCandidates}
+          onChoose={(text) => { onChooseRepair?.(lineIndex, text); setRepairOpen(false) }}
+          onClose={() => setRepairOpen(false)}
+        />
+      )}
     </div>
   ) : null
 
@@ -378,6 +457,7 @@ function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, 
           />
           {translationEl}
           {groupBracketEl}
+          {flagEl}
         </div>
       ) : (
         <div className={sideBySide ? '' : 'max-w-2xl mx-auto w-full'}>
@@ -394,6 +474,7 @@ function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, 
           />
           {translationEl}
           {groupBracketEl}
+          {flagEl}
         </div>
       )}
       {/* Reveal is its own control rather than a tap on the line: the row seeks,
@@ -412,6 +493,38 @@ function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, 
   )
 }
 
+/** Quiet, non-blocking affordance for pasted translation lines the fitter
+ * couldn't place anywhere (Task 11 Step 6). Collapsed by default; tapping the
+ * summary opens the list, positioned in context by afterLineIndex rather than
+ * dumped in a nameless tail. */
+function UnplacedTranslationsNote({ entries }: { entries: { text: string }[] }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="max-w-2xl mx-auto w-full px-1 py-1 text-center">
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v) }}
+        aria-expanded={open}
+        className="text-[11px] text-white/40 hover:text-white/60 underline decoration-dotted decoration-current underline-offset-4 touch-manipulation"
+      >
+        {entries.length} {entries.length === 1 ? 'line' : 'lines'} weren&apos;t placed
+      </button>
+      {open && (
+        <ul className="mt-1.5 space-y-1 text-left max-w-md mx-auto">
+          {entries.map((e, i) => (
+            <li
+              key={i}
+              className="text-xs text-white/55 italic px-2.5 py-1.5 rounded-lg bg-cinnabar-950/60 border border-cinnabar-800/60 text-pretty"
+            >
+              {e.text}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 export function LyricDisplay({
   onLineClick,
   abLoop,
@@ -420,6 +533,10 @@ export function LyricDisplay({
   playlistEntries = [],
   playlistIndex = 0,
   armingAB = null,
+  unplacedTranslations,
+  translationMismatch = false,
+  onFetchRepairCandidates,
+  onChooseRepair,
 }: Props) {
   const { lines, activeLine, clozeMode, clozeDifficulty } = useLyricsStore()
   // Which line the user has revealed. Holding the INDEX rather than a boolean
@@ -514,6 +631,28 @@ export function LyricDisplay({
     for (let i = range.start + 1; i <= range.end; i++) groupRoleForIndex[i] = 'member'
   }
 
+  // Structural-fact flags (Task 11): a hole in an otherwise-translated song, or
+  // every translated row when the whole song's pairing method was 'mismatch'
+  // (the fitter couldn't localize which row is wrong, so it can't localize the
+  // flag either). Deliberately NOT driven by translationConfidence — measured
+  // AUC 0.399 on exactly this population (rows that have a translation).
+  const songHasTranslation = lines.some(hasVisibleTranslation)
+  const flaggedForIndex = lines.map((line) => {
+    const hole = songHasTranslation && !hasVisibleTranslation(line)
+    return hole || translationMismatch
+  })
+
+  // Unplaced pasted lines, grouped by the row they were anchored after (Step
+  // 0's lastTranslatedRowIndex), so the "N lines weren't placed" affordance
+  // sits in context. -1 = no translated row yet — rendered before line 0.
+  const unplacedByAfterIndex = new Map<number, { text: string; afterLineIndex: number }[]>()
+  for (const u of unplacedTranslations ?? []) {
+    const arr = unplacedByAfterIndex.get(u.afterLineIndex) ?? []
+    arr.push(u)
+    unplacedByAfterIndex.set(u.afterLineIndex, arr)
+  }
+  const leadingUnplaced = unplacedByAfterIndex.get(-1)
+
   return (
     <div className="relative flex-1 min-h-0 flex flex-col">
     <div
@@ -530,6 +669,7 @@ export function LyricDisplay({
       className="flex-1 min-h-0 overflow-y-auto px-4 py-[clamp(0.25rem,4vh,1rem)] [@media(min-height:640px)]:py-[clamp(1rem,14vh,7rem)] [@media(min-height:900px)]:py-[16vh]"
       style={{ touchAction: 'pan-y', scrollbarWidth: 'thin' }}
     >
+      {leadingUnplaced && <UnplacedTranslationsNote entries={leadingUnplaced} />}
       {lines.map((line, i) => {
         const isActive = i === activeLine
         const loopHighlight = abLoop
@@ -544,32 +684,39 @@ export function LyricDisplay({
             playlistIndex,
           )
           : null
+        const unplacedHere = unplacedByAfterIndex.get(i)
         return (
-          <Line
-            key={i}
-            line={line}
-            isActive={isActive}
-            loopHighlight={loopHighlight}
-            groupRole={groupRoleForIndex[i]}
-            // Tapping a line seeks there, which IS a request to follow the song
-            // again — so it clears a paused follow rather than leaving the user
-            // staring at a jump chip they no longer need.
-            onLineClick={(l) => { setFollowPaused(false); onLineClick(l) }}
-            lineRef={isActive ? activeRef : undefined}
-            armingAB={armingAB}
-            // Only the ACTIVE line's words open the dictionary; tapping a word on
-            // any other line falls through to the row's seek (jump to that line)
-            // instead of being swallowed by the lookup. While arming a loop point
-            // the whole row is the target, so lookup stands down — otherwise
-            // tapping the Japanese opened a definition instead of placing the point.
-            // Lookup stands down during a drill — reading the definition of the
-            // word you are being asked to recall defeats the exercise.
-            onWordTap={tapLookupEnabled && isActive && !armingAB && !clozeMode ? setWordTap : undefined}
-            cloze={clozeMode && isActive && line.tokens?.length
-              ? { difficulty: clozeDifficulty, revealed: revealedLine === i }
-              : undefined}
-            onReveal={() => setRevealedLine(i)}
-          />
+          <div key={i}>
+            <Line
+              line={line}
+              lineIndex={i}
+              isActive={isActive}
+              loopHighlight={loopHighlight}
+              groupRole={groupRoleForIndex[i]}
+              // Tapping a line seeks there, which IS a request to follow the song
+              // again — so it clears a paused follow rather than leaving the user
+              // staring at a jump chip they no longer need.
+              onLineClick={(l) => { setFollowPaused(false); onLineClick(l) }}
+              lineRef={isActive ? activeRef : undefined}
+              armingAB={armingAB}
+              // Only the ACTIVE line's words open the dictionary; tapping a word on
+              // any other line falls through to the row's seek (jump to that line)
+              // instead of being swallowed by the lookup. While arming a loop point
+              // the whole row is the target, so lookup stands down — otherwise
+              // tapping the Japanese opened a definition instead of placing the point.
+              // Lookup stands down during a drill — reading the definition of the
+              // word you are being asked to recall defeats the exercise.
+              onWordTap={tapLookupEnabled && isActive && !armingAB && !clozeMode ? setWordTap : undefined}
+              cloze={clozeMode && isActive && line.tokens?.length
+                ? { difficulty: clozeDifficulty, revealed: revealedLine === i }
+                : undefined}
+              onReveal={() => setRevealedLine(i)}
+              flagged={flaggedForIndex[i]}
+              onFetchRepairCandidates={onFetchRepairCandidates}
+              onChooseRepair={onChooseRepair}
+            />
+            {unplacedHere && <UnplacedTranslationsNote entries={unplacedHere} />}
+          </div>
         )
       })}
       {wordTap && (
