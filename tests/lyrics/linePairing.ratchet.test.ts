@@ -52,8 +52,14 @@ describe('line-pairing ratchet', () => {
         const primary: TimedLine[] = originals.map((original, i) => ({
           startTime: i * 2, endTime: i * 2 + 2, original, translation: '',
         }))
+        // Mirrors production (SecondLanguagePanel always has title/artist) and
+        // scripts/audit-line-pairing.mjs, whose harness this test duplicates —
+        // needed so the title-prefix/composite perturbations, whose injected
+        // noise line matches this literal, actually exercise the
+        // isTranslationNoiseLine metadata-echo path.
         const result = await smartAttachSecondLanguage(
           primary, state.lines.join('\n'), embedTexts,
+          { songTitle: 'Song Title', artist: 'Artist Name' },
         )
         const { assigned, flagged } = mapRowsToOriginals(originals, result.lines)
         const m = scoreLinePairing(truthStrings(state), assigned, state.lines, flagged, result.extras ?? [])

@@ -3,6 +3,7 @@ import { getDeviceTier } from '../ai-pipeline/capability'
 import { splitTranslationWords, splitTranslationLineWords, translationWordCount } from '../language/wordColors'
 import { isAlignableEnglishWord, normalizeEnglishAlignmentWord, isParticleToken } from '../core/language'
 import { JAPANESE_RE, stripNonLyricLines, normalizeTranslationLines, extractTranslationsForAttach, splitPrimaryIntoBlocks, extractSecondLanguageBlocks, primaryHasTiming, isSyncedSecondaryLRC, attachTimedSecondLanguage, shouldUseTimelineMerge, parseSecondaryLRC, mergeTimedTracks } from './bilingual'
+import { isTranslationNoiseLine } from './translationNoise'
 import { applyLineTextPatch } from './lineOps'
 import type { LineAlignJob } from '../ai-pipeline/wordAligner'
 
@@ -1081,7 +1082,7 @@ export async function smartAttachSecondLanguage(
     for (let b = 0; b < primaryBlocks.length; b++) {
       const blockTrans = cleanTranslations(
         normalizeTranslationLines(secondaryBlocks[b], primaryBlocks[b].length),
-      )
+      ).filter((t) => !isTranslationNoiseLine(t, { songTitle: options?.songTitle, artist: options?.artist }))
       const blockSecondary = secondaryBlocks[b].join('\n')
       const content = await smartAttachSecondLanguageFromLines(
         primaryBlocks[b],
@@ -1103,6 +1104,7 @@ export async function smartAttachSecondLanguage(
   }
 
   const trans = cleanTranslations(extractTranslationsForAttach(secondary, primary.length))
+    .filter((t) => !isTranslationNoiseLine(t, { songTitle: options?.songTitle, artist: options?.artist }))
   const content = await smartAttachSecondLanguageFromLines(primary, trans, embedFn, options)
   if (timed) {
     return finalizeTimedAttach(primary, secondary, content, trans)

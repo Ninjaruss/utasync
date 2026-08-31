@@ -56,7 +56,7 @@
     "line_missing": 0,
     "lines_unplaced": 0,
     "lines_lost": 0,
-    "flag_precision": 0,
+    "flag_precision": null,
     "flag_recall": null
   },
   {
@@ -92,7 +92,7 @@
     "line_missing": 0,
     "lines_unplaced": 0,
     "lines_lost": 0,
-    "flag_precision": 0,
+    "flag_precision": null,
     "flag_recall": null
   },
   {
@@ -159,8 +159,8 @@
     "song": "akfg-firsttake-word",
     "perturbation": "title-prefix",
     "n": 30,
-    "line_correct": 25,
-    "line_wrong": 4,
+    "line_correct": 28,
+    "line_wrong": 1,
     "line_missing": 1,
     "lines_unplaced": 0,
     "lines_lost": 0,
@@ -195,9 +195,9 @@
     "song": "akfg-firsttake-word",
     "perturbation": "trailing-credit",
     "n": 30,
-    "line_correct": 24,
-    "line_wrong": 4,
-    "line_missing": 2,
+    "line_correct": 28,
+    "line_wrong": 1,
+    "line_missing": 1,
     "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
@@ -267,13 +267,13 @@
     "song": "guitar-loneliness-word",
     "perturbation": "title-prefix",
     "n": 47,
-    "line_correct": 46,
-    "line_wrong": 1,
+    "line_correct": 47,
+    "line_wrong": 0,
     "line_missing": 0,
     "lines_unplaced": 0,
     "lines_lost": 0,
     "flag_precision": null,
-    "flag_recall": 0
+    "flag_recall": null
   },
   {
     "song": "guitar-loneliness-word",
@@ -308,7 +308,7 @@
     "line_missing": 0,
     "lines_unplaced": 0,
     "lines_lost": 0,
-    "flag_precision": 0,
+    "flag_precision": null,
     "flag_recall": null
   },
   {

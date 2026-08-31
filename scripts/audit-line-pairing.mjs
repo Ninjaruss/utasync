@@ -73,10 +73,16 @@ async function main() {
         startTime: i * 2, endTime: i * 2 + 2, original, translation: '',
       }))
 
+      // Mirrors production: SecondLanguagePanel always has song title/artist
+      // available and passes them through. Matches the literal noise string
+      // ('Song Title - Artist Name') injected by the title-prefix/composite
+      // perturbations in linePairingCorpus.mjs, so the metadata-echo path in
+      // isTranslationNoiseLine is actually exercised by this harness.
       const result = await smartAttachSecondLanguage(
         primary,
         state.lines.join('\n'),
         embedTexts,
+        { songTitle: 'Song Title', artist: 'Artist Name' },
       )
       const { assigned, flagged } = mapRowsToOriginals(originals, result.lines)
       const m = scoreLinePairing(truthStrings(state), assigned, state.lines, flagged, result.extras ?? [])
