@@ -46,6 +46,7 @@ import { detectSheetLanguage } from '../ai-pipeline/whisperLanguage'
 import { accurateRealignReason } from '../ai-pipeline/alignTimestampMode'
 import { linesAreTimed, chooseAutoAlignment, type AlignMode } from './alignmentPolicy'
 import { EditMode } from '../lyrics/EditMode'
+import type { TranslationApplyMeta } from '../lyrics/SecondLanguagePanel'
 import { computeSyncState } from '../core/db/migrations'
 import { hasVisibleTranslation } from '../lyrics/bilingual'
 import { linesNeedEnrichment, linesNeedAlignment, lineNeedsAlignment, enrichmentMadeProgress, LYRICS_ENRICHMENT_VERSION } from '../lyrics/lyricsEnrichment'
@@ -1130,7 +1131,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     applyAlignedSong(updated)
   }
 
-  const handleEditLines = async (lines: TimedLine[]) => {
+  const handleEditLines = async (lines: TimedLine[], meta?: TranslationApplyMeta) => {
     if (!song) return
     setLines(lines)
     const timingChanged = lines.some(
@@ -1154,6 +1155,16 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           ? { lineAlignmentQuality: retimeQuality(song.lyrics.lineAlignmentQuality, song.lyrics.lines, lines) }
           : {}),
         ...(phrases !== song.lyrics.phrases ? { phrases } : {}),
+        // Provenance from a fresh translation fit (SecondLanguagePanel), so
+        // repair (Task 11) and re-fitting (Task 12) can use it. Absent when the
+        // edit wasn't a translation apply — leaves the stored fields untouched.
+        ...(meta
+          ? {
+              unplacedTranslations: meta.unplaced,
+              translationSource: meta.source,
+              translationPairing: meta.pairing,
+            }
+          : {}),
       },
       syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines } }),
     }

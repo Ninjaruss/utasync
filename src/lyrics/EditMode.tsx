@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { TimedLine, Language, LineAlignmentQuality } from '../core/types'
 import { stampTimes, setText, addLine, deleteLine, shiftLinesFrom } from './lineOps'
-import { SecondLanguagePanel } from './SecondLanguagePanel'
+import { SecondLanguagePanel, type TranslationApplyMeta } from './SecondLanguagePanel'
 import { useModalDialog } from '../core/ui/useModalDialog'
 import { TimestampPopover } from './TimestampPopover'
 import type { Peaks } from '../player/waveformPeaks'
@@ -39,7 +39,7 @@ interface Props {
   title: string
   artist: string
   sourceLanguage: Language
-  onChangeLines: (lines: TimedLine[]) => void
+  onChangeLines: (lines: TimedLine[], meta?: TranslationApplyMeta) => void
   /** Sole re-align entry point (Play mode intentionally has no duplicate control). */
   onAutoAlign: () => void
   /** Tap-through timing while audio plays (YouTube or local). */
@@ -386,14 +386,14 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
     currentLines.current = lines
   }, [lines])
 
-  const applyChange = (next: TimedLine[]) => {
+  const applyChange = (next: TimedLine[], meta?: TranslationApplyMeta) => {
     undoStack.current.push(currentLines.current)
     if (undoStack.current.length > 50) undoStack.current.shift()
     redoStack.current = []
     currentLines.current = next
     setCanUndo(true)
     setCanRedo(false)
-    onChangeLines(next)
+    onChangeLines(next, meta)
   }
 
   const undo = () => {
@@ -812,7 +812,7 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
           title={title}
           artist={artist}
           sourceLanguage={sourceLanguage}
-          onApply={(next) => applyChange(next)}
+          onApply={(next, meta) => applyChange(next, meta)}
           onClose={() => setShowSecondLang(false)}
         />
       )}

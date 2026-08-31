@@ -99,6 +99,15 @@ describe('SecondLanguagePanel', () => {
     expect(applied[0].translation).toBe('Your eyes')
     expect(applied[1].translation).toBe('In the night')
     expect(applied[0].startTime).toBe(1)
+    // Provenance (Task 11 Step 0): pairing metadata reaches the caller alongside
+    // the lines, so it can be persisted for repair and re-fit.
+    const meta = onApply.mock.calls[0][1]
+    expect(meta).toBeDefined()
+    expect(meta.source).toBe('Your eyes\nIn the night')
+    expect(meta.unplaced).toEqual([])
+    expect(meta.pairing.method).toBeTruthy()
+    expect(typeof meta.pairing.meanConfidence).toBe('number')
+    expect(meta.pairing.version).toBe(1)
   })
 
   it('shows the alignment editor when pasted line count differs on untimed lyrics', async () => {

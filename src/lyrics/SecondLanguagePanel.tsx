@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import type { TimedLine, Language } from '../core/types'
+import type { TimedLine, Language, LyricsData } from '../core/types'
 import { extractSecondLanguageLines, pairsToTimedLines, hasVisibleTranslation } from './bilingual'
 import { AlignmentEditor } from './AlignmentEditor'
-import { smartAttachSecondLanguage } from './lineAligner'
+import { smartAttachSecondLanguage, type SmartAttachResult } from './lineAligner'
 import { ProgressOverlay } from '../core/ui/ProgressOverlay'
 import { SECOND_LANGUAGE_ALIGN_STEPS } from '../sources/addSongProgress'
 import { getSecondLanguageSearchSection } from './lyricSiteLinks'
@@ -15,21 +15,60 @@ const secondaryPanelBtn =
   'px-3 py-1.5 rounded-lg bg-cinnabar-950 border border-cinnabar-800 text-white/80 text-sm min-h-11 hover:bg-cinnabar-800 transition-colors'
 const accentPanelBtn = 'px-3 py-1.5 rounded-lg bg-cinnabar-accent text-white text-sm min-h-11'
 
+/** Provenance carried alongside a translation fit, so it can be persisted for
+ * repair (Task 11) and re-fitting (Task 12) without re-asking the user to paste. */
+export interface TranslationApplyMeta {
+  source: string
+  unplaced: { text: string; afterLineIndex: number }[]
+  pairing: NonNullable<LyricsData['translationPairing']>
+}
+
 interface Props {
   lines: TimedLine[]
   title: string
   artist: string
   sourceLanguage: Language
-  onApply: (lines: TimedLine[]) => void
+  onApply: (lines: TimedLine[], meta?: TranslationApplyMeta) => void
   onClose: () => void
 }
 
 type Phase =
   | { kind: 'current' }
   | { kind: 'aligning' }
-  | { kind: 'wrong-song'; paired: TimedLine[]; secondary: string; mean: number }
+  | { kind: 'wrong-song'; paired: TimedLine[]; secondary: string; mean: number; meta: TranslationApplyMeta }
   | { kind: 'align'; originalLines: string[]; translationLines: string[]; extraLines: string[] }
   | { kind: 'paste' }
+
+/** Bump when the fitter changes materially, so stored songs can be re-fitted. */
+export const TRANSLATION_PAIRING_VERSION = 1
+
+/** Anchor every unplaced line to the last row that actually has a translation,
+ * so repair can show it in context rather than as a nameless tail. */
+function lastTranslatedRowIndex(lines: TimedLine[]): number {
+  let idx = -1
+  lines.forEach((l, i) => {
+    if (hasVisibleTranslation(l)) idx = i
+  })
+  return idx
+}
+
+function buildApplyMeta(result: SmartAttachResult, secondary: string, meanConfidence: number): TranslationApplyMeta {
+  return {
+    source: secondary,
+    // undefined means the fitter declined to pair that row (metadata/header/
+    // duplicate) — excluded from the mean rather than treated as zero.
+    unplaced: (result.extras ?? []).map((text) => ({
+      text,
+      afterLineIndex: lastTranslatedRowIndex(result.lines),
+    })),
+    pairing: {
+      method: result.method,
+      meanConfidence,
+      flaggedLineCount: result.lines.filter((l) => !hasVisibleTranslation(l)).length,
+      version: TRANSLATION_PAIRING_VERSION,
+    },
+  }
+}
 
 /**
  * Below this mean confidence the paste is probably for a different song.
@@ -123,11 +162,12 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
           (c): c is number => typeof c === 'number',
         )
         const mean = defined.length ? defined.reduce((a, b) => a + b, 0) / defined.length : 1
+        const meta = buildApplyMeta(result, secondary, mean)
         if (mean < WRONG_SONG_MEAN_CONFIDENCE) {
-          setPhase({ kind: 'wrong-song', paired: result.lines, secondary, mean })
+          setPhase({ kind: 'wrong-song', paired: result.lines, secondary, mean, meta })
           return
         }
-        onApply(result.lines)
+        onApply(result.lines, meta)
         onClose()
         return
       }
@@ -236,7 +276,7 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
               wrong song, or an unrelated block of text.
             </p>
             <div className="flex flex-wrap gap-2">
-              <button onClick={() => { onApply(phase.paired); onClose() }}
+              <button onClick={() => { onApply(phase.paired, phase.meta); onClose() }}
                 className={secondaryPanelBtn}>Apply anyway</button>
               <button onClick={openPaste}
                 className="px-3 py-1.5 rounded-lg bg-cinnabar-accent text-white text-sm min-h-11">Paste different</button>
