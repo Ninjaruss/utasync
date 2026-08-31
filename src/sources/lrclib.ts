@@ -1,5 +1,5 @@
 import type { Language } from '../core/types'
-import { fetchJson } from './fetchJson'
+import { fetchJson, type FetchFailure, type FetchResult } from './fetchJson'
 import {
   sameArtist,
   isAlternateLanguage,
@@ -23,6 +23,46 @@ const LRCLIB_SEARCH_CONCURRENCY = 3
 const LRCLIB_FETCH_TIMEOUT_MS = 18_000
 /** Cap fuzzy search fan-out; sequential LRCLIB calls were taking many minutes. */
 const MAX_SEARCH_QUERIES = 24
+
+/**
+ * Session cache for LRCLIB requests, keyed on the full URL.
+ *
+ * A single search fans out to ~70 requests, and every retry (a "Search again",
+ * or the user correcting a typo) used to re-fire all of them from zero. Only
+ * STABLE outcomes are cached: a success, or a 404 meaning the service answered
+ * and has no such entry. A timeout, a 5xx or a 429 is transient and must stay
+ * retryable, or "try again in a moment" would be a lie.
+ */
+const requestCache = new Map<string, FetchResult<unknown>>()
+
+/** Per-lookup state: which failures we saw, and whether to stop asking. */
+interface LookupSession { failures: Set<FetchFailure>; haltedBy: FetchFailure | null }
+let session: LookupSession | null = null
+
+/** Test seam — the cache is process-lifetime, so tests must be able to clear it. */
+export function __resetLyricsRequestCache(): void {
+  requestCache.clear()
+}
+
+async function cachedFetchJson<T>(url: string): Promise<FetchResult<T>> {
+  // Once the service is refusing us or the device is offline, every further
+  // request is waste and rudeness. Brake the whole fan-out rather than marching
+  // through the remaining queries collecting identical refusals.
+  if (session?.haltedBy) return { ok: false, reason: session.haltedBy }
+
+  const hit = requestCache.get(url)
+  if (hit) {
+    if (!hit.ok) session?.failures.add(hit.reason)
+    return hit as FetchResult<T>
+  }
+  const r = await fetchJson<T>(url, undefined, LRCLIB_FETCH_TIMEOUT_MS)
+  if (r.ok || r.reason === 'not-found') requestCache.set(url, r as FetchResult<unknown>)
+  if (!r.ok && session) {
+    session.failures.add(r.reason)
+    if (r.reason === 'rate-limited' || r.reason === 'offline') session.haltedBy = r.reason
+  }
+  return r
+}
 
 async function mapConcurrent<T, R>(
   items: readonly T[],
@@ -61,11 +101,8 @@ export async function searchLRCLIB(
   artistName: string
 ): Promise<LRCLIBResult[]> {
   const params = new URLSearchParams({ track_name: trackName, artist_name: artistName })
-  return (await fetchJson<LRCLIBResult[]>(
-    `https://lrclib.net/api/search?${params}`,
-    undefined,
-    LRCLIB_FETCH_TIMEOUT_MS,
-  )) ?? []
+  const r = await cachedFetchJson<LRCLIBResult[]>(`https://lrclib.net/api/search?${params}`)
+  return r.ok ? r.data : []
 }
 
 export async function fetchLRCFromLRCLIB(
@@ -73,12 +110,8 @@ export async function fetchLRCFromLRCLIB(
   artistName: string
 ): Promise<string | null> {
   const params = new URLSearchParams({ track_name: trackName, artist_name: artistName })
-  const data = await fetchJson<LRCLIBResult>(
-    `https://lrclib.net/api/get?${params}`,
-    undefined,
-    LRCLIB_FETCH_TIMEOUT_MS,
-  )
-  return data?.syncedLyrics ?? null
+  const r = await cachedFetchJson<LRCLIBResult>(`https://lrclib.net/api/get?${params}`)
+  return r.ok ? (r.data.syncedLyrics ?? null) : null
 }
 
 export interface LyricsLookupMatch {
@@ -121,12 +154,9 @@ async function fetchLRCLIBExact(
 ): Promise<LyricsLookup | null> {
   try {
     const params = new URLSearchParams({ track_name: trackName, artist_name: artistName })
-    const data = await fetchJson<LRCLIBResult>(
-      `https://lrclib.net/api/get?${params}`,
-      undefined,
-      LRCLIB_FETCH_TIMEOUT_MS,
-    )
-    if (!data) return null
+    const r = await cachedFetchJson<LRCLIBResult>(`https://lrclib.net/api/get?${params}`)
+    if (!r.ok) return null
+    const data = r.data
     const lrc = data.syncedLyrics ?? data.plainLyrics
     if (!lrc) return null
     return lookupFromResult(data, lrc, !!data.syncedLyrics, trackName, artistName, 'exact')
@@ -141,6 +171,24 @@ async function fetchLRCLIBExact(
  * track-only search, always preferring time-synced lyrics so we can align.
  */
 export type FindLyricsStage = 'exact' | 'search'
+
+/** Why a lookup ended the way it did — so the UI can stop guessing. */
+export type LookupOutcome = 'found' | 'no-entry' | 'offline' | 'rate-limited' | 'error'
+
+export interface LyricsLookupResult {
+  lookup: LyricsLookup | null
+  outcome: LookupOutcome
+}
+
+function outcomeFrom(found: boolean, failures: Set<FetchFailure>): LookupOutcome {
+  if (found) return 'found'
+  if (failures.has('rate-limited')) return 'rate-limited'
+  if (failures.has('offline')) return 'offline'
+  // 'not-found' is the service answering honestly; anything else is us failing
+  // to ask properly, which is a different thing to tell the user.
+  const onlyNotFound = [...failures].every((f) => f === 'not-found')
+  return onlyNotFound ? 'no-entry' : 'error'
+}
 
 type ScoredLyricsCandidate = {
   lookup: LyricsLookup
@@ -263,6 +311,26 @@ export async function findLyrics(
   onStage?: (stage: FindLyricsStage) => void,
   targetDurationSec?: number,
   preferredLanguageHint?: Language,
+): Promise<LyricsLookupResult> {
+  const outer = session
+  const mine: LookupSession = { failures: new Set(), haltedBy: null }
+  session = mine
+  try {
+    const lookup = await findLyricsInner(
+      trackName, artistName, onStage, targetDurationSec, preferredLanguageHint,
+    )
+    return { lookup, outcome: outcomeFrom(!!lookup, mine.failures) }
+  } finally {
+    session = outer
+  }
+}
+
+async function findLyricsInner(
+  trackName: string,
+  artistName: string,
+  onStage?: (stage: FindLyricsStage) => void,
+  targetDurationSec?: number,
+  preferredLanguageHint?: Language,
 ): Promise<LyricsLookup | null> {
   const preferredLanguage = preferredLanguageHint
     ?? inferPreferredLyricsLanguage(trackName, artistName)
@@ -346,6 +414,9 @@ export async function findLyrics(
   }
 
   const shouldStopSearch = () => {
+    // Stop on success OR on refusal. The original only stopped on success, so a
+    // rate-limited client still marched through every remaining query.
+    if (session?.haltedBy) return true
     const bestSynced = pickBestCandidate(candidates.filter((c) => c.synced), preferredLanguage)
     return !!(bestSynced && shouldAcceptEarly(bestSynced, preferredLanguage))
   }
@@ -423,10 +494,6 @@ export async function findSecondLanguageInLRCLIB(
 
 async function searchLRCLIBRaw(query: Record<string, string>): Promise<LRCLIBResult[]> {
   const params = new URLSearchParams(query)
-  const data = await fetchJson<LRCLIBResult[]>(
-    `https://lrclib.net/api/search?${params}`,
-    undefined,
-    LRCLIB_FETCH_TIMEOUT_MS,
-  )
-  return data ?? []
+  const r = await cachedFetchJson<LRCLIBResult[]>(`https://lrclib.net/api/search?${params}`)
+  return r.ok ? r.data : []
 }

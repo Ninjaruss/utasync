@@ -1078,6 +1078,16 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     // against — re-fit before adopting the new lines so the pairing never
     // ships stale.
     const prevLines = song?.lyrics.lines ?? []
+
+    // Adopt the aligned result FIRST, before any await. Deferring it behind the
+    // re-fit leaves a window in which the arming effect still sees the
+    // pre-align song (alignmentMode 'manual'), so chooseAutoAlignment returns
+    // 'auto' and re-opens a flow the user may have just closed. The re-fit is a
+    // refinement of a result we already have; it must not gate adopting it.
+    setSong(updated)
+    setLines(updated.lyrics.lines)
+    if (closeFlow) setAlignMode(null)
+
     const refitted = await refitStaleTranslation(prevLines, updated.lyrics, {
       title: updated.title,
       artist: updated.artist,
@@ -1085,10 +1095,9 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     if (refitted !== updated.lyrics) {
       updated = { ...updated, lyrics: refitted }
       await db.songs.put(updated)
+      setSong(updated)
+      setLines(updated.lyrics.lines)
     }
-    setSong(updated)
-    setLines(updated.lyrics.lines)
-    if (closeFlow) setAlignMode(null)
     // Yield so Whisper/Demucs workers finish tearing down and release WebGPU
     // memory before we load the embedding model for word-pair coloring.
     const yieldMs = getDeviceTier() === 'lite' ? 150 : 0

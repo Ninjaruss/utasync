@@ -5,7 +5,7 @@ vi.mock('../../src/sources/youtubeCaptions', () => ({
 }))
 
 vi.mock('../../src/sources/lrclib', () => ({
-  findLyrics: vi.fn(async () => null),
+  findLyrics: vi.fn(async () => ({ lookup: null, outcome: 'no-entry' })),
 }))
 
 import { resolveLyricsForSong } from '../../src/sources/lyricsResolver'
@@ -35,9 +35,12 @@ describe('resolveLyricsForSong', () => {
   it('falls back to synced LRCLIB when captions are missing', async () => {
     vi.mocked(fetchYouTubeCaptionLines).mockResolvedValueOnce(null)
     vi.mocked(findLyrics).mockResolvedValueOnce({
-      lrc: '[00:01.00]Line',
-      synced: true,
-      match: { track: 'Song', artist: 'Artist', matchScore: 0.99, matchKind: 'exact' },
+      lookup: {
+        lrc: '[00:01.00]Line',
+        synced: true,
+        match: { track: 'Song', artist: 'Artist', matchScore: 0.99, matchKind: 'exact' },
+      },
+      outcome: 'found',
     })
     const result = await resolveLyricsForSong({
       title: 'Song',
@@ -50,7 +53,7 @@ describe('resolveLyricsForSong', () => {
   })
 
   it('skips YouTube when no video id', async () => {
-    vi.mocked(findLyrics).mockResolvedValueOnce({ lrc: 'plain', synced: false })
+    vi.mocked(findLyrics).mockResolvedValueOnce({ lookup: { lrc: 'plain', synced: false }, outcome: 'found' })
     const result = await resolveLyricsForSong({ title: 'Song', artist: 'Artist' })
     expect(fetchYouTubeCaptionLines).not.toHaveBeenCalled()
     expect(result.source).toBe('lrclib-plain')

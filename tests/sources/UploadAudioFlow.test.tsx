@@ -9,7 +9,7 @@ vi.mock('../../src/sources/audioIngest', () => ({
 }))
 
 vi.mock('../../src/sources/lrclib', () => ({
-  findLyrics: vi.fn(async () => null),
+  findLyrics: vi.fn(async () => ({ lookup: null, outcome: 'no-entry' })),
 }))
 
 
@@ -24,7 +24,7 @@ beforeEach(async () => {
   vi.mocked(extractAudioMetadata).mockResolvedValue({})
   const lrclib = await import('../../src/sources/lrclib')
   vi.mocked(lrclib.findLyrics).mockReset()
-  vi.mocked(lrclib.findLyrics).mockResolvedValue(null)
+  vi.mocked(lrclib.findLyrics).mockResolvedValue({ lookup: null, outcome: 'no-entry' })
 })
 
 async function pickFileAndTitle(container: HTMLElement, title = 'My Song') {
@@ -118,8 +118,8 @@ describe('UploadAudioFlow', () => {
   it('auto-searches the lyrics database when file and title are set', async () => {
     const lrclib = await import('../../src/sources/lrclib')
     vi.mocked(lrclib.findLyrics).mockResolvedValue({
-      lrc: '[00:01.00]Line one\n[00:02.00]Line two',
-      synced: true,
+      lookup: { lrc: '[00:01.00]Line one\n[00:02.00]Line two', synced: true },
+      outcome: 'found',
     })
     const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
     await pickFileAndTitle(container)
