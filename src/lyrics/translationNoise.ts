@@ -13,15 +13,26 @@ function normalize(s: string): string {
   return s.trim().toLowerCase().replace(/[^a-z0-9぀-鿿]+/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
+/**
+ * A header line IS the metadata: strip the title/artist and any separator and
+ * essentially nothing should be left. Deliberately NOT scaled by the metadata's
+ * own length — that made the allowance grow with the artist name, so a long
+ * artist name let genuine lyric text through as "residue" and the line was eaten.
+ * Erring toward missing a header is correct: a missed header costs a little
+ * alignment quality, an eaten lyric silently destroys the user's translation.
+ */
+const MAX_METADATA_RESIDUE_GLYPHS = 4
+
 /** True when `line` is essentially just the metadata value, not a lyric mentioning it. */
 function isMetadataEcho(line: string, metadata: string): boolean {
   const a = normalize(line)
   const b = normalize(metadata)
   if (!a || !b) return false
   if (a === b) return true
+  if (!a.includes(b)) return false
   // "Title - Artist" style: the line is the metadata plus a separator and little else.
   const stripped = a.replace(b, '').replace(/^[\s\-–—:|by]+|[\s\-–—:|]+$/g, '').trim()
-  return a.includes(b) && stripped.length <= Math.max(4, b.length)
+  return stripped.length <= MAX_METADATA_RESIDUE_GLYPHS
 }
 
 export function isTranslationNoiseLine(

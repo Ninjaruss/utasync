@@ -28,3 +28,28 @@ describe('isTranslationNoiseLine', () => {
     expect(isTranslationNoiseLine('This example song of ours goes on and on', opts)).toBe(false)
   })
 })
+
+describe('must not eat real lyric lines', () => {
+  it('does not eat a lyric line that opens with the artist name', () => {
+    expect(isTranslationNoiseLine('The Wanderers walk alone', { artist: 'The Wanderers' })).toBe(false)
+  })
+
+  it('does not eat a long lyric line containing both title and artist', () => {
+    expect(isTranslationNoiseLine(
+      'Neon Skyline The Silver Wanderers Band never looked back again',
+      { songTitle: 'Neon Skyline', artist: 'The Silver Wanderers Band' },
+    )).toBe(false)
+  })
+
+  it('does not eat a short lyric line that happens to contain a long artist name', () => {
+    expect(isTranslationNoiseLine('The Silver Wanderers Band played on',
+      { artist: 'The Silver Wanderers Band' })).toBe(false)
+  })
+
+  it('still catches the header forms', () => {
+    const opts = { songTitle: 'Neon Skyline', artist: 'The Silver Wanderers Band' }
+    expect(isTranslationNoiseLine('Neon Skyline', opts)).toBe(true)
+    expect(isTranslationNoiseLine('Neon Skyline - The Silver Wanderers Band', opts)).toBe(true)
+    expect(isTranslationNoiseLine('Translated by Someone', opts)).toBe(true)
+  })
+})
