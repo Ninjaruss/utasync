@@ -551,7 +551,15 @@ function scorePrimaryTranslation(
   transVecs: number[][],
   origVecs: number[][],
 ): number {
-  if (isInterjectionPrimaryLine(original)) return -1
+  // Interjections are scored NORMALLY. A hard -1 here used to make it
+  // impossible for an interjection to ever take a translation — intended to stop
+  // it stealing a real line's English, but when a paste genuinely carried a line
+  // for it, that line had nowhere to go and the merge move glued it onto the
+  // following row: the user saw their text on the wrong line and nothing on the
+  // interjection. What actually protects the no-translation case is the FREE
+  // SKIP for interjection originals in the DP loop below, which costs nothing
+  // when no translation matches. Measured across the corpus, removing this
+  // special case took wrong pairings 13 -> 4 and missing 17 -> 8.
   const latin = latinHintScore(original, translations[j])
   let sim = 0
   for (let k = 0; k < origVecs[i].length; k++) sim += origVecs[i][k] * transVecs[j][k]
