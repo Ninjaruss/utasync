@@ -12,6 +12,7 @@ import { lyricRowLoopRegion, lyricRowPlayheadActive, lyricRowPlaylistCurrent, ly
 import { WordLookupPopover } from './WordLookupPopover'
 import { hasJapanese } from '../language/japanese/wordLookup'
 import { prefersReducedMotion } from '../core/ui/reducedMotion'
+import { groupRanges } from './translationGroups'
 
 const lyricTextTransition =
   'transition-[color,font-size,font-weight,text-shadow] duration-300 ease-out'
@@ -271,7 +272,7 @@ function loopHighlightClass(highlight: LyricLoopHighlight | null, isActive: bool
   }
 }
 
-function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, armingAB, cloze, onReveal }: {
+function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, armingAB, cloze, onReveal, groupRole = 'solo' }: {
   line: TimedLine
   isActive: boolean
   loopHighlight: LyricLoopHighlight | null
@@ -281,6 +282,11 @@ function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, 
   armingAB?: 'a' | 'b' | null
   cloze?: { difficulty: ClozeDifficulty; revealed: boolean }
   onReveal?: () => void
+  /** Position within a shared translationGroup (Task 4/7): 'solo' for an
+   * ungrouped row (today's behavior), 'start' for the row that renders the
+   * shared translation, 'member' for a later row in the group, which shows a
+   * bracket tying it back to 'start' instead of repeating the text. */
+  groupRole?: 'solo' | 'start' | 'member'
 }) {
   const { furiganaMode, showTranslation, lyricsLayout } = useLyricsStore()
   const readingMode = useSettingsStore((s) => s.readingMode)
@@ -293,7 +299,11 @@ function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, 
     ? 'group-hover:underline decoration-white/25 underline-offset-4'
     : 'group-hover:underline group-hover:text-white/60 decoration-white/20 underline-offset-4'
 
-  const translationEl = hasTranslation && (showTranslation || sideBySide) ? (
+  const showTranslationArea = hasTranslation && (showTranslation || sideBySide)
+  // A grouped row's shared translation renders once, on the 'start' row; a
+  // 'member' row shows a bracket tying it back up to 'start' instead of
+  // repeating (or blanking) the same text.
+  const translationEl = showTranslationArea && groupRole !== 'member' ? (
     <div
       lang="en"
       translate="no"
@@ -310,6 +320,15 @@ function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, 
       ) : (
         line.translation
       )}
+    </div>
+  ) : null
+
+  const groupBracketEl = showTranslationArea && groupRole === 'member' ? (
+    <div
+      aria-hidden="true"
+      className={[sideBySide ? 'text-left' : 'mt-1.5', 'flex items-center', isActive ? 'h-5' : 'h-4'].join(' ')}
+    >
+      <span className="inline-block w-0.5 h-full rounded-full bg-white/15" />
     </div>
   ) : null
 
@@ -358,6 +377,7 @@ function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, 
             cloze={cloze}
           />
           {translationEl}
+          {groupBracketEl}
         </div>
       ) : (
         <div className={sideBySide ? '' : 'max-w-2xl mx-auto w-full'}>
@@ -373,6 +393,7 @@ function Line({ line, isActive, loopHighlight, onLineClick, lineRef, onWordTap, 
             cloze={cloze}
           />
           {translationEl}
+          {groupBracketEl}
         </div>
       )}
       {/* Reveal is its own control rather than a tap on the line: the row seeks,
@@ -481,6 +502,18 @@ export function LyricDisplay({
     )
   }
 
+  // Maps each row index to its position within a shared translationGroup, so
+  // Line can render the translation once (on 'start') and bracket the rest.
+  const groupRoleForIndex = new Array<'solo' | 'start' | 'member'>(lines.length)
+  for (const range of groupRanges(lines)) {
+    if (range.start === range.end) {
+      groupRoleForIndex[range.start] = 'solo'
+      continue
+    }
+    groupRoleForIndex[range.start] = 'start'
+    for (let i = range.start + 1; i <= range.end; i++) groupRoleForIndex[i] = 'member'
+  }
+
   return (
     <div className="relative flex-1 min-h-0 flex flex-col">
     <div
@@ -517,6 +550,7 @@ export function LyricDisplay({
             line={line}
             isActive={isActive}
             loopHighlight={loopHighlight}
+            groupRole={groupRoleForIndex[i]}
             // Tapping a line seeks there, which IS a request to follow the song
             // again — so it clears a paused follow rather than leaving the user
             // staring at a jump chip they no longer need.

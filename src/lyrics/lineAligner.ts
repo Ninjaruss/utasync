@@ -284,6 +284,7 @@ export function buildAlignJob(line: TimedLine): LineAlignJob {
     targetWords: pool.words,
     targetIndexMap: pool.indexMap,
     alignTokenIndices: jaIndices.length < tokens.length ? jaIndices : undefined,
+    groupId: line.translationGroup,
   }
 }
 
