@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { SecondLanguagePanel } from '../../src/lyrics/SecondLanguagePanel'
 import type { TimedLine } from '../../src/core/types'
 
@@ -87,22 +87,14 @@ describe('SecondLanguagePanel', () => {
     expect(screen.getByPlaceholderText(/english translation/i)).toBeTruthy()
   })
 
-  it('shows a confirm banner after pasting matched lyrics', async () => {
-    render(<SecondLanguagePanel lines={primary} title="t" artist="a" sourceLanguage="ja" onApply={vi.fn()} onClose={vi.fn()} />)
-    fireEvent.click(screen.getByRole('button', { name: /paste lyrics/i }))
-    fireEvent.change(screen.getByPlaceholderText(/english translation/i), { target: { value: 'Your eyes\nIn the night' } })
-    fireEvent.click(screen.getByRole('button', { name: /attach/i }))
-    expect(await screen.findByText(/does this pairing look right/i)).toBeTruthy()
-    expect(screen.getByRole('button', { name: /looks good/i })).toBeTruthy()
-  })
-
-  it('applies the matched translation on "Looks good"', async () => {
+  it('applies a clean fit without asking for confirmation', async () => {
     const onApply = vi.fn()
     render(<SecondLanguagePanel lines={primary} title="t" artist="a" sourceLanguage="ja" onApply={onApply} onClose={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /paste lyrics/i }))
     fireEvent.change(screen.getByPlaceholderText(/english translation/i), { target: { value: 'Your eyes\nIn the night' } })
     fireEvent.click(screen.getByRole('button', { name: /attach/i }))
-    fireEvent.click(await screen.findByRole('button', { name: /looks good/i }))
+    await waitFor(() => expect(onApply).toHaveBeenCalled())
+    expect(screen.queryByText(/does this pairing look right/i)).not.toBeInTheDocument()
     const applied = onApply.mock.calls[0][0] as TimedLine[]
     expect(applied[0].translation).toBe('Your eyes')
     expect(applied[1].translation).toBe('In the night')

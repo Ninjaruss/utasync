@@ -26,10 +26,30 @@ interface Props {
 
 type Phase =
   | { kind: 'current' }
-  | { kind: 'confirm'; paired: TimedLine[]; secondary: string }
   | { kind: 'aligning' }
+  | { kind: 'wrong-song'; paired: TimedLine[]; secondary: string; mean: number }
   | { kind: 'align'; originalLines: string[]; translationLines: string[]; extraLines: string[] }
   | { kind: 'paste' }
+
+/**
+ * Below this mean confidence the paste is probably for a different song.
+ *
+ * Measured 2026-08-30 via a throwaway cross-song probe over the 3 corpus songs
+ * that carry a committed English translation (veil, akfg-firsttake, guitar-loneliness;
+ * only 6 ordered cross-song pairs exist, so this is a small sample):
+ *  - composite perturbation (messy but CORRECT fit): mean confidence 0.35-0.45
+ *  - cross-song paste (WRONG song entirely), where a confidence signal was
+ *    produced at all: mean confidence 0.16-0.25
+ * The two ranges do not overlap; 0.30 sits in the gap.
+ *
+ * Caveat: 1 of the 6 cross-song pairs produced NO confidence array at all
+ * (the dense slot-fit path skips DP scoring when line counts happen to align),
+ * which falls back to the "trust it" default below and slips past this gate
+ * undetected. The gate therefore fails open on line-count coincidences rather
+ * than catching every wrong-song paste — it screens the flagrant case, not
+ * every case.
+ */
+const WRONG_SONG_MEAN_CONFIDENCE = 0.3
 
 function FindLyricsOnlineSection({
   title,
@@ -96,7 +116,19 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
         artist,
       })
       if (result.mismatchedBlocks.length === 0) {
-        setPhase({ kind: 'confirm', paired: result.lines, secondary })
+        // undefined means the fitter declined to pair that row (metadata/header/
+        // duplicate), not low confidence — excluded from the mean rather than
+        // treated as zero.
+        const defined = (result.confidence ?? []).filter(
+          (c): c is number => typeof c === 'number',
+        )
+        const mean = defined.length ? defined.reduce((a, b) => a + b, 0) / defined.length : 1
+        if (mean < WRONG_SONG_MEAN_CONFIDENCE) {
+          setPhase({ kind: 'wrong-song', paired: result.lines, secondary, mean })
+          return
+        }
+        onApply(result.lines)
+        onClose()
         return
       }
       // Surface translation lines beyond the primary count so the editor's
@@ -196,29 +228,18 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
           </div>
         )}
 
-        {phase.kind === 'confirm' && (
+        {phase.kind === 'wrong-song' && (
           <div className="space-y-3">
-            <p className="text-white/70 text-sm">Does this pairing look right?</p>
-            <ul className="space-y-1 max-h-40 overflow-y-auto rounded-lg bg-cinnabar-950 border border-cinnabar-800 p-2">
-              {phase.paired.slice(0, 4).map((l, i) => (
-                <li key={i} className="text-xs">
-                  <span className="text-white/70 font-jp">{l.original}</span>
-                  <span className="text-white/60 italic block">{l.translation || '—'}</span>
-                </li>
-              ))}
-              {phase.paired.length > 4 && (
-                <li className="text-[10px] text-white/55">+{phase.paired.length - 4} more…</li>
-              )}
-            </ul>
+            <p className="text-white/70 text-sm">This doesn&apos;t look like a translation of this song.</p>
+            <p className="text-white/55 text-xs">
+              The pasted lyrics don&apos;t line up well with the original — you may have pasted the
+              wrong song, or an unrelated block of text.
+            </p>
             <div className="flex flex-wrap gap-2">
               <button onClick={() => { onApply(phase.paired); onClose() }}
-                className="px-3 py-1.5 rounded-lg bg-cinnabar-accent text-white text-sm min-h-11">Looks good</button>
-              <button onClick={() => {
-                const origLines = phase.paired.map((l) => l.original)
-                const transLines = phase.paired.map((l) => l.translation)
-                setPhase({ kind: 'align', originalLines: origLines, translationLines: transLines, extraLines: [] })
-              }} className={secondaryPanelBtn}>Fix pairings</button>
-              <button onClick={openPaste} className={secondaryPanelBtn}>Use different / paste</button>
+                className={secondaryPanelBtn}>Apply anyway</button>
+              <button onClick={openPaste}
+                className="px-3 py-1.5 rounded-lg bg-cinnabar-accent text-white text-sm min-h-11">Paste different</button>
             </div>
           </div>
         )}
