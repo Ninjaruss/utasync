@@ -18,6 +18,11 @@
 - **No DB schema migration and no `PIPELINE_VERSION` bump.** Every new field is optional; absence must mean exactly today's behavior.
 - **Deterministic:** no `Math.random`, no `Date.now()` in scripts or fixtures. Perturbation indices are chosen by fixed rule, not randomly.
 - **`lines_lost` ratchets at 0** from Task 5 onward. A pasted translation line may never vanish.
+  Note the metric was SPLIT during Task 5 (controller ruling): `lines_unplaced` counts lines the
+  fitter could not put on a row (a fitting-quality signal, expected non-zero), while `lines_lost`
+  counts lines present in neither the rows nor `extras` — i.e. destroyed. Only the latter ratchets
+  at 0. `lines_lost <= lines_unplaced` always. The original single metric measured placement, not
+  loss, so Task 5's gate could never have moved.
 - **The suite is load-sensitive.** Before calling any failure a regression, re-run that file alone: `npx vitest run <path>`.
 - **Full suite:** `npm test`. **Lint:** `npm run lint`. Both must pass before each commit.
 
@@ -1044,9 +1049,20 @@ Expected: PASS. **If `corpus-pairing` numbers move, stop** — no groups exist y
 
 - [ ] **Step 5: Re-measure and confirm `lines_lost` improved**
 
+**Controller ruling (Task 5):** this step is only meaningful after the metric split. The scorer
+originally never received `result.extras`, so a line rescued into extras still counted as lost and
+this gate could not move. `scoreLinePairing` now takes `extras` as a final parameter and reports two
+numbers: `lines_unplaced` (not on any row) and `lines_lost` (in neither rows nor extras).
+
 Run: `npx tsx scripts/audit-line-pairing.mjs`
-Expected: `lost` drops toward 0 versus the Task 3 baseline. Re-snapshot:
+Expected: `lines_lost` drops from 4 to 0 — that is this task's fix becoming visible — while
+`lines_unplaced` still shows 4. Re-snapshot:
 Run: `npx tsx scripts/audit-line-pairing.mjs --write-baseline`
+
+Also expected: `tests/lyrics/lineAligner.test.ts` and `tests/lyrics/akfg-user-paste.test.ts` each
+hardcode `expect(result.mismatchedBlocks).toEqual([])`, which was only true because
+`finalizeTimedAttach` blanked the field. Update ONLY that expectation in each, leaving every
+substantive assertion untouched.
 
 - [ ] **Step 6: Commit**
 
@@ -1619,7 +1635,25 @@ git commit -m "feat: detect title, credit and note lines on the translation side
 
 ## Phase 4 — Experience
 
-> **Gate before starting Phase 4.** Read `flag_precision` / `flag_recall` in the current baseline. If precision is poor, the in-place flag is a dishonest signal and Task 10 must instead implement the spec's fallback: apply silently when clean, and when not, show only the uncertain rows and unplaced lines for resolution before attaching. Decide this explicitly and record the decision before writing Task 10.
+> **Gate before starting Phase 4 — DECIDED, measured after Task 6.**
+>
+> The per-row confidence score **cannot support a flag UI**, and the confidence-based flag does NOT ship.
+> Measured on the population a flag would actually apply to (rows that HAVE a translation): 1061 rows,
+> 20 of them wrong, mean confidence *inverted* (wrong 0.849 vs correct 0.758), **AUC 0.399 — below chance**,
+> and **precision 0.000 at every threshold from 0.05 to 0.50** (209 rows flagged, none of them wrong).
+>
+> An earlier reading suggested precision 1.000 at a conservative threshold. That was an artifact: it
+> measured the score's ability to identify rows that are *blank*, which is a structural fact rather than a
+> confidence judgement, and not what a flag is for.
+>
+> The spec's documented fallback — gate on "uncertain rows" — is equally unavailable, because it needs the
+> same signal. **What ships instead is structural facts, which are certain rather than probabilistic:**
+> rows with no translation at all, unplaced lines (`extras`), and the pairing `method`. On the corpus those
+> cover 22 of 42 errors with **zero** false alarms — strictly better than the flag could manage, and honest
+> about what it does not know.
+>
+> Task 10's wrong-song gate uses *mean* confidence across a whole song, a far coarser discrimination that
+> this result does not automatically refute — but it must be **measured**, never assumed.
 
 ### Task 9: Grouped display
 
