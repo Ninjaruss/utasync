@@ -1947,9 +1947,28 @@ Expected: FAIL — module not found.
 
 A list of candidate buttons sorted by score descending, each labelled with its text and, when `source === 'unplaced'`, a small "unplaced" tag. Follow the surface styling of `src/lyrics/TimestampPopover.tsx` for consistency, and reuse `useModalDialog` for Escape handling.
 
-- [ ] **Step 4: Render the flag**
+- [ ] **Step 4: Render the marker — from STRUCTURAL FACTS, not confidence**
 
-In `LyricDisplay`, a translation whose row has `translationConfidence < FLAG_THRESHOLD` renders with a dotted underline — **not** a colour or dim treatment, because `ColoredTranslation` (`src/lyrics/LyricDisplay.tsx:216`) already uses colour to carry token-alignment meaning. It must also read as distinct from the existing `needs_review` timing flag. Tapping opens the popover.
+**Controller ruling (measured after Task 6): `translationConfidence` MUST NOT drive this.** On the
+population a marker would apply to — rows that actually have a translation — the score measured
+AUC 0.399 (below chance), with wrong rows averaging *higher* confidence (0.849) than correct ones
+(0.758), and precision 0.000 at every threshold from 0.05 to 0.50 across 209 flagged rows. A marker
+built on it would point users at correct rows while missing wrong ones. There is no `FLAG_THRESHOLD`.
+
+Mark a row from facts that are certain rather than probabilistic:
+- the row has **no translation at all** (`!hasVisibleTranslation(line)`) while the song otherwise has
+  translations — i.e. a genuine hole, not an untranslated song; or
+- the song's stored `unplacedTranslations` is non-empty (some pasted line could not be placed); or
+- the song's `translationPairing.method` is `'mismatch'`.
+
+On the corpus those cover 22 of 42 errors with **zero** false alarms — strictly better than the
+confidence flag could manage, and honest about what it does not know.
+
+Render as a dotted underline — **not** a colour or dim treatment, because `ColoredTranslation`
+(`src/lyrics/LyricDisplay.tsx:216`) already uses colour to carry token-alignment meaning. It must
+read as distinct from the existing `needs_review` *timing* flag. Tapping opens the popover.
+
+Do NOT add any per-row confidence badge, ranking, or threshold anywhere in the UI.
 
 - [ ] **Step 5: Compute candidates**
 
@@ -1969,7 +1988,7 @@ Expected: PASS.
 ```bash
 git add src/lyrics/TranslationRepairPopover.tsx src/lyrics/LyricDisplay.tsx \
         src/player/PlayerView.tsx tests/lyrics/TranslationRepairPopover.test.tsx
-git commit -m "feat: flag uncertain translation rows and repair them in place"
+git commit -m "feat: mark rows with missing or unplaced translations, and repair them in place"
 ```
 
 ---
