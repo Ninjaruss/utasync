@@ -47,6 +47,7 @@ import { accurateRealignReason } from '../ai-pipeline/alignTimestampMode'
 import { linesAreTimed, chooseAutoAlignment, type AlignMode } from './alignmentPolicy'
 import { EditMode } from '../lyrics/EditMode'
 import type { TranslationApplyMeta } from '../lyrics/SecondLanguagePanel'
+import type { RepairCandidate } from '../lyrics/TranslationRepairPopover'
 import { computeSyncState } from '../core/db/migrations'
 import { hasVisibleTranslation } from '../lyrics/bilingual'
 import { linesNeedEnrichment, linesNeedAlignment, lineNeedsAlignment, enrichmentMadeProgress, LYRICS_ENRICHMENT_VERSION } from '../lyrics/lyricsEnrichment'
@@ -1191,6 +1192,53 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     }
   }
 
+  /** Repair popover candidates for one flagged row (Task 11 Step 5): score the
+   * row's original against nearby rows' translations (i-2..i+2) plus every
+   * unplaced pasted line, via the cached embedder. This ranks alternatives for
+   * ONE row the user already chose to inspect — a different, easier problem
+   * from deciding which rows to flag in the first place (that's structural
+   * facts only, in LyricDisplay), so it is unaffected by the confidence result
+   * that ruled out a confidence-driven marker. */
+  const handleFetchRepairCandidates = async (lineIndex: number): Promise<RepairCandidate[]> => {
+    const rows = song?.lyrics.lines ?? []
+    const original = rows[lineIndex]?.original ?? ''
+    if (!original.trim()) return []
+
+    const nearbyIndices: number[] = []
+    for (let j = Math.max(0, lineIndex - 2); j <= Math.min(rows.length - 1, lineIndex + 2); j++) {
+      if (j !== lineIndex && hasVisibleTranslation(rows[j])) nearbyIndices.push(j)
+    }
+    const nearbyTexts = nearbyIndices.map((j) => rows[j].translation)
+    const unplacedTexts = (song?.lyrics.unplacedTranslations ?? []).map((u) => u.text)
+    const candidateTexts = [...nearbyTexts, ...unplacedTexts]
+    if (candidateTexts.length === 0) return []
+
+    const sourceFor = (i: number): 'nearby' | 'unplaced' => (i < nearbyTexts.length ? 'nearby' : 'unplaced')
+    try {
+      const { embedTexts } = await import('../ai-pipeline/textEmbedder')
+      const { cosineSimilarity } = await import('../ai-pipeline/wordAligner')
+      const vecs = await embedTexts([original, ...candidateTexts])
+      const originalVec = vecs[0]
+      return candidateTexts.map((text, i) => ({
+        text,
+        score: cosineSimilarity(originalVec, vecs[i + 1]),
+        source: sourceFor(i),
+      }))
+    } catch {
+      // Embedder unavailable (manual tier, worker load failure) — still offer
+      // the candidates, unranked, rather than nothing.
+      return candidateTexts.map((text, i) => ({ text, score: 0, source: sourceFor(i) }))
+    }
+  }
+
+  /** Commit a chosen replacement translation for one row (Task 11 repair),
+   * through the same persistence path as any other hand edit. */
+  const handleChooseRepair = (lineIndex: number, text: string) => {
+    if (!song) return
+    const next = song.lyrics.lines.map((l, i) => (i === lineIndex ? { ...l, translation: text } : l))
+    void handleEditLines(next)
+  }
+
   const progress = duration > 0 ? Math.min(1, position / duration) : 0
   const isJapanese = song?.lyrics.sourceLanguage === 'ja'
   const hasTranslation = !!song?.lyrics.lines.some(hasVisibleTranslation)
@@ -1648,6 +1696,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               playlistActive={playlistActive}
               playlistEntries={playlistEntries}
               playlistIndex={playlistIndex}
+              unplacedTranslations={song?.lyrics.unplacedTranslations}
+              translationMismatch={song?.lyrics.translationPairing?.method === 'mismatch'}
+              onFetchRepairCandidates={handleFetchRepairCandidates}
+              onChooseRepair={handleChooseRepair}
               onLineClick={(line) => {
               if (armingAB) {
                 const patch = abLoopPatchFromLineTap(armingAB, line, abLoop)
