@@ -23,7 +23,10 @@ describe('LyricDisplay translation groups', () => {
       grouped('二行目', 'a merged thought', 7),
     ])
     render(<LyricDisplay onLineClick={() => {}} />)
-    expect(screen.getAllByText('a merged thought')).toHaveLength(1)
+    // Visually renders once. The 'member' row also carries an sr-only copy of
+    // the same text for assistive tech (see the dedicated bracket test below),
+    // so this excludes that — it's checking the VISIBLE repeat is suppressed.
+    expect(screen.getAllByText('a merged thought', { selector: ':not(.sr-only)' })).toHaveLength(1)
   })
 
   it('still shows both original rows', () => {
@@ -43,7 +46,7 @@ describe('LyricDisplay translation groups', () => {
       { startTime: 2, endTime: 3, original: '三行目', translation: 'a third thought' },
     ])
     render(<LyricDisplay onLineClick={() => {}} />)
-    expect(screen.getAllByText('a merged thought')).toHaveLength(1)
+    expect(screen.getAllByText('a merged thought', { selector: ':not(.sr-only)' })).toHaveLength(1)
     expect(screen.getByText('a third thought')).toBeTruthy()
   })
 
@@ -55,6 +58,19 @@ describe('LyricDisplay translation groups', () => {
     render(<LyricDisplay onLineClick={() => {}} />)
     expect(screen.getByText('first')).toBeTruthy()
     expect(screen.getByText('second')).toBeTruthy()
+  })
+
+  it('renders the bracket for a member row, with accessible translation text', () => {
+    setStore([
+      grouped('一行目', 'a merged thought', 7),
+      grouped('二行目', 'a merged thought', 7),
+    ])
+    render(<LyricDisplay onLineClick={() => {}} />)
+    const brackets = screen.getAllByTestId('group-bracket')
+    expect(brackets).toHaveLength(1)
+    // The member row must not be silently empty to assistive tech: it carries
+    // the shared translation text even though it isn't visually repeated.
+    expect(brackets[0]).toHaveTextContent('a merged thought')
   })
 
   it('does not merge non-contiguous rows that happen to reuse a group id', () => {

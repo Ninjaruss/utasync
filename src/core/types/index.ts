@@ -176,6 +176,11 @@ export interface LyricsData {
     meanConfidence: number
     flaggedLineCount: number
     version: number
+    /** True once the user has hand-edited this pairing (repair popover pick,
+     * or an AlignmentEditor confirm). An automatic re-fit is unprompted and
+     * must never silently overwrite a hand edit — `refitStaleTranslation`
+     * skips entirely when this is set. */
+    userEdited?: boolean
   }
 }
 

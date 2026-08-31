@@ -9,7 +9,7 @@ import { YouTubePlayer, type YouTubePlayerHandle } from './YouTubePlayer'
 import { youtubeErrorMessage, youtubeNeedsVisibleEmbed } from './youtubeEmbedPolicy'
 import { resolveYouTubeVideoId } from '../sources/youtube'
 import { ABLoopController } from './ABLoop'
-import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, AlignmentLanguage, LyricsData } from '../core/types'
+import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, AlignmentLanguage } from '../core/types'
 import { DragRetimeStrip } from './DragRetimeStrip'
 import { snapToOnset } from './onsetSnap'
 import { retimeLoopFor, retimeLoopForEnd, needsWrap, type RetimeLoop } from './retimeLoop'
@@ -56,8 +56,9 @@ import { retimeQuality } from '../lyrics/retimeQuality'
 import { runWhenIdle, yieldToMainThread } from '../core/idle'
 import { alignLinesTokens, countEmbedBatches } from '../ai-pipeline/wordAligner'
 import { preloadGlossLexicon } from '../ai-pipeline/lyricGloss'
-import { buildAlignJobs, smartAttachSecondLanguage } from '../lyrics/lineAligner'
-import { shouldRefitTranslation, buildApplyMeta } from '../lyrics/translationRefit'
+import { buildAlignJobs } from '../lyrics/lineAligner'
+import { refitStaleTranslation, TRANSLATION_PAIRING_VERSION } from '../lyrics/translationRefit'
+import { applyLineTextPatch } from '../lyrics/lineOps'
 import { reconcileLinesReadingsAsync, reconcileLineReadingsAsync } from '../ai-pipeline/readingReconciler'
 import { fixAdjacentTranslationOrder } from '../ai-pipeline/translationOrder'
 import { LoadingOverlay } from '../core/ui/LoadingOverlay'
@@ -273,46 +274,6 @@ function wantsWordPairColoring(): boolean {
 
 function canRunWordAlignment(): boolean {
   return getDeviceTier() !== 'manual'
-}
-
-/** Re-fits a previously-stored translation pairing after auto-align or gap
- * recovery may have changed line boundaries out from under it (Task 12): both
- * can re-time AND re-split/re-merge lines relative to what the pairing was built
- * against, silently leaving it describing rows that no longer exist. Re-fits
- * ONLY when the primary text/line-count actually changed (shouldRefitTranslation
- * keys on text, never timing) and only when a `translationSource` is stored to
- * re-fit against — costs one cached embedding pass, which is cheap next to
- * shipping a translation that quietly no longer lines up. Returns the input
- * `lyrics` unchanged (by reference) when no re-fit is needed or possible, so
- * callers can cheaply detect "nothing to do" with `!==`. */
-async function refitStaleTranslation(
-  prevLines: TimedLine[],
-  lyrics: LyricsData,
-  meta: { title: string; artist: string },
-): Promise<LyricsData> {
-  if (!lyrics.translationSource) return lyrics
-  if (!shouldRefitTranslation(prevLines, lyrics.lines)) return lyrics
-  try {
-    const result = await smartAttachSecondLanguage(lyrics.lines, lyrics.translationSource, undefined, {
-      songTitle: meta.title,
-      artist: meta.artist,
-    })
-    const defined = (result.confidence ?? []).filter((c): c is number => typeof c === 'number')
-    const mean = defined.length ? defined.reduce((a, b) => a + b, 0) / defined.length : 1
-    const applyMeta = buildApplyMeta(result, lyrics.translationSource, mean)
-    return {
-      ...lyrics,
-      lines: result.lines,
-      unplacedTranslations: applyMeta.unplaced,
-      translationSource: applyMeta.source,
-      translationPairing: applyMeta.pairing,
-    }
-  } catch {
-    // A failed re-fit must not lose the song's timing/text — the caller already
-    // has that in `lyrics`; leave the (now possibly stale) pairing as-is rather
-    // than throwing away a successful align/gap-recovery over a re-fit error.
-    return lyrics
-  }
 }
 
 /** Anything that owns its own keystrokes: a text field, a real control, or the
@@ -1303,8 +1264,27 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
    * through the same persistence path as any other hand edit. */
   const handleChooseRepair = (lineIndex: number, text: string) => {
     if (!song) return
-    const next = song.lyrics.lines.map((l, i) => (i === lineIndex ? { ...l, translation: text } : l))
-    void handleEditLines(next)
+    const next = song.lyrics.lines.map((l, i) =>
+      (i === lineIndex ? applyLineTextPatch(l, { translation: text }) : l),
+    )
+    // Record that the user hand-fixed this pairing (IMPORTANT 3): stamp
+    // `translationPairing.userEdited` so a later automatic re-fit
+    // (refitStaleTranslation) skips instead of silently re-deriving from the
+    // stored paste and discarding the pick the user just made. Other pairing
+    // fields are carried through unchanged — this call isn't a fresh fit.
+    void handleEditLines(next, {
+      source: song.lyrics.translationSource ?? '',
+      unplaced: song.lyrics.unplacedTranslations ?? [],
+      pairing: {
+        ...(song.lyrics.translationPairing ?? {
+          method: 'index',
+          meanConfidence: 1,
+          flaggedLineCount: 0,
+          version: TRANSLATION_PAIRING_VERSION,
+        }),
+        userEdited: true,
+      },
+    })
   }
 
   const progress = duration > 0 ? Math.min(1, position / duration) : 0
@@ -1822,6 +1802,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
                   : undefined
               }
               unplacedTranslations={song?.lyrics.unplacedTranslations}
+              translationSource={song?.lyrics.translationSource}
             />
           )}
         </div>

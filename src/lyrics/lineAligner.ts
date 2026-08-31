@@ -418,11 +418,18 @@ function applyTranslations(
     const next = applyLineTextPatch(line, { translation, translationConfidence })
     // Only stamp a group id where the row genuinely shares its translation with a
     // neighbour. A singleton id on every row would be noise, and absence is already
-    // defined as "this row is its own group".
+    // defined as "this row is its own group". A row that no longer shares its
+    // translation must have any STALE id cleared, not just skipped — otherwise a
+    // leftover `translationGroup` from a previous fit survives here and
+    // `groupRanges` keeps bracketing it with a neighbour whose translation it no
+    // longer shares (CRITICAL 1).
     if (groups) {
       const id = groups[i]
       const shared = groups.some((g, k) => k !== i && g === id)
       if (shared) next.translationGroup = id
+      else delete next.translationGroup
+    } else {
+      delete next.translationGroup
     }
     return next
   })
@@ -1100,31 +1107,33 @@ export async function smartAttachSecondLanguage(
     && primaryBlocks.length === secondaryBlocks.length
 
   if (useBlockSplit) {
+    // `useBlockSplit` requires `!timed` (see above), so the `timed` branch this
+    // loop used to carry was dead code — always removed (IMPORTANT 6).
     const merged: TimedLine[] = []
     const mismatchedBlocks: number[] = []
+    const extras: string[] = []
+    const confidence: (number | undefined)[] = []
     let method: PairingMethod = 'index'
     for (let b = 0; b < primaryBlocks.length; b++) {
       const blockTrans = cleanTranslations(
         normalizeTranslationLines(secondaryBlocks[b], primaryBlocks[b].length),
       ).filter((t) => !isTranslationNoiseLine(t, { songTitle: options?.songTitle, artist: options?.artist }))
-      const blockSecondary = secondaryBlocks[b].join('\n')
       const content = await smartAttachSecondLanguageFromLines(
         primaryBlocks[b],
         blockTrans,
         embedFn,
         options,
       )
-      if (timed) {
-        const finalized = finalizeTimedAttach(primaryBlocks[b], blockSecondary, content, blockTrans)
-        merged.push(...finalized.lines)
-        method = worstPairingMethod(method, finalized.method)
-      } else {
-        merged.push(...content.lines)
-        if (content.mismatchedBlocks.length > 0) mismatchedBlocks.push(b)
-        method = worstPairingMethod(method, content.method)
-      }
+      merged.push(...content.lines)
+      if (content.mismatchedBlocks.length > 0) mismatchedBlocks.push(b)
+      method = worstPairingMethod(method, content.method)
+      // Accumulate extras/confidence across the block loop the same way the
+      // main (non-block-split) path does — untimed multi-stanza pastes used to
+      // lose unplaced lines and bypass the wrong-song confidence gate entirely.
+      extras.push(...(content.extras ?? []))
+      confidence.push(...(content.confidence ?? primaryBlocks[b].map(() => undefined)))
     }
-    return { lines: merged, mismatchedBlocks, method }
+    return { lines: merged, mismatchedBlocks, method, extras, confidence }
   }
 
   const trans = cleanTranslations(extractTranslationsForAttach(secondary, primary.length))

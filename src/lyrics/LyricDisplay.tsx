@@ -348,12 +348,17 @@ function Line({ line, lineIndex, isActive, loopHighlight, onLineClick, lineRef, 
     </div>
   ) : null
 
+  // The bracket's decorative bar is aria-hidden (nothing to describe visually),
+  // but the row's own translation text — the same shared string 'start' shows —
+  // still needs to reach assistive tech, or a screen-reader user gets no
+  // translation at all for this row (MUST-FIX DEFERRED).
   const groupBracketEl = showTranslationArea && groupRole === 'member' ? (
     <div
-      aria-hidden="true"
+      data-testid="group-bracket"
       className={[sideBySide ? 'text-left' : 'mt-1.5', 'flex items-center', isActive ? 'h-5' : 'h-4'].join(' ')}
     >
-      <span className="inline-block w-0.5 h-full rounded-full bg-white/15" />
+      <span aria-hidden="true" className="inline-block w-0.5 h-full rounded-full bg-white/15" />
+      <span className="sr-only">{line.translation}</span>
     </div>
   ) : null
 

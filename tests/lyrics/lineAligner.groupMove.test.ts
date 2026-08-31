@@ -104,4 +104,20 @@ describe('translationGroup stamping', () => {
     expect(result.lines[0].translationGroup).toBeDefined()
     expect(result.lines[2].translationGroup).toBeUndefined()
   })
+
+  // CRITICAL 1 regression: `pairTranslationsToPrimary` never passes a `groups`
+  // argument to `applyTranslations`, so every row it produces must have any
+  // stale `translationGroup` cleared — otherwise a row that used to share a
+  // translation with a neighbour keeps rendering as a bracketed continuation
+  // after a re-pair that no longer groups it with anything.
+  it('clears a stale translationGroup on rows re-paired through a path that forms no group', async () => {
+    const { pairTranslationsToPrimary } = await import('../../src/lyrics/lineAligner')
+    const primary = [
+      { startTime: 0, endTime: 1, original: 'a', translation: 'old shared', translationGroup: 7 },
+      { startTime: 1, endTime: 2, original: 'b', translation: 'old shared', translationGroup: 7 },
+    ]
+    const result = pairTranslationsToPrimary(primary, ['fresh one', 'fresh two'])
+    expect(result.lines[0].translationGroup).toBeUndefined()
+    expect(result.lines[1].translationGroup).toBeUndefined()
+  })
 })

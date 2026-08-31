@@ -6,7 +6,12 @@ import { smartAttachSecondLanguage } from './lineAligner'
 import { ProgressOverlay } from '../core/ui/ProgressOverlay'
 import { SECOND_LANGUAGE_ALIGN_STEPS } from '../sources/addSongProgress'
 import { getSecondLanguageSearchSection } from './lyricSiteLinks'
-import { buildApplyMeta } from './translationRefit'
+import {
+  buildApplyMeta,
+  lastTranslatedRowIndex,
+  TRANSLATION_PAIRING_VERSION,
+  WRONG_SONG_MEAN_CONFIDENCE,
+} from './translationRefit'
 
 // Secondary action on the cinnabar-900 panel: a lifted, bordered surface so the
 // button reads as a control instead of blending into the panel (accent stays
@@ -37,28 +42,22 @@ type Phase =
   | { kind: 'current' }
   | { kind: 'aligning' }
   | { kind: 'wrong-song'; paired: TimedLine[]; secondary: string; mean: number; meta: TranslationApplyMeta }
-  | { kind: 'align'; originalLines: string[]; translationLines: string[]; extraLines: string[] }
+  | {
+      kind: 'align'
+      originalLines: string[]
+      translationLines: string[]
+      extraLines: string[]
+      /** The raw paste this alignment came from, so a manual confirm can
+       * persist `translationSource` (IMPORTANT 4) the same way a clean fit does. */
+      secondary: string
+    }
   | { kind: 'paste' }
 
-/**
- * Below this mean confidence the paste is probably for a different song.
- *
- * Measured 2026-08-30 via a throwaway cross-song probe over the 3 corpus songs
- * that carry a committed English translation (veil, akfg-firsttake, guitar-loneliness;
- * only 6 ordered cross-song pairs exist, so this is a small sample):
- *  - composite perturbation (messy but CORRECT fit): mean confidence 0.35-0.45
- *  - cross-song paste (WRONG song entirely), where a confidence signal was
- *    produced at all: mean confidence 0.16-0.25
- * The two ranges do not overlap; 0.30 sits in the gap.
- *
- * Caveat: 1 of the 6 cross-song pairs produced NO confidence array at all
- * (the dense slot-fit path skips DP scoring when line counts happen to align),
- * which falls back to the "trust it" default below and slips past this gate
- * undetected. The gate therefore fails open on line-count coincidences rather
- * than catching every wrong-song paste — it screens the flagrant case, not
- * every case.
- */
-const WRONG_SONG_MEAN_CONFIDENCE = 0.3
+// WRONG_SONG_MEAN_CONFIDENCE (below this mean confidence, a fit is probably
+// for the wrong song) now lives in translationRefit.ts — imported above — so
+// the automatic re-fit (refitStaleTranslation) can share the same gate
+// without an import cycle between the two modules. See that constant's own
+// doc comment for how 0.3 was measured.
 
 function FindLyricsOnlineSection({
   title,
@@ -153,14 +152,20 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
         onClose()
         return
       }
-      // Surface translation lines beyond the primary count so the editor's
-      // "extra lines" section can appear (they were silently dropped before).
+      // Prefer the fitter's real extras (IMPORTANT 5) over a rebuilt positional
+      // tail — a positional slice can only ever represent lines past the
+      // primary's end, so on EQUAL line counts it always shows zero extras even
+      // when the fitter reported a genuine mid-song miss. Only fall back to the
+      // slice when the fitter path didn't compute extras at all (e.g. the
+      // device-tier/index/mismatch fallbacks), so the surplus-lines case (a
+      // real count mismatch, no `extras` field) still surfaces its overflow.
       const rawTrans = extractSecondLanguageLines(secondary)
       setPhase({
         kind: 'align',
         originalLines: lines.map((l) => l.original),
         translationLines: result.lines.map((l) => l.translation),
-        extraLines: rawTrans.slice(lines.length),
+        extraLines: result.extras ?? rawTrans.slice(lines.length),
+        secondary,
       })
     } catch {
       const transLines = extractSecondLanguageLines(secondary)
@@ -169,6 +174,7 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
         originalLines: lines.map((l) => l.original),
         translationLines: transLines,
         extraLines: transLines.slice(lines.length),
+        secondary,
       })
     }
   }
@@ -201,7 +207,31 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
           originalLines={phase.originalLines}
           translationLines={phase.translationLines}
           extraLines={phase.extraLines}
-          onConfirm={(pairs) => { onApply(pairsToTimedLines(lines, pairs)); onClose() }}
+          onConfirm={(pairs, remainingExtras) => {
+            const nextLines = pairsToTimedLines(lines, pairs)
+            // Write provenance for the messiest-paste route too (IMPORTANT 4):
+            // translationSource so a later re-fit has something to work from,
+            // and unplacedTranslations recomputed from what the user actually
+            // left unresolved rather than the stale pre-editor snapshot. The
+            // pairing is marked userEdited so an automatic re-fit never
+            // silently overwrites this hand-built pairing.
+            const meta: TranslationApplyMeta = {
+              source: phase.secondary,
+              unplaced: remainingExtras.map((text) => ({
+                text,
+                afterLineIndex: lastTranslatedRowIndex(nextLines),
+              })),
+              pairing: {
+                method: 'index',
+                meanConfidence: 1,
+                flaggedLineCount: nextLines.filter((l) => !hasVisibleTranslation(l)).length,
+                version: TRANSLATION_PAIRING_VERSION,
+                userEdited: true,
+              },
+            }
+            onApply(nextLines, meta)
+            onClose()
+          }}
           // Non-destructive exit: 'align' is only ever reached after a paste
           // (route() runs from the paste phase; 'confirm' is downstream of it),
           // so return to the paste step with the pasted text intact — nothing

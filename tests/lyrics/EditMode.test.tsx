@@ -720,3 +720,58 @@ describe('EditMode — external-change undo guard', () => {
     expect(undone[0].original).toBe('a')
   })
 })
+
+// IMPORTANT 4 regression: the AlignmentEditor ("Fix all pairings") confirm
+// path used to write no meta at all — no translationSource, and stale
+// unplacedTranslations were never cleared. It must now write both.
+describe('EditMode — Fix all pairings (AlignmentEditor) provenance', () => {
+  it('writes translationSource and recomputed unplacedTranslations on confirm', () => {
+    const translated: TimedLine[] = [
+      { startTime: 0, endTime: 2, original: 'a', translation: 'first translated' },
+      { startTime: 2, endTime: 4, original: 'b', translation: '' },
+    ]
+    const { onChangeLines } = renderEditMode({
+      lines: translated,
+      translationSource: 'A\nleftover extra line',
+      unplacedTranslations: [{ text: 'leftover extra line', afterLineIndex: 0 }],
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /^more$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /fix all pairings/i }))
+    // AlignmentEditor is open with the stored extra line still unresolved.
+    expect(screen.getByText('leftover extra line')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /confirm pairings/i }))
+
+    expect(onChangeLines).toHaveBeenCalledTimes(1)
+    const [, meta] = onChangeLines.mock.calls[0]
+    expect(meta).toBeDefined()
+    expect(meta.source).toBe('A\nleftover extra line')
+    // Left un-promoted/un-discarded in the editor, so it's still unplaced —
+    // but recomputed from what the user actually did, not the stale snapshot.
+    expect(meta.unplaced).toEqual([{ text: 'leftover extra line', afterLineIndex: 0 }])
+    expect(meta.pairing.userEdited).toBe(true)
+  })
+
+  it('clears a resolved orphan from unplacedTranslations once the user promotes it into a row', () => {
+    const translated: TimedLine[] = [
+      { startTime: 0, endTime: 2, original: 'a', translation: 'first translated' },
+      { startTime: 2, endTime: 4, original: 'b', translation: '' },
+    ]
+    const { onChangeLines } = renderEditMode({
+      lines: translated,
+      translationSource: 'A\nB fixed',
+      unplacedTranslations: [{ text: 'B fixed', afterLineIndex: 0 }],
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /^more$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /fix all pairings/i }))
+    // Promote the orphan into the empty row (line 2's translation is blank).
+    fireEvent.click(screen.getByRole('button', { name: /fill next empty/i }))
+    fireEvent.click(screen.getByRole('button', { name: /confirm pairings/i }))
+
+    const [nextLines, meta] = onChangeLines.mock.calls[0]
+    expect((nextLines as TimedLine[])[1].translation).toBe('B fixed')
+    // Now resolved — must not still be reported as unplaced.
+    expect(meta.unplaced).toEqual([])
+  })
+})
