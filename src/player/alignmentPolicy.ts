@@ -26,23 +26,23 @@ export function chooseAutoAlignment(
   if (lines.length === 0) return null
   if (hasStoredAudio) {
     if (alignmentMode === 'auto') return null
-    // Imported timestamps are NOT simply "for another master". Measured against
-    // human truth, a found LRCLIB entry describes the local recording to within a
-    // median 0.24-0.73s once ONE constant offset is removed
-    // (tests/ai-pipeline/lrc-truth.test.ts) — same master, shifted by about a
-    // second. So when the lines are already timed, the song does not need a full
-    // transcription; it needs that single constant.
+    // Already-timed lyrics are USABLE AS-IS. They may be exact — a .lrc/.srt the
+    // user had alongside their own audio — or a second or so out, as a fetched
+    // LRCLIB entry typically is (measured: same master, median 0.24-0.73s after
+    // one constant shift). We cannot tell which acoustically: two Whisper-free
+    // estimators were measured and both missed by ~0.8s, because a densely-sung
+    // track has vocal energy nearly everywhere, so the envelope knows THAT
+    // someone is singing but never WHICH words.
     //
-    // We cannot find the constant acoustically: estimating it from the first
-    // vocal onset, and by sliding every line start against the vocal-activity
-    // envelope, both failed (errors of 0.79s and 0.86s against a known 1.26s,
-    // with a flat correlation peak). A densely-sung track has vocal energy almost
-    // everywhere, so the envelope knows THAT someone is singing, never WHICH
-    // words — and the offset is a which-words question. The user can answer it in
-    // one drag, hearing the result as they go.
-    if (linesAreTimed(lines)) return 'offset'
+    // So do not demand anything. Play. If the lyrics turn out to be off, the
+    // player offers a nudge — the user discovers that by listening, which is the
+    // only reliable test available and the one they would apply anyway. Forcing
+    // a drag on the exact case is friction that also invites damaging timings
+    // that were already right.
+    if (linesAreTimed(lines)) return null
     return manualAlignMode(tier)
   }
+
   if (linesAreTimed(lines)) return null
   if (canPlayback) return 'tap'
   return null

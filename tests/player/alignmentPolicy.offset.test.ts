@@ -20,8 +20,13 @@ const untimed: TimedLine[] = [
  * supply by dragging.
  */
 describe('chooseAutoAlignment — offset fast path', () => {
-  it('offers the drag when a song has audio AND already-timed lines', () => {
-    expect(chooseAutoAlignment(true, timed, 'full', true, 'manual')).toBe('offset')
+  it('just plays a song whose lines are ALREADY timed — no screen at all', () => {
+    // The timings may be exact (your own .lrc/.srt shipped with the audio) or a
+    // second or so out (a fetched LRCLIB entry). We cannot tell the difference
+    // acoustically, and forcing a drag on the exact case is friction that also
+    // invites the user to damage correct timings. So: play, and offer an
+    // adjustment if it turns out to be off.
+    expect(chooseAutoAlignment(true, timed, 'full', true, 'manual')).toBeNull()
   })
 
   it('still transcribes when the lyrics carry no timings', () => {
@@ -38,7 +43,7 @@ describe('chooseAutoAlignment — offset fast path', () => {
     expect(chooseAutoAlignment(false, untimed, 'full', true, 'manual')).toBe('tap')
   })
 
-  it('offers the drag even on a manual-tier device, since it needs no model', () => {
-    expect(chooseAutoAlignment(true, timed, 'manual', true, 'manual')).toBe('offset')
+  it('plays on a manual-tier device too, rather than demanding anything', () => {
+    expect(chooseAutoAlignment(true, timed, 'manual', true, 'manual')).toBeNull()
   })
 })

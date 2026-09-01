@@ -16,7 +16,7 @@ import {
   isPlausibleAudioFile,
   type MetadataFieldSource,
 } from './audioMetadata'
-import type { TimedLine } from '../core/types'
+import type { LyricsData, TimedLine } from '../core/types'
 import { InlineError } from '../core/ui/InlineError'
 import { ProgressOverlay } from '../core/ui/ProgressOverlay'
 import { ProcessProgress } from '../core/ui/ProcessProgress'
@@ -233,6 +233,17 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
     return () => clearTimeout(timer)
   }, [file, title, artist, lyricsPhase.kind, durationSec])
 
+  /**
+   * Where the timings came from, which is what decides whether the player should
+   * hint that they may need nudging. A fetched catalogue entry is the same master
+   * but typically about a second out; a subtitle file the user had alongside
+   * their own audio is very likely already exact.
+   */
+  function resolveTimingSource(): LyricsData['timingSource'] {
+    if (lyricsPhase.kind === 'found') return 'lrclib'
+    return 'subtitle-file'
+  }
+
   async function resolveLines(): Promise<TimedLine[] | null> {
     if (lyricsPhase.kind === 'found') return lyricsPhase.lines
     if (lyricsPhase.kind === 'manual') {
@@ -281,6 +292,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
         id: songId, title: title.trim(), artist: artist.trim(), audioStoredPath,
         lines: finalLines, sourceLanguage, translationLanguage, albumArtUrl,
         durationSec,
+        timingSource: resolveTimingSource(),
       })
       await db.songs.put(song)
       setSaveProgress(null)

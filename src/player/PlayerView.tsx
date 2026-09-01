@@ -1729,6 +1729,29 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         />
       )}
 
+      {/* Timings that came from an external catalogue are the same master but
+          typically about a second out, so offer a nudge. Timings the user
+          supplied themselves (a .lrc/.srt alongside their own audio) are very
+          likely exact, and timings we produced are exact by construction — stay
+          quiet for those rather than inviting damage to something already right. */}
+      {mode === 'play' && canPlayback && !lyricsUntimed
+        && song?.lyrics.timingSource === 'lrclib'
+        && song?.lyrics.alignmentMode !== 'auto' && (
+        <Banner severity="info">
+          <span className="flex items-center gap-3 flex-wrap">
+            <span>Lyrics not lining up? These timings came from a lyrics database.</span>
+            <button
+              type="button"
+              data-testid="lineup-lyrics"
+              onClick={() => setAlignMode('offset')}
+              className="shrink-0 px-3 py-1.5 rounded-lg bg-cinnabar-950 border border-cinnabar-800 text-white/85 text-xs min-h-11 hover:bg-cinnabar-800 transition-colors"
+            >
+              Line them up
+            </button>
+          </span>
+        </Banner>
+      )}
+
       {mode === 'play' && lyricsUntimed && canPlayback && (
         <Banner severity="info">
           Lyrics aren&apos;t timed yet. Open Edit → Tap-through to time each line as the song plays

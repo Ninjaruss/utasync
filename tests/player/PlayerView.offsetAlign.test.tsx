@@ -40,9 +40,7 @@ const LINES = [
   { startTime: 9.4, endTime: 12.0, original: 'two', translation: '' },
 ]
 
-beforeEach(async () => {
-  usePlayerStore.setState({ currentSongId: null, playbackState: 'idle', position: 0, duration: 0 })
-  await db.songs.clear()
+async function putSong(timingSource?: string) {
   await db.songs.put({
     id: 'song1', title: 'T', artist: 'A',
     audioStoredPath: 'songs/song1.mp3',
@@ -50,42 +48,64 @@ beforeEach(async () => {
     lyrics: {
       lines: LINES.map((l) => ({ ...l })),
       sourceLanguage: 'ja', translationLanguage: 'en', alignmentMode: 'manual',
+      ...(timingSource ? { timingSource } : {}),
     },
     syncState: 'synced', createdAt: new Date(),
   } as never)
+}
+
+beforeEach(async () => {
+  usePlayerStore.setState({ currentSongId: null, playbackState: 'idle', position: 0, duration: 0 })
+  await db.songs.clear()
 })
 
 describe('a song that arrives with synced lyrics', () => {
-  it('offers the drag instead of transcribing', async () => {
+  it('just plays — no screen demanding anything', async () => {
+    await putSong('lrclib')
     render(<PlayerView songId="song1" onBack={vi.fn()} autoAlignOnOpen />)
-    await waitFor(() => expect(screen.getByTestId('offset-align')).toBeTruthy())
-    expect(screen.queryByTestId('auto-align-flow')).toBeNull()
+    await waitFor(() => expect(screen.getByText('one')).toBeTruthy())
+    expect(screen.queryByTestId('auto-align-flow'), 'must not transcribe').toBeNull()
+    expect(screen.queryByTestId('offset-align'), 'must not force a drag').toBeNull()
   })
 
-  it('shifts every line by the amount the user dragged, and stops re-prompting', async () => {
+  it('offers a nudge when the timings came from an external catalogue', async () => {
+    await putSong('lrclib')
     render(<PlayerView songId="song1" onBack={vi.fn()} autoAlignOnOpen />)
+    expect(await screen.findByTestId('lineup-lyrics')).toBeTruthy()
+  })
+
+  it('stays quiet for a subtitle file the user supplied themselves', async () => {
+    // Very likely already exact — nagging about it would be noise, and would
+    // invite damaging timings that were right.
+    await putSong('subtitle-file')
+    render(<PlayerView songId="song1" onBack={vi.fn()} autoAlignOnOpen />)
+    await waitFor(() => expect(screen.getByText('one')).toBeTruthy())
+    expect(screen.queryByTestId('lineup-lyrics')).toBeNull()
+  })
+
+  it('opens the drag from the nudge, and shifts every line on commit', async () => {
+    await putSong('lrclib')
+    render(<PlayerView songId="song1" onBack={vi.fn()} autoAlignOnOpen />)
+    fireEvent.click(await screen.findByTestId('lineup-lyrics'))
     await waitFor(() => expect(screen.getByTestId('offset-align')).toBeTruthy())
 
-    // First line sits at 6.50s; the user drops it at 7.76s => +1.26s for every line.
     fireEvent.click(screen.getByRole('button', { name: 'drop-at-7.76' }))
 
     await waitFor(async () => {
       const song = await db.songs.get('song1')
       expect(song!.lyrics.lines[0].startTime).toBeCloseTo(7.76)
       expect(song!.lyrics.lines[1].startTime).toBeCloseTo(10.66)
-      expect(song!.lyrics.lines[1].endTime).toBeCloseTo(13.26)
-      // Marked, so re-opening the song does not ask again.
       expect(song!.lyrics.alignmentMode).toBe('auto')
     })
     await waitFor(() => expect(screen.queryByTestId('offset-align')).toBeNull())
   })
 
   it('does not commit a shift the control could not express', async () => {
+    await putSong('lrclib')
     render(<PlayerView songId="song1" onBack={vi.fn()} autoAlignOnOpen />)
+    fireEvent.click(await screen.findByTestId('lineup-lyrics'))
     await waitFor(() => expect(screen.getByTestId('offset-align')).toBeTruthy())
 
-    // Thumb pinned to the window edge: the real difference is larger than a
-    // constant shift can represent, so this is the "different master" case.
     fireEvent.click(screen.getByRole('button', { name: 'drop-clamped' }))
 
     await waitFor(() => expect(screen.getByTestId('auto-align-flow')).toBeTruthy(), { timeout: 3000 })
