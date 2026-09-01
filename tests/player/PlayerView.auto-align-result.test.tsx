@@ -46,7 +46,10 @@ beforeEach(async () => {
     audioStoredPath: 'songs/song1.mp3',
     sources: [{ provider: 'upload', ref: 'song1', hasAudio: true }],
     lyrics: {
-      lines: [{ startTime: 1, endTime: 3, original: 'hello', translation: '' }],
+      // Untimed: a song with NO usable timings is the one that needs a full
+      // transcription. A song that already has them takes the drag-offset path
+      // instead (see PlayerView.offsetAlign.test.tsx).
+      lines: [{ startTime: 0, endTime: 0, original: 'hello', translation: '' }],
       sourceLanguage: 'en', translationLanguage: 'en', alignmentMode: 'manual',
     },
     syncState: 'synced', createdAt: new Date(),

@@ -11,6 +11,8 @@ import { resolveYouTubeVideoId } from '../sources/youtube'
 import { ABLoopController } from './ABLoop'
 import type { Song, TimedLine, Language, TimedTranscriptWord, SungPhrase, AlignmentLanguage } from '../core/types'
 import { DragRetimeStrip } from './DragRetimeStrip'
+import { OffsetAlignScreen } from './OffsetAlignScreen'
+import { shiftLinesBy, offsetForLine } from './offsetAlign'
 import { snapToOnset } from './onsetSnap'
 import { retimeLoopFor, retimeLoopForEnd, needsWrap, type RetimeLoop } from './retimeLoop'
 import { computePeaks, type Peaks } from './waveformPeaks'
@@ -1004,6 +1006,11 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
 
   useEffect(() => {
     if (!song || !autoAlignOnOpen) return
+    // This is a ONE-SHOT route into alignment after add-song, as the comment
+    // below says. It re-runs whenever `song` changes identity, which is often —
+    // so without this guard it fights the user: it re-opens a flow they closed,
+    // and it overrides a mode they deliberately switched to (drag -> full align).
+    if (alignMode !== null) return
     const choice = chooseAutoAlignment(!!song.audioStoredPath, song.lyrics.lines, getDeviceTier(), canPlayback, song.lyrics.alignmentMode)
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot route into alignment after add-song
     if (choice) beginAlignment(choice)
@@ -1072,6 +1079,44 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
    * had no idea whether the result was trustworthy. The flow closes itself
    * through its own Close button instead. Tap-through has no result screen, so
    * it still closes on completion. */
+  /**
+   * The user dragged the first line onto the audio. That single delta reconciles
+   * the whole imported LRC, because it is the same master shifted by a constant.
+   */
+  const applyDragOffset = async (
+    lineIndex: number,
+    droppedAtSec: number,
+    { clamped }: { clamped: boolean },
+  ) => {
+    if (!song) return
+    // Clamped means the thumb was pinned to the window edge: the difference is
+    // larger than one shift can express, so this is a genuinely different master.
+    // Escalate rather than persist a guess we know is wrong.
+    if (clamped) { setAlignMode('auto'); return }
+
+    const current = song.lyrics.lines
+    const delta = offsetForLine(current, lineIndex, droppedAtSec)
+    const shifted = shiftLinesBy(current, delta)
+    const updated: Song = {
+      ...song,
+      lyrics: {
+        ...song.lyrics,
+        lines: shifted,
+        // Stamp it aligned so opening the song again does not ask a second time.
+        alignmentMode: 'auto',
+        // Pin what the user placed, so a later re-align keeps their reference point.
+        timingAnchors: [
+          ...(song.lyrics.timingAnchors ?? []).filter((a) => a.lineIndex !== lineIndex),
+          { lineIndex, time: droppedAtSec, source: 'user' as const },
+        ],
+      },
+    }
+    await db.songs.put(updated)
+    setSong(updated)
+    setLines(shifted)
+    setAlignMode(null)
+  }
+
   const applyAlignedSong = async (updated: Song, { closeFlow = true }: { closeFlow?: boolean } = {}) => {
     // Auto-align (and tap-through, via handleTapComplete) can re-time AND
     // re-split lines relative to whatever a stored translation was fitted
@@ -1979,6 +2024,20 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
             if (isYouTube) setSpeed(ytRef.current?.setRate(s) ?? s)
             else { setSpeed(s); engine.setRate(s) }
           }}
+        />
+      )}
+
+      {song && alignMode === 'offset' && (
+        <OffsetAlignScreen
+          lineIndex={0}
+          lineText={song.lyrics.lines[0]?.original}
+          startSec={song.lyrics.lines[0]?.startTime ?? 0}
+          peaks={peaksForSong}
+          waveformState={waveformState}
+          positionSec={position}
+          onPreview={(t) => startRetimeLoop(t)}
+          onCommit={(i, t, o) => { endRetimeLoop(); void applyDragOffset(i, t, o) }}
+          onUseFullAlignment={() => { endRetimeLoop(); setAlignMode('auto') }}
         />
       )}
 
