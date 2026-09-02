@@ -346,13 +346,30 @@ describe('DragRetimeStrip announcements', () => {
   })
 
   it('announces the standing instruction', () => {
-    setup2({ waveformState: 'ready' })
+    setup2({ waveformState: 'ready', peaks: computePeaks(new Float32Array(120 * 1000), 1000) })
     expect(document.querySelector('[role="status"]')!.textContent).toMatch(/first sound of this line/i)
   })
 
   // Without peaks there is nothing on screen to aim at, so pointing the user at
   // "the first sound" asks for something the UI cannot show. A YouTube-only song
   // is the common case here, not an error case.
+  // 'pending' means the peaks are on their way. Telling the user to work by ear
+  // and then swapping the instruction out once they arrive is worse than waiting.
+  it('does not send the user to work by ear while the waveform is still loading', () => {
+    setup2({ waveformState: 'pending' })
+    const status = document.querySelector('[role="status"]')!.textContent!
+    expect(status).toMatch(/first sound of this line/i)
+    expect(status).not.toMatch(/where the singing starts/i)
+  })
+
+  // 'ready' is not enough on its own — a ready state with no usable peaks draws
+  // nothing, so the instruction has to follow what is actually on screen.
+  it('works by ear when the state is ready but there are no peaks to draw', () => {
+    setup2({ waveformState: 'ready', peaks: undefined })
+    expect(document.querySelector('[role="status"]')!.textContent)
+      .toMatch(/where the singing starts/i)
+  })
+
   it('tells the user to work by ear when there is no waveform', () => {
     setup2({ waveformState: 'unavailable' })
     const status = document.querySelector('[role="status"]')!.textContent!

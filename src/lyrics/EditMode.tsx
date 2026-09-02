@@ -86,12 +86,12 @@ interface Props {
    * when there's nothing to tap or no playable audio. */
   onFixTiming?: () => void
   /** Pasted translation lines the fitter could not place, with the row they were
-   * expected after — the real escape hatch for "Fix all pairings" (Task 12).
+   * expected after — the real escape hatch for "Fix word pairing" (Task 12).
    * Absent/empty ⇒ the menu item still opens the editor, just with no extras
    * pre-populated (AlignmentEditor falls back to computing them from a slice). */
   unplacedTranslations?: { text: string; afterLineIndex: number }[]
   /** The raw pasted translation block currently stored for this song, so the
-   * AlignmentEditor "Fix all pairings" confirm can persist it as provenance
+   * AlignmentEditor "Fix word pairing" confirm can persist it as provenance
    * (IMPORTANT 4) instead of writing no meta at all. */
   translationSource?: string
 }
@@ -657,11 +657,16 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
                     </button>
                   )}
                   <button type="button" onClick={() => { setShowMore(false); openSecondLang() }} className={moreMenuItem}>
-                    {hasSecondLang ? '2nd language' : '+ Translation'}
+                    {/* "2nd language" was shorthand for the panel titled "Second
+                      * language" — two names for one thing, and neither is what a
+                      * learner would call it. */}
+                    {hasSecondLang ? 'Second language' : '+ Translation'}
                   </button>
                   {hasSecondLang && (
                     <button type="button" onClick={() => { setShowMore(false); openAlignmentEditor() }} className={moreMenuItem}>
-                      Fix all pairings
+                      {/* "Pairings" is internal vocabulary. The app calls this
+                        * "Word pairing" everywhere the user actually meets it. */}
+                      Fix word pairing
                     </button>
                   )}
                   {/* "Re-align (word-level)" lived here. Word-level timestamps
