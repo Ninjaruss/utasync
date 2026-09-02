@@ -1,5 +1,21 @@
 import '@testing-library/jest-dom'
 import 'fake-indexeddb/auto'
+import { configure } from '@testing-library/react'
+
+/**
+ * Testing Library's default `waitFor` budget is 1s. Most of this suite's
+ * assertions ride on an effect, a microtask chain or `runWhenIdle`, all of which
+ * are scheduled against a CPU this suite shares with 280 other files — so under
+ * load the work is real but late, and a 1s ceiling reports it as a failure. That
+ * produced failures that moved between files run to run and had nothing to do
+ * with the change being tested, which is worse than useless: it teaches you to
+ * discount red.
+ *
+ * Raising the ceiling costs nothing on a green run — `waitFor` returns the
+ * moment its callback passes — and only makes genuine failures slower to
+ * surface. It buys back the signal.
+ */
+configure({ asyncUtilTimeout: 5_000 })
 
 // jsdom doesn't implement scrollIntoView; LyricDisplay relies on it to keep
 // the active line centered. Stub it so component tests don't crash.
