@@ -169,7 +169,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
               className={[
                 'flex-1 min-h-11 rounded-lg text-sm font-medium touch-manipulation transition-[color,background-color,border-color] duration-150 ease-out',
                 defaultSongLanguage === lang
-                  ? 'bg-cinnabar-accent text-white'
+                  ? 'bg-cinnabar-accent text-cinnabar-950'
                   : 'bg-cinnabar-800 text-white/50 hover:text-white/80',
               ].join(' ')}
             >
@@ -346,7 +346,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
           href={SUPPORT_URL}
           target="_blank"
           rel="noopener noreferrer"
-          className="w-full min-h-11 rounded-lg bg-cinnabar-accent hover:bg-cinnabar-accent/90 text-white text-sm font-medium flex items-center justify-center gap-2 touch-manipulation transition-[background-color,transform] duration-150 ease-out active:scale-[0.98]"
+          className="w-full min-h-11 rounded-lg bg-cinnabar-accent hover:bg-cinnabar-accent/90 text-cinnabar-950 text-sm font-medium flex items-center justify-center gap-2 touch-manipulation transition-[background-color,transform] duration-150 ease-out active:scale-[0.98]"
         >
           ♥ Support on Patreon
         </a>

@@ -258,7 +258,7 @@ function TransportButtons({
       <button
         type="button"
         onClick={onTogglePlay}
-        className={`${playClass} rounded-full bg-cinnabar-accent text-white flex items-center justify-center touch-manipulation transition-[transform,box-shadow] duration-150 ease-out active:scale-[0.96]`}
+        className={`${playClass} rounded-full bg-cinnabar-accent text-cinnabar-950 flex items-center justify-center touch-manipulation transition-[transform,box-shadow] duration-150 ease-out active:scale-[0.96]`}
         style={{ boxShadow: '0 0 18px rgba(248,113,113,0.35)' }}
         aria-label={playbackState === 'playing' ? 'Pause playback' : 'Start playback'}
       >

@@ -107,7 +107,7 @@ const toolbarIconBtn =
 const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iP(hone|ad|od)/.test(navigator.userAgent) ? '⌘' : 'Ctrl+'
 
 const toolbarPrimaryBtn =
-  'min-h-11 px-3.5 py-2 rounded-lg bg-cinnabar-accent text-white text-xs font-semibold shadow-sm shadow-cinnabar-accent/20 hover:bg-cinnabar-accent/90 touch-manipulation transition-[background-color,transform] duration-150 ease-out active:scale-[0.96]'
+  'min-h-11 px-3.5 py-2 rounded-lg bg-cinnabar-accent text-cinnabar-950 text-xs font-semibold shadow-sm shadow-cinnabar-accent/20 hover:bg-cinnabar-accent/90 touch-manipulation transition-[background-color,transform] duration-150 ease-out active:scale-[0.96]'
 
 const moreMenuItem =
   'min-h-11 px-3 py-2 text-left text-xs text-white/70 rounded-lg hover:bg-cinnabar-800/60 hover:text-white touch-manipulation whitespace-nowrap transition-colors'
@@ -696,7 +696,12 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
               Auto-align
             </button>
           )}
-          {hasLocalAudio && !autoAlignSupported && onTapSync && (
+          {/* Auto-align needs a local audio file, so a YouTube-only song had no
+              headline action at all — just a line of prose naming "Tap-through",
+              whose only entry point was buried in the More menu. Whenever
+              auto-align is not the path, surface tap-through where the user is
+              already looking. */}
+          {(!hasLocalAudio || !autoAlignSupported) && showTapSync && onTapSync && (
             <button
               type="button"
               onClick={onTapSync}
@@ -708,7 +713,7 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
         </div>
         {!hasLocalAudio && (
           <p className="text-xs text-white/55 text-pretty">
-            No audio file — use Tap-through to time lyrics while the song plays.
+            No audio file — tap through to time lyrics while the song plays.
           </p>
         )}
         {hasLocalAudio && !autoAlignSupported && (
@@ -823,7 +828,7 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
             <p className="text-white/50 text-xs">This takes a few minutes.</p>
             <div className="flex gap-2">
               <button onClick={() => setConfirmAutoAlign(false)} className="flex-1 py-2 rounded-lg bg-cinnabar-950 text-white/70 text-sm">Cancel</button>
-              <button onClick={() => { setConfirmAutoAlign(false); onAutoAlign() }} className="flex-1 py-2 rounded-lg bg-cinnabar-accent text-white text-sm font-medium">Continue</button>
+              <button onClick={() => { setConfirmAutoAlign(false); onAutoAlign() }} className="flex-1 py-2 rounded-lg bg-cinnabar-accent text-cinnabar-950 text-sm font-medium">Continue</button>
             </div>
           </div>
         </div>

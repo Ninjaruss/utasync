@@ -1640,7 +1640,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         <button
           type="button"
           onClick={onBack}
-          className="mt-2 min-h-11 px-4 rounded-xl bg-cinnabar-accent text-white text-sm font-medium touch-manipulation active:scale-[0.97] transition-transform"
+          className="mt-2 min-h-11 px-4 rounded-xl bg-cinnabar-accent text-cinnabar-950 text-sm font-medium touch-manipulation active:scale-[0.97] transition-transform"
         >
           Back to library
         </button>
@@ -1685,12 +1685,12 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         <Banner
           severity="error"
           actionSlot={
-            <label className="shrink-0 self-start px-2.5 py-1.5 rounded-lg bg-cinnabar-accent text-white text-[11px] font-semibold min-h-8 inline-flex items-center touch-manipulation cursor-pointer">
+            <label className="shrink-0 self-start px-2.5 py-1.5 rounded-lg bg-cinnabar-accent text-cinnabar-950 text-[11px] font-semibold min-h-8 inline-flex items-center touch-manipulation cursor-pointer focus-within:border-cinnabar-accent focus-within:ring-1 focus-within:ring-cinnabar-accent">
               {attachingAudio ? 'Adding…' : 'Re-attach audio'}
               <input
                 type="file"
                 accept="audio/*"
-                className="hidden"
+                className="sr-only"
                 disabled={attachingAudio}
                 onChange={(e) => {
                   const file = e.target.files?.[0]

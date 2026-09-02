@@ -26,7 +26,7 @@ const textTone: Record<BannerSeverity, string> = {
 }
 
 const primaryBtn =
-  'shrink-0 self-start min-h-11 px-3 py-1.5 rounded-lg bg-cinnabar-accent text-white text-[11px] font-semibold touch-manipulation transition-[background-color,transform] duration-150 ease-out active:scale-[0.96] disabled:opacity-60 inline-flex items-center gap-1.5'
+  'shrink-0 self-start min-h-11 px-3 py-1.5 rounded-lg bg-cinnabar-accent text-cinnabar-950 text-[11px] font-semibold touch-manipulation transition-[background-color,transform] duration-150 ease-out active:scale-[0.96] disabled:opacity-60 inline-flex items-center gap-1.5'
 const ghostBtn =
   'shrink-0 self-start min-h-11 px-3 py-1.5 rounded-lg border border-cinnabar-700 text-white/70 hover:text-white text-[11px] font-semibold touch-manipulation transition-colors disabled:opacity-60 inline-flex items-center gap-1.5'
 

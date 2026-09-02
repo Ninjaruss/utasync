@@ -73,7 +73,7 @@ export function LibraryScreen({ onOpen, onAdd, onSettings, refreshKey = 0 }: Pro
           <button
             type="button"
             onClick={onAdd}
-            className="w-full py-3 rounded-xl bg-cinnabar-accent text-white font-semibold text-sm flex items-center justify-center gap-2 touch-manipulation transition-[transform,background-color] duration-150 ease-out active:scale-[0.98]"
+            className="w-full py-3 rounded-xl bg-cinnabar-accent text-cinnabar-950 font-semibold text-sm flex items-center justify-center gap-2 touch-manipulation transition-[transform,background-color] duration-150 ease-out active:scale-[0.98]"
           >
             ＋ Add a song
           </button>
@@ -98,7 +98,7 @@ export function LibraryScreen({ onOpen, onAdd, onSettings, refreshKey = 0 }: Pro
               <button
                 type="button"
                 onClick={() => window.location.reload()}
-                className="mt-2 min-h-11 px-4 rounded-xl bg-cinnabar-accent text-white text-sm font-medium touch-manipulation active:scale-[0.97] transition-transform"
+                className="mt-2 min-h-11 px-4 rounded-xl bg-cinnabar-accent text-cinnabar-950 text-sm font-medium touch-manipulation active:scale-[0.97] transition-transform"
               >
                 Try again
               </button>

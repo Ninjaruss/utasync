@@ -19,7 +19,7 @@ import {
 // phase overrides to rounded-xl inline.
 const secondaryPanelBtn =
   'px-3 py-1.5 rounded-lg bg-cinnabar-950 border border-cinnabar-800 text-white/80 text-sm min-h-11 hover:bg-cinnabar-800 transition-colors'
-const accentPanelBtn = 'px-3 py-1.5 rounded-lg bg-cinnabar-accent text-white text-sm min-h-11'
+const accentPanelBtn = 'px-3 py-1.5 rounded-lg bg-cinnabar-accent text-cinnabar-950 text-sm min-h-11'
 
 /** Provenance carried alongside a translation fit, so it can be persisted for
  * repair (Task 11) and re-fitting (Task 12) without re-asking the user to paste. */
@@ -276,7 +276,7 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
               {translatedLines.length > 0 && (
                 <button
                   onClick={openPaste}
-                  className="px-3 py-1.5 rounded-lg bg-cinnabar-accent text-white text-sm min-h-11"
+                  className="px-3 py-1.5 rounded-lg bg-cinnabar-accent text-cinnabar-950 text-sm min-h-11"
                 >
                   Replace translation
                 </button>
@@ -302,7 +302,7 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
               <button onClick={() => { onApply(phase.paired, phase.meta); onClose() }}
                 className={secondaryPanelBtn}>Apply anyway</button>
               <button onClick={openPaste}
-                className="px-3 py-1.5 rounded-lg bg-cinnabar-accent text-white text-sm min-h-11">Paste different</button>
+                className="px-3 py-1.5 rounded-lg bg-cinnabar-accent text-cinnabar-950 text-sm min-h-11">Paste different</button>
             </div>
           </div>
         )}
@@ -321,7 +321,7 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
               <button
                 onClick={() => pasted.trim() && route(pasted)}
                 disabled={!pasted.trim()}
-                className="flex-1 min-w-[8rem] py-2.5 rounded-xl bg-cinnabar-accent text-white text-sm font-medium disabled:opacity-40 min-h-11"
+                className="flex-1 min-w-[8rem] py-2.5 rounded-xl bg-cinnabar-accent text-cinnabar-950 text-sm font-medium disabled:opacity-40 min-h-11"
               >
                 Attach
               </button>

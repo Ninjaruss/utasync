@@ -126,7 +126,7 @@ function ContextStrip({
 const anchorTabBase = 'flex-1 min-h-11 py-1 rounded-lg text-xs font-medium touch-manipulation transition-colors'
 const nudgeBtn =
   'min-h-11 flex-1 rounded-lg border border-cinnabar-800 text-white/70 text-xs tabular-nums touch-manipulation hover:border-cinnabar-accent/50 hover:text-white transition-[color,border-color,transform] duration-150 ease-out active:scale-[0.96]'
-const anchorTabOn = 'bg-cinnabar-accent text-white'
+const anchorTabOn = 'bg-cinnabar-accent text-cinnabar-950'
 const anchorTabOff = 'bg-cinnabar-950 text-white/50'
 
 /**
@@ -307,7 +307,7 @@ export function TimestampPopover({ line, autoEnd, onCommit, onClose, onScrub, on
             onCommit({ start: draftStart, end: draftEnd, shiftRestBy: cascade ? startDelta : undefined })
             onClose()
           }}
-          className="shrink-0 min-h-11 px-6 rounded-lg bg-cinnabar-accent text-white text-xs font-medium touch-manipulation transition-transform duration-150 ease-out active:scale-[0.98]"
+          className="shrink-0 min-h-11 px-6 rounded-lg bg-cinnabar-accent text-cinnabar-950 text-xs font-medium touch-manipulation transition-transform duration-150 ease-out active:scale-[0.98]"
         >
           Done
         </button>

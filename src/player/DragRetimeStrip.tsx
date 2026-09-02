@@ -83,7 +83,12 @@ export function DragRetimeStrip({
 
   const win = dragWindowFor(centreSec, DRAG_WINDOW_BACK_SEC, DRAG_WINDOW_FORWARD_SEC)
   const loop = retimeLoopFor(value)
-  const more = typeof remaining === 'number' && remaining > 1 ? ` · ${remaining} spots left` : ''
+  const more = typeof remaining === 'number' && remaining > 1 ? ` · ${remaining} lines left` : ''
+  /* A YouTube-only song never gets peaks, so "drag to the first sound" pointed at
+   * an empty box that also read "No waveform for this track" — an instruction the
+   * user cannot follow next to what looks like a failure. With no picture to aim
+   * at, the job is done by ear against the playhead, so say that instead. */
+  const byEar = waveformState !== 'ready'
 
   return (
     <div className="relative shrink-0 px-3 sm:px-4 py-2.5 border-b border-cinnabar-900/80 bg-cinnabar-950/80 space-y-2">
@@ -93,7 +98,9 @@ export function DragRetimeStrip({
           a screen reader barrage aimed at the users least able to absorb it. What
           changes during a drag is the slider's own value, which it reports itself. */}
       <p role="status" className="text-xs text-white/70 leading-snug">
-        Drag the marker to the first sound of this line{more}
+        {byEar
+          ? `Play the line and drag the marker to where the singing starts${more}`
+          : `Drag the marker to the first sound of this line${more}`}
         {lineText ? <span className="block text-white/45 truncate">{lineText}</span> : null}
       </p>
 
@@ -133,7 +140,7 @@ export function DragRetimeStrip({
         <button
           type="button"
           onClick={() => onCommit(lineIndex, value, { clamped: isAtWindowEdge(win, value) })}
-          className="shrink-0 min-h-11 px-3 rounded-lg bg-cinnabar-accent text-white text-[11px] font-semibold touch-manipulation transition-transform duration-150 ease-out active:scale-[0.96]"
+          className="shrink-0 min-h-11 px-3 rounded-lg bg-cinnabar-accent text-cinnabar-950 text-[11px] font-semibold touch-manipulation transition-transform duration-150 ease-out active:scale-[0.96]"
         >
           Use this
         </button>

@@ -191,7 +191,7 @@ export function AlignmentEditor({ originalLines, translationLines, extraLines, o
 
       <button
         onClick={handleConfirm}
-        className="w-full py-3 md:py-2.5 bg-cinnabar-accent text-white rounded-xl font-medium shrink-0"
+        className="w-full py-3 md:py-2.5 bg-cinnabar-accent text-cinnabar-950 rounded-xl font-medium shrink-0"
       >
         Confirm pairings
       </button>
