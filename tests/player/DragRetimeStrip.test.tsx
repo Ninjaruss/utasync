@@ -60,9 +60,9 @@ describe('DragRetimeStrip', () => {
     expect(onCommit).toHaveBeenCalledWith(3, 28.8, { clamped: false })
   })
 
-  it('shows how many spots remain', () => {
+  it('shows how many lines remain', () => {
     setup({ remaining: 3 })
-    expect(screen.getByText(/3 spots left/i)).toBeTruthy()
+    expect(screen.getByText(/3 lines left/i)).toBeTruthy()
   })
 
   // The window is centred on the line's current start, so a mistimed line can be
@@ -188,7 +188,7 @@ describe('DragRetimeStrip waveform', () => {
         onPreview={vi.fn()} onCommit={vi.fn()}
       />,
     )
-    expect(screen.getByText(/no waveform/i)).toBeTruthy()
+    expect(screen.getByText(/waveform needs a local audio file/i)).toBeTruthy()
   })
 
   // Losing the waveform must never cost the control itself.
@@ -312,7 +312,7 @@ describe('DragRetimeStrip silent windows', () => {
         onPreview={vi.fn()} onCommit={vi.fn()} />,
     )
     expect(container.querySelector('svg')).toBeTruthy()
-    expect(screen.queryByText(/no waveform/i)).toBeNull()
+    expect(screen.queryByText(/waveform needs a local audio file/i)).toBeNull()
   })
 
   it('reserves the no-waveform message for tracks that truly have none', () => {
@@ -320,7 +320,7 @@ describe('DragRetimeStrip silent windows', () => {
       <DragRetimeStrip lineIndex={3} startSec={30} peaks={null} waveformState="unavailable"
         onPreview={vi.fn()} onCommit={vi.fn()} />,
     )
-    expect(screen.getByText(/no waveform/i)).toBeTruthy()
+    expect(screen.getByText(/waveform needs a local audio file/i)).toBeTruthy()
   })
 })
 
@@ -332,9 +332,9 @@ describe('DragRetimeStrip silent windows', () => {
  * instruction; the value belongs to the slider, which announces itself natively.
  */
 describe('DragRetimeStrip announcements', () => {
-  const setup2 = () => render(
+  const setup2 = (over: Partial<ComponentProps<typeof DragRetimeStrip>> = {}) => render(
     <DragRetimeStrip lineIndex={3} startSec={30} remaining={2} waveformState="unavailable"
-      onPreview={vi.fn()} onCommit={vi.fn()} />,
+      onPreview={vi.fn()} onCommit={vi.fn()} {...over} />,
   )
 
   it('does not wrap the whole live-updating strip in a live region', () => {
@@ -346,8 +346,18 @@ describe('DragRetimeStrip announcements', () => {
   })
 
   it('announces the standing instruction', () => {
-    setup2()
+    setup2({ waveformState: 'ready' })
     expect(document.querySelector('[role="status"]')!.textContent).toMatch(/first sound of this line/i)
+  })
+
+  // Without peaks there is nothing on screen to aim at, so pointing the user at
+  // "the first sound" asks for something the UI cannot show. A YouTube-only song
+  // is the common case here, not an error case.
+  it('tells the user to work by ear when there is no waveform', () => {
+    setup2({ waveformState: 'unavailable' })
+    const status = document.querySelector('[role="status"]')!.textContent!
+    expect(status).toMatch(/drag the marker to where the singing starts/i)
+    expect(status).not.toMatch(/first sound of this line/i)
   })
 
   // The slider already reports its value to assistive tech; the visible number is a

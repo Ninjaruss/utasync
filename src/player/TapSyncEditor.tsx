@@ -197,7 +197,7 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
                 type="button"
                 onClick={() => onSpeedChange(active ? 1 : p.speed)}
                 aria-pressed={active}
-                className={`min-h-9 px-3 rounded-full text-xs touch-manipulation transition-colors ${active ? 'bg-cinnabar-accent text-white' : 'border border-cinnabar-800 text-white/50 hover:text-white'}`}
+                className={`min-h-9 px-3 rounded-full text-xs touch-manipulation transition-colors ${active ? 'bg-cinnabar-accent text-cinnabar-950' : 'border border-cinnabar-800 text-white/50 hover:text-white'}`}
               >
                 {p.label}
               </button>
@@ -214,7 +214,7 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
         onClick={handleTap}
         disabled={done}
         aria-label="Mark line start"
-        className="w-32 h-32 rounded-full bg-cinnabar-accent text-white font-semibold text-lg shadow-lg active:scale-95 transition-transform disabled:opacity-30"
+        className="w-32 h-32 rounded-full bg-cinnabar-accent text-cinnabar-950 font-semibold text-lg shadow-lg active:scale-95 transition-transform disabled:opacity-30"
         style={{ boxShadow: '0 0 30px rgba(248,113,113,0.4)' }}
       >
         {done ? 'Done' : 'Tap'}
@@ -229,7 +229,7 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
             label names the count so a partial pass isn't mistaken for a full one. */}
         {tapped.length > 0 && (
           <button onClick={handleFinish}
-            className="min-h-11 px-6 py-2 bg-cinnabar-accent text-white rounded-full text-sm font-medium touch-manipulation active:scale-[0.97] transition-transform">
+            className="min-h-11 px-6 py-2 bg-cinnabar-accent text-cinnabar-950 rounded-full text-sm font-medium touch-manipulation active:scale-[0.97] transition-transform">
             {done ? 'Save timing' : `Save timing for ${tapped.length} of ${plainLines.length}`}
           </button>
         )}

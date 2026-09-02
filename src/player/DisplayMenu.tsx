@@ -195,7 +195,7 @@ function DisplayMenuPanel({
                     className={[
                       'flex-1 min-h-9 rounded-lg text-[11px] capitalize touch-manipulation transition-colors duration-150',
                       clozeDifficulty === level
-                        ? 'bg-cinnabar-accent text-white'
+                        ? 'bg-cinnabar-accent text-cinnabar-950'
                         : 'border border-cinnabar-800 text-white/70 hover:text-white',
                     ].join(' ')}
                   >

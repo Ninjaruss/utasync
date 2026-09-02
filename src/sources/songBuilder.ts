@@ -1,6 +1,6 @@
 // src/sources/songBuilder.ts
 import { v4 as uuidv4 } from 'uuid'
-import type { Song, TimedLine, AlignmentMode, Language } from '../core/types'
+import type { Song, TimedLine, AlignmentMode, Language, LyricsData } from '../core/types'
 import { getDefaultSongLanguage } from '../payment/SettingsStore'
 import { cleanPastedLyrics, stripInlineFurigana } from '../lyrics/lyricCleanup'
 import { hasLrcTimestamps, parseLRC } from '../lyrics/lrc-parser'
@@ -15,6 +15,9 @@ export interface BuildSongInput {
   sourceLanguage?: Language
   translationLanguage?: Language
   alignmentMode?: AlignmentMode
+  /** Where the timings came from — decides whether the player hints that they
+   * might need nudging onto this audio. See LyricsData.timingSource. */
+  timingSource?: LyricsData['timingSource']
   albumArtUrl?: string
   durationSec?: number
 }
@@ -42,6 +45,7 @@ export function buildSong(input: BuildSongInput): Song {
       sourceLanguage,
       translationLanguage,
       alignmentMode: input.alignmentMode ?? 'manual',
+      ...(input.timingSource ? { timingSource: input.timingSource } : {}),
     },
     createdAt: new Date(),
   }

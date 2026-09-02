@@ -16,7 +16,7 @@ import {
   isPlausibleAudioFile,
   type MetadataFieldSource,
 } from './audioMetadata'
-import type { TimedLine } from '../core/types'
+import type { LyricsData, TimedLine } from '../core/types'
 import { InlineError } from '../core/ui/InlineError'
 import { ProgressOverlay } from '../core/ui/ProgressOverlay'
 import { ProcessProgress } from '../core/ui/ProcessProgress'
@@ -233,6 +233,17 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
     return () => clearTimeout(timer)
   }, [file, title, artist, lyricsPhase.kind, durationSec])
 
+  /**
+   * Where the timings came from, which is what decides whether the player should
+   * hint that they may need nudging. A fetched catalogue entry is the same master
+   * but typically about a second out; a subtitle file the user had alongside
+   * their own audio is very likely already exact.
+   */
+  function resolveTimingSource(): LyricsData['timingSource'] {
+    if (lyricsPhase.kind === 'found') return 'lrclib'
+    return 'subtitle-file'
+  }
+
   async function resolveLines(): Promise<TimedLine[] | null> {
     if (lyricsPhase.kind === 'found') return lyricsPhase.lines
     if (lyricsPhase.kind === 'manual') {
@@ -281,6 +292,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
         id: songId, title: title.trim(), artist: artist.trim(), audioStoredPath,
         lines: finalLines, sourceLanguage, translationLanguage, albumArtUrl,
         durationSec,
+        timingSource: resolveTimingSource(),
       })
       await db.songs.put(song)
       setSaveProgress(null)
@@ -302,7 +314,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
   }
 
   const manualTabClass = (s: ManualLyricSource) =>
-    `px-3 py-1.5 rounded-lg text-xs min-h-11 touch-manipulation ${lyricsPhase.kind === 'manual' && lyricsPhase.source === s ? 'bg-cinnabar-accent text-white' : 'bg-cinnabar-900 text-white/50'}`
+    `px-3 py-1.5 rounded-lg text-xs min-h-11 touch-manipulation ${lyricsPhase.kind === 'manual' && lyricsPhase.source === s ? 'bg-cinnabar-accent text-cinnabar-950' : 'bg-cinnabar-900 text-white/50'}`
 
   const lyricsReady =
     (lyricsPhase.kind === 'found'
@@ -349,7 +361,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
   )
 
   const fieldClass = 'w-full px-4 py-3 md:py-2 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/55'
-  const fileLabelClass = 'block w-full px-4 py-3 md:py-2 bg-cinnabar-900 text-white/70 rounded-xl border border-cinnabar-800 cursor-pointer text-sm'
+  const fileLabelClass = 'block w-full px-4 py-3 md:py-2 bg-cinnabar-900 text-white/70 rounded-xl border border-cinnabar-800 cursor-pointer text-sm focus-within:border-cinnabar-accent focus-within:ring-1 focus-within:ring-cinnabar-accent'
 
   return (
     <div className={embedded ? 'w-full flex flex-col flex-1 min-h-0' : 'min-h-screen bg-cinnabar-950 flex flex-col items-center justify-center p-6 gap-5'}>
@@ -369,7 +381,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
         <div className={embedded ? 'shrink-0 space-y-2 md:space-y-2' : 'space-y-3'}>
         <label className={fileLabelClass}>
           {file ? file.name : 'Choose an audio file…'}
-          <input type="file" accept="audio/*" className="hidden"
+          <input type="file" accept="audio/*" className="sr-only"
             onChange={handleFileChange} />
         </label>
 
@@ -498,7 +510,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
                 {lyricsPhase.source === 'subtitle' && (
                   <label className={fileLabelClass}>
                     {subtitleFile ? subtitleFile.name : 'Choose a .lrc / .srt / .vtt file…'}
-                    <input type="file" accept=".lrc,.srt,.vtt,text/plain" className="hidden"
+                    <input type="file" accept=".lrc,.srt,.vtt,text/plain" className="sr-only"
                       onChange={(e) => setSubtitleFile(e.target.files?.[0] ?? null)} />
                   </label>
                 )}
@@ -513,7 +525,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
           type="button"
           onClick={handleSubmit}
           disabled={!file || !title.trim() || !lyricsReady || !!saveProgress}
-          className="w-full py-3 md:py-2.5 bg-cinnabar-accent text-white rounded-xl font-medium disabled:opacity-40"
+          className="w-full py-3 md:py-2.5 bg-cinnabar-accent text-cinnabar-950 rounded-xl font-medium disabled:opacity-40"
         >
           Add song
         </button>

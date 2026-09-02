@@ -69,7 +69,7 @@ export function LandingScreen({ onOpenApp }: Props) {
             <button
               type="button"
               onClick={onOpenApp}
-              className="min-h-12 px-6 rounded-xl bg-cinnabar-accent hover:bg-cinnabar-accent/90 text-white font-semibold text-sm flex items-center gap-2 touch-manipulation shadow-lg shadow-cinnabar-accent/20 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97]"
+              className="min-h-12 px-6 rounded-xl bg-cinnabar-accent hover:bg-cinnabar-accent/90 text-cinnabar-950 font-semibold text-sm flex items-center gap-2 touch-manipulation shadow-lg shadow-cinnabar-accent/20 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97]"
             >
               Get started →
             </button>
@@ -156,7 +156,7 @@ export function LandingScreen({ onOpenApp }: Props) {
           <button
             type="button"
             onClick={onOpenApp}
-            className="mt-5 min-h-12 px-6 rounded-xl bg-cinnabar-accent hover:bg-cinnabar-accent/90 text-white font-semibold text-sm touch-manipulation shadow-lg shadow-cinnabar-accent/20 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97]"
+            className="mt-5 min-h-12 px-6 rounded-xl bg-cinnabar-accent hover:bg-cinnabar-accent/90 text-cinnabar-950 font-semibold text-sm touch-manipulation shadow-lg shadow-cinnabar-accent/20 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97]"
           >
             Open the app
           </button>

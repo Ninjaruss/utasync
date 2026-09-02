@@ -142,10 +142,13 @@ describe('UploadAudioFlow', () => {
     vi.mocked(lrclib.findLyrics).mockImplementation(() => new Promise(() => {}))
     const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
     await pickFileAndTitle(container)
-    await waitFor(() => expect(screen.getByText(/checking the lyrics database for an exact match/i)).toBeInTheDocument(), { timeout: 3000 })
+    // Wait on the call itself, not on the "Checking the lyrics database…" copy:
+    // that string is also the *pending* substep label, so it is on screen before
+    // the debounced search fires — waiting on it let the click land first and the
+    // search never started, which is not the case this test is about.
+    await waitFor(() => expect(lrclib.findLyrics).toHaveBeenCalled(), { timeout: 3000 })
     fireEvent.click(screen.getByRole('button', { name: /paste lyrics/i }))
     await waitFor(() => expect(screen.getByPlaceholderText(/paste lyrics/i)).toBeInTheDocument())
-    expect(lrclib.findLyrics).toHaveBeenCalled()
   })
 
   it('offers Search again after a failed search and re-runs the lookup', async () => {

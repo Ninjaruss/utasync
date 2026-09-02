@@ -165,6 +165,17 @@ export interface LyricsData {
   /** Pasted translation lines the fitter could not place, with the row they were
    * expected after — so repair can show them in context, not as a nameless tail. */
   unplacedTranslations?: { text: string; afterLineIndex: number }[]
+  /** Where the LINE TIMINGS came from, which is what decides whether they might
+   * be offset from this particular audio file.
+   *   'lrclib'      — fetched from an external catalogue. Same master, but
+   *                   typically about a second out (measured median 0.24-0.73s
+   *                   after one constant shift), so an adjustment is likely.
+   *   'subtitle-file'— a .lrc/.srt/.vtt the user supplied alongside their own
+   *                   audio, so very likely already exact.
+   *   'aligned'/'tapped' — produced against THIS audio, exact by construction.
+   * Absent ⇒ unknown, treated the same as 'subtitle-file' (assume it is fine and
+   * stay quiet) rather than nagging about timings that may be perfect. */
+  timingSource?: 'lrclib' | 'subtitle-file' | 'aligned' | 'tapped'
   /** The raw pasted translation block, retained so a later fitter improvement can
    * re-fit without asking the user to paste again. `translationPairing.version`
    * is inert without this. */

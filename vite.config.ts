@@ -414,5 +414,11 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],
     globals: true,
+    /* Must stay comfortably above the `asyncUtilTimeout` set in test-setup.ts.
+     * With vitest's 5s default, a test whose own waitFor budget was 5s (or the
+     * 10s some files asked for) died on the vitest timer before its own grace
+     * period was up — so the failure blamed the test's duration rather than the
+     * assertion, and raising the waitFor budget in a file did nothing. */
+    testTimeout: 20_000,
   },
 })

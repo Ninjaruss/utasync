@@ -48,7 +48,7 @@ describe('PlayerView local audio gating', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     await waitFor(() => expect(screen.getByLabelText(/edit timestamp/i)).toBeTruthy())
     expect(screen.queryByRole('button', { name: /auto-align/i })).toBeNull()
-    expect(screen.getByText(/tap-through to time lyrics/i)).toBeTruthy()
+    expect(screen.getByText(/tap through to time lyrics/i)).toBeTruthy()
   })
 
   // The per-test timeout has to clear the waitFor budget below, or the test dies

@@ -229,7 +229,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
   }
 
   const manualTabClass = (s: ManualLyricSource) =>
-    `px-3 py-1.5 rounded-lg text-xs min-h-11 touch-manipulation ${lyricsPhase.kind === 'manual' && lyricsPhase.source === s ? 'bg-cinnabar-accent text-white' : 'bg-cinnabar-900 text-white/50'}`
+    `px-3 py-1.5 rounded-lg text-xs min-h-11 touch-manipulation ${lyricsPhase.kind === 'manual' && lyricsPhase.source === s ? 'bg-cinnabar-accent text-cinnabar-950' : 'bg-cinnabar-900 text-white/50'}`
 
   const lyricsReady =
     (lyricsPhase.kind === 'found'
@@ -280,7 +280,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
   )
 
   const fieldClass = 'w-full px-4 py-3 md:py-2 bg-cinnabar-900 text-white rounded-xl outline-none border border-cinnabar-800 focus:border-cinnabar-accent placeholder:text-white/55'
-  const fileLabelClass = 'block w-full px-4 py-3 md:py-2 bg-cinnabar-900 text-white/60 rounded-xl border border-cinnabar-800 cursor-pointer text-xs text-pretty'
+  const fileLabelClass = 'block w-full px-4 py-3 md:py-2 bg-cinnabar-900 text-white/60 rounded-xl border border-cinnabar-800 cursor-pointer text-xs text-pretty focus-within:border-cinnabar-accent focus-within:ring-1 focus-within:ring-cinnabar-accent'
 
   return (
     <div className={embedded ? 'w-full flex flex-col flex-1 min-h-0' : 'min-h-screen bg-cinnabar-950 flex flex-col items-center justify-center p-6 gap-6'}>
@@ -326,7 +326,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
           <input
             type="file"
             accept="audio/*"
-            className="hidden"
+            className="sr-only"
             onChange={(e: ChangeEvent<HTMLInputElement>) => setAudioFile(e.target.files?.[0] ?? null)}
           />
         </label>
@@ -336,7 +336,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
             type="button"
             onClick={loadMetadata}
             disabled={!url.trim() || metadataLoading || !!saveProgress}
-            className="w-full py-3 md:py-2.5 bg-cinnabar-accent text-white rounded-xl font-medium disabled:opacity-40"
+            className="w-full py-3 md:py-2.5 bg-cinnabar-accent text-cinnabar-950 rounded-xl font-medium disabled:opacity-40"
           >
             Continue
           </button>
@@ -431,7 +431,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
                   {lyricsPhase.source === 'subtitle' && (
                     <label className={fileLabelClass}>
                       {subtitleFile ? subtitleFile.name : 'Choose a .lrc / .srt / .vtt file…'}
-                      <input type="file" accept=".lrc,.srt,.vtt,text/plain" className="hidden"
+                      <input type="file" accept=".lrc,.srt,.vtt,text/plain" className="sr-only"
                         onChange={(e) => setSubtitleFile(e.target.files?.[0] ?? null)} />
                     </label>
                   )}
@@ -447,7 +447,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
               type="button"
               onClick={handleCreate}
               disabled={!lyricsReady || !!saveProgress || metadataLoading}
-              className="w-full py-3 md:py-2.5 bg-cinnabar-accent text-white rounded-xl font-medium disabled:opacity-40"
+              className="w-full py-3 md:py-2.5 bg-cinnabar-accent text-cinnabar-950 rounded-xl font-medium disabled:opacity-40"
             >
               Add song
             </button>

@@ -89,7 +89,7 @@ export function LyricsFoundConfirm({
           <button
             type="button"
             onClick={onConfirm}
-            className="px-3 py-2 rounded-lg bg-cinnabar-accent text-white text-xs font-medium min-h-11 touch-manipulation"
+            className="px-3 py-2 rounded-lg bg-cinnabar-accent text-cinnabar-950 text-xs font-medium min-h-11 touch-manipulation"
           >
             Yes, this is the right song
           </button>

@@ -132,9 +132,12 @@ describe('EditMode', () => {
   })
 
   it('shows a local-audio hint instead of Auto-align when hasLocalAudio is false', () => {
-    renderEditMode({ hasLocalAudio: false })
+    renderEditMode({ hasLocalAudio: false, showTapSync: true, onTapSync: vi.fn() })
     expect(screen.queryByRole('button', { name: /auto-align/i })).toBeNull()
-    expect(screen.getByText(/tap-through to time lyrics/i)).toBeTruthy()
+    expect(screen.getByText(/tap through to time lyrics/i)).toBeTruthy()
+    // The hint names tap-through, so tap-through must be reachable from here —
+    // it used to exist only inside the More menu.
+    expect(screen.getByRole('button', { name: /^tap-through$/i })).toBeTruthy()
   })
 
   it('marks untimed lines', () => {
@@ -491,7 +494,7 @@ describe('EditMode — readable guidance + tintable icons (UI pass)', () => {
   // Item 4: hint paragraphs must be text-xs, not the illegible text-[10px].
   it('renders the no-audio hint at text-xs', () => {
     renderEditMode({ hasLocalAudio: false })
-    const hint = screen.getByText(/tap-through to time lyrics/i)
+    const hint = screen.getByText(/tap through to time lyrics/i)
     expect(hint.className).toContain('text-xs')
     expect(hint.className).not.toContain('text-[10px]')
   })

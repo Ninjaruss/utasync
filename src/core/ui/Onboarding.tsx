@@ -73,17 +73,21 @@ export function Onboarding() {
         <h2 id="onboarding-title" className="text-white font-semibold text-lg text-balance">{current.title}</h2>
         <p className="text-white/70 text-sm text-pretty leading-relaxed">{current.body}</p>
         <div className="flex items-center justify-between gap-3 pt-2">
+          {/* On the last step "Skip" and "Done" both just dismiss — two buttons,
+            * one outcome, which reads as a choice the user has to make. Once
+            * there is nothing left to skip, this slot goes back instead, which
+            * also gives the carousel the return path it otherwise lacked. */}
           <button
             type="button"
-            onClick={dismiss}
+            onClick={() => (isLast ? setStep((s) => s - 1) : dismiss())}
             className="min-h-11 px-2 text-white/60 hover:text-white/70 text-sm touch-manipulation transition-colors duration-150 ease-out"
           >
-            Skip
+            {isLast ? 'Back' : 'Skip'}
           </button>
           <button
             type="button"
             onClick={() => (isLast ? dismiss() : setStep((s) => s + 1))}
-            className="min-h-11 py-2 px-5 bg-cinnabar-accent hover:bg-cinnabar-accent/90 text-white rounded-xl font-medium text-sm touch-manipulation shadow-sm shadow-cinnabar-accent/20 transition-[background-color,transform] duration-150 ease-out active:scale-[0.96]"
+            className="min-h-11 py-2 px-5 bg-cinnabar-accent hover:bg-cinnabar-accent/90 text-cinnabar-950 rounded-xl font-medium text-sm touch-manipulation shadow-sm shadow-cinnabar-accent/20 transition-[background-color,transform] duration-150 ease-out active:scale-[0.96]"
           >
             {isLast ? 'Done' : 'Next'}
           </button>

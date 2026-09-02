@@ -98,7 +98,10 @@ export function WaveformStrip({
         </svg>
       ) : (
         <div className="absolute inset-0 flex items-center justify-center text-[11px] text-white/35">
-          {waveformState === 'pending' ? 'Reading the audio…' : 'No waveform for this track'}
+          {/* 'unavailable' is the normal state for a YouTube song, not a failure:
+              there is no local file to read peaks from. Name the cause so it does
+              not read as something that went wrong. */}
+          {waveformState === 'pending' ? 'Reading the audio…' : 'Waveform needs a local audio file'}
         </div>
       )}
 
@@ -131,7 +134,7 @@ export function WaveformStrip({
             {m.label ? (
               <span
                 className={`absolute top-0 flex items-center h-[15px] px-1 text-[9px] font-semibold leading-none tracking-wide whitespace-nowrap ${
-                  muted ? 'bg-white/25 text-white/90' : 'bg-cinnabar-accent text-white'
+                  muted ? 'bg-white/25 text-white/90' : 'bg-cinnabar-accent text-cinnabar-950'
                 } ${opensLeft ? 'right-0 rounded-l-sm' : 'left-0 rounded-r-sm'}`}
               >
                 {opensLeft ? `◀ ${m.label}` : `${m.label} ▶`}

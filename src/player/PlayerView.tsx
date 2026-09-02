@@ -1640,7 +1640,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         <button
           type="button"
           onClick={onBack}
-          className="mt-2 min-h-11 px-4 rounded-xl bg-cinnabar-accent text-white text-sm font-medium touch-manipulation active:scale-[0.97] transition-transform"
+          className="mt-2 min-h-11 px-4 rounded-xl bg-cinnabar-accent text-cinnabar-950 text-sm font-medium touch-manipulation active:scale-[0.97] transition-transform"
         >
           Back to library
         </button>
@@ -1685,12 +1685,12 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         <Banner
           severity="error"
           actionSlot={
-            <label className="shrink-0 self-start px-2.5 py-1.5 rounded-lg bg-cinnabar-accent text-white text-[11px] font-semibold min-h-8 inline-flex items-center touch-manipulation cursor-pointer">
+            <label className="shrink-0 self-start px-2.5 py-1.5 rounded-lg bg-cinnabar-accent text-cinnabar-950 text-[11px] font-semibold min-h-8 inline-flex items-center touch-manipulation cursor-pointer focus-within:border-cinnabar-accent focus-within:ring-1 focus-within:ring-cinnabar-accent">
               {attachingAudio ? 'Adding…' : 'Re-attach audio'}
               <input
                 type="file"
                 accept="audio/*"
-                className="hidden"
+                className="sr-only"
                 disabled={attachingAudio}
                 onChange={(e) => {
                   const file = e.target.files?.[0]
@@ -1727,6 +1727,29 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
             void handleTapAnchor(i, t, o)
           }}
         />
+      )}
+
+      {/* Timings that came from an external catalogue are the same master but
+          typically about a second out, so offer a nudge. Timings the user
+          supplied themselves (a .lrc/.srt alongside their own audio) are very
+          likely exact, and timings we produced are exact by construction — stay
+          quiet for those rather than inviting damage to something already right. */}
+      {mode === 'play' && canPlayback && !lyricsUntimed
+        && song?.lyrics.timingSource === 'lrclib'
+        && song?.lyrics.alignmentMode !== 'auto' && (
+        <Banner severity="info">
+          <span className="flex items-center gap-3 flex-wrap">
+            <span>Lyrics not lining up? These timings came from a lyrics database.</span>
+            <button
+              type="button"
+              data-testid="lineup-lyrics"
+              onClick={() => setAlignMode('offset')}
+              className="shrink-0 px-3 py-1.5 rounded-lg bg-cinnabar-950 border border-cinnabar-800 text-white/85 text-xs min-h-11 hover:bg-cinnabar-800 transition-colors"
+            >
+              Line them up
+            </button>
+          </span>
+        </Banner>
       )}
 
       {mode === 'play' && lyricsUntimed && canPlayback && (

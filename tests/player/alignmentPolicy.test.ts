@@ -22,12 +22,11 @@ describe('chooseAutoAlignment', () => {
     expect(chooseAutoAlignment(false, untimed, 'full', true)).toBe('tap')
     expect(chooseAutoAlignment(false, untimed, 'manual', true)).toBe('tap')
   })
-  it('offers the drag for local audio whose lines are ALREADY timed', () => {
-    // Changed deliberately: this used to assert 'auto'. A found LRCLIB entry
-    // matches the local recording to within a median 0.24-0.73s after one
-    // constant shift, so a timed song needs that constant, not a full
-    // transcription. See tests/player/alignmentPolicy.offset.test.ts.
-    expect(chooseAutoAlignment(true, timed, 'full')).toBe('offset')
+  it('does not interrupt a song whose lines are ALREADY timed', () => {
+    // Used to assert 'auto' (transcribe everything), then briefly 'offset'
+    // (always drag). Both were wrong: timed lyrics are usable as-is, and whether
+    // they need a shift is something only listening can tell.
+    expect(chooseAutoAlignment(true, timed, 'full')).toBeNull()
   })
   it('auto for local audio with untimed lines, until auto-align has run once', () => {
     expect(chooseAutoAlignment(true, untimed, 'full')).toBe('auto')

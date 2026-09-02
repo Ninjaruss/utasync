@@ -834,7 +834,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
             <button
               type="button"
               onClick={consentAndStart}
-              className="w-full py-3 bg-cinnabar-accent text-white rounded-xl font-medium touch-manipulation"
+              className="w-full py-3 bg-cinnabar-accent text-cinnabar-950 rounded-xl font-medium touch-manipulation"
             >
               Continue
             </button>
@@ -888,7 +888,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
         )}
 
         {stage === 'idle' && tier !== 'manual' && !autoStart && !awaitingConsent && (
-          <button onClick={beginAlign} className="w-full py-3 bg-cinnabar-accent text-white rounded-xl font-medium">
+          <button onClick={beginAlign} className="w-full py-3 bg-cinnabar-accent text-cinnabar-950 rounded-xl font-medium">
             Start Auto-Align
           </button>
         )}
@@ -924,7 +924,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
                   resetWhisperTranscriber()
                   void start()
                 }}
-                className="w-full py-3 bg-cinnabar-accent text-white rounded-xl font-medium touch-manipulation"
+                className="w-full py-3 bg-cinnabar-accent text-cinnabar-950 rounded-xl font-medium touch-manipulation"
               >
                 Try again
               </button>
@@ -944,7 +944,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
                   <button
                     type="button"
                     onClick={rerunWithVocalIsolation}
-                    className="w-full py-3 bg-cinnabar-accent text-white rounded-xl font-medium touch-manipulation"
+                    className="w-full py-3 bg-cinnabar-accent text-cinnabar-950 rounded-xl font-medium touch-manipulation"
                   >
                     Re-run with vocal isolation
                   </button>
