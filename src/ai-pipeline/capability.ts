@@ -18,15 +18,58 @@ function estimateDeviceMemory(nav: Navigator & { userAgentData?: { mobile?: bool
   return 4
 }
 
+const WEBGPU_OFF_KEY = 'utasync:devWebGPUOff'
+
+/**
+ * Dev-only switch that makes the app behave as though the browser had no
+ * WebGPU, so the WASM path — lite tier on a desktop, manual on a phone — can be
+ * driven in a browser that does have it. Every machine within reach has a
+ * WebGPU adapter, which is why this path had never been exercised live.
+ *
+ * Set with `?webgpu=off`, cleared with `?webgpu=on`. It persists in
+ * sessionStorage so reloads and in-app navigation keep it.
+ *
+ * Production strips this: `import.meta.env.DEV` is statically false there, so
+ * the whole body folds away. It is also inert in workers, which have no
+ * sessionStorage — worker-side tier reads see the real hardware.
+ *
+ * Resolved once per page load and memoized, for the same reason the adapter
+ * probe is: getDeviceTier() is called from render paths, and neither the URL
+ * nor the hardware can change without a navigation. Without this, every one of
+ * those calls pays a URL parse and two storage hits.
+ */
+let forcedOff: boolean | null = null
+
+function webGPUForcedOff(): boolean {
+  if (!import.meta.env.DEV) return false
+  if (forcedOff === null) {
+    try {
+      const param = new URLSearchParams(location.search).get('webgpu')
+      if (param === 'off') sessionStorage.setItem(WEBGPU_OFF_KEY, '1')
+      else if (param === 'on') sessionStorage.removeItem(WEBGPU_OFF_KEY)
+      forcedOff = sessionStorage.getItem(WEBGPU_OFF_KEY) === '1'
+    } catch {
+      forcedOff = false
+    }
+  }
+  return forcedOff
+}
+
+/** Clears the memoized dev switch (tests). */
+export function resetWebGPUOverride(): void {
+  forcedOff = null
+}
+
 /** True when the browser exposes WebGPU (navigator.gpu). */
 export function hasWebGPU(): boolean {
+  if (webGPUForcedOff()) return false
   return !!(navigator as Navigator & { gpu?: unknown }).gpu
 }
 
 export function getDeviceTier(): DeviceTier {
   // navigator.gpu (WebGPU) and navigator.deviceMemory aren't in the base lib types.
   const nav = navigator as Navigator & { gpu?: unknown; deviceMemory?: number }
-  const gpu = !!nav.gpu
+  const gpu = hasWebGPU() && !!nav.gpu
   const memory: number = nav.deviceMemory ?? estimateDeviceMemory(nav)
   if (gpu && memory >= 6) return 'full'
   if (gpu && memory >= 4) return 'lite'
@@ -68,6 +111,7 @@ let adapterProbe: Promise<boolean> | null = null
 export function probeWebGPUAdapter(): Promise<boolean> {
   if (!adapterProbe) {
     adapterProbe = (async () => {
+      if (!hasWebGPU()) return false
       const gpu = (navigator as Navigator & { gpu?: GpuLike }).gpu
       if (!gpu?.requestAdapter) return false
       try {

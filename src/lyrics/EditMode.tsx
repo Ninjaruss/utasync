@@ -593,7 +593,14 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
     <div className="flex-1 min-h-0 flex flex-col">
       <div className={editToolbarRow}>
         <div className="flex items-center gap-1.5">
-          <p className={[toolbarSectionLabel, 'flex-1 min-w-0 truncate'].join(' ')}>Edit lyrics</p>
+          {/* The word is dropped below `sm`, where this row is tight enough that
+              it truncated to "EDIT LYRI…" — a section label shortened past
+              legibility is noise, and the mode pill overhead already reads
+              "Edit". The element stays as the flex spacer that keeps the
+              buttons right-aligned. */}
+          <p className={[toolbarSectionLabel, 'flex-1 min-w-0 truncate'].join(' ')}>
+            <span className="hidden sm:inline">Edit lyrics</span>
+          </p>
           <button
             type="button"
             onClick={undo}

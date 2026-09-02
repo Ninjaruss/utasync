@@ -416,6 +416,24 @@ describe('AutoAlignFlow first-run download consent', () => {
     await waitFor(() => expect(onComplete).toHaveBeenCalled())
   })
 
+  // Every case above enters through autoStart. The button a user actually
+  // presses in Edit mode does not, and `awaitingConsent` is seeded from
+  // `willAutoStart` — so the gate on that path rests entirely on beginAlign().
+  it('gates the manually pressed Start Auto-Align behind the same prompt', async () => {
+    settings.consented = false
+    render(<AutoAlignFlow song={song} onComplete={vi.fn()} onClose={vi.fn()} />)
+
+    // The idle screen offers Start; the download is not mentioned yet.
+    expect(screen.queryByText(/first-song setup/i)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /start auto-align/i }))
+
+    // Pressing it must ask before pulling ~240MB, not begin the download.
+    expect(screen.getByText(/first-song setup/i)).toBeTruthy()
+    expect(screen.getByText(/~240MB speech model/i)).toBeTruthy()
+    expect(transcribeAudio).not.toHaveBeenCalled()
+    expect(settings.consented).toBe(false)
+  })
+
   it('closes without downloading when the user picks "Not now"', () => {
     settings.consented = false
     const onClose = vi.fn()
