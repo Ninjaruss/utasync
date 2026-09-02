@@ -86,7 +86,11 @@ function SourceTile({
         )}
       </div>
       <p className={['text-[11px] text-white/70 md:mb-0 text-pretty', selected ? 'mb-2.5' : 'mb-0'].join(' ')}>{option.summary}</p>
-      <div className={[selected ? 'grid' : 'hidden', 'grid-cols-1 sm:grid-cols-2 gap-2.5 md:hidden'].join(' ')}>
+      {/* These lists are how the user tells the two options apart — Upload gets AI
+        * align and export, YouTube does not. `md:hidden` withheld exactly that from
+        * desktop, where there is MORE room, not less. Still limited to the selected
+        * tile, so only one set is ever on screen. */}
+      <div className={[selected ? 'grid' : 'hidden', 'grid-cols-1 sm:grid-cols-2 gap-2.5'].join(' ')}>
         <div>
           <p className="text-[10px] uppercase tracking-wide text-white/55 mb-1">Includes</p>
           <ul className="space-y-0.5">

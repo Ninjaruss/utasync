@@ -321,6 +321,8 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   // Which song we have already kicked a decode off for. A ref, not state, so the
   // effect below never setStates synchronously (which would cascade renders).
   const waveRequestedForRef = useRef<string | null>(null)
+  /** Song id the post-add alignment route has already fired for. See the effect. */
+  const autoAlignRoutedForRef = useRef<string | null>(null)
   const ytRef = useRef<YouTubePlayerHandle>(null)
   // Tracks whether timestamp-scrubbing started playback, so onScrubEnd only
   // stops audio it itself started (leaves pre-existing playback alone).
@@ -821,7 +823,10 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   // only, since YouTube exposes no PCM.
   useEffect(() => {
     const id = song?.id
-    if ((anchorTargetActive === null && mode !== 'edit') || !id) return
+    // The offset screen is a THIRD place the strip is offered, and it was missing
+    // from this gate — so "Line up the first line" sat on "Reading the audio…"
+    // forever, because nothing ever started the read it was waiting for.
+    if ((anchorTargetActive === null && mode !== 'edit' && alignMode !== 'offset') || !id) return
     if (waveRequestedForRef.current === id) return
     if (!song?.audioStoredPath || isYouTube) return
     waveRequestedForRef.current = id
@@ -839,7 +844,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     })()
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchorTargetActive, mode, song?.id, isYouTube])
+  }, [anchorTargetActive, mode, alignMode, song?.id, isYouTube])
   // Derived rather than stored, so nothing has to be written during an effect, and
   // peaks belonging to another song simply do not count as ready.
   const peaksForSong = song && wavePeaks?.songId === song.id ? wavePeaks.peaks : null
@@ -1006,14 +1011,25 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
 
   useEffect(() => {
     if (!song || !autoAlignOnOpen) return
-    // This is a ONE-SHOT route into alignment after add-song, as the comment
-    // below says. It re-runs whenever `song` changes identity, which is often —
-    // so without this guard it fights the user: it re-opens a flow they closed,
-    // and it overrides a mode they deliberately switched to (drag -> full align).
+    // This is a ONE-SHOT route into alignment after add-song. It re-runs whenever
+    // `song` changes identity, which is often — so without a guard it fights the
+    // user: it re-opens a flow they closed, and it overrides a mode they
+    // deliberately switched to (drag -> full align).
+    //
+    // `alignMode !== null` alone only holds while the flow is still OPEN. Once the
+    // user closed it, the very next write to the song — attaching a translation is
+    // enough — walked straight back in here and re-opened it. So the shot is
+    // recorded per song id, which is what "one-shot" was always supposed to mean.
     if (alignMode !== null) return
+    if (autoAlignRoutedForRef.current === song.id) return
     const choice = chooseAutoAlignment(!!song.audioStoredPath, song.lyrics.lines, getDeviceTier(), canPlayback, song.lyrics.alignmentMode)
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot route into alignment after add-song
-    if (choice) beginAlignment(choice)
+    // Recorded only when we actually route, so a song that is not yet eligible
+    // (no lyrics attached yet, say) can still be routed once it becomes eligible.
+    if (choice) {
+      autoAlignRoutedForRef.current = song.id
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot route into alignment after add-song
+      beginAlignment(choice)
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [song, autoAlignOnOpen])
 
@@ -1662,7 +1678,17 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       )}
       {/* Top bar */}
       <header className="flex items-center gap-2 px-4 py-2.5 border-b border-cinnabar-900 shrink-0">
-        <button onClick={onBack} className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-white/65 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]">← Back</button>
+        {/* Back, the mode pill and Settings are all shrink-0, so on a ~320px screen
+            they left the title about 40px and it truncated to "Yu…". Dropping the
+            word "Back" below `sm` gives that space back to the song name. The
+            aria-label keeps the accessible name identical at every width. */}
+        <button
+          onClick={onBack}
+          aria-label="← Back"
+          className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-white/65 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]"
+        >
+          ←<span className="hidden sm:inline">&nbsp;Back</span>
+        </button>
         {song && (
           <div className="flex-1 min-w-0 px-1">
             <p className="text-sm text-white/85 truncate font-medium">{song.title}</p>
@@ -1671,7 +1697,18 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         )}
         <div className="flex items-center gap-2 shrink-0">
           <PlayEditToggle mode={mode} onChange={setMode} />
-          <button onClick={() => onSettings?.()} className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-white/65 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]">Settings</button>
+          {/* Same reason as Back above: at 320px this cluster held 187px of the
+              header and the song title was left with 41px, truncating "Guitar" to
+              a stub. The gear alone carries it on a phone; the word returns at
+              `sm`. The library header already reads "⚙ Settings", so this also
+              makes the two headers agree. */}
+          <button
+            onClick={() => onSettings?.()}
+            aria-label="Settings"
+            className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-white/65 hover:text-white text-xs touch-manipulation transition-colors duration-150 ease-out active:scale-[0.96]"
+          >
+            ⚙<span className="hidden sm:inline">&nbsp;Settings</span>
+          </button>
         </div>
       </header>
 
@@ -2061,6 +2098,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           onPreview={(t) => startRetimeLoop(t)}
           onCommit={(i, t, o) => { endRetimeLoop(); void applyDragOffset(i, t, o) }}
           onUseFullAlignment={() => { endRetimeLoop(); setAlignMode('auto') }}
+          onKeepTimings={() => { endRetimeLoop(); setAlignMode(null) }}
         />
       )}
 

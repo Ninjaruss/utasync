@@ -85,10 +85,18 @@ export function DragRetimeStrip({
   const loop = retimeLoopFor(value)
   const more = typeof remaining === 'number' && remaining > 1 ? ` · ${remaining} lines left` : ''
   /* A YouTube-only song never gets peaks, so "drag to the first sound" pointed at
-   * an empty box that also read "No waveform for this track" — an instruction the
-   * user cannot follow next to what looks like a failure. With no picture to aim
-   * at, the job is done by ear against the playhead, so say that instead. */
-  const byEar = waveformState !== 'ready'
+   * an empty box that also read there was no waveform — an instruction the user
+   * cannot follow next to what looks like a failure. With no picture to aim at,
+   * the job is done by ear against the playhead, so say that instead.
+   *
+   * This mirrors WaveformStrip's own draw condition exactly, rather than
+   * approximating it: the instruction and the box are two halves of one message,
+   * and any drift between them puts a contradiction on screen. In particular
+   * 'pending' is NOT by-ear — the peaks are still coming, and telling the user to
+   * work by ear only to swap the instruction out from under them a moment later
+   * is its own small betrayal. */
+  const waveformDrawn = waveformState === 'ready' && peaks != null && peaks.data.length > 0
+  const byEar = !waveformDrawn && waveformState !== 'pending'
 
   return (
     <div className="relative shrink-0 px-3 sm:px-4 py-2.5 border-b border-cinnabar-900/80 bg-cinnabar-950/80 space-y-2">

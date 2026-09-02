@@ -114,7 +114,14 @@ function DisplayMenuPanel({
             ].join(' ')}
           >
             <span className={compact ? 'text-xs' : 'text-sm'}>{FURIGANA_LABEL[furiganaMode]}</span>
-            {!compact && <span className="block text-[10px] text-white/60 mt-0.5 text-pretty">Tap to cycle</span>}
+            {/* "Tap to cycle" told the user there were other states without ever
+              * saying what they were, so the only way to find them was to poke the
+              * control repeatedly. Name the cycle instead. */}
+            {!compact && (
+              <span className="block text-[10px] text-white/60 mt-0.5 text-pretty">
+                Tap to cycle: Off → Romaji → Furigana
+              </span>
+            )}
           </button>
         </section>
       )}

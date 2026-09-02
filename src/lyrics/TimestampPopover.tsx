@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { TimedLine } from '../core/types'
 import { WaveformStrip, type WaveformMarker } from '../player/WaveformStrip'
 import type { Peaks } from '../player/waveformPeaks'
+import { useModalDialog } from '../core/ui/useModalDialog'
 
 interface Props {
   line: TimedLine
@@ -138,6 +139,12 @@ const anchorTabOff = 'bg-cinnabar-950 text-white/50'
  * offset to the rest of the song. Dragging previews the audio position live.
  */
 export function TimestampPopover({ line, autoEnd, onCommit, onClose, onScrub, onScrubStart, onScrubEnd, canCascade = false, prevStart, peaks, waveformState, positionSec }: Props) {
+  const panelRef = useRef<HTMLDivElement>(null)
+  /* The popover advertises "tap outside to cancel", but a keyboard user has no
+   * outside to tap — and Escape did nothing, so the only way out was to commit
+   * with Done. Escape is now exactly that same cancel, matching every other
+   * overlay in the app. */
+  useModalDialog(panelRef, onClose)
   const hasExplicitEnd = line.endTime > line.startTime
   const [mode, setMode] = useState<Mode>('start')
   const [draftStart, setDraftStart] = useState(line.startTime)
@@ -211,6 +218,9 @@ export function TimestampPopover({ line, autoEnd, onCommit, onClose, onScrub, on
 
   return (
     <div
+      ref={panelRef}
+      role="dialog"
+      aria-label="Edit line timing"
       className="absolute z-20 mt-1 left-0 right-0 rounded-xl border border-cinnabar-accent/60 bg-cinnabar-900 p-3 space-y-2 shadow-xl"
       onClick={(e) => e.stopPropagation()}
     >

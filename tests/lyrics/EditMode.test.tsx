@@ -724,10 +724,10 @@ describe('EditMode — external-change undo guard', () => {
   })
 })
 
-// IMPORTANT 4 regression: the AlignmentEditor ("Fix all pairings") confirm
+// IMPORTANT 4 regression: the AlignmentEditor ("Fix word pairing") confirm
 // path used to write no meta at all — no translationSource, and stale
 // unplacedTranslations were never cleared. It must now write both.
-describe('EditMode — Fix all pairings (AlignmentEditor) provenance', () => {
+describe('EditMode — Fix word pairing (AlignmentEditor) provenance', () => {
   it('writes translationSource and recomputed unplacedTranslations on confirm', () => {
     const translated: TimedLine[] = [
       { startTime: 0, endTime: 2, original: 'a', translation: 'first translated' },
@@ -740,7 +740,7 @@ describe('EditMode — Fix all pairings (AlignmentEditor) provenance', () => {
     })
 
     fireEvent.click(screen.getByRole('button', { name: /^more$/i }))
-    fireEvent.click(screen.getByRole('button', { name: /fix all pairings/i }))
+    fireEvent.click(screen.getByRole('button', { name: /fix word pairing/i }))
     // AlignmentEditor is open with the stored extra line still unresolved.
     expect(screen.getByText('leftover extra line')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /confirm pairings/i }))
@@ -767,7 +767,7 @@ describe('EditMode — Fix all pairings (AlignmentEditor) provenance', () => {
     })
 
     fireEvent.click(screen.getByRole('button', { name: /^more$/i }))
-    fireEvent.click(screen.getByRole('button', { name: /fix all pairings/i }))
+    fireEvent.click(screen.getByRole('button', { name: /fix word pairing/i }))
     // Promote the orphan into the empty row (line 2's translation is blank).
     fireEvent.click(screen.getByRole('button', { name: /fill next empty/i }))
     fireEvent.click(screen.getByRole('button', { name: /confirm pairings/i }))

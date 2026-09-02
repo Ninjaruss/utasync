@@ -1,5 +1,7 @@
+import { useRef } from 'react'
 import { DragRetimeStrip } from './DragRetimeStrip'
 import { type Peaks } from './waveformPeaks'
+import { useModalDialog } from '../core/ui/useModalDialog'
 
 interface Props {
   /** The first sung line — the one the user lines up against the audio. */
@@ -15,6 +17,8 @@ interface Props {
   onCommit: (lineIndex: number, timeSec: number, opts: { clamped: boolean }) => void
   /** Escape hatch: transcribe the audio properly instead. */
   onUseFullAlignment: () => void
+  /** Leave the timings exactly as they arrived and go to the player. */
+  onKeepTimings: () => void
 }
 
 /**
@@ -28,22 +32,52 @@ interface Props {
  */
 export function OffsetAlignScreen({
   lineIndex, lineText, startSec, peaks, waveformState, positionSec,
-  onPreview, onCommit, onUseFullAlignment,
+  onPreview, onCommit, onUseFullAlignment, onKeepTimings,
 }: Props) {
+  const ref = useRef<HTMLDivElement>(null)
+  /* Escape maps to KEEPING the timings, never to committing a drag or kicking off
+   * a transcription: this screen opens by itself after a song is added, so the
+   * one thing an accidental keypress must not do is change timings the user never
+   * asked to change. */
+  useModalDialog(ref, onKeepTimings)
+
   return (
     <div
+      ref={ref}
+      tabIndex={-1}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Line up the first line"
       data-testid="offset-align"
       className="fixed inset-0 z-50 flex flex-col bg-cinnabar-950 overflow-hidden"
     >
       <div className="px-4 pt-5 pb-3 shrink-0">
-        <h2 className="text-white font-semibold text-lg">Line up the first line</h2>
+        {/* This screen is a full-bleed overlay that opens on its own after a song
+            is added, and it covers the app header — so without this the only ways
+            out were to commit a drag or to start a multi-minute transcription.
+            Lyrics that arrive already correct (the case this whole fast path
+            exists for) had no "leave them alone" answer. */}
+        <button
+          type="button"
+          onClick={onKeepTimings}
+          className="min-h-11 -ml-2 px-2 text-white/60 hover:text-white text-sm touch-manipulation transition-colors duration-150"
+        >
+          ← Timings look right
+        </button>
+        <h2 className="text-white font-semibold text-lg mt-1">Line up the first line</h2>
         <p className="text-white/65 text-sm mt-1 text-pretty">
           We found synced lyrics for this song. Drag until the first line sits where it is sung —
           you will hear it as you drag. Everything else moves with it.
         </p>
       </div>
 
-      <div className="flex-1 min-h-0 flex items-center">
+      {/* Column, not row. DragRetimeStrip's root carries `shrink-0`, which in a
+          ROW flex container means "size to your content" — so the whole control
+          collapsed to ~286px against the left edge of a 1280px screen with the
+          rest of the row empty. Its home in PlayerView is a column flex, where
+          the same class means "don't shrink vertically" and it stretches wide.
+          `justify-center` keeps the vertical centring this had. */}
+      <div className="flex-1 min-h-0 flex flex-col justify-center">
         <DragRetimeStrip
           lineIndex={lineIndex}
           lineText={lineText}
