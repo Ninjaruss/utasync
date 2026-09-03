@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { getDeviceTier, canUseVocalSeparation, probeWebGPUAdapter, resetWebGPUAdapterProbe } from '../../src/ai-pipeline/capability'
+import { getDeviceTier, canUseVocalSeparation, hasWebGPU, probeWebGPUAdapter, resetWebGPUAdapterProbe, resetWebGPUOverride } from '../../src/ai-pipeline/capability'
 
 describe('getDeviceTier', () => {
   it('returns full with WebGPU and 6+ GB', () => {
@@ -118,5 +118,83 @@ describe('probeWebGPUAdapter', () => {
     expect(a).toBe(true)
     expect(b).toBe(true)
     expect(calls).toBe(1)
+  })
+})
+
+/**
+ * The dev-only WebGPU-off switch. Every machine within reach has a WebGPU
+ * adapter, which is why the WASM path had never been driven live; this switch
+ * is how it gets driven. It is compiled out of production builds, so what these
+ * tests pin is the dev behaviour and, above all, that a context without
+ * sessionStorage (a worker) is unaffected rather than broken.
+ */
+describe('dev WebGPU-off switch', () => {
+  beforeEach(() => {
+    resetWebGPUAdapterProbe()
+    resetWebGPUOverride()
+    // Unstub first: one case below replaces sessionStorage with a throwing stub.
+    vi.unstubAllGlobals()
+    sessionStorage.clear()
+  })
+
+  const withSearch = (search: string) =>
+    vi.stubGlobal('location', { ...window.location, search })
+
+  it('drops a full-tier desktop to lite, the no-WebGPU tier', () => {
+    vi.stubGlobal('navigator', { gpu: {}, deviceMemory: 16, hardwareConcurrency: 10 })
+    expect(getDeviceTier()).toBe('full')
+    withSearch('?webgpu=off')
+    resetWebGPUOverride() // a real URL change means a navigation, and a fresh load
+    expect(hasWebGPU()).toBe(false)
+    expect(getDeviceTier()).toBe('lite')
+    expect(canUseVocalSeparation()).toBe(false)
+  })
+
+  it('reaches manual on a phone, where WASM whisper is too slow to offer', () => {
+    vi.stubGlobal('navigator', { gpu: {}, deviceMemory: 8, userAgent: 'Android Pixel 8 Mobi' })
+    withSearch('?webgpu=off')
+    expect(getDeviceTier()).toBe('manual')
+  })
+
+  it('persists past the reload that drops the parameter', () => {
+    vi.stubGlobal('navigator', { gpu: {}, deviceMemory: 16, hardwareConcurrency: 10 })
+    withSearch('?webgpu=off')
+    expect(hasWebGPU()).toBe(false)
+    withSearch('')
+    resetWebGPUOverride()
+    expect(hasWebGPU()).toBe(false)
+  })
+
+  it('is cleared by ?webgpu=on', () => {
+    vi.stubGlobal('navigator', { gpu: {}, deviceMemory: 16, hardwareConcurrency: 10 })
+    withSearch('?webgpu=off')
+    expect(hasWebGPU()).toBe(false)
+    withSearch('?webgpu=on')
+    resetWebGPUOverride()
+    expect(hasWebGPU()).toBe(true)
+    expect(getDeviceTier()).toBe('full')
+  })
+
+  it('reports the real hardware where there is no sessionStorage, as in a worker', () => {
+    vi.stubGlobal('navigator', { gpu: {}, deviceMemory: 16, hardwareConcurrency: 10 })
+    withSearch('?webgpu=off')
+    vi.stubGlobal('sessionStorage', {
+      getItem() { throw new Error('sessionStorage is not defined') },
+      setItem() { throw new Error('sessionStorage is not defined') },
+    })
+    expect(hasWebGPU()).toBe(true)
+    expect(getDeviceTier()).toBe('full')
+  })
+
+  it('leaves the adapter probe alone when the switch is off', async () => {
+    vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => ({}) } })
+    withSearch('')
+    expect(await probeWebGPUAdapter()).toBe(true)
+  })
+
+  it('makes the adapter probe agree with the switch', async () => {
+    vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => ({}) } })
+    withSearch('?webgpu=off')
+    expect(await probeWebGPUAdapter()).toBe(false)
   })
 })

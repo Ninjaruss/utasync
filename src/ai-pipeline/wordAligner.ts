@@ -204,6 +204,23 @@ const NOISE_MAGNET_TARGETS = new Set([
   'still', 'able', 'even', 'if', 'then', 'than',
   'up', 'down', 'out', 'off',
   'yours', 'mine', 'ours', 'theirs', 'hers',
+  // Possessive determiners. The independent forms (mine/yours/…) were already
+  // here; the determiners attract the same noise (持っ→"my", measured). A JA
+  // word that genuinely means the possessor now reaches these through pronoun
+  // case folding as an exact match, which is exempt from this penalty, so only
+  // embedding-only guesses are affected.
+  'my', 'your', 'his', 'her', 'its', 'our', 'their',
+  // Light prepositions/adverbs carrying no lexical content of their own, which
+  // measured wrong pairs gravitated to: 作業→"somehow", 知ら→"about".
+  //
+  // 'without' is deliberately NOT here. Blocking it was measured to re-route
+  // 状態 onto "let" — stealing the correct 出せ→"let" pair — a worse outcome
+  // than the noise pair it removed. Blocking a magnet only helps when the
+  // freed source has no other light target to fall onto.
+  'about', 'somehow', 'somewhere', 'anyway',
+  // Newly alignable (see GLOSS_ALIGNED_FUNCTION_WORDS): admitted to the target
+  // pool for だけど→"but", and listed here so nothing else drifts onto it.
+  'but',
 ])
 
 // lemmaGloss walks curated maps + JMdict + stem candidates; memoize the
@@ -684,11 +701,43 @@ function isVerbMorphologyPart(token: Token): boolean {
   return pos.startsWith('動詞') || pos.startsWith('助動詞') || pos.startsWith('接尾辞')
 }
 
+/**
+ * Kuromoji tags bound morphemes explicitly, which is stronger evidence than any
+ * surface heuristic: 接頭詞 is a prefix (ご/お/新/第) and 名詞-接尾 a suffix noun
+ * (書き in 殴り書き, たち in 僕たち). Neither can stand alone, so neither has an
+ * independent meaning for a translation word to attach to — left as its own
+ * unit, the bound half just grabbed whatever embedded closest (殴り→"like",
+ * ご→"care").
+ */
+function isBoundPrefix(token: Token): boolean {
+  return token.pos?.startsWith('接頭詞') ?? false
+}
+
+function isBoundSuffixNoun(token: Token): boolean {
+  if (!token.pos?.startsWith('名詞')) return false
+  return token.posDetail1?.includes('接尾') ?? false
+}
+
+/** True when the concatenation is a word the dictionary actually lists. */
+function compoundIsKnownWord(left: Token, right: Token): boolean {
+  return kanjiLemmaRomaji(mergeSurface(left.surface, right.surface)) !== undefined
+}
+
 function shouldMergeCompound(left: Token, right: Token): boolean {
   if (!isAlignableToken(left) || !isAlignableToken(right)) return false
   // Structural: 爆発+寸前, 恋+愛 when listed, etc.
   if (isNounToken(left) && NOUN_SET_SUFFIXES.has(right.surface)) return true
+  // A prefix is bound by definition, so it always belongs to the noun it
+  // attaches to — no dictionary check needed, and merging is strictly better
+  // than pairing the prefix on its own even when the compound is unlisted.
+  if (isBoundPrefix(left) && isNounToken(right)) return true
+  // A suffix noun is likewise bound, but the set is broad enough (さ/み/的/화)
+  // that the compound must be one the dictionary lists before we fuse them.
+  if (isBoundSuffixNoun(right) && compoundIsKnownWord(left, right)) return true
   if (!isNounToken(left) || !isNounToken(right)) return false
+  // Deliberately the CURATED map only: widening this arm to all 221k JMdict
+  // kanji keys would fuse ordinary adjacent nouns that merely happen to
+  // concatenate into an entry.
   return KANJI_ROMAJI[mergeSurface(left.surface, right.surface)] !== undefined
 }
 
@@ -1006,7 +1055,12 @@ export function buildAlignmentUnits(tokens: Token[], alignTokenIndices?: Readonl
       while (
         i + 1 < normalized.length
         && !consumed.has(i + 1)
-        && shouldMergeVerbChain(normalized[i], normalized[i + 1])
+        // A verb-initial compound (殴り+書き) reaches this branch first, because
+        // its head is tagged 動詞 — without the compound arm here it would emit
+        // the bound halves as separate units and never consult
+        // shouldMergeCompound at all.
+        && (shouldMergeVerbChain(normalized[i], normalized[i + 1])
+          || shouldMergeCompound(normalized[i], normalized[i + 1]))
       ) {
         i++
         merged = {

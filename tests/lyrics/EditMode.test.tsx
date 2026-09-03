@@ -778,3 +778,17 @@ describe('EditMode — Fix word pairing (AlignmentEditor) provenance', () => {
     expect(meta.unplaced).toEqual([])
   })
 })
+
+describe('EditMode toolbar section label', () => {
+  // It sits in a row with Undo, Redo, More and Auto-align, and `truncate` cut it
+  // to "EDIT LYRI…" on a 375px phone. A section label shortened past legibility
+  // is noise, so the word is dropped below `sm` — but the element stays, because
+  // it is the flex spacer holding the buttons to the right.
+  it('hides the word below sm and keeps the spacer', () => {
+    renderEditMode()
+    const label = screen.getByText('Edit lyrics')
+    expect(label.className).toContain('hidden')
+    expect(label.className).toContain('sm:inline')
+    expect(label.parentElement?.className).toContain('flex-1')
+  })
+})

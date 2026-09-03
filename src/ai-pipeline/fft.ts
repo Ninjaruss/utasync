@@ -43,10 +43,13 @@ function fftPow2(re: Float64Array, im: Float64Array): void {
 }
 
 /**
- * Forward DFT of arbitrary length via Bluestein's chirp-z algorithm.
+ * Forward DFT of arbitrary length via Bluestein's chirp-z algorithm, in place.
  * Falls through to radix-2 when n is a power of 2.
+ *
+ * Exported for vocalActivity, which frames and reduces in one pass rather than
+ * materializing a spectrogram it would only collapse again.
  */
-function fft(re: Float64Array, im: Float64Array): void {
+export function fft(re: Float64Array, im: Float64Array): void {
   const N = re.length
   if (N <= 1) return
   if ((N & (N - 1)) === 0) { fftPow2(re, im); return }

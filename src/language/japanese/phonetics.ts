@@ -1,5 +1,4 @@
-import Kuroshiro from 'kuroshiro'
-import KuromojiAnalyzer from 'kuroshiro-analyzer-kuromoji'
+import type Kuroshiro from 'kuroshiro'
 
 let kuroshiroPromise: Promise<Kuroshiro> | null = null
 
@@ -7,9 +6,19 @@ async function getKuroshiro(): Promise<Kuroshiro> {
   // Cache the in-flight init promise so concurrent callers share one instance,
   // but drop it on failure so a transient init error doesn't permanently poison
   // every later call with a half-initialised (analyzer === null) instance.
+  //
+  // kuroshiro and its kuromoji analyzer are imported HERE rather than at module
+  // scope: every reading helper below is already async, so deferring the import
+  // costs nothing, while a static import pulled the whole analyzer into the main
+  // bundle for modules that only wanted the pure kana helper at the bottom of
+  // this file.
   if (!kuroshiroPromise) {
     kuroshiroPromise = (async () => {
-      const k = new Kuroshiro()
+      const [{ default: KuroshiroCtor }, { default: KuromojiAnalyzer }] = await Promise.all([
+        import('kuroshiro'),
+        import('kuroshiro-analyzer-kuromoji'),
+      ])
+      const k = new KuroshiroCtor()
       await k.init(new KuromojiAnalyzer({ dictPath: '/dict' }))
       return k
     })().catch((err) => {

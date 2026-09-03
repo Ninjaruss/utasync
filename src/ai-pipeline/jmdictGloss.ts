@@ -14,6 +14,9 @@ export interface JmdictGlossData {
    * surfaces whose own definition differs from the romaji-collapsed fallback
    * (homophone collisions). Read by the popover, never by the word pairer. */
   kanjiGloss?: Record<string, string>
+  /** Sparse romaji→"g1|g2" map of SECONDARY senses, for pairing only. A key
+   * appears only when its entry means something beyond what `romaji` stores. */
+  alt?: Record<string, string>
 }
 
 let data: JmdictGlossData | null = null
@@ -109,6 +112,17 @@ export function getJmdictRomajiGloss(romaji: string): string | undefined {
 
 export function getJmdictKanjiRomaji(surface: string): string | undefined {
   return data?.kanji[surface.trim()]
+}
+
+/**
+ * Secondary senses for a romaji key. The pairer stores ONE gloss per key, so a
+ * polysemous word can only match one English word — 前 keeps "front" and can
+ * never reach a translation's "before" (or vice versa when a curated entry pins
+ * the other sense). These are consulted only after the primary gloss misses.
+ */
+export function getJmdictAltGlosses(romaji: string): string[] {
+  const raw = data?.alt?.[romaji.trim().toLowerCase()]
+  return raw ? raw.split('|') : []
 }
 
 /**

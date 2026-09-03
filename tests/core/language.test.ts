@@ -42,6 +42,25 @@ describe('isAlignableEnglishWord', () => {
     expect(isAlignableEnglishWord('to')).toBe(false)
     expect(isAlignableEnglishWord('is')).toBe(false)
   })
+  // Function words are excluded here unconditionally, INCLUDING the ones a
+  // Japanese word can mean. Whether a given line may offer one as a target is a
+  // per-line question answered by alignableEnglishTargetPool — see
+  // lineAligner.functionWordTargets.test.ts.
+  it('excludes function words a JA word can still mean', () => {
+    expect(isAlignableEnglishWord('but')).toBe(false)
+    expect(isAlignableEnglishWord('have')).toBe(false)
+    expect(isAlignableEnglishWord('about')).toBe(false)
+  })
+
+  // 'until', 'because', 'without' and friends were listed in
+  // GLOSS_ALIGNED_FUNCTION_WORDS but are not function words here, so that
+  // exemption never applied to them; they are, and always were, plain targets.
+  it('treats non-function words as content regardless of the exemption list', () => {
+    expect(isAlignableEnglishWord('until')).toBe(true)
+    expect(isAlignableEnglishWord('because')).toBe(true)
+    expect(isAlignableEnglishWord('without')).toBe(true)
+  })
+
   it('includes content words and contractions', () => {
     expect(isAlignableEnglishWord('behind')).toBe(true)
     expect(isAlignableEnglishWord('same')).toBe(true)

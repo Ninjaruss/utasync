@@ -34,10 +34,12 @@ describe('lyricGloss — Rock\'n\'Roll verb glosses', () => {
     expect(glossMatchesTarget('zure', 'taking', '連れ')).toBe(true)
   })
 
-  it('treats lexical have/has/had as alignable (gated by a curated gloss)', () => {
-    // Auxiliary uses still won't pair unless a JA token actually glosses to "have".
-    expect(isAlignableEnglishWord('have')).toBe(true)
-    expect(isAlignableEnglishWord('had')).toBe(true)
+  it('keeps lexical have/has/had out of the context-free content-word set', () => {
+    // 持つ can mean "have", but offering the word to every line gave the
+    // auxiliary in "have ached" a free target. A line whose tokens actually
+    // gloss to it still gets it — see lineAligner.functionWordTargets.test.ts.
+    expect(isAlignableEnglishWord('have')).toBe(false)
+    expect(isAlignableEnglishWord('had')).toBe(false)
   })
 
   it('lemmatizes gerund/plural targets so base-form glosses match', () => {

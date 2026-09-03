@@ -25,7 +25,12 @@ function arpabetToIPA(phones: string): string {
 
 export async function wordToIPA(word: string): Promise<string | null> {
   const d = await getCMUDict()
-  const entry = d[word.toUpperCase()]
+  const key = word.toUpperCase()
+  // A JSON-parsed object inherits Object.prototype, so a bare `d[key]` can hand
+  // back an inherited member rather than a pronunciation. Uppercase keys cannot
+  // collide with the prototype's own lowercase names today, but the guard costs
+  // nothing and this hazard has bitten the JMdict loaders before.
+  const entry = Object.prototype.hasOwnProperty.call(d, key) ? d[key] : undefined
   if (!entry) return null
   return `/${arpabetToIPA(entry)}/`
 }

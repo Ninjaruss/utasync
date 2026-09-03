@@ -36,6 +36,14 @@ export function englishGlossVariants(word: string): string[] {
   // a base-form JA gloss: taking→take, wars→war, started→start.
   for (const lemma of inflectedBaseForms(base)) out.add(lemma)
 
+  // Japanese pronoun glosses are stored in the nominative (boku/watashi→'i',
+  // bokura→'we'), but a natural translation uses whatever case the English
+  // sentence needs — "for someone like me", "my chest", "carry us off". Without
+  // this fold the lexical match missed and the pairer fell through to embedding
+  // noise, which is how 僕 ended up on "There" and わたし on "sing".
+  const nominative = PRONOUN_NOMINATIVE[base]
+  if (nominative) out.add(nominative)
+
   const spelling = SPELLING_VARIANTS[base]
   if (spelling) out.add(spelling)
   for (const [uk, us] of Object.entries(SPELLING_VARIANTS)) {
@@ -43,6 +51,24 @@ export function englishGlossVariants(word: string): string[] {
   }
 
   return [...out]
+}
+
+/**
+ * Oblique / possessive / reflexive English pronouns → the nominative form the
+ * JA gloss tables use. Deliberately one-directional (me→i, never i→me): this
+ * only ever widens the candidate set for a TRANSLATION TARGET word, matching
+ * `inflectedBaseForms`'s contract that variants can add matches but never drop
+ * one. 'her' maps to 'she' (possessive and oblique share the surface form);
+ * 'his'/'its' are omitted as they collide with nothing useful.
+ */
+const PRONOUN_NOMINATIVE: Record<string, string> = {
+  me: 'i', my: 'i', mine: 'i', myself: 'i',
+  us: 'we', our: 'we', ours: 'we', ourselves: 'we',
+  you: 'you', your: 'you', yours: 'you', yourself: 'you', yourselves: 'you',
+  him: 'he', his: 'he', himself: 'he',
+  her: 'she', hers: 'she', herself: 'she',
+  them: 'they', their: 'they', theirs: 'they', themselves: 'they',
+  its: 'it', itself: 'it',
 }
 
 /** Conservative English de-inflection — adds candidate base forms (never removes

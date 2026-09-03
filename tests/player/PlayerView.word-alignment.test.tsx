@@ -58,8 +58,13 @@ describe('PlayerView word alignment', () => {
       const line = useLyricsStore.getState().lines[0]
       expect(line.tokens?.[0]?.alignmentIndices).toEqual([0])
     })
-    const saved = await db.songs.get('song1')
-    expect(saved?.lyrics.lines[0].tokens?.[0]?.alignmentIndices).toEqual([0])
+    // The store lands first and the Dexie write follows it, so reading the row
+    // straight after the assertion above races that write — green when idle,
+    // red under suite load. Wait for the row itself, as we do for the store.
+    await waitFor(async () => {
+      const saved = await db.songs.get('song1')
+      expect(saved?.lyrics.lines[0].tokens?.[0]?.alignmentIndices).toEqual([0])
+    })
   })
 
   it('skips normalization when enriched lyrics are already cached', async () => {
@@ -105,8 +110,11 @@ describe('PlayerView word alignment', () => {
     await waitFor(() => {
       expect(useLyricsStore.getState().lines[0].tokens?.[0]?.alignmentIndices).toEqual([0])
     }, { timeout: 10_000 })
-    const saved = await db.songs.get('song1')
-    expect(saved?.lyrics.lines[0].tokens?.[0]?.alignmentIndices).toEqual([0])
+    // Same write race as above.
+    await waitFor(async () => {
+      const saved = await db.songs.get('song1')
+      expect(saved?.lyrics.lines[0].tokens?.[0]?.alignmentIndices).toEqual([0])
+    }, { timeout: 10_000 })
   })
 
   it('skips embedder when no line has a visible translation', async () => {
@@ -141,8 +149,11 @@ describe('PlayerView word alignment', () => {
     await waitFor(() => {
       expect(useLyricsStore.getState().lines[0].tokens?.length).toBeGreaterThan(0)
     })
-    const saved = await db.songs.get('song1')
-    expect(saved?.lyrics.enrichmentVersion).toBe(LYRICS_ENRICHMENT_VERSION)
+    // Same write race as above.
+    await waitFor(async () => {
+      const saved = await db.songs.get('song1')
+      expect(saved?.lyrics.enrichmentVersion).toBe(LYRICS_ENRICHMENT_VERSION)
+    })
 
     unmount()
     render(<PlayerView songId="song1" onBack={vi.fn()} />)

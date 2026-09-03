@@ -5,7 +5,8 @@
  * deterministic (no RNG) so it can back committed fixtures. See
  * docs/superpowers/specs/2026-07-17-acoustic-vocal-activity-aligner-design.md.
  */
-import { hannWindow, stft } from './fft'
+import { fft, hannWindow } from './fft'
+import { yieldToEventLoop } from '../core/idle'
 
 export interface VocalActivitySignal {
   /** Frame period in seconds (hop / sampleRate). */
@@ -38,30 +39,73 @@ function percentile(arr: Float32Array, p: number): number {
   return pos[Math.min(pos.length - 1, Math.floor(p * (pos.length - 1)))]
 }
 
-export function computeVocalActivity(
+/**
+ * A vocal-activity computation split so the frame loop can be driven in slices.
+ * The FFT math dominates — measured ~128ms per minute of audio, so a 6:33 track
+ * holds the thread for ~810ms on a fast machine and multiples of that on the
+ * `lite` tier — and it runs on the MAIN thread from the align flow, where it
+ * froze the progress UI and its cancel button.
+ */
+interface VocalActivityRun {
+  frames: number
+  /** Processes frames in [from, to). */
+  processFrames(from: number, to: number): void
+  finish(): VocalActivitySignal
+}
+
+function beginVocalActivity(
   pcm: Float32Array,
   sampleRate: number,
   opts: { source: 'stem' | 'mix' },
-): VocalActivitySignal {
+): VocalActivityRun {
   // window ≈46ms; hop = nFft/2 (≈23ms at 44.1kHz, ≈32ms at 16kHz).
   const nFft = Math.max(256, nextPow2(Math.round(0.046 * sampleRate)))
   const hop = Math.max(1, Math.round(nFft / 2))
   const hopSec = hop / sampleRate
   if (pcm.length < nFft) {
-    return { hopSec, activity: new Float32Array(0), onset: new Float32Array(0), source: opts.source }
+    const empty: VocalActivitySignal = { hopSec, activity: new Float32Array(0), onset: new Float32Array(0), source: opts.source }
+    return { frames: 0, processFrames: () => {}, finish: () => empty }
   }
-  const { real, imag, frames } = stft(pcm, nFft, hop, hannWindow(nFft))
+  // Framing is inlined rather than calling stft(), which materializes the whole
+  // spectrogram as 2*nBins separate Float32Arrays — 144MB across 4098 arrays for
+  // a 6:33 track at 48kHz — only for this function to reduce each frame to three
+  // scalars. Fusing the reduction into the frame loop drops that allocation
+  // entirely and reads each FFT result while it is still in cache, instead of
+  // scattering it column-wise across thousands of arrays.
+  //
+  // stft() itself is unchanged: demucs.worker genuinely needs the full
+  // spectrogram to run the model and invert it.
+  const win = hannWindow(nFft)
+  const nBins = Math.floor(nFft / 2) + 1
+  const pad = Math.floor(nFft / 2)
+  const padded = new Float32Array(pcm.length + nFft)
+  padded.set(pcm, pad)
+  const frames = Math.floor((padded.length - nFft) / hop) + 1
+
   const binLo = Math.max(1, Math.floor((VOCAL_LO_HZ * nFft) / sampleRate))
-  const binHi = Math.min(real.length - 1, Math.ceil((VOCAL_HI_HZ * nFft) / sampleRate))
+  const binHi = Math.min(nBins - 1, Math.ceil((VOCAL_HI_HZ * nFft) / sampleRate))
 
   // Per-frame vocal-band and total power.
   const vocalPow = new Float32Array(frames)
   const totalPow = new Float32Array(frames)
   const totalMag = new Float32Array(frames)
-  for (let f = 0; f < frames; f++) {
+  const re = new Float64Array(nFft)
+  const im = new Float64Array(nFft)
+  const processFrames = (from: number, to: number): void => {
+  for (let f = from; f < to; f++) {
+    const offset = f * hop
+    re.fill(0)
+    im.fill(0)
+    for (let i = 0; i < nFft && offset + i < padded.length; i++) re[i] = padded[offset + i] * win[i]
+    fft(re, im)
     let vp = 0, tp = 0
-    for (let b = 0; b < real.length; b++) {
-      const p = real[b][f] * real[b][f] + imag[b][f] * imag[b][f]
+    for (let b = 0; b < nBins; b++) {
+      // fround because stft() stored these bins into Float32Arrays before they
+      // were squared; keeping the same rounding keeps the activity values — and
+      // every VOICED_THRESHOLD comparison downstream — bit-identical.
+      const rb = Math.fround(re[b])
+      const ib = Math.fround(im[b])
+      const p = rb * rb + ib * ib
       tp += p
       if (b >= binLo && b <= binHi) vp += p
     }
@@ -69,7 +113,9 @@ export function computeVocalActivity(
     totalPow[f] = tp
     totalMag[f] = Math.sqrt(tp)
   }
+  }
 
+  const finish = (): VocalActivitySignal => {
   // activity = vocal-band concentration × loudness.
   //  - concentration (vocalPow/totalPow, 0..1) distinguishes vocal-band-dominant
   //    energy from bass/percussion — amplitude-invariant.
@@ -88,6 +134,57 @@ export function computeVocalActivity(
   for (let f = 1; f < frames; f++) onset[f] = Math.max(0, activity[f] - activity[f - 1])
 
   return { hopSec, activity, onset, source: opts.source }
+  }
+
+  return { frames, processFrames, finish }
+}
+
+/** Synchronous whole-song analysis. Fine for short buffers and tests. */
+export function computeVocalActivity(
+  pcm: Float32Array,
+  sampleRate: number,
+  opts: { source: 'stem' | 'mix' },
+): VocalActivitySignal {
+  const run = beginVocalActivity(pcm, sampleRate, opts)
+  run.processFrames(0, run.frames)
+  return run.finish()
+}
+
+/** Frames processed between clock checks — small enough that one batch is well
+ * under a frame budget even on a slow device, large enough that the check costs
+ * nothing next to the FFTs. */
+const FRAME_BATCH = 32
+/** Hold the thread no longer than this before letting the UI breathe. */
+const YIELD_BUDGET_MS = 12
+
+/**
+ * Same analysis, yielding to the event loop so the align progress UI keeps
+ * painting and its cancel button keeps responding. Byte-for-byte identical to
+ * the synchronous version — it is the same loop, just interrupted.
+ *
+ * The budget is wall-clock rather than a fixed frame count so a slow device
+ * yields more often instead of freezing for longer. Yielding goes through
+ * `yieldToEventLoop`, not `yieldToMainThread`: the latter waits for idle, which
+ * a background tab may not grant for a second at a time, and align often runs
+ * while the user is on another tab.
+ */
+export async function computeVocalActivityAsync(
+  pcm: Float32Array,
+  sampleRate: number,
+  opts: { source: 'stem' | 'mix' },
+): Promise<VocalActivitySignal> {
+  const run = beginVocalActivity(pcm, sampleRate, opts)
+  let f = 0
+  while (f < run.frames) {
+    const sliceStart = performance.now()
+    while (f < run.frames && performance.now() - sliceStart < YIELD_BUDGET_MS) {
+      const to = Math.min(f + FRAME_BATCH, run.frames)
+      run.processFrames(f, to)
+      f = to
+    }
+    if (f < run.frames) await yieldToEventLoop()
+  }
+  return run.finish()
 }
 
 /** Fraction of frames in [startSec, endSec) whose activity ≥ VOICED_THRESHOLD. */

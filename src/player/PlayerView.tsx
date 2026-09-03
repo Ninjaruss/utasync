@@ -115,7 +115,7 @@ async function enrichLines(
           }
           return withTokens
         } else {
-          const tokens = tokenizeEnglish(line.original)
+          const tokens = await tokenizeEnglish(line.original)
           const reading = await sentenceToIPA(line.original)
           const grammarAnnotations = detectEnglishGrammar(line.original)
           return { ...line, tokens, reading, grammarAnnotations }

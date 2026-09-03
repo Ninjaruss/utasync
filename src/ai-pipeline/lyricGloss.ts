@@ -9,6 +9,8 @@ import { englishGlossVariants, normalizeLemmaGloss } from './glossNormalize'
 import { homographLemmaGloss, homographLemmaKeys, surfaceDirectGloss } from './homographGloss'
 import { runWhenIdle } from '../core/idle'
 import {
+  getJmdictAltGlosses,
+  getJmdictKanjiGloss,
   getJmdictKanjiRomaji,
   getJmdictRomajiGloss,
   jmdictLemmaKeysForStem,
@@ -443,6 +445,22 @@ export function lemmaGloss(romaji: string, surface?: string): string | undefined
   const homograph = homographLemmaGloss(surface, r, { glossForKey: dictionaryGlossForKey })
   if (homograph) return homograph
 
+  // Curated glosses still outrank everything below — they encode deliberate
+  // song/poetic readings (boku→'i', not JMdict's archaic "manservant").
+  const curated = ROMAJI_GLOSS[r]
+  if (curated) return curated
+
+  // The romaji map collapses homophones onto one key, so common words inherit a
+  // different word's sense: joutai→"upper" (上体) for 状態, mae→"in" for 前. The
+  // surface-keyed map added for the tap-lookup popover is not collapsed, so
+  // consult it BEFORE falling back to the romaji key. Sparse by construction —
+  // it only holds surfaces whose own gloss differs from their romaji winner —
+  // so this changes nothing for words the romaji key already got right.
+  if (surface) {
+    const bySurface = getJmdictKanjiGloss(surface.trim())
+    if (bySurface) return normalizeLemmaGloss(bySurface)
+  }
+
   const direct = dictionaryGlossForKey(r)
   if (direct) return direct
 
@@ -503,6 +521,13 @@ export function glossMatchesSource(source: GlossSource, targetWord: string): boo
 export const MORPH_GLOSS_SCORE = 0.97
 
 /**
+ * A secondary dictionary sense is real lexical evidence, but the sense the key
+ * actually stores is better evidence, so an alt match scores just under a
+ * primary one — and still above a suffix-morphology match.
+ */
+export const ALT_GLOSS_SCORE = 0.99
+
+/**
  * Gloss match strength: 1 for lemma / alias / inflection-stem matches,
  * MORPH_GLOSS_SCORE for suffix-morphology-only matches, 0 for no match.
  */
@@ -529,7 +554,9 @@ export function glossMatchStrength(source: GlossSource, targetWord: string): num
   // lookup below still resolves correctly.
   const isDictionaryKey = dictionaryGlossForKey(r) !== undefined
   let morphMatched = false
-  for (const variant of englishGlossVariants(targetWord)) {
+  let altMatched = false
+  const variants = englishGlossVariants(targetWord)
+  for (const variant of variants) {
     if (glossEqualsTarget(lemmaGloss(r, surface), variant)) return 1
     const aliasRomaji = EN_POETIC_ALIASES[variant]
     if (aliasRomaji && aliasRomaji === r) return 1
@@ -538,6 +565,15 @@ export function glossMatchStrength(source: GlossSource, targetWord: string): num
     if (!isDictionaryKey && stemLookupMatchesTarget(r, variant, stemCtx, surface)) return 1
     if (morphGlossMatches(source, variant)) morphMatched = true
   }
+  // Only now: the stored gloss is one of several senses, and the translation may
+  // have used another (前 stores "front", the line says "before").
+  const alts = getJmdictAltGlosses(r)
+  if (alts.length > 0) {
+    for (const variant of variants) {
+      if (alts.some((g) => glossEqualsTarget(g, variant))) { altMatched = true; break }
+    }
+  }
+  if (altMatched) return ALT_GLOSS_SCORE
   return morphMatched ? MORPH_GLOSS_SCORE : 0
 }
 
