@@ -13,7 +13,7 @@ import { enumerateGapHoles, holeWorthRetrying, lineText } from '../lyrics/gapRea
 import { decodeAudioFileToMono } from '../core/audio/decodeToMono'
 import { getAudioFile } from '../core/opfs/audio'
 import { separateVocals, isDemucsModelAvailable, DEMUCS_OUTPUT_SAMPLE_RATE } from './demucsSeparator'
-import { computeVocalActivity } from './vocalActivity'
+import { computeVocalActivityAsync } from './vocalActivity'
 import { assessStemQuality, warnIfStemRejected } from './stemQuality'
 
 /**
@@ -194,7 +194,7 @@ export async function recoverGapsForStoredSong(
         isCancelled: () => isCancelled?.() ?? false,
       })
       if (isCancelled?.()) return null
-      const stemSig = computeVocalActivity(stem, DEMUCS_OUTPUT_SAMPLE_RATE, { source: 'stem' })
+      const stemSig = await computeVocalActivityAsync(stem, DEMUCS_OUTPUT_SAMPLE_RATE, { source: 'stem' })
       const verdict = assessStemQuality(stemSig, stem.length / DEMUCS_OUTPUT_SAMPLE_RATE)
       if (verdict.usable) {
         data = stem

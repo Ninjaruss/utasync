@@ -23,7 +23,7 @@ import { isRecoverableTranscriptionError, classifyAlignError } from './workerErr
 import { resetWhisperTranscriber, transcribeAudio, type LoadProgress, type TranscribeProgressStatus } from './whisperTranscriber'
 import { DEMUCS_OUTPUT_SAMPLE_RATE, SeparationAbandonedError, isDemucsModelAvailable, refreshDemucsModelAvailability, separateVocals } from './demucsSeparator'
 import { formatEta } from './separationEta'
-import { computeVocalActivity, firstVocalOnset, type VocalActivitySignal } from './vocalActivity'
+import { computeVocalActivityAsync, firstVocalOnset, type VocalActivitySignal } from './vocalActivity'
 import { assessStemQuality, warnIfStemRejected } from './stemQuality'
 import { anchorLeadingEdge, backfillLateStartsToAcousticOnset } from '../lyrics/leadingEdgeAnchor'
 import { computeLineMatchedSpans } from './contentAligner'
@@ -297,7 +297,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
           // scaled every Whisper timestamp ~8.8% early and desynced the whole song —
           // so the stem path uses DEMUCS_OUTPUT_SAMPLE_RATE and the mix-fallback path
           // keeps the decode rate.
-          const stemSig = computeVocalActivity(stem, DEMUCS_OUTPUT_SAMPLE_RATE, { source: 'stem' })
+          const stemSig = await computeVocalActivityAsync(stem, DEMUCS_OUTPUT_SAMPLE_RATE, { source: 'stem' })
           const verdict = assessStemQuality(stemSig, stem.length / DEMUCS_OUTPUT_SAMPLE_RATE)
           if (verdict.usable) {
             audioData = stem
