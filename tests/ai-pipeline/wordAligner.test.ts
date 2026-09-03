@@ -516,6 +516,22 @@ describe('buildAlignmentUnits', () => {
     expect(units[0].glossText).toBe('renai')
   })
 
+  // Kuromoji splits lexical compounds into a bound morpheme plus a head, and
+  // the bound half — which has no independent meaning to translate — was left
+  // as its own alignment unit and grabbed whatever English word embedded
+  // closest: 殴り→"like", ご→"care". The suffix-noun half of this rule needs a
+  // loaded JMdict, so it lives in wordAligner.compound.test.ts.
+  it('merges a bound prefix into the noun it attaches to', () => {
+    const tokens: Token[] = [
+      tok('ご', '接頭詞', 'ゴ', '名詞接続'),
+      tok('機嫌', '名詞', 'キゲン', '一般'),
+    ]
+    const units = buildAlignmentUnits(tokens)
+    expect(units).toHaveLength(1)
+    expect(units[0].tokenIndices).toEqual([0, 1])
+    expect(units[0].embedText).toBe('ご機嫌')
+  })
+
   it('does not merge unrelated adjacent nouns', () => {
     const tokens: Token[] = [
       tok('星', '名詞', 'ホシ'),
