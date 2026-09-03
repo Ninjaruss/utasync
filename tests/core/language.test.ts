@@ -42,18 +42,23 @@ describe('isAlignableEnglishWord', () => {
     expect(isAlignableEnglishWord('to')).toBe(false)
     expect(isAlignableEnglishWord('is')).toBe(false)
   })
-  // だけど / でも / けど all gloss to "but", but the word was filtered out of the
-  // target pool, so a perfect gloss match had nothing to match and the token
-  // fell onto embedding noise ("know"). It is a NOISE_MAGNET_TARGETS entry in
-  // the pairer, so only a real gloss match can claim it.
-  it('admits the adversative conjunction so だけど can reach it', () => {
-    expect(isAlignableEnglishWord('but')).toBe(true)
-    expect(isAlignableEnglishWord('But')).toBe(true)
-    // Its neighbours in the conjunction group stay filtered — no JA gloss aims
-    // at them, so admitting them would only add noise targets.
-    expect(isAlignableEnglishWord('and')).toBe(false)
-    expect(isAlignableEnglishWord('or')).toBe(false)
-    expect(isAlignableEnglishWord('nor')).toBe(false)
+  // Function words are excluded here unconditionally, INCLUDING the ones a
+  // Japanese word can mean. Whether a given line may offer one as a target is a
+  // per-line question answered by alignableEnglishTargetPool — see
+  // lineAligner.functionWordTargets.test.ts.
+  it('excludes function words a JA word can still mean', () => {
+    expect(isAlignableEnglishWord('but')).toBe(false)
+    expect(isAlignableEnglishWord('have')).toBe(false)
+    expect(isAlignableEnglishWord('about')).toBe(false)
+  })
+
+  // 'until', 'because', 'without' and friends were listed in
+  // GLOSS_ALIGNED_FUNCTION_WORDS but are not function words here, so that
+  // exemption never applied to them; they are, and always were, plain targets.
+  it('treats non-function words as content regardless of the exemption list', () => {
+    expect(isAlignableEnglishWord('until')).toBe(true)
+    expect(isAlignableEnglishWord('because')).toBe(true)
+    expect(isAlignableEnglishWord('without')).toBe(true)
   })
 
   it('includes content words and contractions', () => {

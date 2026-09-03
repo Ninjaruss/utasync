@@ -1,11 +1,13 @@
 import type { TimedLine, Token } from '../core/types'
 import { getDeviceTier } from '../ai-pipeline/capability'
 import { splitTranslationWords, splitTranslationLineWords, translationWordCount } from '../language/wordColors'
-import { isAlignableEnglishWord, normalizeEnglishAlignmentWord, isParticleToken } from '../core/language'
+import { isAlignableEnglishWord, normalizeEnglishAlignmentWord, isParticleToken, GLOSS_ALIGNED_FUNCTION_WORDS } from '../core/language'
 import { JAPANESE_RE, stripNonLyricLines, normalizeTranslationLines, extractTranslationsForAttach, splitPrimaryIntoBlocks, extractSecondLanguageBlocks, primaryHasTiming, isSyncedSecondaryLRC, attachTimedSecondLanguage, shouldUseTimelineMerge, parseSecondaryLRC, mergeTimedTracks } from './bilingual'
 import { isTranslationNoiseLine } from './translationNoise'
 import { applyLineTextPatch } from './lineOps'
 import type { LineAlignJob } from '../ai-pipeline/wordAligner'
+import { tokenGlossText } from '../ai-pipeline/wordAligner'
+import { glossMatchesSource } from '../ai-pipeline/lyricGloss'
 
 export type PairingMethod = 'index' | 'slots' | 'semantic' | 'timeline' | 'mismatch'
 
@@ -129,15 +131,60 @@ export function targetWordsForAlignment(original: string, translation: string): 
   return splitTranslationWords(translation)
 }
 
+/**
+ * Function words in `words` that a token in THIS line actually means.
+ *
+ * Function words are normally kept out of the pool — they attract embedding
+ * noise and almost never correspond to a Japanese content word. But some
+ * Japanese words genuinely mean one (だけど → "but", まで → "until", なら →
+ * "if"), and while the word is absent from the pool such a token cannot pair
+ * with it at all: だけど scored a perfect gloss match on "But" and still landed
+ * on "know", because "But" was never offered.
+ *
+ * The allowlist alone used to decide this, which offered the word to EVERY line
+ * whether or not anything in it meant the word — free noise for the embedding to
+ * land on. Requiring both conditions is strictly tighter: a candidate must be a
+ * function word Japanese can mean AND be meant by a token actually present here.
+ *
+ * Dropping the allowlist and admitting purely on the line's glosses does NOT
+ * work, and was measured: "the" is the stored gloss of 1654 JMdict keys and "be"
+ * of 1470 — homophone collapses and first-word artifacts — which yields
+ * 出来 → "the", する → "the", 繕っ → "No".
+ */
+function glossedFunctionWordTargets(words: string[], tokens?: Token[]): Set<string> {
+  const admitted = new Set<string>()
+  if (!tokens?.length) return admitted
+  const candidates = new Set<string>()
+  for (const w of words) {
+    if (isAlignableEnglishWord(w)) continue
+    const normalized = normalizeEnglishAlignmentWord(w)
+    if (normalized && GLOSS_ALIGNED_FUNCTION_WORDS.has(normalized)) candidates.add(normalized)
+  }
+  if (candidates.size === 0) return admitted
+  for (const token of tokens) {
+    if (isParticleToken(token)) continue
+    const romaji = tokenGlossText(token)
+    if (!romaji) continue
+    for (const candidate of candidates) {
+      if (admitted.has(candidate)) continue
+      if (glossMatchesSource({ romaji, surface: token.surface }, candidate)) admitted.add(candidate)
+    }
+    if (admitted.size === candidates.size) break
+  }
+  return admitted
+}
+
 /** Content-word pool for alignment; maps each entry back to a full-translation word index. */
 export function alignableEnglishTargetPool(
   words: string[],
   baseOffset = 0,
+  tokens?: Token[],
 ): { words: string[]; indexMap: number[] } {
   const aligned: string[] = []
   const indexMap: number[] = []
+  const glossed = glossedFunctionWordTargets(words, tokens)
   for (let i = 0; i < words.length; i++) {
-    if (!isAlignableEnglishWord(words[i])) continue
+    if (!isAlignableEnglishWord(words[i]) && !glossed.has(normalizeEnglishAlignmentWord(words[i]))) continue
     aligned.push(normalizeEnglishAlignmentWord(words[i]))
     indexMap.push(i + baseOffset)
   }
@@ -180,8 +227,8 @@ export function buildAlignmentSegments(
 
   const line0Words = splitTranslationLineWords(transLines[0])
   const line1Words = splitTranslationLineWords(transLines[1])
-  const pool0 = alignableEnglishTargetPool(line0Words, 0)
-  const pool1 = alignableEnglishTargetPool(line1Words, line0Words.length)
+  const pool0 = alignableEnglishTargetPool(line0Words, 0, tokens)
+  const pool1 = alignableEnglishTargetPool(line1Words, line0Words.length, tokens)
 
   return [
     {
@@ -289,7 +336,7 @@ export function buildAlignJob(line: TimedLine): LineAlignJob {
   }
   const fullTarget = targetWordsForAlignment(line.original, line.translation)
   const baseOffset = targetWordBaseOffset(line.original, line.translation)
-  const pool = alignableEnglishTargetPool(fullTarget, baseOffset)
+  const pool = alignableEnglishTargetPool(fullTarget, baseOffset, tokens)
   const jaIndices = japaneseTokenIndices(line.original, tokens)
   return {
     tokens,
