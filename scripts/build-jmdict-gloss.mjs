@@ -7,6 +7,7 @@
  *   { v, source,
  *     romaji: { romaji → gloss },        // word-pairer lemma lookup
  *     kanji:  { surface → romaji },       // word-pairer kanji→romaji bridge
+ *     alt:    { romaji → "g1|g2" },       // sparse; secondary senses for pairing
  *     kanjiGloss: { surface → gloss } }   // sparse; tap-popover only. Present
  *   only for surfaces whose own gloss differs from the romaji-collapsed
  *   fallback (homophone collisions). The pairer never reads kanjiGloss.
@@ -53,6 +54,27 @@ function kanaToRomaji(text) {
   return toRomaji(hira).toLowerCase().replace(/[^a-z0-9'-]/g, '')
 }
 
+/**
+ * English words carrying no lexical content, which a JMdict gloss frequently
+ * leads with. 前's first sense is "in front (of)", so taking the literal first
+ * word gave the pairer "in" as the meaning of a noun meaning "front", and the
+ * lexical match against a translation's "front" could never fire.
+ *
+ * Mirrors ENGLISH_FUNCTION_WORDS in src/core/language.ts (kept as a copy because
+ * this script is plain node and that module is TypeScript). Negations are
+ * deliberately absent: "no one" must not reduce to "one".
+ */
+const LEADING_FUNCTION_WORDS = new Set([
+  'a', 'an', 'the',
+  'in', 'on', 'at', 'to', 'from', 'of', 'for', 'with', 'by', 'as', 'into', 'onto',
+  'upon', 'about', 'over', 'under', 'between', 'through', 'during',
+  'above', 'below', 'up', 'down', 'out', 'off', 'per', 'via', 'than',
+  'and', 'or', 'but', 'nor', 'so', 'yet',
+  'is', 'am', 'are', 'was', 'were', 'be', 'been', 'being',
+  'have', 'has', 'had', 'do', 'does', 'did',
+  'will', 'would', 'can', 'could', 'shall', 'should', 'may', 'might', 'must',
+])
+
 /** First alignable English word from a JMdict gloss string. */
 function pickGlossWord(text) {
   if (!text?.trim()) return null
@@ -65,6 +87,36 @@ function pickGlossWord(text) {
   const clean = word.toLowerCase().replace(/[^a-z'-]/g, '')
   if (clean.length < 2 || clean.length > 24) return null
   return clean
+}
+
+/**
+ * Like pickGlossWord, but skips leading function words to reach the word that
+ * carries the sense: 前's first sense is "in front (of)", whose literal first
+ * word is "in".
+ *
+ * Used ONLY for the secondary-sense list. The primary map is deliberately left
+ * on pickGlossWord so it stays byte-identical — changing it was measured to
+ * re-route an unrelated line (なくなった "disappeared" → "you"), and the
+ * secondary list already makes the real sense reachable.
+ *
+ * Falls back to the literal first word so an entry that genuinely means a
+ * function word keeps it (だけど → "but").
+ */
+function pickAltGlossWord(text) {
+  if (!text?.trim()) return null
+  let g = text.trim()
+  if (SKIP_GLOSS_TYPES.has(g)) return null
+  g = g.replace(/^\([^)]*\)\s*/, '')
+  if (/^to /i.test(g)) g = g.slice(3)
+  const words = []
+  for (const raw of g.split(/[\s,;/]+/)) {
+    if (!raw || !/^[a-zA-Z]/.test(raw)) continue
+    const clean = raw.toLowerCase().replace(/[^a-z'-]/g, '')
+    if (clean.length < 2 || clean.length > 24) continue
+    words.push(clean)
+  }
+  if (!words.length) return null
+  return words.find((w) => !LEADING_FUNCTION_WORDS.has(w)) ?? words[0]
 }
 
 /** A single readable definition line, trimmed of JMdict qualifiers and capped. */
@@ -122,6 +174,42 @@ function firstGloss(senses) {
     }
   }
   return null
+}
+
+/** How many distinct sense-leading words to keep per key (see `alt` below). */
+const MAX_ALT_GLOSSES = 2
+
+/**
+ * One leading content word per SENSE, deduped and capped.
+ *
+ * The pairer stores a single gloss per key, so a word with several senses can
+ * only ever match one English word: 前's winning sense is "in front (of)" →
+ * "front", which makes the temporal "before" unreachable, and a curated entry
+ * pinning "before" makes "front" unreachable in turn. Either way a translation
+ * using the other sense finds no lexical match and the token drops to embedding
+ * noise (前 → "Far").
+ *
+ * The entry's own primary is deliberately INCLUDED rather than excluded: the
+ * gloss that wins at runtime may be a curated override rather than this entry's
+ * first sense, so the list has to stand on its own.
+ */
+function altGlossWords(senses) {
+  const out = []
+  const seen = new Set()
+  for (const sense of senses ?? []) {
+    const pos = sense.partOfSpeech ?? []
+    if (pos.some((p) => SKIP_POS.has(p))) continue
+    for (const g of sense.gloss ?? []) {
+      if (g.lang && g.lang !== 'eng') continue
+      const w = pickAltGlossWord(g.text)
+      if (!w || seen.has(w)) continue
+      seen.add(w)
+      out.push(w)
+      break // one word per sense — synonyms within a sense add no coverage
+    }
+    if (out.length >= MAX_ALT_GLOSSES) break
+  }
+  return out
 }
 
 function entryScore(word) {
@@ -320,7 +408,7 @@ async function processFile(jsonPath) {
       const r = kanaToRomaji(k.text)
       if (r.length < 2) continue
       const prev = romaji.get(r)
-      if (shouldReplace(prev, gloss, score)) romaji.set(r, { gloss, score })
+      if (shouldReplace(prev, gloss, score)) romaji.set(r, { gloss, score, alt: altGlossWords(word.sense) })
     }
 
     for (const k of word.kanji ?? []) {
@@ -374,6 +462,19 @@ async function processFile(jsonPath) {
     v: 1,
     source: commonOnly ? 'jmdict-eng-common' : 'jmdict-eng',
     romaji: Object.fromEntries([...romaji.entries()].map(([k, v]) => [k, v.gloss])),
+    // Sparse secondary senses, "|"-joined. Only keys whose entry carries a sense
+    // beyond the one already stored in `romaji` appear, so this adds nothing for
+    // the single-sense majority.
+    alt: Object.fromEntries(
+      [...romaji.entries()].flatMap(([k, v]) => {
+        const senses = v.alt ?? []
+        // Emit only when the entry means something beyond the stored gloss, but
+        // emit the FULL list including that gloss: the value returned at runtime
+        // may be a curated override (mae → "before"), which would otherwise make
+        // this entry's own primary sense ("front") unreachable.
+        return senses.some((w) => w !== v.gloss) ? [[k, senses.join('|')]] : []
+      }),
+    ),
     kanji: Object.fromEntries([...kanji.entries()].map(([k, v]) => [k, v.romaji])),
     kanjiGloss,
     popover: popoverEntries,
@@ -393,10 +494,11 @@ async function main() {
   console.log(`Building gloss from ${jsonPath} ...`)
   const data = await processFile(jsonPath)
 
+  const altJson = JSON.stringify(data.alt)
   const romajiJson = JSON.stringify(data.romaji)
   const kanjiJson = JSON.stringify(data.kanji)
   const kanjiGlossJson = JSON.stringify(data.kanjiGloss)
-  const payload = `{"v":1,"source":"${data.source}","romaji":${romajiJson},"kanji":${kanjiJson},"kanjiGloss":${kanjiGlossJson}}`
+  const payload = `{"v":1,"source":"${data.source}","romaji":${romajiJson},"kanji":${kanjiJson},"kanjiGloss":${kanjiGlossJson},"alt":${altJson}}`
   writeFileSync(outPath, payload)
 
   const mb = (Buffer.byteLength(payload) / 1024 / 1024).toFixed(2)
