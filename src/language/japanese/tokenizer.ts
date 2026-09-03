@@ -1,12 +1,18 @@
-import kuromoji, { type Token as KuromojiToken, type Tokenizer } from 'kuromoji'
+import type { Token as KuromojiToken, Tokenizer } from 'kuromoji'
 import type { Token } from '../../core/types'
 import { applyReadingCorrections } from './readingCorrections'
 
 let builder: Tokenizer | null = null
 
-function getTokenizer(): Promise<Tokenizer> {
-  if (builder) return Promise.resolve(builder)
-  return new Promise((resolve, reject) => {
+// kuromoji (plus its doublearray/async dependencies) is imported on first use
+// rather than at module scope. `tokenizeJapanese` is already async and every
+// caller awaits it, so nothing observable changes — but `mapKuromojiTokens`,
+// the pure mapper below, is imported by modules that never tokenize, and a
+// static import made them pay for the whole tokenizer.
+async function getTokenizer(): Promise<Tokenizer> {
+  if (builder) return builder
+  const { default: kuromoji } = await import('kuromoji')
+  return new Promise<Tokenizer>((resolve, reject) => {
     kuromoji.builder({ dicPath: '/dict' }).build((err, tokenizer) => {
       if (err) reject(err)
       else { builder = tokenizer; resolve(tokenizer) }
