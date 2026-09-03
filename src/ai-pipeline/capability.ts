@@ -41,7 +41,12 @@ const WEBGPU_OFF_KEY = 'utasync:devWebGPUOff'
 let forcedOff: boolean | null = null
 
 function webGPUForcedOff(): boolean {
-  if (!import.meta.env.DEV) return false
+  // `?.` because this module is also imported by the node-side audit scripts
+  // (scripts/audit-corpus.mjs via wordAligner), where `import.meta.env` does
+  // not exist at all and a bare property read throws. Vite still folds the
+  // whole branch away in production — verified by scripts/bundle-syntax-floor
+  // style inspection of the emitted chunk.
+  if (!import.meta.env?.DEV) return false
   if (forcedOff === null) {
     try {
       const param = new URLSearchParams(location.search).get('webgpu')

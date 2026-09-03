@@ -204,6 +204,23 @@ const NOISE_MAGNET_TARGETS = new Set([
   'still', 'able', 'even', 'if', 'then', 'than',
   'up', 'down', 'out', 'off',
   'yours', 'mine', 'ours', 'theirs', 'hers',
+  // Possessive determiners. The independent forms (mine/yours/…) were already
+  // here; the determiners attract the same noise (持っ→"my", measured). A JA
+  // word that genuinely means the possessor now reaches these through pronoun
+  // case folding as an exact match, which is exempt from this penalty, so only
+  // embedding-only guesses are affected.
+  'my', 'your', 'his', 'her', 'its', 'our', 'their',
+  // Light prepositions/adverbs carrying no lexical content of their own, which
+  // measured wrong pairs gravitated to: 作業→"somehow", 知ら→"about".
+  //
+  // 'without' is deliberately NOT here. Blocking it was measured to re-route
+  // 状態 onto "let" — stealing the correct 出せ→"let" pair — a worse outcome
+  // than the noise pair it removed. Blocking a magnet only helps when the
+  // freed source has no other light target to fall onto.
+  'about', 'somehow', 'somewhere', 'anyway',
+  // Newly alignable (see GLOSS_ALIGNED_FUNCTION_WORDS): admitted to the target
+  // pool for だけど→"but", and listed here so nothing else drifts onto it.
+  'but',
 ])
 
 // lemmaGloss walks curated maps + JMdict + stem candidates; memoize the

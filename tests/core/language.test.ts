@@ -42,6 +42,20 @@ describe('isAlignableEnglishWord', () => {
     expect(isAlignableEnglishWord('to')).toBe(false)
     expect(isAlignableEnglishWord('is')).toBe(false)
   })
+  // だけど / でも / けど all gloss to "but", but the word was filtered out of the
+  // target pool, so a perfect gloss match had nothing to match and the token
+  // fell onto embedding noise ("know"). It is a NOISE_MAGNET_TARGETS entry in
+  // the pairer, so only a real gloss match can claim it.
+  it('admits the adversative conjunction so だけど can reach it', () => {
+    expect(isAlignableEnglishWord('but')).toBe(true)
+    expect(isAlignableEnglishWord('But')).toBe(true)
+    // Its neighbours in the conjunction group stay filtered — no JA gloss aims
+    // at them, so admitting them would only add noise targets.
+    expect(isAlignableEnglishWord('and')).toBe(false)
+    expect(isAlignableEnglishWord('or')).toBe(false)
+    expect(isAlignableEnglishWord('nor')).toBe(false)
+  })
+
   it('includes content words and contractions', () => {
     expect(isAlignableEnglishWord('behind')).toBe(true)
     expect(isAlignableEnglishWord('same')).toBe(true)

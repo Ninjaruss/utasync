@@ -9,6 +9,7 @@ import { englishGlossVariants, normalizeLemmaGloss } from './glossNormalize'
 import { homographLemmaGloss, homographLemmaKeys, surfaceDirectGloss } from './homographGloss'
 import { runWhenIdle } from '../core/idle'
 import {
+  getJmdictKanjiGloss,
   getJmdictKanjiRomaji,
   getJmdictRomajiGloss,
   jmdictLemmaKeysForStem,
@@ -442,6 +443,22 @@ export function lemmaGloss(romaji: string, surface?: string): string | undefined
 
   const homograph = homographLemmaGloss(surface, r, { glossForKey: dictionaryGlossForKey })
   if (homograph) return homograph
+
+  // Curated glosses still outrank everything below — they encode deliberate
+  // song/poetic readings (boku→'i', not JMdict's archaic "manservant").
+  const curated = ROMAJI_GLOSS[r]
+  if (curated) return curated
+
+  // The romaji map collapses homophones onto one key, so common words inherit a
+  // different word's sense: joutai→"upper" (上体) for 状態, mae→"in" for 前. The
+  // surface-keyed map added for the tap-lookup popover is not collapsed, so
+  // consult it BEFORE falling back to the romaji key. Sparse by construction —
+  // it only holds surfaces whose own gloss differs from their romaji winner —
+  // so this changes nothing for words the romaji key already got right.
+  if (surface) {
+    const bySurface = getJmdictKanjiGloss(surface.trim())
+    if (bySurface) return normalizeLemmaGloss(bySurface)
+  }
 
   const direct = dictionaryGlossForKey(r)
   if (direct) return direct

@@ -53,9 +53,9 @@
     "read_adopt": 1,
     "read_mismatch": 0,
     "read_ruby_wrong": 0,
-    "pair_unpaired": 9,
+    "pair_unpaired": 10,
     "pair_magnet": 0,
-    "pair_wrong": 6
+    "pair_wrong": 1
   },
   "akfg-firsttake-segment": {
     "lines": "30/30",
@@ -429,7 +429,10 @@
     "read_kanji_tokens": 67,
     "read_adopt": 0,
     "read_mismatch": 0,
-    "read_ruby_wrong": 0
+    "read_ruby_wrong": 0,
+    "pair_unpaired": 0,
+    "pair_magnet": 0,
+    "pair_wrong": 0
   },
   "recollect-mixed-word": {
     "lines": "53/53",
@@ -455,7 +458,10 @@
     "read_kanji_tokens": 67,
     "read_adopt": 0,
     "read_mismatch": 0,
-    "read_ruby_wrong": 0
+    "read_ruby_wrong": 0,
+    "pair_unpaired": 0,
+    "pair_magnet": 0,
+    "pair_wrong": 0
   },
   "guitar-loneliness-word": {
     "lines": "47/47",
@@ -482,9 +488,9 @@
     "read_adopt": 0,
     "read_mismatch": 1,
     "read_ruby_wrong": 0,
-    "pair_unpaired": 18,
+    "pair_unpaired": 21,
     "pair_magnet": 0,
-    "pair_wrong": 8
+    "pair_wrong": 4
   },
   "guitar-loneliness-segment": {
     "lines": "47/47",

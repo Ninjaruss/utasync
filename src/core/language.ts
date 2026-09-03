@@ -111,6 +111,12 @@ const GLOSS_ALIGNED_FUNCTION_WORDS = new Set([
   'after', 'about', 'up', 'not',
   'if', 'when', 'even', 'still', 'from', 'until', 'because', 'since',
   'want', 'keep', 'without',
+  // Adversative conjunction. だけど / でも / けど all gloss to "but", but the
+  // word was filtered out of the target pool entirely, so a perfect 1.00 gloss
+  // match had nothing to match against and the token fell onto embedding noise
+  // ("know"). Paired with a NOISE_MAGNET_TARGETS entry so only a real gloss
+  // match can claim it.
+  'but',
   // Lexical "have" (持つ) — only pairs when a JA token actually glosses to it, so
   // auxiliary uses ("have ached") stay unpaired absent a 持つ-style gloss.
   'have', 'has', 'had',
