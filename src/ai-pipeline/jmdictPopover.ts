@@ -70,15 +70,36 @@ export function jmdictPopoverLoaded(): boolean {
  * one surface) are disambiguated by the token's hiragana reading, then falling
  * back to the first (highest-scored) sense.
  */
-export function getPopoverGloss(headword: string, reading?: string | null): string | undefined {
+/**
+ * Definition for a tapped word, disambiguated by reading AND part of speech.
+ *
+ * A single surface routinely means different things as different word classes,
+ * and picking the entry's first sense showed whichever came first regardless of
+ * how the word was used in the line: ねえ as an interjection ("hey") got the
+ * particle "right?; isn't it?", 一杯 as an adverb ("fully") got the counter "one
+ * cup", ただ as a conjunction ("but") got the adjective "ordinary". `posClass` is
+ * the tapped token's kuromoji class, mapped onto JMdict's.
+ *
+ * Reading still wins over part of speech — a 辛い ruby reading からい must not
+ * show つらい's "painful" whatever the POS says. Within one reading, POS decides.
+ */
+export function getPopoverGloss(
+  headword: string,
+  reading?: string | null,
+  posClass?: string | null,
+): string | undefined {
   const senses = data?.entries[headword.trim()]
   if (!senses || senses.length === 0) return undefined
-  if (senses.length === 1) return senses[0]!.g
-  if (reading) {
-    const match = senses.find((s) => s.r === reading)
+
+  const byReading = reading ? senses.filter((s) => s.r === reading) : []
+  // Reading-matched senses when the reading pins some, else everything.
+  const pool = byReading.length > 0 ? byReading : senses
+
+  if (posClass) {
+    const match = pool.find((s) => s.pos === posClass)
     if (match) return match.g
   }
-  return senses[0]!.g
+  return pool[0]!.g
 }
 
 /** For tests — reset module state. */

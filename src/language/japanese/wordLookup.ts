@@ -64,6 +64,35 @@ function posLabelFor(token: Token): string | null {
   return base
 }
 
+/**
+ * Kuromoji POS → the JMdict class the popover dictionary stores, so a tapped word
+ * gets the sense matching how it is used rather than the entry's first sense.
+ * Suffix nouns map to 'suf' (さ in 高さ is "-ness", not the particle).
+ */
+function popoverPosClass(token: Token): string | undefined {
+  const pos = token.pos
+  if (!pos) return undefined
+  // Plain nouns deliberately express NO preference. JMdict already orders an
+  // entry's senses by prominence, so the first one is the best default; forcing
+  // the noun class only ever skips past it to a rarer sense, and measurably did:
+  // 一 "first" → "beginning", 金輪際 "ever" → "deepest bottom of the earth",
+  // 日々 "daily" → "days (e.g. of one's youth)", 方 "way" → "care of ...".
+  // Na-adjective stems are the exception — kuromoji tags 上手 / 変 / 必死 as
+  // 名詞-形容動詞語幹, and their adjectival sense is the one a reader wants
+  // ("skillful", not "flattery"; "strange", not "change").
+  if (pos === '名詞') return token.posDetail1 === '形容動詞語幹' ? 'adj' : undefined
+  if (pos === '動詞') return token.posDetail1 === '接尾' ? 'aux' : 'v'
+  if (pos === '形容詞') return 'adj'
+  if (pos === '連体詞') return 'adj'
+  if (pos === '副詞') return 'adv'
+  if (pos === '感動詞') return 'int'
+  if (pos === '接続詞') return 'conj'
+  if (pos === '助動詞') return 'aux'
+  if (pos === '助詞') return 'prt'
+  if (pos === '接頭詞') return 'pref'
+  return undefined
+}
+
 /** Most representative JMdict reading for a surface: first common, else first. */
 function jmdictFallbackReading(surface: string): string | undefined {
   const inv = readingInventory(surface)
@@ -72,6 +101,7 @@ function jmdictFallbackReading(surface: string): string | undefined {
 
 /** Content-word gloss: curated overlay → surface-specific kanji gloss → romaji lemma chain. */
 function lexicalGloss(token: Token, headword: string, kana: string | undefined): string | undefined {
+  const posClass = popoverPosClass(token)
   // 1. Curated KANJI_ROMAJI overlay wins first — intentional poetic/song
   //    readings (愛→ai, 転がる→korogaru) that must override JMdict.
   const curatedRomaji = KANJI_ROMAJI[headword] ?? KANJI_ROMAJI[token.surface]
@@ -86,7 +116,8 @@ function lexicalGloss(token: Token, headword: string, kana: string | undefined):
   //    so the word-pairer's romaji map stays untouched. Keyed by dictionary form
   //    (headword) so inflected verbs resolve, then the raw surface.
   const readingHira = kana ? katakanaToHiragana(kana) : undefined
-  const popover = getPopoverGloss(headword, readingHira) ?? getPopoverGloss(token.surface, readingHira)
+  const popover = getPopoverGloss(headword, readingHira, posClass)
+    ?? getPopoverGloss(token.surface, readingHira, posClass)
   if (popover) return popover
 
   // 3. Surface-specific JMdict gloss — bypasses the romaji key so homophones
@@ -139,7 +170,9 @@ const HAS_KANJI = /[一-鿿々]/
  */
 function grammarKanjiPopoverGloss(token: Token, headword: string, readingHira: string | undefined): string | undefined {
   if (!HAS_KANJI.test(token.surface)) return undefined
-  return getPopoverGloss(headword, readingHira) ?? getPopoverGloss(token.surface, readingHira)
+  const posClass = popoverPosClass(token)
+  return getPopoverGloss(headword, readingHira, posClass)
+    ?? getPopoverGloss(token.surface, readingHira, posClass)
 }
 
 /**
