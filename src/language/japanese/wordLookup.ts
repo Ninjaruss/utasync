@@ -3,7 +3,7 @@ import { katakanaToHiragana } from './phonetics'
 import { KANJI_ROMAJI, kanjiLemmaRomaji, lemmaGloss } from '../../ai-pipeline/lyricGloss'
 import { normalizeLemmaGloss } from '../../ai-pipeline/glossNormalize'
 import { getJmdictKanjiGloss, jmdictGlossLoaded, prepareJmdictStemIndex } from '../../ai-pipeline/jmdictGloss'
-import { getPopoverGloss, loadJmdictPopover } from '../../ai-pipeline/jmdictPopover'
+import { getPopoverGloss, getPopoverGlossForPos, loadJmdictPopover } from '../../ai-pipeline/jmdictPopover'
 import { loadJmdictReadings, readingInventory } from './jmdictReadings'
 import { grammarGloss, isGrammarToken } from './grammarGlosses'
 import { shouldPromoteSungReading } from '../../lyrics/readingDisplay'
@@ -99,6 +99,33 @@ function jmdictFallbackReading(surface: string): string | undefined {
   return inv ? inv.common[0] ?? inv.uncommon[0] : undefined
 }
 
+/** え-row kana → the う-row kana of the same consonant, for undoing a potential form. */
+const E_ROW_TO_U_ROW: Record<string, string> = {
+  え: 'う', け: 'く', げ: 'ぐ', せ: 'す', ぜ: 'ず', て: 'つ', で: 'づ',
+  ね: 'ぬ', へ: 'ふ', べ: 'ぶ', ぺ: 'ぷ', め: 'む', れ: 'る',
+}
+
+/**
+ * Dictionary form of a potential verb, which JMdict does not list as an entry of
+ * its own: 出せる → 出す, 廻れる → 廻る, 食べられる → 食べる.
+ *
+ * kuromoji reports the potential as the base form, so the lookup asked the
+ * dictionary for a word it has never contained and the popover came back blank
+ * on ordinary verbs. Deinflecting one step is the smallest thing that makes them
+ * resolvable — the sense shown is the plain verb's, which is what a reader needs.
+ *
+ * Deliberately narrow: only the potential, and only when the result differs. A
+ * general deinflection engine would need to know which forms are already dictionary
+ * entries (見せる and 続ける ARE listed, and must not be rewritten to 見す / 続く).
+ */
+function potentialDictionaryForm(word: string): string | undefined {
+  if (word.length < 3 || !word.endsWith('る')) return undefined
+  if (word.endsWith('られる')) return `${word.slice(0, -3)}る`
+  const stem = word[word.length - 2]!
+  const uRow = E_ROW_TO_U_ROW[stem]
+  return uRow ? word.slice(0, -2) + uRow : undefined
+}
+
 /** Content-word gloss: curated overlay → surface-specific kanji gloss → romaji lemma chain. */
 function lexicalGloss(token: Token, headword: string, kana: string | undefined): string | undefined {
   const posClass = popoverPosClass(token)
@@ -140,7 +167,19 @@ function lexicalGloss(token: Token, headword: string, kana: string | undefined):
     kanjiLemmaRomaji(headword) ??
     kanjiLemmaRomaji(token.surface) ??
     (kanaHead ? kanaToRomaji(kanaHead).toLowerCase() : undefined)
-  return romaji ? lemmaGloss(romaji, headword) : undefined
+  const direct = romaji ? lemmaGloss(romaji, headword) : undefined
+  if (direct) return direct
+
+  // 5. Last resort: undo a potential form and look the plain verb up instead.
+  //    JMdict has no 出せる entry, only 出す, so without this an ordinary verb
+  //    shows nothing at all.
+  const plain = potentialDictionaryForm(headword)
+  if (plain && plain !== headword) {
+    const plainGloss = getPopoverGloss(plain, undefined, posClass)
+      ?? (kanjiLemmaRomaji(plain) ? lemmaGloss(kanjiLemmaRomaji(plain)!, plain) : undefined)
+    if (plainGloss) return plainGloss
+  }
+  return undefined
 }
 
 /**
@@ -161,18 +200,32 @@ function subsidiaryVerbLexicalGloss(token: Token, headword: string, kana: string
 const HAS_KANJI = /[一-鿿々]/
 
 /**
- * Recover a kanji-bearing grammar-tagged content word (度 in 〜度に, 欲しい in
- * 〜て欲しい, 事 as a nominalizer) from the reading-disambiguated popover, which
- * kuromoji tags 非自立 and the grammar path would otherwise leave blank. Guarded
- * on kanji: kana particles/auxiliaries (は, を, た) must never inherit a lexical
- * gloss — the popover is reading-safe but only kanji surfaces are keyed, and this
- * guard keeps that invariant even if a kana surface were ever injected.
+ * Recover a grammar-tagged word that is really a content word (度 in 〜度に,
+ * 欲しい in 〜て欲しい, 事 as a nominalizer, and the kana いい "good", みたい
+ * "-like", 続ける "to continue") from the reading-disambiguated popover, which
+ * kuromoji tags 非自立 and the grammar path would otherwise leave blank.
+ *
+ * The old guard was "kanji only", because a kana surface risked inheriting a
+ * lexical gloss (は → 端 "edge"). Word class is the precise version of that
+ * guard: on a kana surface only an exact class match is accepted, so a 助詞 は
+ * can reach a particle sense and nothing else.
  */
-function grammarKanjiPopoverGloss(token: Token, headword: string, readingHira: string | undefined): string | undefined {
-  if (!HAS_KANJI.test(token.surface)) return undefined
+function grammarPopoverGloss(token: Token, headword: string, readingHira: string | undefined): string | undefined {
   const posClass = popoverPosClass(token)
-  return getPopoverGloss(headword, readingHira, posClass)
-    ?? getPopoverGloss(token.surface, readingHira, posClass)
+  // Kanji surfaces may take the entry's leading sense — 中 / 度 / 気 are plain
+  // nouns, which express no class preference, and blanking them for want of one
+  // would lose definitions this path exists to recover.
+  if (HAS_KANJI.test(token.surface)) {
+    return getPopoverGloss(headword, readingHira, posClass)
+      ?? getPopoverGloss(token.surface, readingHira, posClass)
+  }
+  // Kana surfaces must match the word class exactly, so a particle can never
+  // inherit a noun's meaning. Plain nouns carry no preference elsewhere, but
+  // here a class is what makes the lookup safe, so require the noun one.
+  const kanaClass = posClass ?? (token.pos === '名詞' ? 'n' : undefined)
+  if (!kanaClass) return undefined
+  return getPopoverGlossForPos(headword, readingHira, kanaClass)
+    ?? getPopoverGlossForPos(token.surface, readingHira, kanaClass)
 }
 
 /**
@@ -210,7 +263,7 @@ export async function lookupWord(token: Token, readingMode: ReadingMode = 'dicti
   // one shows no gloss rather than a wrong one.
   const readingHira = kana ? katakanaToHiragana(kana) : undefined
   const gloss = isGrammarToken(token)
-    ? grammarGloss(token) ?? subsidiaryVerbLexicalGloss(token, headword, kana) ?? grammarKanjiPopoverGloss(token, headword, readingHira)
+    ? grammarGloss(token) ?? subsidiaryVerbLexicalGloss(token, headword, kana) ?? grammarPopoverGloss(token, headword, readingHira)
     : lexicalGloss(token, headword, kana)
 
   return {

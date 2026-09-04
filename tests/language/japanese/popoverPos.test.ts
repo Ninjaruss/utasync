@@ -81,3 +81,61 @@ describe('tap lookup — part-of-speech disambiguation', () => {
     expect(await first(tok({ surface: 'ぶちまけ', pos: '動詞', posDetail1: '自立', baseForm: 'ぶちまける', reading: 'ブチマケ' }))).toContain('dump')
   })
 })
+
+/**
+ * kuromoji tags a dependent word 非自立 whether it is a grammar particle or an
+ * ordinary content word, and the popover blanked all of them — a blunt guard
+ * against kana homophones (は glossing as 端 "edge"). Requiring an exact word
+ * class is the precise version of that guard.
+ */
+describe('tap lookup — words that used to come back blank', () => {
+  beforeAll(() => {
+    setJmdictGlossForTests(JSON.parse(readFileSync(join(ROOT, 'public/jmdict-gloss.json'), 'utf8')))
+    setJmdictPopoverForTests(JSON.parse(readFileSync(join(ROOT, 'public/jmdict-popover.json'), 'utf8')))
+    setJmdictReadingsForTests(JSON.parse(readFileSync(join(ROOT, 'public/jmdict-readings.json'), 'utf8')))
+  })
+
+  const first = async (t: Token) => (await lookupWord(t))!.glosses[0]?.toLowerCase() ?? ''
+
+  it('answers a dependent-tagged content word', async () => {
+    expect(await first(tok({ surface: 'いい', pos: '形容詞', posDetail1: '非自立', reading: 'イイ' }))).toContain('good')
+    expect(await first(tok({ surface: 'つづけ', pos: '動詞', posDetail1: '非自立', baseForm: 'つづける', reading: 'ツヅケ' }))).toContain('continue')
+    expect(await first(tok({ surface: 'みせる', pos: '動詞', posDetail1: '非自立', reading: 'ミセル' }))).toContain('show')
+  })
+
+  it('answers particles the grammar glossary had no entry for', async () => {
+    expect(await first(tok({ surface: 'さえ', pos: '助詞', posDetail1: '係助詞', reading: 'サエ' }))).toContain('even')
+    expect(await first(tok({ surface: 'なんて', pos: '助詞', posDetail1: '副助詞', reading: 'ナンテ' }))).toContain('like')
+  })
+
+  it('undoes a potential form JMdict does not list as an entry', async () => {
+    // JMdict has 出す and 廻る but no 出せる / 廻れる, and kuromoji reports the
+    // potential AS the base form, so the lookup asked for a word the dictionary
+    // has never contained.
+    expect(await first(tok({ surface: '出せ', pos: '動詞', posDetail1: '自立', baseForm: '出せる', reading: 'ダセ' }))).toContain('take out')
+    expect(await first(tok({ surface: '廻れ', pos: '動詞', posDetail1: '自立', baseForm: '廻れる', reading: 'マワレ' }))).toContain('go around')
+  })
+
+  it('does not rewrite a verb that IS a dictionary entry in its own right', async () => {
+    // 見せる and 続ける end in -eru but are real entries; deinflecting them to
+    // 見す / 続く would be wrong, so the plain-form fallback runs only after a
+    // direct hit fails.
+    expect(await first(tok({ surface: '見せる', pos: '動詞', posDetail1: '自立', reading: 'ミセル' }))).toContain('show')
+    expect(await first(tok({ surface: '続ける', pos: '動詞', posDetail1: '自立', reading: 'ツヅケル' }))).toContain('continue')
+  })
+
+  it('prefers a curated grammar gloss over a misleading dictionary noun sense', async () => {
+    // Left to the dictionary these resolved to "some" and "thing (thought or
+    // spoken)" — worse than showing nothing.
+    expect(await first(tok({ surface: 'ん', pos: '名詞', posDetail1: '非自立', reading: 'ン' }))).toContain('nominalizer')
+    expect(await first(tok({ surface: 'よう', pos: '名詞', posDetail1: '非自立', reading: 'ヨウ' }))).toContain('seems')
+  })
+
+  it('still refuses to give a bare particle a lexical meaning', async () => {
+    // The homophone the old blanket guard existed to prevent: は must never
+    // resolve to 端 "edge".
+    const ha = await first(tok({ surface: 'は', pos: '助詞', posDetail1: '係助詞', reading: 'ハ' }))
+    expect(ha).not.toContain('edge')
+    expect(ha).toContain('topic')
+  })
+})

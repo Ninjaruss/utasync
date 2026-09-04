@@ -104,10 +104,19 @@ const ENTRIES: Record<string, GrammarEntry[]> = {
   た: [{ gloss: 'past tense', pos: '助動詞' }],
   ない: [{ gloss: 'not (negation)', pos: '助動詞' }],
   ぬ: [{ gloss: 'not (negation, literary)', pos: '助動詞' }],
-  ん: [{ gloss: 'not (negation, contraction of ぬ)', pos: '助動詞' }],
+  ん: [
+    // Curated because the dictionary's noun sense is actively misleading: ん
+    // resolved to "some", which is not what it is doing in a sentence.
+    { gloss: 'explanatory / nominalizer (contraction of の)', posDetail1: '非自立' },
+    { gloss: 'not (negation, contraction of ぬ)', pos: '助動詞' },
+  ],
   ます: [{ gloss: 'polite verb ending', pos: '助動詞' }],
   う: [{ gloss: "volitional (let's / shall)", pos: '助動詞' }],
-  よう: [{ gloss: "volitional (let's / shall)", pos: '助動詞' }],
+  よう: [
+    // Likewise: the noun sense resolved to "thing (thought or spoken)".
+    { gloss: 'seems; looks like; in order to (〜ように)', posDetail1: '非自立' },
+    { gloss: "volitional (let's / shall)", pos: '助動詞' },
+  ],
   たい: [{ gloss: 'want to', pos: '助動詞' }],
   れる: [{ gloss: 'passive / potential', pos: '助動詞' }],
   られる: [{ gloss: 'passive / potential', pos: '助動詞' }],
@@ -115,7 +124,10 @@ const ENTRIES: Record<string, GrammarEntry[]> = {
   させる: [{ gloss: 'causative (make/let someone)', pos: '助動詞' }],
   らしい: [{ gloss: 'seems like; apparently', pos: '助動詞' }],
   そう: [{ gloss: 'looks like; I hear (そうだ)', pos: '助動詞' }],
-  みたい: [{ gloss: 'like; similar to', pos: '助動詞' }],
+  みたい: [
+    { gloss: 'like; similar to; seems', posDetail1: '非自立' },
+    { gloss: 'like; similar to', pos: '助動詞' },
+  ],
   べき: [{ gloss: 'should; ought to', pos: '助動詞' }],
   まい: [{ gloss: 'probably not; will not (volitional negative)', pos: '助動詞' }],
   // ---- dependent grammar verbs (after て) ----
@@ -144,6 +156,9 @@ const ENTRIES: Record<string, GrammarEntry[]> = {
   ところ: [{ gloss: 'place; moment; about to', posDetail1: '非自立' }],
   よる: [{ gloss: 'depending on; by (〜によって)', posDetail1: '非自立' }],
   みたいな: [{ gloss: 'like; sort of', posDetail1: '非自立' }],
+  // ---- casual contractions ----
+  じゃ: [{ gloss: 'then; well (contraction of では)', pos: '助詞' }],
+  ちゃ: [{ gloss: 'if (casual 〜ては)', pos: '助詞' }],
 }
 
 /** Grammar-function gloss for a particle/auxiliary/dependent token, or

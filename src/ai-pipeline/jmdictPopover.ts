@@ -102,6 +102,31 @@ export function getPopoverGloss(
   return pool[0]!.g
 }
 
+/**
+ * Definition ONLY when the dictionary has a sense of exactly this word class —
+ * never a fallback to the entry's first sense.
+ *
+ * The grammar path uses this to answer words kuromoji tags 非自立 (dependent)
+ * that are nonetheless ordinary content words: いい "good", みたい "-like",
+ * 続ける "to continue". Blanking them was a blunt guard against the kana
+ * homophone problem (は glossing as 端 "edge"), which came from the romaji chain.
+ * Requiring an exact class match is a precise guard instead: a 助詞 は can only
+ * ever match a particle sense, never a noun one, so it cannot inherit a lexical
+ * meaning. Where no sense of that class exists the popover still shows nothing
+ * rather than something wrong.
+ */
+export function getPopoverGlossForPos(
+  headword: string,
+  reading: string | null | undefined,
+  posClass: string,
+): string | undefined {
+  const senses = data?.entries[headword.trim()]
+  if (!senses || senses.length === 0) return undefined
+  const byReading = reading ? senses.filter((s) => s.r === reading) : []
+  const pool = byReading.length > 0 ? byReading : senses
+  return pool.find((s) => s.pos === posClass)?.g
+}
+
 /** For tests — reset module state. */
 export function resetJmdictPopoverCache(): void {
   data = null
