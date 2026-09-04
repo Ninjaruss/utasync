@@ -3,11 +3,19 @@ import { katakanaToHiragana } from './phonetics'
 import { KANJI_ROMAJI, kanjiLemmaRomaji, lemmaGloss } from '../../ai-pipeline/lyricGloss'
 import { normalizeLemmaGloss } from '../../ai-pipeline/glossNormalize'
 import { getJmdictKanjiGloss, jmdictGlossLoaded, prepareJmdictStemIndex } from '../../ai-pipeline/jmdictGloss'
-import { getPopoverGloss, loadJmdictPopover } from '../../ai-pipeline/jmdictPopover'
+import { getPopoverGloss, getPopoverGlossForPos, getPopoverSenses, loadJmdictPopover } from '../../ai-pipeline/jmdictPopover'
 import { loadJmdictReadings, readingInventory } from './jmdictReadings'
 import { grammarGloss, isGrammarToken } from './grammarGlosses'
 import { shouldPromoteSungReading } from '../../lyrics/readingDisplay'
 import type { ReadingMode, Token } from '../../core/types'
+
+/** One dictionary sense: its word class (for the tag) and its gloss lines. */
+export interface WordSense {
+  /** Readable class label ("noun", "adverb"), or null when the dictionary
+   * recorded none for this sense. */
+  posLabel: string | null
+  glosses: string[]
+}
 
 export interface WordLookupResult {
   /** Dictionary form when known, else the surface. */
@@ -24,6 +32,13 @@ export interface WordLookupResult {
   posLabel: string | null
   /** Empty when no dictionary entry was found — the popup still shows the reading. */
   glosses: string[]
+  /**
+   * Every sense the dictionary has, the shown one first. `glosses` is this
+   * list's first entry; the rest exist so the reader can see the sense the
+   * resolver did not pick. Single-element for anything resolved outside the
+   * popover dictionary, which records only one definition.
+   */
+  senses: WordSense[]
   /** False when the JMdict gloss map failed to load (offline) — the popup says "definitions unavailable" instead of "no definition found". */
   dictionaryAvailable: boolean
 }
@@ -64,14 +79,71 @@ function posLabelFor(token: Token): string | null {
   return base
 }
 
+/**
+ * Kuromoji POS → the JMdict class the popover dictionary stores, so a tapped word
+ * gets the sense matching how it is used rather than the entry's first sense.
+ * Suffix nouns map to 'suf' (さ in 高さ is "-ness", not the particle).
+ */
+function popoverPosClass(token: Token): string | undefined {
+  const pos = token.pos
+  if (!pos) return undefined
+  // Plain nouns deliberately express NO preference. JMdict already orders an
+  // entry's senses by prominence, so the first one is the best default; forcing
+  // the noun class only ever skips past it to a rarer sense, and measurably did:
+  // 一 "first" → "beginning", 金輪際 "ever" → "deepest bottom of the earth",
+  // 日々 "daily" → "days (e.g. of one's youth)", 方 "way" → "care of ...".
+  // Na-adjective stems are the exception — kuromoji tags 上手 / 変 / 必死 as
+  // 名詞-形容動詞語幹, and their adjectival sense is the one a reader wants
+  // ("skillful", not "flattery"; "strange", not "change").
+  if (pos === '名詞') return token.posDetail1 === '形容動詞語幹' ? 'adj' : undefined
+  if (pos === '動詞') return token.posDetail1 === '接尾' ? 'aux' : 'v'
+  if (pos === '形容詞') return 'adj'
+  if (pos === '連体詞') return 'adj'
+  if (pos === '副詞') return 'adv'
+  if (pos === '感動詞') return 'int'
+  if (pos === '接続詞') return 'conj'
+  if (pos === '助動詞') return 'aux'
+  if (pos === '助詞') return 'prt'
+  if (pos === '接頭詞') return 'pref'
+  return undefined
+}
+
 /** Most representative JMdict reading for a surface: first common, else first. */
 function jmdictFallbackReading(surface: string): string | undefined {
   const inv = readingInventory(surface)
   return inv ? inv.common[0] ?? inv.uncommon[0] : undefined
 }
 
+/** え-row kana → the う-row kana of the same consonant, for undoing a potential form. */
+const E_ROW_TO_U_ROW: Record<string, string> = {
+  え: 'う', け: 'く', げ: 'ぐ', せ: 'す', ぜ: 'ず', て: 'つ', で: 'づ',
+  ね: 'ぬ', へ: 'ふ', べ: 'ぶ', ぺ: 'ぷ', め: 'む', れ: 'る',
+}
+
+/**
+ * Dictionary form of a potential verb, which JMdict does not list as an entry of
+ * its own: 出せる → 出す, 廻れる → 廻る, 食べられる → 食べる.
+ *
+ * kuromoji reports the potential as the base form, so the lookup asked the
+ * dictionary for a word it has never contained and the popover came back blank
+ * on ordinary verbs. Deinflecting one step is the smallest thing that makes them
+ * resolvable — the sense shown is the plain verb's, which is what a reader needs.
+ *
+ * Deliberately narrow: only the potential, and only when the result differs. A
+ * general deinflection engine would need to know which forms are already dictionary
+ * entries (見せる and 続ける ARE listed, and must not be rewritten to 見す / 続く).
+ */
+function potentialDictionaryForm(word: string): string | undefined {
+  if (word.length < 3 || !word.endsWith('る')) return undefined
+  if (word.endsWith('られる')) return `${word.slice(0, -3)}る`
+  const stem = word[word.length - 2]!
+  const uRow = E_ROW_TO_U_ROW[stem]
+  return uRow ? word.slice(0, -2) + uRow : undefined
+}
+
 /** Content-word gloss: curated overlay → surface-specific kanji gloss → romaji lemma chain. */
 function lexicalGloss(token: Token, headword: string, kana: string | undefined): string | undefined {
+  const posClass = popoverPosClass(token)
   // 1. Curated KANJI_ROMAJI overlay wins first — intentional poetic/song
   //    readings (愛→ai, 転がる→korogaru) that must override JMdict.
   const curatedRomaji = KANJI_ROMAJI[headword] ?? KANJI_ROMAJI[token.surface]
@@ -86,7 +158,8 @@ function lexicalGloss(token: Token, headword: string, kana: string | undefined):
   //    so the word-pairer's romaji map stays untouched. Keyed by dictionary form
   //    (headword) so inflected verbs resolve, then the raw surface.
   const readingHira = kana ? katakanaToHiragana(kana) : undefined
-  const popover = getPopoverGloss(headword, readingHira) ?? getPopoverGloss(token.surface, readingHira)
+  const popover = getPopoverGloss(headword, readingHira, posClass)
+    ?? getPopoverGloss(token.surface, readingHira, posClass)
   if (popover) return popover
 
   // 3. Surface-specific JMdict gloss — bypasses the romaji key so homophones
@@ -109,7 +182,19 @@ function lexicalGloss(token: Token, headword: string, kana: string | undefined):
     kanjiLemmaRomaji(headword) ??
     kanjiLemmaRomaji(token.surface) ??
     (kanaHead ? kanaToRomaji(kanaHead).toLowerCase() : undefined)
-  return romaji ? lemmaGloss(romaji, headword) : undefined
+  const direct = romaji ? lemmaGloss(romaji, headword) : undefined
+  if (direct) return direct
+
+  // 5. Last resort: undo a potential form and look the plain verb up instead.
+  //    JMdict has no 出せる entry, only 出す, so without this an ordinary verb
+  //    shows nothing at all.
+  const plain = potentialDictionaryForm(headword)
+  if (plain && plain !== headword) {
+    const plainGloss = getPopoverGloss(plain, undefined, posClass)
+      ?? (kanjiLemmaRomaji(plain) ? lemmaGloss(kanjiLemmaRomaji(plain)!, plain) : undefined)
+    if (plainGloss) return plainGloss
+  }
+  return undefined
 }
 
 /**
@@ -130,16 +215,101 @@ function subsidiaryVerbLexicalGloss(token: Token, headword: string, kana: string
 const HAS_KANJI = /[一-鿿々]/
 
 /**
- * Recover a kanji-bearing grammar-tagged content word (度 in 〜度に, 欲しい in
- * 〜て欲しい, 事 as a nominalizer) from the reading-disambiguated popover, which
- * kuromoji tags 非自立 and the grammar path would otherwise leave blank. Guarded
- * on kanji: kana particles/auxiliaries (は, を, た) must never inherit a lexical
- * gloss — the popover is reading-safe but only kanji surfaces are keyed, and this
- * guard keeps that invariant even if a kana surface were ever injected.
+ * Recover a grammar-tagged word that is really a content word (度 in 〜度に,
+ * 欲しい in 〜て欲しい, 事 as a nominalizer, and the kana いい "good", みたい
+ * "-like", 続ける "to continue") from the reading-disambiguated popover, which
+ * kuromoji tags 非自立 and the grammar path would otherwise leave blank.
+ *
+ * The old guard was "kanji only", because a kana surface risked inheriting a
+ * lexical gloss (は → 端 "edge"). Word class is the precise version of that
+ * guard: on a kana surface only an exact class match is accepted, so a 助詞 は
+ * can reach a particle sense and nothing else.
  */
-function grammarKanjiPopoverGloss(token: Token, headword: string, readingHira: string | undefined): string | undefined {
-  if (!HAS_KANJI.test(token.surface)) return undefined
-  return getPopoverGloss(headword, readingHira) ?? getPopoverGloss(token.surface, readingHira)
+function grammarPopoverGloss(token: Token, headword: string, readingHira: string | undefined): string | undefined {
+  const posClass = popoverPosClass(token)
+  // Kanji surfaces may take the entry's leading sense — 中 / 度 / 気 are plain
+  // nouns, which express no class preference, and blanking them for want of one
+  // would lose definitions this path exists to recover.
+  if (HAS_KANJI.test(token.surface)) {
+    return getPopoverGloss(headword, readingHira, posClass)
+      ?? getPopoverGloss(token.surface, readingHira, posClass)
+  }
+  // Kana surfaces must match the word class exactly, so a particle can never
+  // inherit a noun's meaning. Plain nouns carry no preference elsewhere, but
+  // here a class is what makes the lookup safe, so require the noun one.
+  const kanaClass = posClass ?? (token.pos === '名詞' ? 'n' : undefined)
+  if (!kanaClass) return undefined
+  return getPopoverGlossForPos(headword, readingHira, kanaClass)
+    ?? getPopoverGlossForPos(token.surface, readingHira, kanaClass)
+}
+
+/** Readable labels for the popover dictionary's word classes. */
+const SENSE_CLASS_LABELS: Record<string, string> = {
+  n: 'noun', v: 'verb', adj: 'adjective', adv: 'adverb',
+  int: 'interjection', conj: 'conjunction', prt: 'particle',
+  aux: 'auxiliary', pref: 'prefix', suf: 'suffix',
+}
+
+const splitGlosses = (gloss: string): string[] => gloss.split(/\s*;\s*/).filter(Boolean)
+
+/**
+ * The shown definition first, then every other sense the dictionary records for
+ * this word, so a reader can see the meaning the resolver did not pick.
+ *
+ * Only the popover dictionary keeps more than one sense; anything resolved
+ * through the curated overlay or the romaji chain has exactly one, and that is
+ * the whole list.
+ */
+function buildSenses(
+  token: Token,
+  headword: string,
+  readingHira: string | undefined,
+  primary: string | undefined,
+  listAlternatives: boolean,
+): WordSense[] {
+  if (!primary) return []
+  const posClass = popoverPosClass(token)
+  // Grammar words show their curated gloss and nothing else. Their kana is
+  // shared with unrelated words that the reading cannot separate — listing
+  // alternatives put "tooth; teeth" (歯) under the topic marker は, which is
+  // precisely the homophone leak the lexical path is guarded against.
+  if (!listAlternatives) {
+    return [{ posLabel: SENSE_CLASS_LABELS[posClass ?? ''] ?? null, glosses: splitGlosses(primary) }]
+  }
+  const toSense = (sense: { pos?: string; g: string }): WordSense => ({
+    posLabel: sense.pos ? SENSE_CLASS_LABELS[sense.pos] ?? null : null,
+    glosses: splitGlosses(sense.g),
+  })
+  // Compared on the leading gloss line, because the same sense reaches us in
+  // different lengths from different sources — the sparse kanji map has 空
+  // "sky" where the popover has "sky; the air; the heavens", and listing both
+  // would show the word twice.
+  const lead = (gloss: string) => splitGlosses(gloss)[0]?.toLowerCase() ?? ''
+  const primaryLead = lead(primary)
+
+  const all = getPopoverSenses(headword, readingHira, posClass).length > 0
+    ? getPopoverSenses(headword, readingHira, posClass)
+    : getPopoverSenses(token.surface, readingHira, posClass)
+
+  const shownIndex = all.findIndex((sense) => lead(sense.g) === primaryLead)
+  if (shownIndex >= 0) {
+    // The definition on screen IS one of the dictionary's, so take every label
+    // from the dictionary — the token's own class is absent for plain nouns and
+    // would leave the leading sense untagged.
+    return [all[shownIndex]!, ...all.filter((_, i) => i !== shownIndex)]
+      .map(toSense)
+      .filter((sense) => sense.glosses.length > 0)
+  }
+
+  // Otherwise the primary came from somewhere the dictionary does not cover — a
+  // curated gloss, the romaji chain, a deinflected form — so it leads, tagged
+  // with the token's class, followed by whatever else the dictionary knows.
+  const head: WordSense = { posLabel: SENSE_CLASS_LABELS[posClass ?? ''] ?? null, glosses: splitGlosses(primary) }
+  const others = all
+    .filter((sense) => lead(sense.g) !== primaryLead)
+    .map(toSense)
+    .filter((sense) => sense.glosses.length > 0)
+  return [head, ...others]
 }
 
 /**
@@ -177,8 +347,10 @@ export async function lookupWord(token: Token, readingMode: ReadingMode = 'dicti
   // one shows no gloss rather than a wrong one.
   const readingHira = kana ? katakanaToHiragana(kana) : undefined
   const gloss = isGrammarToken(token)
-    ? grammarGloss(token) ?? subsidiaryVerbLexicalGloss(token, headword, kana) ?? grammarKanjiPopoverGloss(token, headword, readingHira)
+    ? grammarGloss(token) ?? subsidiaryVerbLexicalGloss(token, headword, kana) ?? grammarPopoverGloss(token, headword, readingHira)
     : lexicalGloss(token, headword, kana)
+
+  const senses = buildSenses(token, headword, readingHira, gloss, !isGrammarToken(token))
 
   return {
     headword,
@@ -186,7 +358,8 @@ export async function lookupWord(token: Token, readingMode: ReadingMode = 'dicti
     dictionaryReading: sung && dictReading && dictReading !== sung ? dictReading : null,
     pos: token.pos ?? null,
     posLabel: posLabelFor(token),
-    glosses: gloss ? gloss.split(/\s*;\s*/).filter(Boolean) : [],
+    glosses: senses[0]?.glosses ?? [],
+    senses,
     dictionaryAvailable: jmdictGlossLoaded(),
   }
 }

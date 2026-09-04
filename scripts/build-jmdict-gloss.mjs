@@ -42,11 +42,13 @@ const assetName = commonOnly
 const assetUrl = `https://github.com/scriptin/jmdict-simplified/releases/download/${encodeURIComponent(TAG)}/${assetName}`
 
 const SKIP_POS = new Set(['unc', 'ctr', 'suf', 'pref', 'pn', 'int', 'conj'])
-// The popover shows human-readable definitions, where a pronoun sense IS the
-// definition: skipping 'pn' made 君 lead with "monarch" instead of "you" and
-// 僕 with "manservant" instead of "I; me". The pairer's firstGloss keeps the
-// full skip list — pronouns aren't alignable content words.
-const POPOVER_SKIP_POS = new Set([...SKIP_POS].filter((p) => p !== 'pn'))
+// The popover shows human-readable definitions, where a pronoun, interjection or
+// conjunction sense IS the definition: skipping 'pn' made 君 lead with "monarch"
+// instead of "you" and 僕 with "manservant" instead of "I; me", and the same
+// applied to 'int'/'conj' — ねえ could only ever offer "right?; isn't it?", never
+// the interjection "hey; say". The pairer's firstGloss keeps the full skip list;
+// those classes are not alignable content words.
+const POPOVER_SKIP_POS = new Set([...SKIP_POS].filter((p) => p !== 'pn' && p !== 'int' && p !== 'conj'))
 const SKIP_GLOSS_TYPES = new Set(['explanation'])
 
 function kanaToRomaji(text) {
@@ -137,11 +139,29 @@ function cleanGloss(text) {
  * firstGloss (one alignable word for the pairer), this preserves the readable
  * definition — "past; bygone days", not "the".
  */
-function fullGloss(senses) {
+/** Distinct part-of-speech classes to keep per entry (see fullGlossByPosClass). */
+const MAX_POPOVER_POS_CLASSES = 3
+
+/**
+ * One definition per part-of-speech CLASS in the entry, rather than one per
+ * entry.
+ *
+ * A single JMdict entry routinely means different things as different word
+ * classes, and storing only its first sense made the popover show whichever came
+ * first regardless of how the word was used: ねえ offered the particle "right?;
+ * isn't it?" and never the interjection "hey", 一杯 the counter "one cup" and
+ * never the adverbial "full; lots". The tapped token's kuromoji POS picks between
+ * them at runtime.
+ */
+function fullGlossByPosClass(senses) {
+  const byClass = new Map()
   const collect = (requireContentPos) => {
     for (const sense of senses ?? []) {
+      if (byClass.size >= MAX_POPOVER_POS_CLASSES) return
       const pos = sense.partOfSpeech ?? []
       if (requireContentPos && pos.some((p) => POPOVER_SKIP_POS.has(p))) continue
+      const cls = posClassOf(pos)
+      if (byClass.has(cls)) continue
       const items = []
       for (const g of sense.gloss ?? []) {
         if (g.lang && g.lang !== 'eng') continue
@@ -149,11 +169,12 @@ function fullGloss(senses) {
         if (c) items.push(c)
         if (items.length >= 3) break
       }
-      if (items.length) return items.join('; ')
+      if (items.length) byClass.set(cls, items.join('; '))
     }
-    return null
   }
-  return collect(true) ?? collect(false)
+  collect(true)
+  if (byClass.size === 0) collect(false)
+  return byClass
 }
 
 function firstGloss(senses) {
@@ -259,6 +280,29 @@ async function ensureSourceJson() {
   throw new Error(`No jmdict JSON found in ${cacheDir} after extract`)
 }
 
+/**
+ * Collapses JMdict's fine-grained part-of-speech codes onto the coarse classes
+ * kuromoji reports, so the popover can prefer the sense matching how the word is
+ * used in the line. Without this the tap popover is POS-blind: ねえ as an
+ * interjection ("hey") lost to the colloquial negative ない ("nonexistent"), and
+ * せる as the causative auxiliary lost to 競る "to compete".
+ */
+function posClassOf(partOfSpeech) {
+  for (const p of partOfSpeech ?? []) {
+    if (p === 'int') return 'int'
+    if (p === 'conj') return 'conj'
+    if (p === 'prt') return 'prt'
+    if (p.startsWith('aux')) return 'aux'
+    if (p.startsWith('adv')) return 'adv'
+    if (p.startsWith('adj')) return 'adj'
+    if (p === 'pref') return 'pref'
+    if (p === 'suf' || p === 'n-suf' || p === 'ctr') return 'suf'
+    if (p.startsWith('v')) return 'v'
+    if (p === 'n' || p === 'pn' || p.startsWith('n-')) return 'n'
+  }
+  return ''
+}
+
 /** Kana forms applicable to a given kanji surface (JMdict appliesToKanji). */
 function kanaFormsFor(word, surface) {
   return (word.kana ?? []).filter((kr) => {
@@ -334,8 +378,8 @@ async function processFile(jsonPath) {
     const score = entryScore(word)
 
     // Popover: store the full first-sense definition per kanji surface + reading.
-    const popoverDef = fullGloss(word.sense)
-    if (popoverDef) {
+    const popoverByClass = fullGlossByPosClass(word.sense)
+    if (popoverByClass.size > 0) {
       for (const k of word.kanji ?? []) {
         const surface = k.text?.trim()
         if (!surface || surface.length > 8 || !KANJI_CHAR_RE.test(surface)) continue
@@ -349,9 +393,15 @@ async function processFile(jsonPath) {
             byReading = new Map()
             popover.set(surface, byReading)
           }
-          const prev = byReading.get(reading)
-          // Higher-scored (common) entry wins a given surface+reading.
-          if (!prev || score > prev.score) byReading.set(reading, { g: popoverDef, score })
+          // Keyed by reading AND part-of-speech class so a surface meaning
+          // different things as different word classes keeps both, and the
+          // popover can pick the one matching the tapped token.
+          for (const [cls, def] of popoverByClass) {
+            const key = `${reading}\u0000${cls}`
+            const prev = byReading.get(key)
+            // Higher-scored (common) entry wins a given surface+reading+class.
+            if (!prev || score > prev.score) byReading.set(key, { r: reading, pos: cls, g: def, score })
+          }
         }
       }
 
@@ -367,9 +417,15 @@ async function processFile(jsonPath) {
       // not 黄身 "egg yolk"). 九's この isn't a common form, so it never gets
       // keyed at all. Keys keep JMdict's own script — katakana loanwords stay
       // katakana, matching kuromoji surfaces/baseForms.
-      if (isCommonEntry(word)) {
-        const kanaNative =
-          !(word.kanji?.length) || (word.sense ?? []).some((s) => (s.misc ?? []).includes('uk'))
+      const kanaNative =
+        !(word.kanji?.length) || (word.sense ?? []).some((s) => (s.misc ?? []).includes('uk'))
+      // A kana-NATIVE entry owns its kana key even when JMdict does not flag it
+      // common. The common-only gate used to exclude exactly the entries a kana
+      // key most needs: the causative auxiliary せる (no kanji form, not marked
+      // common) lost せる to 競る "to compete", and 何時か "someday" lost いつか
+      // to 五日 "5th day of the month". kanaScore below still ranks the
+      // competitors — this only lets them enter the running.
+      if (isCommonEntry(word) || kanaNative) {
         const pos0 = word.sense?.[0]?.partOfSpeech ?? []
         // Kana-key score, from scratch (NOT entryScore): a common KANJI form
         // means the word is normally written in kanji — it makes the entry a
@@ -378,8 +434,7 @@ async function processFile(jsonPath) {
         // are conventionally kana-written even without the uk tag (きみ, いま
         // "now" over 居間 "living room"); an aux-v sense marks a core
         // grammaticalized verb (居る, owner of いる, over 要る).
-        const kanaScore =
-          (word.kana?.some((k) => k.common) ? 4 : 0) +
+        const kanaScoreBase =
           (kanaNative ? 8 : 0) +
           (pos0.includes('pn') ? 2 : 0) +
           (pos0.includes('adv') ? 1 : 0) +
@@ -388,8 +443,13 @@ async function processFile(jsonPath) {
           // sk = search-only, ok = outdated, ik = irregular: never display keys.
           (kr) => !(kr.tags ?? []).some((t) => t === 'sk' || t === 'ok' || t === 'ik'),
         )
-        const commonForms = forms.filter((kr) => kr.common)
-        for (const kr of commonForms.length ? commonForms : forms) {
+        // Every spelling, not just the common ones. Restricting to common forms
+        // meant an entry with any common spelling could not own its OWN
+        // alternates, so they fell to whichever homophone had no common form at
+        // all: ねえ "hey; right?" is keyed common only as ね, which handed ねえ
+        // to the colloquial negative ない ("nonexistent"). The per-form bonus in
+        // kanaScore keeps the primary spelling winning where entries compete.
+        for (const kr of forms) {
           const kanaKey = kr.text?.trim()
           if (!kanaKey || kanaKey.length > 12) continue
           const reading = toHiragana(kanaKey)
@@ -398,8 +458,12 @@ async function processFile(jsonPath) {
             byReading = new Map()
             popover.set(kanaKey, byReading)
           }
-          const prev = byReading.get(reading)
-          if (!prev || kanaScore > prev.score) byReading.set(reading, { g: popoverDef, score: kanaScore })
+          const kanaScore = kanaScoreBase + (kr.common ? 4 : 0)
+          for (const [cls, def] of popoverByClass) {
+            const key = `${reading}\u0000${cls}`
+            const prev = byReading.get(key)
+            if (!prev || kanaScore > prev.score) byReading.set(key, { r: reading, pos: cls, g: def, score: kanaScore })
+          }
         }
       }
     }
@@ -448,9 +512,9 @@ async function processFile(jsonPath) {
   const popoverEntries = Object.fromEntries(
     [...popover.entries()].map(([surface, byReading]) => [
       surface,
-      [...byReading.entries()]
-        .sort((a, b) => b[1].score - a[1].score)
-        .map(([r, v]) => ({ r, g: v.g })),
+      [...byReading.values()]
+        .sort((a, b) => b.score - a.score)
+        .map((v) => (v.pos ? { r: v.r, pos: v.pos, g: v.g } : { r: v.r, g: v.g })),
     ]),
   )
   console.log(

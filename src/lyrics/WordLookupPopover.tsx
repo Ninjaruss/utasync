@@ -83,7 +83,16 @@ export function WordLookupPopover({ token, anchorRect, grammar, onClose }: Props
   const headword = loading ? token.surface : result.headword
   const reading = loading ? null : result.reading
   const pos = loading ? null : result.posLabel ?? result.pos
-  const glosses = loading ? [] : result.glosses
+  // `senses` enriches `glosses`, which stays the guaranteed field: a result that
+  // predates it (or arrives from a boundary that dropped it) still renders as
+  // the single definition it carries.
+  const senses = loading
+    ? []
+    : result.senses?.length
+      ? result.senses
+      : result.glosses.length > 0
+        ? [{ posLabel: null, glosses: result.glosses }]
+        : []
 
   const narrow = window.innerWidth < 640
   const anchored = !narrow && anchorRect !== null
@@ -135,8 +144,23 @@ export function WordLookupPopover({ token, anchorRect, grammar, onClose }: Props
       </div>
       {loading ? (
         <p className="text-xs text-white/60">Looking up…</p>
-      ) : glosses.length > 0 ? (
-        <p className="text-sm text-white/80 text-pretty">{glosses.join('; ')}</p>
+      ) : senses.length > 0 ? (
+        /* Every sense the dictionary has, the best match first. Committing to a
+           single definition made each disambiguation call user-visible: pick
+           wrong and the reader had no way to reach the sense they wanted. The
+           list is unnumbered at one sense so the common case stays quiet. */
+        <ol className={senses.length > 1 ? 'space-y-1 list-decimal list-inside marker:text-white/40 marker:text-xs' : ''}>
+          {senses.map((sense, i) => (
+            <li key={i} className="text-sm text-white/80 text-pretty">
+              {sense.posLabel && (
+                <span className="text-[0.65rem] uppercase tracking-wide text-cinnabar-accent/80 mr-1.5">
+                  {sense.posLabel}
+                </span>
+              )}
+              {sense.glosses.join('; ')}
+            </li>
+          ))}
+        </ol>
       ) : result.dictionaryAvailable ? (
         <p className="text-xs text-white/60">No definition found.</p>
       ) : (

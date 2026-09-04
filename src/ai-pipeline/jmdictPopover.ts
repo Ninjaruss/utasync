@@ -70,15 +70,88 @@ export function jmdictPopoverLoaded(): boolean {
  * one surface) are disambiguated by the token's hiragana reading, then falling
  * back to the first (highest-scored) sense.
  */
-export function getPopoverGloss(headword: string, reading?: string | null): string | undefined {
+/**
+ * Definition for a tapped word, disambiguated by reading AND part of speech.
+ *
+ * A single surface routinely means different things as different word classes,
+ * and picking the entry's first sense showed whichever came first regardless of
+ * how the word was used in the line: ねえ as an interjection ("hey") got the
+ * particle "right?; isn't it?", 一杯 as an adverb ("fully") got the counter "one
+ * cup", ただ as a conjunction ("but") got the adjective "ordinary". `posClass` is
+ * the tapped token's kuromoji class, mapped onto JMdict's.
+ *
+ * Reading still wins over part of speech — a 辛い ruby reading からい must not
+ * show つらい's "painful" whatever the POS says. Within one reading, POS decides.
+ */
+export function getPopoverGloss(
+  headword: string,
+  reading?: string | null,
+  posClass?: string | null,
+): string | undefined {
   const senses = data?.entries[headword.trim()]
   if (!senses || senses.length === 0) return undefined
-  if (senses.length === 1) return senses[0]!.g
-  if (reading) {
-    const match = senses.find((s) => s.r === reading)
+
+  const byReading = reading ? senses.filter((s) => s.r === reading) : []
+  // Reading-matched senses when the reading pins some, else everything.
+  const pool = byReading.length > 0 ? byReading : senses
+
+  if (posClass) {
+    const match = pool.find((s) => s.pos === posClass)
     if (match) return match.g
   }
-  return senses[0]!.g
+  return pool[0]!.g
+}
+
+/**
+ * Definition ONLY when the dictionary has a sense of exactly this word class —
+ * never a fallback to the entry's first sense.
+ *
+ * The grammar path uses this to answer words kuromoji tags 非自立 (dependent)
+ * that are nonetheless ordinary content words: いい "good", みたい "-like",
+ * 続ける "to continue". Blanking them was a blunt guard against the kana
+ * homophone problem (は glossing as 端 "edge"), which came from the romaji chain.
+ * Requiring an exact class match is a precise guard instead: a 助詞 は can only
+ * ever match a particle sense, never a noun one, so it cannot inherit a lexical
+ * meaning. Where no sense of that class exists the popover still shows nothing
+ * rather than something wrong.
+ */
+export function getPopoverGlossForPos(
+  headword: string,
+  reading: string | null | undefined,
+  posClass: string,
+): string | undefined {
+  const senses = data?.entries[headword.trim()]
+  if (!senses || senses.length === 0) return undefined
+  const byReading = reading ? senses.filter((s) => s.r === reading) : []
+  const pool = byReading.length > 0 ? byReading : senses
+  return pool.find((s) => s.pos === posClass)?.g
+}
+
+/**
+ * Every sense the dictionary records for this word, best match first.
+ *
+ * The popover used to commit to ONE definition, which made every
+ * disambiguation decision user-visible: pick wrong and the reader has no way to
+ * see the sense they wanted. Listing the senses defuses that — the right one is
+ * on screen either way — and is what a dedicated dictionary tool shows.
+ *
+ * Reading still filters first (辛い からい vs つらい are different words), then
+ * the tapped word's class is floated to the top rather than being the only
+ * thing shown.
+ */
+export function getPopoverSenses(
+  headword: string,
+  reading?: string | null,
+  posClass?: string | null,
+): PopoverSense[] {
+  const senses = data?.entries[headword.trim()]
+  if (!senses || senses.length === 0) return []
+  const byReading = reading ? senses.filter((s) => s.r === reading) : []
+  const pool = byReading.length > 0 ? byReading : senses
+  if (!posClass) return [...pool]
+  const matching = pool.filter((s) => s.pos === posClass)
+  if (matching.length === 0) return [...pool]
+  return [...matching, ...pool.filter((s) => s.pos !== posClass)]
 }
 
 /** For tests — reset module state. */
