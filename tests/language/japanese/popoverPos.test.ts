@@ -139,3 +139,55 @@ describe('tap lookup — words that used to come back blank', () => {
     expect(ha).toContain('topic')
   })
 })
+
+/**
+ * Committing to one definition made every disambiguation call user-visible:
+ * pick wrong and the reader had no way to reach the sense they wanted. Listing
+ * the senses defuses that — the right one is on screen either way.
+ */
+describe('tap lookup — every sense, best match first', () => {
+  beforeAll(() => {
+    setJmdictGlossForTests(JSON.parse(readFileSync(join(ROOT, 'public/jmdict-gloss.json'), 'utf8')))
+    setJmdictPopoverForTests(JSON.parse(readFileSync(join(ROOT, 'public/jmdict-popover.json'), 'utf8')))
+    setJmdictReadingsForTests(JSON.parse(readFileSync(join(ROOT, 'public/jmdict-readings.json'), 'utf8')))
+  })
+
+  it('leads with the tapped word class and keeps the others', async () => {
+    const r = (await lookupWord(tok({ surface: 'いっぱい', pos: '副詞', posDetail1: '一般', reading: 'イッパイ' })))!
+    expect(r.senses.length).toBeGreaterThan(1)
+    expect(r.senses[0].posLabel).toBe('adverb')
+    expect(r.senses[0].glosses[0]).toContain('fully')
+    // The counter sense is still reachable rather than being the only one shown.
+    expect(r.senses.some((s) => s.glosses.join(' ').includes('one cup'))).toBe(true)
+  })
+
+  it('keeps glosses in step with the first sense', async () => {
+    const r = (await lookupWord(tok({ surface: 'ただ', pos: '接続詞', reading: 'タダ' })))!
+    expect(r.glosses).toEqual(r.senses[0].glosses)
+  })
+
+  it('labels every sense the dictionary supplies, including the leading one', async () => {
+    // 前 is a plain noun and expresses no class preference, so the leading sense
+    // must take its label from the dictionary rather than the token.
+    const r = (await lookupWord(tok({ surface: '前', pos: '名詞', posDetail1: '一般', reading: 'マエ' })))!
+    expect(r.senses[0].posLabel).toBe('noun')
+    expect(r.senses.every((s) => s.glosses.length > 0)).toBe(true)
+  })
+
+  it('does not list the same sense twice when sources word it differently', async () => {
+    // The sparse kanji map has 空 "sky"; the popover has "sky; the air; the
+    // heavens". They are one sense, and listing both showed the word twice.
+    const r = (await lookupWord(tok({ surface: '空', pos: '名詞', posDetail1: '一般', reading: 'ソラ' })))!
+    const leads = r.senses.map((s) => s.glosses[0].toLowerCase())
+    expect(new Set(leads).size).toBe(leads.length)
+  })
+
+  it('never offers a grammar word an unrelated homograph sense', async () => {
+    // は shares its kana with 歯 "tooth" and 端 "edge", which no reading can
+    // separate — the alternatives list is off for grammar words entirely.
+    const r = (await lookupWord(tok({ surface: 'は', pos: '助詞', posDetail1: '係助詞', reading: 'ハ' })))!
+    expect(r.senses).toHaveLength(1)
+    expect(r.senses[0].glosses.join(' ')).toContain('topic')
+    expect(JSON.stringify(r.senses)).not.toContain('tooth')
+  })
+})

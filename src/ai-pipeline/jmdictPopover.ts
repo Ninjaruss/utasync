@@ -127,6 +127,33 @@ export function getPopoverGlossForPos(
   return pool.find((s) => s.pos === posClass)?.g
 }
 
+/**
+ * Every sense the dictionary records for this word, best match first.
+ *
+ * The popover used to commit to ONE definition, which made every
+ * disambiguation decision user-visible: pick wrong and the reader has no way to
+ * see the sense they wanted. Listing the senses defuses that — the right one is
+ * on screen either way — and is what a dedicated dictionary tool shows.
+ *
+ * Reading still filters first (辛い からい vs つらい are different words), then
+ * the tapped word's class is floated to the top rather than being the only
+ * thing shown.
+ */
+export function getPopoverSenses(
+  headword: string,
+  reading?: string | null,
+  posClass?: string | null,
+): PopoverSense[] {
+  const senses = data?.entries[headword.trim()]
+  if (!senses || senses.length === 0) return []
+  const byReading = reading ? senses.filter((s) => s.r === reading) : []
+  const pool = byReading.length > 0 ? byReading : senses
+  if (!posClass) return [...pool]
+  const matching = pool.filter((s) => s.pos === posClass)
+  if (matching.length === 0) return [...pool]
+  return [...matching, ...pool.filter((s) => s.pos !== posClass)]
+}
+
 /** For tests — reset module state. */
 export function resetJmdictPopoverCache(): void {
   data = null

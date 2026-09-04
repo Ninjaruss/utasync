@@ -172,4 +172,33 @@ describe('WordLookupPopover', () => {
     expect(dialog.style.bottom).toBe('76px') // 768 - 700 + 8
     expect(dialog.style.top).toBe('')
   })
+
+  it('lists every sense with its word class, numbered', async () => {
+    // Committing to one definition made each disambiguation call user-visible;
+    // the reader can now see the sense the resolver did not lead with.
+    lookupWord.mockResolvedValue({
+      headword: 'いっぱい', reading: 'いっぱい', pos: '副詞', posLabel: 'adverb',
+      glosses: ['fully', 'to capacity'],
+      senses: [
+        { posLabel: 'adverb', glosses: ['fully', 'to capacity'] },
+        { posLabel: 'noun', glosses: ['one cup (of)'] },
+      ],
+      dictionaryAvailable: true,
+    })
+    render(<WordLookupPopover token={token} anchorRect={null} onClose={() => {}} />)
+    expect(await screen.findByText(/fully; to capacity/)).toBeInTheDocument()
+    expect(screen.getByText(/one cup \(of\)/)).toBeInTheDocument()
+    expect(screen.getByText('noun')).toBeInTheDocument()
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+  })
+
+  it('falls back to the glosses when a result carries no sense list', async () => {
+    // `senses` enriches `glosses`, which stays the guaranteed field.
+    lookupWord.mockResolvedValue({
+      headword: '躱す', reading: 'かわす', pos: '動詞',
+      glosses: ['to dodge', 'to evade'], dictionaryAvailable: true,
+    })
+    render(<WordLookupPopover token={token} anchorRect={null} onClose={() => {}} />)
+    expect(await screen.findByText(/to dodge; to evade/)).toBeInTheDocument()
+  })
 })

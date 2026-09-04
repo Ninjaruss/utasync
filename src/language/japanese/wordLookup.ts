@@ -3,11 +3,19 @@ import { katakanaToHiragana } from './phonetics'
 import { KANJI_ROMAJI, kanjiLemmaRomaji, lemmaGloss } from '../../ai-pipeline/lyricGloss'
 import { normalizeLemmaGloss } from '../../ai-pipeline/glossNormalize'
 import { getJmdictKanjiGloss, jmdictGlossLoaded, prepareJmdictStemIndex } from '../../ai-pipeline/jmdictGloss'
-import { getPopoverGloss, getPopoverGlossForPos, loadJmdictPopover } from '../../ai-pipeline/jmdictPopover'
+import { getPopoverGloss, getPopoverGlossForPos, getPopoverSenses, loadJmdictPopover } from '../../ai-pipeline/jmdictPopover'
 import { loadJmdictReadings, readingInventory } from './jmdictReadings'
 import { grammarGloss, isGrammarToken } from './grammarGlosses'
 import { shouldPromoteSungReading } from '../../lyrics/readingDisplay'
 import type { ReadingMode, Token } from '../../core/types'
+
+/** One dictionary sense: its word class (for the tag) and its gloss lines. */
+export interface WordSense {
+  /** Readable class label ("noun", "adverb"), or null when the dictionary
+   * recorded none for this sense. */
+  posLabel: string | null
+  glosses: string[]
+}
 
 export interface WordLookupResult {
   /** Dictionary form when known, else the surface. */
@@ -24,6 +32,13 @@ export interface WordLookupResult {
   posLabel: string | null
   /** Empty when no dictionary entry was found — the popup still shows the reading. */
   glosses: string[]
+  /**
+   * Every sense the dictionary has, the shown one first. `glosses` is this
+   * list's first entry; the rest exist so the reader can see the sense the
+   * resolver did not pick. Single-element for anything resolved outside the
+   * popover dictionary, which records only one definition.
+   */
+  senses: WordSense[]
   /** False when the JMdict gloss map failed to load (offline) — the popup says "definitions unavailable" instead of "no definition found". */
   dictionaryAvailable: boolean
 }
@@ -228,6 +243,75 @@ function grammarPopoverGloss(token: Token, headword: string, readingHira: string
     ?? getPopoverGlossForPos(token.surface, readingHira, kanaClass)
 }
 
+/** Readable labels for the popover dictionary's word classes. */
+const SENSE_CLASS_LABELS: Record<string, string> = {
+  n: 'noun', v: 'verb', adj: 'adjective', adv: 'adverb',
+  int: 'interjection', conj: 'conjunction', prt: 'particle',
+  aux: 'auxiliary', pref: 'prefix', suf: 'suffix',
+}
+
+const splitGlosses = (gloss: string): string[] => gloss.split(/\s*;\s*/).filter(Boolean)
+
+/**
+ * The shown definition first, then every other sense the dictionary records for
+ * this word, so a reader can see the meaning the resolver did not pick.
+ *
+ * Only the popover dictionary keeps more than one sense; anything resolved
+ * through the curated overlay or the romaji chain has exactly one, and that is
+ * the whole list.
+ */
+function buildSenses(
+  token: Token,
+  headword: string,
+  readingHira: string | undefined,
+  primary: string | undefined,
+  listAlternatives: boolean,
+): WordSense[] {
+  if (!primary) return []
+  const posClass = popoverPosClass(token)
+  // Grammar words show their curated gloss and nothing else. Their kana is
+  // shared with unrelated words that the reading cannot separate — listing
+  // alternatives put "tooth; teeth" (歯) under the topic marker は, which is
+  // precisely the homophone leak the lexical path is guarded against.
+  if (!listAlternatives) {
+    return [{ posLabel: SENSE_CLASS_LABELS[posClass ?? ''] ?? null, glosses: splitGlosses(primary) }]
+  }
+  const toSense = (sense: { pos?: string; g: string }): WordSense => ({
+    posLabel: sense.pos ? SENSE_CLASS_LABELS[sense.pos] ?? null : null,
+    glosses: splitGlosses(sense.g),
+  })
+  // Compared on the leading gloss line, because the same sense reaches us in
+  // different lengths from different sources — the sparse kanji map has 空
+  // "sky" where the popover has "sky; the air; the heavens", and listing both
+  // would show the word twice.
+  const lead = (gloss: string) => splitGlosses(gloss)[0]?.toLowerCase() ?? ''
+  const primaryLead = lead(primary)
+
+  const all = getPopoverSenses(headword, readingHira, posClass).length > 0
+    ? getPopoverSenses(headword, readingHira, posClass)
+    : getPopoverSenses(token.surface, readingHira, posClass)
+
+  const shownIndex = all.findIndex((sense) => lead(sense.g) === primaryLead)
+  if (shownIndex >= 0) {
+    // The definition on screen IS one of the dictionary's, so take every label
+    // from the dictionary — the token's own class is absent for plain nouns and
+    // would leave the leading sense untagged.
+    return [all[shownIndex]!, ...all.filter((_, i) => i !== shownIndex)]
+      .map(toSense)
+      .filter((sense) => sense.glosses.length > 0)
+  }
+
+  // Otherwise the primary came from somewhere the dictionary does not cover — a
+  // curated gloss, the romaji chain, a deinflected form — so it leads, tagged
+  // with the token's class, followed by whatever else the dictionary knows.
+  const head: WordSense = { posLabel: SENSE_CLASS_LABELS[posClass ?? ''] ?? null, glosses: splitGlosses(primary) }
+  const others = all
+    .filter((sense) => lead(sense.g) !== primaryLead)
+    .map(toSense)
+    .filter((sense) => sense.glosses.length > 0)
+  return [head, ...others]
+}
+
 /**
  * Compact lookup for the tap-to-look-up popover. Resolves a romaji lemma key
  * (curated kanji map → JMdict kanji map → kana reading) and reuses the
@@ -266,13 +350,16 @@ export async function lookupWord(token: Token, readingMode: ReadingMode = 'dicti
     ? grammarGloss(token) ?? subsidiaryVerbLexicalGloss(token, headword, kana) ?? grammarPopoverGloss(token, headword, readingHira)
     : lexicalGloss(token, headword, kana)
 
+  const senses = buildSenses(token, headword, readingHira, gloss, !isGrammarToken(token))
+
   return {
     headword,
     reading,
     dictionaryReading: sung && dictReading && dictReading !== sung ? dictReading : null,
     pos: token.pos ?? null,
     posLabel: posLabelFor(token),
-    glosses: gloss ? gloss.split(/\s*;\s*/).filter(Boolean) : [],
+    glosses: senses[0]?.glosses ?? [],
+    senses,
     dictionaryAvailable: jmdictGlossLoaded(),
   }
 }
