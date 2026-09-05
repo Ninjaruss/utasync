@@ -196,16 +196,36 @@ audit doc.
 
 - [ ] **Step 1: Reach Manual tier and clear all state**
 
-Repeat Task 1 Step 2. Then, before adding anything:
+Reach Manual tier. Order matters — the tier is read at load time, so the reload comes
+last. Use whatever origin `preview_start` reported (`vite.config.ts` sets no
+`server.port`, so Vite's default is 5173).
+
+```
+navigate  → http://localhost:5173/?webgpu=off
+resize_window → preset: "mobile"
+navigate  → http://localhost:5173/?webgpu=off      (reload so the gate re-runs)
+```
+
+Confirm before continuing:
 
 ```js
-indexedDB.deleteDatabase('utasync')
+(await import('/src/ai-pipeline/capability.ts')).getDeviceTier()
+```
+
+Expected: `"manual"`. If it is anything else, stop and report.
+
+Then clear all state:
+
+```js
+indexedDB.deleteDatabase('utasync')   // the Dexie db name, src/core/db/schema.ts:9
 localStorage.clear()
 location.reload()
 ```
 
 This matters: `utasync_landing_seen` in localStorage suppresses the landing page, and a
-returning visitor is not the user being measured.
+returning visitor is not the user being measured. `sessionStorage` is deliberately NOT
+cleared — it holds the `?webgpu=off` override.
+
 
 - [ ] **Step 2: Install the lyric-endpoint stub**
 
@@ -317,17 +337,73 @@ runs auto-align.
 
 - [ ] **Step 1: Reach Full tier with clean state**
 
-Repeat Task 1 Step 4 (**including `?webgpu=on`** — without it the sessionStorage
-override from Task 2 persists and this journey silently runs at Manual tier), then
-repeat Task 2 Step 1's state-clearing block and Step 2's stub.
+**`?webgpu=on` is mandatory** — without it the sessionStorage override from the phone
+journey persists and this journey silently runs at the wrong tier.
 
-Confirm the tier again before proceeding:
+```
+navigate  → http://localhost:5173/?webgpu=on
+resize_window → preset: "desktop"
+navigate  → http://localhost:5173/?webgpu=on      (reload so the gate re-runs)
+```
+
+Confirm the tier before proceeding:
 
 ```js
 (await import('/src/ai-pipeline/capability.ts')).getDeviceTier()
 ```
 
-Expected: `"full"` (or `"lite"`, if Task 1 Step 4 recorded that for this machine).
+Expected: `"full"`. If this machine reports `"lite"` (no WebGPU adapter, or under 6GB),
+record that and continue — the audit then documents a Lite-tier trace and says so
+plainly rather than claiming a Full-tier trace it did not take.
+
+Then clear all state:
+
+```js
+indexedDB.deleteDatabase('utasync')   // the Dexie db name, src/core/db/schema.ts:9
+localStorage.clear()
+location.reload()
+```
+
+This matters: `utasync_landing_seen` in localStorage suppresses the landing page, and a
+returning visitor is not the user being measured. `sessionStorage` is deliberately NOT
+cleared — it holds the `?webgpu=off` override.
+
+- [ ] **Step 1b: Install the lyric-endpoint stub**
+
+Run via `javascript_tool` **after** the reload, before touching the UI (a reload would
+wipe it):
+
+```js
+const LRC = [
+  '[00:12.10]Some line one',
+  '[00:16.40]Some line two',
+  '[00:21.00]Some line three',
+].join('\n')
+
+const result = {
+  id: 1, name: 'Guitar', artistName: 'Test',
+  albumName: 'Test Album', duration: 200,
+  syncedLyrics: LRC, plainLyrics: 'Some line one\nSome line two\nSome line three',
+}
+
+const realFetch = window.fetch.bind(window)
+window.__stubHits = []
+window.fetch = (input, init) => {
+  const url = typeof input === 'string' ? input : input.url
+  window.__stubHits.push(url)
+  if (url.includes('lrclib.net/api/search')) return Promise.resolve(new Response(JSON.stringify([result]), { status: 200, headers: { 'content-type': 'application/json' } }))
+  if (url.includes('lrclib.net/api/get')) return Promise.resolve(new Response(JSON.stringify(result), { status: 200, headers: { 'content-type': 'application/json' } }))
+  if (url.includes('itunes.apple.com')) return Promise.resolve(new Response(JSON.stringify({ resultCount: 0, results: [] }), { status: 200, headers: { 'content-type': 'application/json' } }))
+  return realFetch(input, init)
+}
+'stub installed'
+```
+
+The shape matches `LRCLIBResult` (`src/sources/lrclib.ts:88`). `lrclib.ts`'s own
+`requestCache` is a module-level in-memory Map (`src/sources/lrclib.ts:36`), so the
+reload cleared it and this stub is what the app will actually hit.
+`window.__stubHits` records every requested URL, used as evidence later.
+
 
 - [ ] **Step 2: Inject a real mp3 into the file input**
 
@@ -352,8 +428,21 @@ focusable.
 
 - [ ] **Step 3: Walk the journey and record every surface**
 
-Same five-field trace table as Task 2 Step 3. Route: Landing → Library → Add → upload →
-metadata confirm → lyrics resolve → player → whatever alignment surface the app opens.
+Drive the UI with `computer` / `read_page`. **Synthetic clicks are unreliable on this
+app's overlays and its Play/Edit segmented pill** — the pill's `relative z-10` sliding
+indicator swallows them. Where a click appears to do nothing, re-issue it as
+`element.click()` from `javascript_tool` before concluding anything is broken.
+
+After **every** transition, append a row to a running trace:
+
+| # | Surface | How it appeared | Exits offered | Notes |
+|---|---|---|---|---|
+
+"How it appeared" is one of `auto` (opened itself), `headline` (a primary button),
+`menu` (behind a disclosure), `precondition` (appeared because state allowed it).
+
+Route: Landing → Library → Add → upload → metadata confirm → lyrics resolve → player →
+whatever alignment surface the app opens.
 
 Note especially which alignment surface appears and **why**.
 `chooseAutoAlignment` (`src/player/alignmentPolicy.ts`) returns `null` for
@@ -366,7 +455,33 @@ measures interface, not alignment quality.
 
 - [ ] **Step 4: Record the three baseline numbers**
 
-Same definitions and the same measurement snippet as Task 2 Step 4.
+Stop the clock at the moment the lyrics first follow the music.
+
+1. **Decisions before that moment** — count every point where the user had to choose
+   between two or more options or supply input. Paste-the-URL is one. Confirming
+   metadata is one. Dismissing a screen is one.
+2. **Distinct surfaces met** — the trace row count.
+3. **Interactive controls in the default player viewport without opening a menu** —
+   measure, do not eyeball:
+
+```js
+const inView = (el) => {
+  const r = el.getBoundingClientRect()
+  return r.width > 0 && r.height > 0 && r.top < innerHeight && r.bottom > 0 && r.left < innerWidth && r.right > 0
+}
+const sel = 'button, a[href], input, select, textarea, [role="button"], [role="switch"], [role="slider"]'
+const all = [...document.querySelectorAll(sel)].filter(inView)
+JSON.stringify({
+  total: all.length,
+  lyricRows: all.filter(e => e.closest('[aria-label^="Jump to"], [aria-label^="Set loop point"]')).length,
+  labels: all.map(e => (e.getAttribute('aria-label') || e.textContent || '').trim().slice(0, 40)),
+}, null, 2)
+```
+
+Report `total` **and** `total - lyricRows`. Lyric rows are `role="button"`
+(`src/lyrics/LyricDisplay.tsx:432`) and would otherwise inflate the count by the number
+of lines on screen, which is a property of the song, not of the interface.
+
 
 - [ ] **Step 5: Write Journey B into the audit doc, and commit**
 
