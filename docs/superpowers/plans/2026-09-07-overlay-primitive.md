@@ -829,6 +829,27 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
+> ### Backdrop buttons MUST be `aria-hidden` — read before migrating any surface with one
+>
+> Keeping a surface's backdrop `<button>` as a child of `<Overlay>` (which you must, to preserve
+> click-to-close) moves it **inside the focus trap**. `useModalDialog` focuses
+> `focusableWithin(panel)[0]`, which then resolves to the invisible full-screen backdrop rather
+> than the first control in the visible panel. A keyboard user opening the surface lands on an
+> invisible close button — Space or Enter dismisses it immediately — and a screen reader
+> announces "Close, button" as the surface's opening content.
+>
+> Task 6 shipped this on both app-level sheets before it was caught.
+>
+> **Fix, on every migrated surface that has a backdrop element:** add `aria-hidden="true"` to it.
+> `useModalDialog`'s `focusableWithin` already filters `aria-hidden="true"`, so the click-to-close
+> affordance, classes and handlers are all preserved verbatim while focus goes to the panel's
+> first real control. Do **not** reorder the DOM instead — a later `absolute inset-0` sibling
+> paints over the `relative` panel.
+>
+> Note the shared contract test cannot catch this: it asserts only
+> `dialog.contains(document.activeElement)`, which the backdrop satisfies. Assert in the
+> surface's own test that initial focus is **not** the backdrop button.
+
 ## Task 7: Migrate batch C — the player's full-surface overlays
 
 **Files:**
