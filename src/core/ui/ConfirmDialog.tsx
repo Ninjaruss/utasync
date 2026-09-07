@@ -1,5 +1,4 @@
-import { useRef } from 'react'
-import { useModalDialog } from './useModalDialog'
+import { Overlay } from './Overlay'
 
 interface Props {
   title: string
@@ -19,21 +18,18 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: Props) {
-  const ref = useRef<HTMLDivElement>(null)
-  // Escape means "don't do the destructive thing", so it maps to cancel. The
-  // hook keeps this confirm — not the sheet it sits inside — the owner of that
-  // keystroke, and returns focus to whatever opened it.
-  useModalDialog(ref, onCancel)
-
   return (
-    <div
-      ref={ref}
-      className="absolute inset-0 z-20 flex items-end sm:items-center justify-center p-4 bg-black/50 rounded-inherit"
+    <Overlay
+      // Escape means "don't do the destructive thing", so it maps to cancel.
+      // <Overlay>'s stacking rule keeps this confirm — not the sheet it sits
+      // inside — the owner of that keystroke, and returns focus to whatever
+      // opened it.
+      onClose={onCancel}
+      placement="contained"
       role="alertdialog"
-      aria-modal="true"
-      tabIndex={-1}
-      aria-labelledby="confirm-dialog-title"
-      aria-describedby="confirm-dialog-message"
+      labelledBy="confirm-dialog-title"
+      describedBy="confirm-dialog-message"
+      backdropClassName="bg-black/50 rounded-inherit"
     >
       <div className="w-full max-w-sm rounded-xl border border-cinnabar-800 bg-cinnabar-950 p-4 space-y-3 shadow-xl shadow-black/40">
         <h3 id="confirm-dialog-title" className="text-sm font-semibold text-white text-balance">
@@ -59,6 +55,6 @@ export function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </Overlay>
   )
 }

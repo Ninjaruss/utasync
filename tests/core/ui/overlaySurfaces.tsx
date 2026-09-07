@@ -4,6 +4,7 @@ import { Onboarding } from '../../../src/core/ui/Onboarding'
 import { AddSongSheet } from '../../../src/sources/AddSongSheet'
 import { SettingsSheet } from '../../../src/settings/SettingsSheet'
 import { Overlay } from '../../../src/core/ui/Overlay'
+import { ConfirmDialog } from '../../../src/core/ui/ConfirmDialog'
 
 export interface OverlaySurface {
   /** Registry row name from docs/superpowers/audits/2026-09-05-ui-inventory-baseline.md */
@@ -70,6 +71,21 @@ export const OVERLAY_SURFACES: OverlaySurface[] = [
       const onClose = vi.fn()
       render(<SettingsSheet onClose={onClose} />)
       return () => waitFor(() => expect(onClose).toHaveBeenCalled())
+    },
+  },
+  {
+    name: 'row 23 — generic confirm dialog',
+    open: () => {
+      const onCancel = vi.fn()
+      render(
+        <ConfirmDialog
+          title="Discard changes?"
+          message="Your edits will be lost."
+          onConfirm={vi.fn()}
+          onCancel={onCancel}
+        />,
+      )
+      return () => waitFor(() => expect(onCancel).toHaveBeenCalled())
     },
   },
   {
