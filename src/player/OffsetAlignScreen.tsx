@@ -1,7 +1,6 @@
-import { useRef } from 'react'
 import { DragRetimeStrip } from './DragRetimeStrip'
 import { type Peaks } from './waveformPeaks'
-import { useModalDialog } from '../core/ui/useModalDialog'
+import { Overlay } from '../core/ui/Overlay'
 
 interface Props {
   /** The first sung line — the one the user lines up against the audio. */
@@ -34,23 +33,22 @@ export function OffsetAlignScreen({
   lineIndex, lineText, startSec, peaks, waveformState, positionSec,
   onPreview, onCommit, onUseFullAlignment, onKeepTimings,
 }: Props) {
-  const ref = useRef<HTMLDivElement>(null)
-  /* Escape maps to KEEPING the timings, never to committing a drag or kicking off
-   * a transcription: this screen opens by itself after a song is added, so the
-   * one thing an accidental keypress must not do is change timings the user never
-   * asked to change. */
-  useModalDialog(ref, onKeepTimings)
-
   return (
-    <div
-      ref={ref}
-      tabIndex={-1}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Line up the first line"
-      data-testid="offset-align"
-      className="fixed inset-0 z-50 flex flex-col bg-cinnabar-950 overflow-hidden"
+    /* Escape maps to KEEPING the timings, never to committing a drag or kicking
+     * off a transcription: this screen opens by itself after a song is added, so
+     * the one thing an accidental keypress (or the system Back gesture, which
+     * <Overlay> now also wires to onClose) must not do is change timings the
+     * user never asked to change. */
+    <Overlay
+      onClose={onKeepTimings}
+      placement="fullscreen"
+      label="Line up the first line"
+      backdropClassName="bg-cinnabar-950 overflow-hidden"
     >
+      {/* Kept as a `display: contents` wrapper purely to carry the testid the
+          old root div exposed — it renders no box of its own, so it changes
+          nothing about layout. */}
+      <div data-testid="offset-align" className="contents">
       <div className="px-4 pt-5 pb-3 shrink-0">
         {/* This screen is a full-bleed overlay that opens on its own after a song
             is added, and it covers the app header — so without this the only ways
@@ -102,6 +100,7 @@ export function OffsetAlignScreen({
           Slower — transcribes the audio. Use this if dragging can&apos;t make the lines fit.
         </p>
       </div>
-    </div>
+      </div>
+    </Overlay>
   )
 }
