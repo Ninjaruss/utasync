@@ -716,6 +716,29 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
+> ### How to verify a Tailwind class actually wins — READ BEFORE ANY MIGRATION
+>
+> **Do not check class precedence with `getComputedStyle` against the dev server.** Tailwind's
+> JIT appends newly-discovered classes on an incremental rebuild, so a class you just typed can
+> land *after* the one it collides with and appear to win — then a full production build
+> re-sorts it and the override silently stops working. Task 5 hit exactly this and reported a
+> padding fix that a full build proved inert.
+>
+> Verify against a real build instead:
+>
+> ```bash
+> npx tailwindcss -c tailwind.config.ts -i src/index.css -o /tmp/probe.css
+> grep -n 'md\\:p-4\|md\\:p-6' /tmp/probe.css   # later rule wins at equal specificity
+> ```
+>
+> Same media block + same specificity means **source order decides**, and Tailwind emits each
+> scale in ascending order — so `p-6` beats `p-4`, `z-50` beats `z-40`, regardless of the order
+> you write them in `backdropClassName`.
+>
+> When a placement default genuinely must lose, do not reorder strings: use Tailwind's
+> `!` important modifier (`md:!p-4`), or add an explicit prop to `<Overlay>`. Both are
+> deterministic; class order is not.
+
 ## Task 6: Migrate batch B — the app-level sheets
 
 **Files:**
