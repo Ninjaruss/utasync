@@ -6,6 +6,20 @@ interface Props {
   /** Accessible name for the busy state, e.g. "Loading AI tools". */
   label: string
   className?: string
+  /**
+   * Whether to announce this region as a live region (default true).
+   * Set to false when an inner child already provides the detailed live-region
+   * announcement (e.g., ProcessProgress with its own role="status").
+   * When false, the root uses role="presentation" to avoid competing announcements.
+   */
+  announce?: boolean
+  /**
+   * Optional aria-labelledby to point to an element that provides the accessible name.
+   * Useful when the visible content should be the sole source of the accessible name
+   * (e.g., LoadingOverlay where the message is visible as a <p> child).
+   * When provided, aria-label is omitted even when announce=true.
+   */
+  'aria-labelledby'?: string
 }
 
 /**
@@ -22,15 +36,22 @@ interface Props {
  * no controls, so announcing it as a dialog would strand a screen-reader user
  * inside something they cannot act on or leave.
  */
-export function BlockingOverlay({ children, label, className = '' }: Props) {
+export function BlockingOverlay({
+  children,
+  label,
+  className = '',
+  announce = true,
+  'aria-labelledby': ariaLabelledby,
+}: Props) {
   useEffect(() => acquireScrollLock(), [])
 
   return (
     <div
-      role="status"
-      aria-live="polite"
-      aria-busy="true"
-      aria-label={label}
+      role={announce ? 'status' : 'presentation'}
+      aria-live={announce ? 'polite' : undefined}
+      aria-busy={announce ? 'true' : undefined}
+      aria-label={ariaLabelledby ? undefined : announce ? label : undefined}
+      aria-labelledby={ariaLabelledby}
       className={['fixed inset-0 z-[60] flex items-center justify-center bg-black/80', className]
         .filter(Boolean)
         .join(' ')}

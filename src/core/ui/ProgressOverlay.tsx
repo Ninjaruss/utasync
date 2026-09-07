@@ -24,7 +24,11 @@ export function ProgressOverlay({
   action,
 }: Props) {
   return (
-    <BlockingOverlay label="Loading" className="animate-[progress-enter_220ms_ease-out_both]">
+    <BlockingOverlay
+      label="Loading"
+      className="animate-[progress-enter_220ms_ease-out_both]"
+      announce={false}
+    >
       <div className="w-full max-w-xs px-6">
         <ProcessProgress
           steps={steps}

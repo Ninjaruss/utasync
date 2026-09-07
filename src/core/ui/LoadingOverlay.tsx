@@ -9,11 +9,14 @@ interface Props {
 
 /** Full-screen dimmed overlay with spinner — use for short, indeterminate waits only. */
 export function LoadingOverlay({ message, detail, action }: Props) {
+  const messageId = 'loading-overlay-message'
   return (
-    <BlockingOverlay label={message}>
+    <BlockingOverlay label={message} aria-labelledby={messageId}>
       <div className="flex flex-col items-center gap-3 px-6 max-w-xs text-center">
         <div className="w-9 h-9 rounded-full border-2 border-cinnabar-accent border-t-transparent animate-spin" />
-        <p className="text-white/80 text-sm font-medium">{message}</p>
+        <p id={messageId} className="text-white/80 text-sm font-medium">
+          {message}
+        </p>
         {detail && <p className="text-white/60 text-xs">{detail}</p>}
         {action}
       </div>

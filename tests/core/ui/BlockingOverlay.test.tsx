@@ -30,4 +30,34 @@ describe('BlockingOverlay', () => {
     unmount()
     expect(document.body.style.overflow).toBe('')
   })
+
+  it('can suppress live-region announcement with announce=false', () => {
+    const { unmount } = render(
+      <BlockingOverlay label="Loading models" announce={false}>
+        …
+      </BlockingOverlay>,
+    )
+    // When announce={false}, the root should not be a status region
+    expect(screen.queryByRole('status')).toBeNull()
+    // Instead, it should be presentation (inert for a11y)
+    const el = document.querySelector('[role="presentation"]')
+    expect(el).toBeTruthy()
+    expect(el?.getAttribute('aria-live')).toBeNull()
+    expect(el?.getAttribute('aria-busy')).toBeNull()
+    expect(el?.getAttribute('aria-label')).toBeNull()
+    unmount()
+  })
+
+  it('can use aria-labelledby to reference visible content', () => {
+    const { unmount } = render(
+      <BlockingOverlay label="Loading models" aria-labelledby="my-label">
+        <p id="my-label">Visible message</p>
+      </BlockingOverlay>,
+    )
+    const el = screen.getByRole('status')
+    expect(el.getAttribute('aria-labelledby')).toBe('my-label')
+    // When aria-labelledby is present, aria-label should not be used
+    expect(el.getAttribute('aria-label')).toBeNull()
+    unmount()
+  })
 })
