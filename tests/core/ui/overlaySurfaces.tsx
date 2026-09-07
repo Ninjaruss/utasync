@@ -1,0 +1,71 @@
+import { vi, expect } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import { Onboarding } from '../../../src/core/ui/Onboarding'
+import { AddSongSheet } from '../../../src/sources/AddSongSheet'
+import { SettingsSheet } from '../../../src/settings/SettingsSheet'
+import { Overlay } from '../../../src/core/ui/Overlay'
+
+vi.mock('../../../src/core/opfs/audio', () => ({
+  getAudioFile: vi.fn(async () => new File([], 'x.mp3')),
+  estimateOpfsAudioBytes: vi.fn(async () => 0),
+  deleteAudio: vi.fn(async () => {}),
+  saveAudio: vi.fn(async () => {}),
+  audioStoragePath: (id: string) => `songs/${id}.mp3`,
+}))
+
+export interface OverlaySurface {
+  /** Registry row name from docs/superpowers/audits/2026-09-05-ui-inventory-baseline.md */
+  name: string
+  /** Render the surface, and return a function that asserts it has closed. */
+  open: () => () => Promise<void> | void
+}
+
+/**
+ * Every layered surface that has been migrated to <Overlay>, and how to open it.
+ *
+ * Append a row as each surface migrates: modal-dialogs.test.tsx runs the contract over this
+ * array, so registering a surface is what enrols it — no test edit required. That is the
+ * difference between this and tests/player/menus.escape.test.tsx, which covers two surfaces
+ * because each had to be hand-written.
+ *
+ * `open` returns an assertion rather than taking an onClose, because some surfaces (Onboarding)
+ * own their own dismissal and report to nobody.
+ */
+export const OVERLAY_SURFACES: OverlaySurface[] = [
+  {
+    name: 'Onboarding',
+    open: () => {
+      render(<Onboarding />)
+      // It closes itself rather than reporting up, so observe the DOM.
+      return () => waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    },
+  },
+  {
+    name: 'AddSongSheet',
+    open: () => {
+      const onClose = vi.fn()
+      render(<AddSongSheet onSongReady={vi.fn()} onClose={onClose} />)
+      return () => waitFor(() => expect(onClose).toHaveBeenCalled())
+    },
+  },
+  {
+    name: 'SettingsSheet',
+    open: () => {
+      const onClose = vi.fn()
+      render(<SettingsSheet onClose={onClose} />)
+      return () => waitFor(() => expect(onClose).toHaveBeenCalled())
+    },
+  },
+  {
+    name: 'primitive — bare sheet',
+    open: () => {
+      const onClose = vi.fn()
+      render(
+        <Overlay onClose={onClose} label="Bare sheet">
+          <button type="button">inside</button>
+        </Overlay>,
+      )
+      return () => waitFor(() => expect(onClose).toHaveBeenCalled())
+    },
+  },
+]

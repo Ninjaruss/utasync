@@ -4,14 +4,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { Onboarding, ONBOARDING_STORAGE_KEY } from '../../../src/core/ui/Onboarding'
 import { AddSongSheet } from '../../../src/sources/AddSongSheet'
 import { SettingsSheet } from '../../../src/settings/SettingsSheet'
-
-vi.mock('../../../src/core/opfs/audio', () => ({
-  getAudioFile: vi.fn(async () => new File([], 'x.mp3')),
-  estimateOpfsAudioBytes: vi.fn(async () => 0),
-  deleteAudio: vi.fn(async () => {}),
-  saveAudio: vi.fn(async () => {}),
-  audioStoragePath: (id: string) => `songs/${id}.mp3`,
-}))
+import { OVERLAY_SURFACES } from './overlaySurfaces'
 
 beforeEach(() => {
   localStorage.clear()
@@ -19,34 +12,7 @@ beforeEach(() => {
 
 /** Every blocking overlay in the app should behave the same way: announce
  * itself, hold focus, and close on Escape. */
-const CASES = [
-  {
-    name: 'Onboarding',
-    open: () => {
-      render(<Onboarding />)
-      // It closes itself rather than reporting up, so observe the DOM.
-      return () => waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    },
-  },
-  {
-    name: 'AddSongSheet',
-    open: () => {
-      const onClose = vi.fn()
-      render(<AddSongSheet onSongReady={vi.fn()} onClose={onClose} />)
-      return () => waitFor(() => expect(onClose).toHaveBeenCalled())
-    },
-  },
-  {
-    name: 'SettingsSheet',
-    open: () => {
-      const onClose = vi.fn()
-      render(<SettingsSheet onClose={onClose} />)
-      return () => waitFor(() => expect(onClose).toHaveBeenCalled())
-    },
-  },
-]
-
-describe.each(CASES)('$name as a modal dialog', ({ open }) => {
+describe.each(OVERLAY_SURFACES)('$name as a modal dialog', ({ open }) => {
   it('is announced as a modal dialog', async () => {
     open()
     const dialog = await screen.findByRole('dialog')
