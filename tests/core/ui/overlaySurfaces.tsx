@@ -73,7 +73,7 @@ export interface OverlaySurface {
 /** Minimal PlayerControls props for the two rows below — copied from
  * tests/player/PlayerControls.seek-dock.test.tsx's baseProps, trimmed to what
  * rendering the dock at all requires. */
-const playerControlsBaseProps = {
+export const playerControlsBaseProps = {
   mode: 'play' as const,
   playbackState: 'paused' as const,
   position: 65,

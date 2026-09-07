@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { TimedLine, Language, LineAlignmentQuality } from '../core/types'
 import { stampTimes, setText, addLine, deleteLine, shiftLinesFrom } from './lineOps'
 import { SecondLanguagePanel, type TranslationApplyMeta } from './SecondLanguagePanel'
@@ -372,6 +372,14 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
   const [canRedo, setCanRedo] = useState(false)
   const [showMore, setShowMore] = useState(false)
   const moreMenuRef = useRef<HTMLDivElement>(null)
+  // Same hazard as the other anchored-menu triggers in this app (see
+  // PlayerControls.tsx and DisplayMenu.tsx): <Overlay placement="anchored">
+  // dismisses on any outside pointerdown, with no way to also exclude the
+  // trigger button. Without this, closing the menu by clicking the trigger
+  // again would immediately reopen it — the outside-dismiss fires on
+  // pointerdown (before the trigger's own onClick toggle runs), and that
+  // toggle then flips the now-false state back to true.
+  const stopMoreTriggerPointerDown = (e: ReactPointerEvent) => e.stopPropagation()
 
   // External-change guard (item 3): EditMode stays mounted while a completed
   // Auto-align or gap-recovery pass replaces `lines` from OUTSIDE this editor.
@@ -631,6 +639,7 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
             <button
               type="button"
               onClick={() => setShowMore((v) => !v)}
+              onPointerDown={stopMoreTriggerPointerDown}
               aria-haspopup="true"
               aria-expanded={showMore}
               className={`${toolbarActionBtn} inline-flex items-center gap-1`}
@@ -649,11 +658,6 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
                 panelRef={moreMenuRef}
                 className="absolute right-0 top-full z-40 mt-1 flex min-w-[11rem] flex-col rounded-xl border border-cinnabar-800 bg-cinnabar-900 p-1 shadow-xl max-h-[70dvh] overflow-y-auto overscroll-contain"
               >
-                {/* Kept as a child (not a sibling) so <Overlay>'s own outside-pointerdown
-                    dismissal — which only checks containment in the panel — doesn't treat
-                    a click on this backdrop as "outside" and race the click-driven close
-                    below. aria-hidden keeps it out of the focus trap's initial-focus scan. */}
-                <div className="fixed inset-0 z-30" aria-hidden="true" onClick={() => setShowMore(false)} />
                   {onReplaceLyrics && (
                     <button type="button" onClick={() => { setShowMore(false); onReplaceLyrics() }} className={moreMenuItem}>
                       Replace lyrics

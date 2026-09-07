@@ -26,6 +26,13 @@ interface Props {
   backdropClassName?: string
   /** For callers that must measure or position the panel themselves. */
   panelRef?: RefObject<HTMLDivElement | null>
+  /** `placement="anchored"` dismisses on outside pointerdown by default. Set this
+   * to `false` for a surface holding uncommitted state that an outside tap must
+   * not silently discard (e.g. a draft only persisted by an explicit "Done").
+   * Escape and every other exit still work — this only opts out of the
+   * outside-pointerdown path. Ignored for every other placement, which never
+   * dismisses on outside pointerdown regardless. */
+  dismissOnOutside?: boolean
 }
 
 const ROOT_CLASS: Record<OverlayPlacement, string> = {
@@ -46,13 +53,14 @@ export function Overlay({
   className = '',
   backdropClassName = '',
   panelRef,
+  dismissOnOutside = true,
 }: Props) {
   const localRef = useRef<HTMLDivElement>(null)
   const ref = panelRef ?? localRef
 
   const locksScroll = placement === 'sheet' || placement === 'fullscreen'
   const ownsHistory = locksScroll
-  const dismissesOutside = placement === 'anchored'
+  const dismissesOutside = placement === 'anchored' && dismissOnOutside
 
   useModalDialog(ref, onClose)
   useHistoryDismiss(onClose, ownsHistory)

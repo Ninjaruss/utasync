@@ -216,10 +216,20 @@ export function TimestampPopover({ line, autoEnd, onCommit, onClose, onScrub, on
       // The popover advertises "tap outside to cancel", but a keyboard user has
       // no outside to tap — and Escape did nothing, so the only way out was to
       // commit with Done. Escape is now exactly that same cancel, matching
-      // every other overlay in the app; <Overlay placement="anchored"> also
-      // makes the advertised outside-tap-to-cancel real.
+      // every other overlay in the app.
       onClose={onClose}
       placement="anchored"
+      // dismissOnOutside={false}: this panel holds uncommitted draft state
+      // (draftStart, draftEnd, cascade — see the useState calls above) that is
+      // only persisted by the "Done" button. Before this migration there was no
+      // outside-pointerdown handler at all, so <Overlay placement="anchored">'s
+      // default outside-dismiss would be new behaviour: a single stray tap
+      // outside the panel silently discarding the user's in-progress edit with
+      // no undo. The "tap outside to cancel" copy below has never been backed by
+      // a real handler, so no user has adapted to it — whether to make it real
+      // is a product decision, separate from this migration. Escape still
+      // cancels (see the comment above), and Done still commits.
+      dismissOnOutside={false}
       role="dialog"
       label="Edit line timing"
       panelRef={panelRef}

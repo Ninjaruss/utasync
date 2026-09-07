@@ -34,6 +34,14 @@ export function TranslationRepairPopover({ lineIndex, candidates, onChoose, onCl
     <Overlay
       onClose={onClose}
       placement="anchored"
+      // Unlike TimestampPopover, this surface holds no uncommitted draft: closing
+      // without choosing just leaves the flagged row exactly as it was, and the
+      // popover can be reopened with the same candidate list. Gaining an
+      // outside-pointerdown dismiss here is still a behaviour change (no "tap
+      // outside" copy advertises it), but it costs nothing to lose — no undo is
+      // needed because there is nothing to undo. Kept at the default
+      // (dismissOnOutside: true) rather than adding an unrequested behaviour
+      // difference from every other anchored dialog in the app.
       role="dialog"
       label={`Fix translation for line ${lineIndex + 1}`}
       panelRef={ref}

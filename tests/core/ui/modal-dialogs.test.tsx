@@ -4,7 +4,8 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { Onboarding, ONBOARDING_STORAGE_KEY } from '../../../src/core/ui/Onboarding'
 import { AddSongSheet } from '../../../src/sources/AddSongSheet'
 import { SettingsSheet } from '../../../src/settings/SettingsSheet'
-import { OVERLAY_SURFACES } from './overlaySurfaces'
+import { PlayerControls } from '../../../src/player/PlayerControls'
+import { OVERLAY_SURFACES, playerControlsBaseProps } from './overlaySurfaces'
 
 // This mock must live in THIS file, not in overlaySurfaces.tsx. AddSongSheet/SettingsSheet are
 // imported above, before OVERLAY_SURFACES, and both transitively reach src/core/opfs/audio
@@ -73,6 +74,42 @@ describe.each(OVERLAY_SURFACES)('$name as a modal dialog', ({ open, role }) => {
     await screen.findByRole(role ?? 'dialog')
     fireEvent.keyDown(document, { key: 'Escape' })
     await expectClosed()
+  })
+})
+
+describe('PlayerControls anchored menus and outside pointerdown', () => {
+  // Task 8's stated goal for rows 27/28 was that both menus gain Escape *and*
+  // keep working with outside pointerdown. The generic OVERLAY_SURFACES loop
+  // above only asserts Escape (it shares that contract with every other
+  // surface); the pointerdown half previously rested on shared-code-path
+  // reasoning only ("Overlay's outside-dismiss is exercised elsewhere"). These
+  // two tests make that half a real assertion instead of an inference.
+
+  it('closes the playlist repeat-count menu on an outside pointerdown', async () => {
+    render(
+      <PlayerControls
+        {...playerControlsBaseProps}
+        playlistActive
+        playlistEntries={[{ id: 'e1', a: 0, b: 4 }]}
+        onTogglePlaylist={vi.fn()}
+        onLoadPlaylistEntry={vi.fn()}
+        onPlaylistRepeatCountChange={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /repeats:/i }))
+    await screen.findByRole('dialog', { name: /repeats before next loop/i })
+
+    fireEvent.pointerDown(document.body)
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /repeats before next loop/i })).toBeNull())
+  })
+
+  it('closes the playback more-options menu on an outside pointerdown', async () => {
+    render(<PlayerControls {...playerControlsBaseProps} showAbExport onExportAb={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /more playback options/i }))
+    await screen.findByRole('dialog', { name: /more playback options/i })
+
+    fireEvent.pointerDown(document.body)
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /more playback options/i })).toBeNull())
   })
 })
 
