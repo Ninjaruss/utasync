@@ -1,4 +1,4 @@
-import { vi, expect } from 'vitest'
+import { vi, expect, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { Onboarding } from '../../../src/core/ui/Onboarding'
 import { AddSongSheet } from '../../../src/sources/AddSongSheet'
@@ -13,6 +13,28 @@ import { EditMode } from '../../../src/lyrics/EditMode'
 import { WordLookupPopover } from '../../../src/lyrics/WordLookupPopover'
 import { TimestampPopover } from '../../../src/lyrics/TimestampPopover'
 import { TranslationRepairPopover } from '../../../src/lyrics/TranslationRepairPopover'
+import { SecondLanguagePanel } from '../../../src/lyrics/SecondLanguagePanel'
+
+// Task 9, row 29: MobileControlsSheet only renders in PlayerControls' non-desktop
+// arm (useMinWidthMd reports desktop when matchMedia is unavailable, as jsdom's
+// is by default) — restored after every test so it can't leak into some other
+// surface's assumption of the desktop default.
+const originalMatchMedia = window.matchMedia
+afterEach(() => {
+  window.matchMedia = originalMatchMedia
+})
+function stubMobileViewport() {
+  window.matchMedia = ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia
+}
 
 export interface OverlaySurface {
   /** Registry row name from docs/superpowers/audits/2026-09-05-ui-inventory-baseline.md */
@@ -364,6 +386,75 @@ export const OVERLAY_SURFACES: OverlaySurface[] = [
         />,
       )
       return () => waitFor(() => expect(onClose).toHaveBeenCalled())
+    },
+  },
+  {
+    // Task 9: row 13 — the panel's own default/current/paste/wrong-song phases.
+    // No backdrop-click dismiss existed before the migration (the old outer
+    // div had no onClick at all), so <Overlay placement="fullscreen"> adds
+    // only Escape/Back/focus-trap, nothing is taken away.
+    name: 'row 13 — second-language panel',
+    open: () => {
+      const onClose = vi.fn()
+      render(
+        <SecondLanguagePanel
+          lines={[{ original: 'line one', startTime: 0, endTime: 2, translation: '' }]}
+          title="t"
+          artist="a"
+          sourceLanguage="ja"
+          onApply={vi.fn()}
+          onClose={onClose}
+        />,
+      )
+      return () => waitFor(() => expect(onClose).toHaveBeenCalled())
+    },
+  },
+  {
+    // Task 9: row 14 — the messiest-paste AlignmentEditor, reached only from
+    // inside row 13 after a pasted block's line count disagrees with the
+    // untimed primary lyrics (same trigger tests/lyrics/SecondLanguagePanel.test.tsx
+    // uses). Its onCancel returns to the paste step rather than calling the
+    // panel's own onClose (non-destructive: the pasted text survives), so —
+    // like the row 27/28 menus above — there's no external onClose to spy on;
+    // observe the DOM instead.
+    name: 'row 14 — second-language messy-paste alignment editor',
+    open: () => {
+      const untimed = [
+        { original: 'line one', startTime: 0, endTime: 0, translation: '' },
+        { original: 'line two', startTime: 0, endTime: 0, translation: '' },
+      ]
+      render(
+        <SecondLanguagePanel
+          lines={untimed}
+          title="t"
+          artist="a"
+          sourceLanguage="ja"
+          onApply={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      )
+      fireEvent.click(screen.getByRole('button', { name: /paste lyrics/i }))
+      fireEvent.change(screen.getByPlaceholderText(/english translation/i), {
+        target: { value: 'only one line' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /attach/i }))
+      return () =>
+        waitFor(() =>
+          expect(screen.queryByRole('dialog', { name: /match translation lines/i })).toBeNull(),
+        )
+    },
+  },
+  {
+    // Task 9: row 29 — the phone-only mobile controls sheet. Its desktop
+    // counterpart, SavedLoopsPanelSection, is an inline collapsible section
+    // with no dialog role and is a different surface entirely (see the task-9
+    // brief) — it is deliberately not modelled here or anywhere in this table.
+    name: 'row 29 — mobile controls sheet',
+    open: () => {
+      stubMobileViewport()
+      render(<PlayerControls {...playerControlsBaseProps} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Saved loops' }))
+      return () => waitFor(() => expect(screen.queryByRole('dialog', { name: 'Controls' })).toBeNull())
     },
   },
 ]
