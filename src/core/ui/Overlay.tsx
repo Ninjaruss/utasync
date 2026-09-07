@@ -67,7 +67,7 @@ export function Overlay({
     <div
       ref={ref}
       role={role}
-      aria-modal="true"
+      aria-modal={role === 'dialog' || role === 'alertdialog' ? true : undefined}
       tabIndex={-1}
       aria-label={label}
       aria-labelledby={labelledBy}

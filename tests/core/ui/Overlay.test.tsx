@@ -77,4 +77,40 @@ describe('Overlay', () => {
     window.dispatchEvent(new PopStateEvent('popstate'))
     expect(onClose).toHaveBeenCalled()
   })
+
+  it('does not lock scroll for a contained overlay', () => {
+    render(<Overlay onClose={vi.fn()} placement="contained" label="Test"><button>inside</button></Overlay>)
+    expect(document.body.style.overflow).toBe('')
+  })
+
+  it('does not close a contained overlay on the browser Back gesture', () => {
+    const onClose = vi.fn()
+    render(<Overlay onClose={onClose} placement="contained" label="Test"><button>inside</button></Overlay>)
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('locks background scroll for a fullscreen overlay and releases it on unmount', () => {
+    const { unmount } = render(<Overlay onClose={vi.fn()} placement="fullscreen" label="Test"><button>inside</button></Overlay>)
+    expect(document.body.style.overflow).toBe('hidden')
+    unmount()
+    expect(document.body.style.overflow).toBe('')
+  })
+
+  it('closes a fullscreen overlay on the browser Back gesture', () => {
+    const onClose = vi.fn()
+    render(<Overlay onClose={onClose} placement="fullscreen" label="Test"><button>inside</button></Overlay>)
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('does not emit aria-modal on a menu', () => {
+    render(
+      <Overlay onClose={vi.fn()} placement="anchored" role="menu" label="Menu">
+        <button>item</button>
+      </Overlay>,
+    )
+    const panel = screen.getByRole('menu', { name: 'Menu' })
+    expect(panel.getAttribute('aria-modal')).toBeNull()
+  })
 })
