@@ -19,8 +19,9 @@ export function acquireScrollLock(): () => void {
 
   let released = false
   return () => {
-    // Guard: React 19 StrictMode runs effect cleanups twice in development, and
-    // a double release would decrement for a hold that no longer exists and
+    // Guard: make this release function idempotent. If invoked more than once
+    // (by an explicit close handler and an unmount cleanup, for example), a
+    // second release would decrement for a hold that no longer exists and
     // unlock the page under a still-open outer overlay.
     if (released) return
     released = true

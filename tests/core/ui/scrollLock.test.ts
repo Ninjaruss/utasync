@@ -1,7 +1,11 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { acquireScrollLock } from '../../../src/core/ui/scrollLock'
+import { acquireScrollLock, resetScrollLock } from '../../../src/core/ui/scrollLock'
 
 afterEach(() => {
+  // The module holds state (holders count) across tests in this file, so isolation
+  // must be explicit rather than incidental. Reset the module first, then the style,
+  // so the style reset is not undone if a test's expect() threw before its release().
+  resetScrollLock()
   document.body.style.overflow = ''
 })
 
