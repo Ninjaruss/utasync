@@ -16,6 +16,7 @@ import { db } from '../core/db/schema'
 import { computeSyncState } from '../core/db/migrations'
 import { ProcessProgress } from '../core/ui/ProcessProgress'
 import { ConfirmDialog } from '../core/ui/ConfirmDialog'
+import { Overlay } from '../core/ui/Overlay'
 import { alignSteps, alignStepIndex, type AlignStage } from './alignProgress'
 import { preferredWhisperTimestampMode } from './alignTimestampMode'
 import { detectSheetLanguage } from './whisperLanguage'
@@ -770,8 +771,21 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
   }
 
   return (
-    <div className="fixed inset-0 bg-black/80 flex items-end md:items-center justify-center z-50 p-4">
-      <div className="relative bg-cinnabar-900 rounded-2xl p-6 max-w-sm w-full space-y-4 max-h-[90dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+    // This screen previously had no role, no aria-modal and no Escape/Back
+    // handling at all — only its own "Cancel"/"Not now"/"Close" buttons.
+    // <Overlay> adds those structurally; requestClose already carries the
+    // right guard (route through the confirm when a run is in progress),
+    // so wiring Escape/Back to it is a straightforward extension, not new
+    // policy. items-end/md:items-center (row cross-axis) and justify-center
+    // (row main-axis) become justify-end/md:justify-center and items-center
+    // once flex-col is forced by the fullscreen placement.
+    <Overlay
+      onClose={requestClose}
+      placement="fullscreen"
+      label="Auto-Align Lyrics"
+      backdropClassName="justify-end md:justify-center items-center bg-black/80 p-4"
+    >
+      <div className="relative bg-cinnabar-900 rounded-2xl p-6 max-w-sm w-full space-y-4 max-h-[90dvh] overflow-y-auto">
         {confirmCancel && (
           <ConfirmDialog
             title="Cancel auto-align?"
@@ -959,7 +973,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
           </button>
         )}
       </div>
-    </div>
+    </Overlay>
   )
 }
 
