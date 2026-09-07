@@ -4,6 +4,7 @@ import { extractSecondLanguageLines, pairsToTimedLines, hasVisibleTranslation } 
 import { AlignmentEditor } from './AlignmentEditor'
 import { smartAttachSecondLanguage } from './lineAligner'
 import { ProgressOverlay } from '../core/ui/ProgressOverlay'
+import { Overlay } from '../core/ui/Overlay'
 import { SECOND_LANGUAGE_ALIGN_STEPS } from '../sources/addSongProgress'
 import { getSecondLanguageSearchSection } from './lyricSiteLinks'
 import {
@@ -202,7 +203,12 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
 
   if (phase.kind === 'align') {
     return (
-      <div className="fixed inset-0 z-50 flex flex-col bg-cinnabar-950 overflow-hidden">
+      <Overlay
+        onClose={() => setPhase({ kind: 'paste' })}
+        placement="fullscreen"
+        label="Match translation lines"
+        backdropClassName="bg-cinnabar-950 overflow-hidden"
+      >
         <AlignmentEditor
           originalLines={phase.originalLines}
           translationLines={phase.translationLines}
@@ -238,12 +244,21 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
           // is applied, and the user can edit the paste, re-attach, or Back out.
           onCancel={() => setPhase({ kind: 'paste' })}
         />
-      </div>
+      </Overlay>
     )
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4">
+    <Overlay
+      onClose={onClose}
+      placement="fullscreen"
+      label="Second language"
+      // fullscreen's ROOT_CLASS is flex-col; these translate the old flex-row
+      // centring (items-end sm:items-center on the row cross-axis, justify-center
+      // on its main axis) into the column equivalent, so the panel still sits at
+      // the bottom on mobile and centred from sm: up, horizontally centred always.
+      backdropClassName="justify-end sm:justify-center items-center bg-black/60 p-4"
+    >
       <div className="w-full max-w-md rounded-2xl bg-cinnabar-900 border border-cinnabar-800 p-4 flex flex-col max-h-[min(90dvh,28rem)] overflow-hidden">
         <div className="flex items-center justify-between shrink-0 mb-3">
           <h2 className="text-white font-semibold">Second language</h2>
@@ -336,6 +351,6 @@ export function SecondLanguagePanel({ lines, title, artist, sourceLanguage, onAp
         )}
         </div>
       </div>
-    </div>
+    </Overlay>
   )
 }
