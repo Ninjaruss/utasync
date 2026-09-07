@@ -5,6 +5,8 @@ import { AddSongSheet } from '../../../src/sources/AddSongSheet'
 import { SettingsSheet } from '../../../src/settings/SettingsSheet'
 import { Overlay } from '../../../src/core/ui/Overlay'
 import { ConfirmDialog } from '../../../src/core/ui/ConfirmDialog'
+import { TapSyncEditor } from '../../../src/player/TapSyncEditor'
+import { OffsetAlignScreen } from '../../../src/player/OffsetAlignScreen'
 
 export interface OverlaySurface {
   /** Registry row name from docs/superpowers/audits/2026-09-05-ui-inventory-baseline.md */
@@ -107,4 +109,75 @@ export const OVERLAY_SURFACES: OverlaySurface[] = [
       return () => waitFor(() => expect(onClose).toHaveBeenCalled())
     },
   },
+  {
+    // The August critical: no Back, no Escape, and rendering it used to unmount
+    // the only <YouTubePlayer> in the tree. tests/player/PlayerView.tap-sync-overlay.test.tsx
+    // covers that regression directly (it needs a real PlayerView + YouTube song to
+    // reproduce); this row covers the generic dialog contract on the standalone component.
+    name: 'row 17 — tap-sync editor',
+    open: () => {
+      const onCancel = vi.fn()
+      render(
+        <TapSyncEditor
+          plainLines={['line one']}
+          translations={['']}
+          audioPosition={() => 0}
+          onComplete={vi.fn()}
+          onCancel={onCancel}
+          isPlaying={false}
+          onTogglePlay={vi.fn()}
+          volume={1}
+          onVolumeChange={vi.fn()}
+          speed={1}
+          onSpeedChange={vi.fn()}
+        />,
+      )
+      return () => waitFor(() => expect(onCancel).toHaveBeenCalled())
+    },
+  },
+  {
+    // The September dead end: fixed inset-0 z-50 over the app header with no
+    // exit. onKeepTimings is the safe, non-destructive close — it leaves
+    // timings exactly as they arrived rather than committing a drag or
+    // kicking off a transcription.
+    name: 'row 18 — offset-align screen',
+    open: () => {
+      const onKeepTimings = vi.fn()
+      render(
+        <OffsetAlignScreen
+          lineIndex={0}
+          startSec={0}
+          onPreview={vi.fn()}
+          onCommit={vi.fn()}
+          onUseFullAlignment={vi.fn()}
+          onKeepTimings={onKeepTimings}
+        />,
+      )
+      return () => waitFor(() => expect(onKeepTimings).toHaveBeenCalled())
+    },
+  },
+  // row 19 — auto-align flow (src/ai-pipeline/AutoAlignFlow.tsx): migrated to
+  // <Overlay placement="fullscreen">, but NOT registered here. Rendering the
+  // real component means loading the whole auto-align pipeline (capability,
+  // demucsSeparator, whisperTranscriber, SettingsStore, opfs/audio, an
+  // AudioContext stub — the mock set tests/ai-pipeline/AutoAlignFlow.autostart.test.tsx
+  // declares for itself), and per the doc comment above, that mock set has to
+  // live in whatever file renders the component — this fixture can't carry it
+  // for every consumer. Its close-and-report contract (onClose fires from the
+  // done/error "Close" button and from the "Not now" consent-skip button) is
+  // exercised directly in tests/ai-pipeline/AutoAlignFlow.autostart.test.tsx
+  // (search that file for `onClose`). The generic Escape/Back/focus-trap
+  // behavior <Overlay> now adds is new — this screen previously had none of
+  // it — and is not yet covered by a dedicated assertion; see the task-7
+  // report for this gap.
+  //
+  // row 16 — replace-lyrics dialog (src/player/PlayerView.tsx): also not
+  // registered here, for the same reason but heavier still: it isn't its own
+  // component, so reaching it means rendering all of PlayerView, switching to
+  // Edit mode, and opening a nested "More" menu. Its full dialog contract
+  // (announced as a modal, initial focus lands on a real control rather than
+  // the aria-hidden backdrop, closes on Escape, closes on a backdrop click,
+  // and the visible Close button still works) is covered directly in
+  // tests/player/PlayerView.replaceLyrics.test.tsx, written as part of this
+  // migration since no prior test touched this dialog at all.
 ]
