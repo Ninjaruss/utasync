@@ -43,4 +43,25 @@ describe('acquireScrollLock', () => {
     b()
     expect(document.body.style.overflow).toBe('')
   })
+
+  it('guards against late cleanup after reset (afterEach teardown pattern)', () => {
+    // Acquire a lock in the test
+    const release = acquireScrollLock()
+    expect(document.body.style.overflow).toBe('hidden')
+
+    // Simulate afterEach calling resetScrollLock() and resetting the style
+    // (this happens before the unmount cleanup runs in RTL's teardown order)
+    resetScrollLock()
+    document.body.style.overflow = ''
+
+    // Now simulate RTL cleanup firing the old release closure (unmount cleanup).
+    // This runs AFTER afterEach, so holders is now 0 when release() fires.
+    release()
+
+    // Acquire again, simulating the next test starting. Without the fix, holders
+    // was driven to -1 by the stale release(), and acquireScrollLock() silently
+    // fails to lock because if (holders === 0) is false.
+    acquireScrollLock()
+    expect(document.body.style.overflow).toBe('hidden')
+  })
 })

@@ -25,6 +25,10 @@ export function acquireScrollLock(): () => void {
     // unlock the page under a still-open outer overlay.
     if (released) return
     released = true
+    // A reset (or a full release elsewhere) may already have cleared this hold —
+    // decrementing here would drive the count negative and silently disable the
+    // NEXT acquire, which takes effect in an unrelated later test.
+    if (holders === 0) return
     holders -= 1
     if (holders === 0) document.body.style.overflow = previousOverflow
   }
