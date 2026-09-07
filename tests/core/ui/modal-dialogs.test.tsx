@@ -21,6 +21,26 @@ vi.mock('../../../src/core/opfs/audio', () => ({
   audioStoragePath: (id: string) => `songs/${id}.mp3`,
 }))
 
+// See the matching doc comment on OVERLAY_SURFACES in overlaySurfaces.tsx: the
+// word-lookup popover's real dictionary lookup loads JMdict data, which is slow
+// and irrelevant to this contract check.
+vi.mock('../../../src/language/japanese/wordLookup', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/language/japanese/wordLookup')>()
+  return {
+    ...actual,
+    lookupWord: async () => ({
+      headword: 'x',
+      reading: null,
+      dictionaryReading: null,
+      pos: null,
+      posLabel: null,
+      glosses: ['gloss'],
+      senses: [],
+      dictionaryAvailable: true,
+    }),
+  }
+})
+
 beforeEach(() => {
   localStorage.clear()
 })
@@ -28,10 +48,17 @@ beforeEach(() => {
 /** Every blocking overlay in the app should behave the same way: announce
  * itself, hold focus, and close on Escape. */
 describe.each(OVERLAY_SURFACES)('$name as a modal dialog', ({ open, role }) => {
-  it('is announced as a modal dialog', async () => {
+  it('is announced with the right role and an accessible name', async () => {
     open()
     const dialog = await screen.findByRole(role ?? 'dialog')
-    expect(dialog.getAttribute('aria-modal')).toBe('true')
+    // aria-modal only applies to dialog/alertdialog — a menu (role: 'menu') is
+    // never modal, per Overlay's own contract (tests/core/ui/Overlay.test.tsx,
+    // "does not emit aria-modal on a menu").
+    if (role === 'menu') {
+      expect(dialog.getAttribute('aria-modal')).toBeNull()
+    } else {
+      expect(dialog.getAttribute('aria-modal')).toBe('true')
+    }
     expect(dialog.getAttribute('aria-label') || dialog.getAttribute('aria-labelledby')).toBeTruthy()
   })
 

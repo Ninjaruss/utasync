@@ -1,5 +1,5 @@
 import { vi, expect } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { Onboarding } from '../../../src/core/ui/Onboarding'
 import { AddSongSheet } from '../../../src/sources/AddSongSheet'
 import { SettingsSheet } from '../../../src/settings/SettingsSheet'
@@ -7,6 +7,12 @@ import { Overlay } from '../../../src/core/ui/Overlay'
 import { ConfirmDialog } from '../../../src/core/ui/ConfirmDialog'
 import { TapSyncEditor } from '../../../src/player/TapSyncEditor'
 import { OffsetAlignScreen } from '../../../src/player/OffsetAlignScreen'
+import { PlayerControls } from '../../../src/player/PlayerControls'
+import { DisplayMenu } from '../../../src/player/DisplayMenu'
+import { EditMode } from '../../../src/lyrics/EditMode'
+import { WordLookupPopover } from '../../../src/lyrics/WordLookupPopover'
+import { TimestampPopover } from '../../../src/lyrics/TimestampPopover'
+import { TranslationRepairPopover } from '../../../src/lyrics/TranslationRepairPopover'
 
 export interface OverlaySurface {
   /** Registry row name from docs/superpowers/audits/2026-09-05-ui-inventory-baseline.md */
@@ -51,7 +57,48 @@ export interface OverlaySurface {
  *
  * Vitest hoists `vi.mock` above every import within its own file, so this only works when placed
  * directly in the file doing the importing — not here.
+ *
+ * `WordLookupPopover` needs the same treatment for a different reason: its real dictionary lookup
+ * (`lookupWord`) loads JMdict data, which is slow and unnecessary for a contract check that only
+ * cares that the popover opens, is announced, and closes. Every consuming file must declare:
+ *
+ *   vi.mock('../../../src/language/japanese/wordLookup', async (importOriginal) => {
+ *     const actual = await importOriginal<typeof import('../../../src/language/japanese/wordLookup')>()
+ *     return { ...actual, lookupWord: async () => ({
+ *       headword: 'x', reading: null, dictionaryReading: null, pos: null, posLabel: null,
+ *       glosses: ['gloss'], senses: [], dictionaryAvailable: true,
+ *     }) }
+ *   })
  */
+/** Minimal PlayerControls props for the two rows below — copied from
+ * tests/player/PlayerControls.seek-dock.test.tsx's baseProps, trimmed to what
+ * rendering the dock at all requires. */
+const playerControlsBaseProps = {
+  mode: 'play' as const,
+  playbackState: 'paused' as const,
+  position: 65,
+  duration: 120,
+  progress: 65 / 120,
+  speed: 1,
+  speedPct: 100,
+  volume: 0.75,
+  volumePct: 75,
+  onSpeedChange: () => {},
+  onVolumeChange: () => {},
+  abLoop: { a: null, b: null, preRoll: 2, loopCount: 3, crossfadeDuration: 0.3 },
+  armingAB: null,
+  abLoopError: null,
+  onTogglePlay: () => {},
+  onSeek: () => {},
+  onToggleArm: () => {},
+  onClearAB: () => {},
+  playlistEntries: [],
+  playlistActive: false,
+  playlistIndex: 0,
+  playlistRepeatCount: 3,
+  canSaveToPlaylist: false,
+}
+
 export const OVERLAY_SURFACES: OverlaySurface[] = [
   {
     // Not registered in OVERLAY_SURFACES beyond this row's own contract check:
@@ -180,4 +227,133 @@ export const OVERLAY_SURFACES: OverlaySurface[] = [
   // and the visible Close button still works) is covered directly in
   // tests/player/PlayerView.replaceLyrics.test.tsx, written as part of this
   // migration since no prior test touched this dialog at all.
+  {
+    // Task 8: the "Repeats before next loop" menu was a role="dialog" panel
+    // dismissed by pointerdown only, with no Escape at all — <Overlay
+    // placement="anchored"> is what gives it one.
+    name: 'row 27 — playlist repeat-count menu',
+    open: () => {
+      render(
+        <PlayerControls
+          {...playerControlsBaseProps}
+          playlistActive
+          playlistEntries={[{ id: 'e1', a: 0, b: 4 }]}
+          onTogglePlaylist={vi.fn()}
+          onLoadPlaylistEntry={vi.fn()}
+          onPlaylistRepeatCountChange={vi.fn()}
+        />,
+      )
+      fireEvent.click(screen.getByRole('button', { name: /repeats:/i }))
+      // No onClose prop to spy on — the menu's open state is internal, so
+      // observe the DOM the same way the Onboarding row above does.
+      return () => waitFor(() => expect(screen.queryByRole('dialog', { name: /repeats before next loop/i })).toBeNull())
+    },
+  },
+  {
+    // Task 8: the "More playback options" menu — same gap, same fix, as row 27.
+    name: 'row 28 — playback more-options menu',
+    open: () => {
+      render(<PlayerControls {...playerControlsBaseProps} showAbExport onExportAb={vi.fn()} />)
+      fireEvent.click(screen.getByRole('button', { name: /more playback options/i }))
+      return () => waitFor(() => expect(screen.queryByRole('dialog', { name: /more playback options/i })).toBeNull())
+    },
+  },
+  {
+    // Task 8: already had a hand-rolled Escape (useModalDialog) plus a manual
+    // outside-pointerdown listener on each layout; both are now <Overlay>'s.
+    name: 'row 21 — lyrics display options menu',
+    open: () => {
+      render(
+        <DisplayMenu
+          isJapanese
+          hasTranslation
+          furiganaMode="furigana"
+          showTranslation
+          lyricsLayout="stacked"
+          onFuriganaCycle={vi.fn()}
+          onToggleTranslation={vi.fn()}
+          onToggleLayout={vi.fn()}
+        />,
+      )
+      fireEvent.click(screen.getByRole('button', { name: /lyrics display options/i }))
+      return () => waitFor(() => expect(screen.queryByRole('dialog', { name: /lyrics display options/i })).toBeNull())
+    },
+  },
+  {
+    // Task 8: this is the same "More" menu tests/player/menus.escape.test.tsx covers by hand.
+    // Registering it here is what lets a later task retire that file once this contract is
+    // proven to cover it by name (see that test's own comment, and the doc comment above
+    // OVERLAY_SURFACES).
+    name: 'row 22 — edit-mode more menu',
+    role: 'menu',
+    open: () => {
+      render(
+        <EditMode
+          lines={[{ startTime: 0, endTime: 2, original: 'a', translation: 'A' }]}
+          playhead={() => 0}
+          hasLocalAudio
+          onChangeLines={vi.fn()}
+          onAutoAlign={vi.fn()}
+          title="t"
+          artist="a"
+          sourceLanguage="ja"
+        />,
+      )
+      fireEvent.click(screen.getByRole('button', { name: /^more$/i }))
+      return () => waitFor(() => expect(screen.queryByRole('menu', { name: /more lyric actions/i })).toBeNull())
+    },
+  },
+  {
+    // Task 8: dismissed on a capture-phase pointerdown that also swallows the
+    // completing click (so a dismissing tap doesn't fall through and seek the
+    // lyric row underneath) but had no Escape. <Overlay> adds Escape; the
+    // pointerdown/swallow effect still owns the actual outside-tap dismissal
+    // (see the comment on that effect in the component for why both now fire
+    // harmlessly on the same event).
+    name: 'row 24 — word-lookup popover',
+    open: () => {
+      const onClose = vi.fn()
+      render(
+        <WordLookupPopover
+          token={{ surface: 'テスト', reading: 'テスト', pos: '名詞', baseForm: 'テスト', startIndex: 0, endIndex: 1 }}
+          anchorRect={null}
+          onClose={onClose}
+        />,
+      )
+      return () => waitFor(() => expect(onClose).toHaveBeenCalled())
+    },
+  },
+  {
+    // Task 8: advertised "tap outside to cancel" without ever wiring Escape, and
+    // without a real outside-dismiss either — <Overlay placement="anchored">
+    // makes both real.
+    name: 'row 25 — timestamp popover',
+    open: () => {
+      const onClose = vi.fn()
+      render(
+        <TimestampPopover
+          line={{ startTime: 0, endTime: 2, original: 'a', translation: 'A' }}
+          autoEnd={4}
+          onCommit={vi.fn()}
+          onClose={onClose}
+        />,
+      )
+      return () => waitFor(() => expect(onClose).toHaveBeenCalled())
+    },
+  },
+  {
+    name: 'row 26 — translation repair popover',
+    open: () => {
+      const onClose = vi.fn()
+      render(
+        <TranslationRepairPopover
+          lineIndex={0}
+          candidates={[{ text: 'a nearby translation', score: 0.9, source: 'nearby' }]}
+          onChoose={vi.fn()}
+          onClose={onClose}
+        />,
+      )
+      return () => waitFor(() => expect(onClose).toHaveBeenCalled())
+    },
+  },
 ]

@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { useModalDialog } from '../core/ui/useModalDialog'
+import { Overlay } from '../core/ui/Overlay'
 
 export interface RepairCandidate {
   text: string
@@ -27,19 +27,22 @@ interface Props {
  */
 export function TranslationRepairPopover({ lineIndex, candidates, onChoose, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null)
-  useModalDialog(ref, onClose)
 
   const ranked = [...candidates].sort((a, b) => b.score - a.score)
 
   return (
-    <div
-      ref={ref}
-      tabIndex={-1}
+    <Overlay
+      onClose={onClose}
+      placement="anchored"
       role="dialog"
-      aria-label={`Fix translation for line ${lineIndex + 1}`}
-      onClick={(e) => e.stopPropagation()}
+      label={`Fix translation for line ${lineIndex + 1}`}
+      panelRef={ref}
       className="absolute z-20 mt-1 left-0 right-0 rounded-xl border border-cinnabar-accent/60 bg-cinnabar-900 p-3 space-y-2 shadow-xl"
     >
+      {/* display:contents so this wrapper doesn't break the panel's space-y-2
+          child spacing — it exists only to stop a click from reaching whatever
+          row-level click handler sits underneath the popover. */}
+      <div className="contents" onClick={(e) => e.stopPropagation()}>
       <div className="flex items-center justify-between">
         <p className="text-xs text-white/60">Choose a translation for this line</p>
         <button
@@ -73,6 +76,7 @@ export function TranslationRepairPopover({ lineIndex, candidates, onChoose, onCl
           ))}
         </ul>
       )}
-    </div>
+      </div>
+    </Overlay>
   )
 }

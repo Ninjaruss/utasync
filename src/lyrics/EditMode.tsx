@@ -5,7 +5,7 @@ import { SecondLanguagePanel, type TranslationApplyMeta } from './SecondLanguage
 import { AlignmentEditor } from './AlignmentEditor'
 import { pairsToTimedLines, hasVisibleTranslation } from './bilingual'
 import { lastTranslatedRowIndex, TRANSLATION_PAIRING_VERSION } from './translationRefit'
-import { useModalDialog } from '../core/ui/useModalDialog'
+import { Overlay } from '../core/ui/Overlay'
 import { TimestampPopover } from './TimestampPopover'
 import type { Peaks } from '../player/waveformPeaks'
 import {
@@ -372,9 +372,6 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
   const [canRedo, setCanRedo] = useState(false)
   const [showMore, setShowMore] = useState(false)
   const moreMenuRef = useRef<HTMLDivElement>(null)
-  // Escape closes the menu and returns focus to the More button; before this the
-  // only way out was a pointer press on the invisible backdrop.
-  useModalDialog(moreMenuRef, () => setShowMore(false), showMore)
 
   // External-change guard (item 3): EditMode stays mounted while a completed
   // Auto-align or gap-recovery pass replaces `lines` from OUTSIDE this editor.
@@ -644,15 +641,19 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
               </svg>
             </button>
             {showMore && (
-              <>
+              <Overlay
+                onClose={() => setShowMore(false)}
+                placement="anchored"
+                role="menu"
+                label="More lyric actions"
+                panelRef={moreMenuRef}
+                className="absolute right-0 top-full z-40 mt-1 flex min-w-[11rem] flex-col rounded-xl border border-cinnabar-800 bg-cinnabar-900 p-1 shadow-xl max-h-[70dvh] overflow-y-auto overscroll-contain"
+              >
+                {/* Kept as a child (not a sibling) so <Overlay>'s own outside-pointerdown
+                    dismissal — which only checks containment in the panel — doesn't treat
+                    a click on this backdrop as "outside" and race the click-driven close
+                    below. aria-hidden keeps it out of the focus trap's initial-focus scan. */}
                 <div className="fixed inset-0 z-30" aria-hidden="true" onClick={() => setShowMore(false)} />
-                <div
-                  ref={moreMenuRef}
-                  tabIndex={-1}
-                  role="menu"
-                  aria-label="More lyric actions"
-                  className="absolute right-0 top-full z-40 mt-1 flex min-w-[11rem] flex-col rounded-xl border border-cinnabar-800 bg-cinnabar-900 p-1 shadow-xl max-h-[70dvh] overflow-y-auto overscroll-contain"
-                >
                   {onReplaceLyrics && (
                     <button type="button" onClick={() => { setShowMore(false); onReplaceLyrics() }} className={moreMenuItem}>
                       Replace lyrics
@@ -690,8 +691,7 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
                       Export .lrc
                     </button>
                   )}
-                </div>
-              </>
+              </Overlay>
             )}
           </div>
 
