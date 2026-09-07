@@ -214,7 +214,121 @@ Measured to "player open, lyrics present and timed, transport rendered".
 
 ## Consolidated surface list
 
-(Reserved for a later task in this phase.)
+### Step 1 — static re-derivation
+
+```
+grep -rn "fixed inset-0" src --include='*.tsx'
+```
+
+returned **15 sites** — matches the spec's expected count exactly, no drift to record.
+13 are user-facing surfaces; 2 are scrims, confirmed at the exact lines the spec named:
+
+- `src/lyrics/EditMode.tsx:648` — `aria-hidden` click-catcher that closes the lyric-row
+  "More" menu on outside click.
+- `src/player/PlayerControls.tsx:1409` — backdrop `<button>` of the shared `Sheet`
+  component (used by, e.g., the Saved-loops panel).
+
+### Step 2 — reconciliation
+
+The union below is **not** limited to the 15 grep hits. Two of the app's true surfaces
+are reached by an early `return` and an inline mode-swap — neither has a `fixed inset-0`
+root, so grep alone would never find them, and neither journey happened to visit them
+either. That is a fourth case the brief's three buckets don't literally name, and it is
+called out on its own below because it is the exact shape of the August critical
+(tap-through as an early `return` in `PlayerView`) and therefore the highest-value catch
+in this task.
+
+**Bucket 1 — seen live and found statically (5):** Landing, Library, Player (song view),
+Onboarding carousel, Add-song sheet. (Landing/Library/Player are base routes from
+`App.tsx`'s `View` union, not overlays, so they don't appear in the `fixed inset-0` grep
+— they're included here because Step 3's registry is the *true surface list*, and the
+task brief's own "Base or overlay" column only makes sense if base routes are rows too.)
+
+**Bucket 2 — found statically, never seen live (11):** Settings sheet, the auto-align
+confirm dialog, "Fix word pairing" (AlignmentEditor from Edit mode), the second-language
+panel, its messy-paste AlignmentEditor phase, the Replace-lyrics dialog, the Tap-sync
+editor, the Offset-align screen, the Auto-align flow, and the two generic transient
+overlays (`ProgressOverlay`, `LoadingOverlay`) — see the per-row notes below for the
+one-line "what would reach it."
+
+**Bucket 3 — seen live, NOT a `fixed inset-0` site (2):** the lyrics-found mismatch
+confirm (`LyricsFoundConfirm`, inline in the Add-song sheet — already logged in Journey
+A's trace) and the filename-ambiguity helper (inline in the Upload-audio tab — logged in
+Journey B's trace). Both are real, gated-or-conditional pieces of UI implemented as plain
+JSX inside an already-open sheet, not as their own overlay.
+
+**Bucket 4 — found by reading the code, caught by neither the live traces nor the grep
+(2):** this is the dangerous case the brief warns about.
+- **Edit mode** (`src/lyrics/EditMode.tsx`, switched to at `src/player/PlayerView.tsx:1879`
+  by the Play/Edit toggle) has no `fixed inset-0` root at all — it's an inline swap inside
+  `PlayerView`'s own flex layout, sharing the `PlayerControls` sidebar with Play mode.
+  Neither journey ever toggled to it (both traces show Play mode only), so it is invisible
+  to both the live traces and the grep. It is nonetheless a full, distinct interaction
+  surface (undo/redo, a "More" menu, Auto-align, Tap-through, gap-recovery banners) and
+  belongs in Phase 3's union.
+- **Song-not-in-library** (`src/player/PlayerView.tsx:1647`, an early `return` before the
+  main player JSX, guarded by `if (songMissing)`) replaces the entire Player with a
+  "This song isn't in your library" message and a single "Back to library" exit. It fires
+  on a precondition — a hash-route deep link (`#/song/<id>`) to a song absent from this
+  device's storage — that neither journey exercised (both added a fresh song and viewed
+  it immediately). This is the same shape as the documented August critical: an early
+  `return`, not an overlay.
+
+The excluded case: the **"Line them up" provenance nudge** (inline banner in
+`PlayerView.tsx`, ~line 1783, seen live in Journey B) is *not* given its own row below.
+The existing Journey B section already states explicitly why: "Not counted as a separate
+surface — it gates nothing." Its own action button (**Line them up**) is what opens a real
+surface, `OffsetAlignScreen` (row 19 below) — the banner itself is decoration on the
+Player, not a screen.
+
+### Step 3 — registry
+
+`reach` ∈ `auto | headline | menu | precondition`. `devices` ⊆ `phone, desktop` — every
+surface below is reachable on both device classes; none is device-gated (some are gated
+on AI-*capability tier*, which is noted in Exits/notes, not the same axis as device
+class).
+
+| # | Surface | File:line | reach | devices | role | Base or overlay | Exits |
+|---|---|---|---|---|---|---|---|
+| 1 | Landing | `src/landing/LandingScreen.tsx` (routed `App.tsx:156`) | auto (first visit only) | phone, desktop | core | Base | 3 identical CTAs → Library |
+| 2 | Library | `src/sources/LibraryScreen.tsx` (routed `App.tsx:167`) | auto (default/returning route) | phone, desktop | core | Base | ＋ Add a song, ⚙ Settings, open a song |
+| 3 | Player (song view) | `src/player/PlayerView.tsx` (routed `App.tsx:159`) | headline (open a song) | phone, desktop | core | Base | ← Back |
+| 4 | Onboarding carousel | `src/core/ui/Onboarding.tsx:56` | auto (first visit, over Library) | phone, desktop | core | Overlay | Skip / Back / Done |
+| 5 | Add-song sheet | `src/sources/AddSongSheet.tsx:154` | headline (＋ Add a song) | phone, desktop | core | Overlay | ✕ Close; Add song (commit) |
+| 6 | Lyrics-found confirm (mismatch) | `src/lyrics/LyricsFoundConfirm.tsx` (inline; used from `LinkParser.tsx:397`, `UploadAudioFlow.tsx:475`, `LyricsImportPanel.tsx:186`) | auto (inline in Add-song sheet, once a match needs confirming) | phone, desktop | core | **Inline — not `fixed inset-0`** | "Yes, this is the right song" / "Use different lyrics" — gates the sheet's commit |
+| 7 | Filename-ambiguity helper | inline in `src/sources/AddSongSheet.tsx` (Upload tab) | precondition (title/artist derived from filename) | phone, desktop | advanced | **Inline — not `fixed inset-0`** | "Swap title and artist" (non-gating) |
+| 8 | Edit mode (lyrics editor) | `src/lyrics/EditMode.tsx`, switched at `src/player/PlayerView.tsx:1879` | menu (Play/Edit toggle in Player header) | phone, desktop | core | **Base — inline mode-swap, no `fixed inset-0` root; not seen live** | Toggle back to Play |
+| 9 | Song-not-in-library | `src/player/PlayerView.tsx:1647` (early `return`) | precondition (deep link to a songId not in local storage) | phone, desktop | core | **Base — early `return`, no `fixed inset-0` root; not seen live** | "Back to library" |
+| 10 | Settings sheet | `src/settings/SettingsSheet.tsx:19` | menu (⚙ Settings, present on Library and Player) | phone, desktop | core | Overlay | ✕ / backdrop close |
+| 11 | Auto-align confirm | `src/lyrics/EditMode.tsx:837` | headline (Edit mode's "Auto-align" button; only when `hasLocalAudio && autoAlignSupported`) | phone, desktop | core | Overlay | Cancel / Continue |
+| 12 | Fix word pairing (AlignmentEditor from Edit mode) | `src/lyrics/EditMode.tsx:861` | menu (Edit mode → More → "Fix word pairing"; only when `hasSecondLang`) | phone, desktop | advanced | Overlay | onConfirm / onCancel |
+| 13 | Second-language panel | `src/lyrics/SecondLanguagePanel.tsx:246` | menu (Edit mode → More → "Second language" / "+ Translation") | phone, desktop | advanced | Overlay | ✕ Close |
+| 14 | Second-language: messy-paste AlignmentEditor | `src/lyrics/SecondLanguagePanel.tsx:205` | menu (within surface 13, after pasting unstructured text — `align` phase) | phone, desktop | advanced | Overlay | onConfirm / onCancel (back to paste step) |
+| 15 | Translation/ingest progress | `src/core/ui/ProgressOverlay.tsx:27` (used at `SecondLanguagePanel.tsx:184`, `UploadAudioFlow.tsx:369`, `LinkParser.tsx:288,295`) | auto (transient, during translation matching / decode / lyrics search) | phone, desktop | core | Overlay (transient, no exits — self-dismisses) | none |
+| 16 | Replace-lyrics dialog | `src/player/PlayerView.tsx:1999` | menu (Edit mode → More → "Replace lyrics") | phone, desktop | core | Overlay | ✕ / backdrop; Replace / Keep after search completes |
+| 17 | Tap-sync editor (tap-through) | `src/player/TapSyncEditor.tsx:97` | headline (Edit mode toolbar, no usable local audio) or menu (Edit mode → More, when local audio exists) | phone, desktop | core | Overlay | onComplete / onCancel |
+| 18 | Offset-align screen | `src/player/OffsetAlignScreen.tsx:52` | precondition (via the "Line them up" banner, itself gated on lyric provenance) | phone, desktop | advanced | Overlay | onUseFullAlignment / onKeepTimings |
+| 19 | Auto-align flow | `src/ai-pipeline/AutoAlignFlow.tsx:773` | headline (Edit mode confirm's "Continue") or auto (`autoAlignOnOpen` after Add-song, when lyrics arrive unsynced) | phone, desktop (gated on device tier ≠ manual) | core | Overlay | ✕ (with running-work confirm) / Done |
+| 20 | Generic loading overlay | `src/core/ui/LoadingOverlay.tsx:13` (used at `PlayerView.tsx:1672`, `:1676`, `:2107`) | auto (transient: lyrics loading, A/B-loop export, AI-tooling lazy-load) | phone, desktop | core | Overlay (transient, no exits — self-dismisses) | none |
+
+Rows 6, 7, 8, 9 are the non-`fixed inset-0` findings called out in Step 2 (buckets 3 and
+4). Rows 15 and 20 are generic, multi-site components; "seen live" for them is genuinely
+ambiguous — both plausibly fired transiently during each journey's fetch/decode step (the
+journeys explicitly exercised lyrics search and, in Journey B, audio decode/ingest), but
+neither trace table recorded them as a discrete row, since they self-dismiss with no user
+interaction. They are filed under bucket 2 rather than bucket 1 on that basis: not
+*confirmed* seen, only "found statically." The one exception within row 20 is the
+"Loading AI…" variant (`PlayerView.tsx:2107`), which is confirmed **not** to have fired in
+either journey, since it is the `Suspense` fallback for `AutoAlignFlow` (row 19), which
+itself never opened.
+
+Two scrims are excluded from the 20-surface count (per the spec's own classification),
+listed here for completeness since they were part of the Step-1 grep:
+
+| Scrim | File:line | Purpose |
+|---|---|---|
+| More-menu click-catcher | `src/lyrics/EditMode.tsx:648` | `aria-hidden`, closes the lyric-row "More" menu on outside click |
+| Sheet backdrop | `src/player/PlayerControls.tsx:1409` | shared `Sheet` component's backdrop (e.g. Saved-loops panel) |
 
 ## Baseline numbers
 
