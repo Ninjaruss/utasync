@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-05
 **Phase:** 1 of `docs/superpowers/specs/2026-09-05-ui-finalization-design.md`
-**Status:** In progress
+**Status:** Complete — awaiting user decisions on the demote/cut table
 
 ## Harness
 
@@ -337,11 +337,63 @@ listed here for completeness since they were part of the Step-1 grep:
 
 ## Baseline numbers
 
-(Reserved for a later task in this phase.)
+| Journey | Device / tier | Decisions to first synced playback | Surfaces met | Controls in player (excl. lyric rows) |
+|---|---|---|---|---|
+| A | phone, Manual | 5 | 7 | 13 |
+| B | desktop, Full | 4 | 5 | 14 |
+
+"Decisions to first synced playback" is the **decision-points** count from each journey's
+Numbers table (choices among ≥2 options, or input supplied), not the required-interactions
+count — the brief's wording matches "decisions," and the two journeys' own sections already
+flag interactions as the wider, contestable number (9 for A, 7 for B) for anyone who wants
+it. "Controls in player" is the non-lyric-row count from each journey's default-viewport
+listing. These five numbers are re-measured after Phase 5 per the spec's success criterion
+5, and reported honestly including if a number did not move.
 
 ## Draft demote/cut table
 
-(Reserved for a later task in this phase.)
+Applying the criterion — *a surface earns default visibility only if the median user needs
+it to reach "the lyrics follow the music and I can study them"* — to all 20 registry rows
+plus the two landing-page duplicates first: **most of the registry already complies.**
+Every Bucket 2/3/4 surface (rows 6–20) already has `reach` of `menu` or `precondition`, not
+`auto`/`headline` on the unconditional path — Settings, Fix word pairing, the
+second-language panel, Replace-lyrics, Tap-sync, Offset-align, and the two transient
+overlays are all already gated behind a menu, a precondition, or both. `Lyrics display
+options` (the `DisplayMenu` trigger, present in both journeys' default-viewport lists) is
+itself the entry icon for an already-correct one-level-down menu — it is the affordance,
+not clutter, and is not a candidate. That leaves a short list, drawn only from what actually
+sits in the default viewport or fires unconditionally today:
+
+| Rank | Surface | Current reach | Proposed reach | Evidence | Risk if demoted |
+|---|---|---|---|---|---|
+| 1 | Saved loops entry point (`PlayerControls.tsx`, "Saved loops" / "Open saved loops" icon) | `auto` — in the default player viewport on both journeys (Journey A's 13-control list, Journey B's 14-control list) | One level down — fold the entry point into an overflow ("More") affordance alongside the other loop-playlist controls it currently sits apart from | Loop-playlist hypothesis measurement (this doc, "Measured: the spec's loop-playlist hypothesis is REFUTED…"): only this one of the six named loop controls is in the default viewport, and opening it with no loops saved shows only a Close button and an empty-state hint. The audit's own text already flags it: "Only the single entry point is a candidate for Phase 5, and it is a weak one." | A returning user who loops sections while studying (the feature's actual use case) loses a one-tap entry point and gains a menu hop. Weak evidence either way — this is the lowest-confidence row in the table, carried over verbatim from the earlier measurement rather than strengthened by new evidence. |
+| 2 | Landing page: 2 of 3 CTAs ("Get started →" and "Open the app" are identical to "Open the app →" in effect) | `auto` (first visit), all 3 wired to the same action — Journey A & B trace row 1, D2 | Cut the 2 redundant buttons; keep 1 | Journey A trace row 1 and Journey B trace row 1 both record "Three CTAs, all the same action" / "3 identical CTAs"; D2 names this explicitly. No feature is lost — the 3 buttons are one action, so this is a true cut, not a demotion, and carries none of the "nothing reaches it" ambiguity the spec worries about for other cuts. | None identified — a/b-style redundant-CTA testing is a possible reason not to, but nothing in this audit's evidence supports keeping 3. |
+| 3 | "+ Audio file" / "Add audio file" button, Manual tier only | `auto` — in Journey A's default-viewport control list | Judgment call, not a firm proposal: precondition-gate it away for Manual tier specifically | D1 records that this button's own copy promises "AI auto-align" and "unlocks AI align & export" on a tier that can deliver neither (`src/ai-pipeline/capability.ts` gate). That is a copy defect (D1), not this row — this row is the separate, narrower question of whether the *control's presence* on Manual tier serves the reach criterion at all, independent of its wording. | **Real risk of being wrong:** row 17 (Tap-sync editor) is not tier-gated in the registry, so a Manual-tier user may still want to attach local audio purely for tap-through timing, which needs no AI. Hiding the button on Manual tier could remove a legitimate need this audit did not directly test. Flagged as a judgment call precisely because the evidence is weaker than rows 1–2 — the user should treat this as "worth checking," not "worth cutting." |
+
+**Not included, deliberately.** The onboarding carousel (3 steps, `auto` on first visit) and
+the filename-ambiguity / lyrics-found-confirm inline surfaces were considered and excluded:
+onboarding is already a one-tap-skip, first-visit-only precondition, and the two inline
+surfaces are already precondition-gated on a mismatch/filename-derivation state that
+genuinely needs resolving. No row is manufactured for them because there is no evidence they
+violate the criterion — consistent with the spec's expectation that this list stays short,
+possibly shorter than 3 rows if the user disagrees with row 3.
+
+**D1 is explicitly excluded from this table.** The tier-blind AI copy (three sites, Manual
+tier) is a correctness/honesty defect — the copy is wrong regardless of where the control
+sits — not a reach question, and fixing it does not require moving or hiding anything. It
+should be fixed on its own terms in whatever phase handles defects, independent of whatever
+the user decides about row 3 above.
+
+### Loop-playlist hypothesis — verdict
+
+**Refuted**, per the measurement already recorded in this document (see "Measured: the
+spec's loop-playlist hypothesis is REFUTED for the first-run surface", above). Of the six
+named controls (Saved loops, Rename, Move up, Move down, Remove, Plays before next loop),
+exactly **one** — the "Saved loops" entry point — is in the default player viewport on
+either device. The other five render per-loop and therefore do not exist for a first-time
+user with zero saved loops; they are already behind the precondition of having created a
+loop. The only actionable surface is the single entry point, carried into row 1 of the table
+above as the weakest, lowest-confidence row in it.
 
 ## Defects observed
 
