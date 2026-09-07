@@ -11,7 +11,7 @@ interface Props {
 export function SettingsSheet({ onClose, onSongDeleted, onViewLanding }: Props) {
   return (
     <Overlay onClose={onClose} label="Settings">
-      <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/60" />
+      <button aria-label="Close" aria-hidden="true" onClick={onClose} className="absolute inset-0 bg-black/60" />
       <div className="relative bg-cinnabar-950 border-t md:border border-cinnabar-900 rounded-t-2xl md:rounded-2xl w-full md:max-w-lg max-h-[90dvh] flex flex-col overflow-hidden">
         <div
           className="flex-1 min-h-0 overflow-y-auto"

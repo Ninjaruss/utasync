@@ -19,7 +19,14 @@ beforeEach(async () => {
   vi.mocked(lrclib.findLyrics).mockResolvedValue({ lookup: null, outcome: 'no-entry' })
 })
 
-const backdrop = () => screen.getByRole('button', { name: /dismiss/i })
+// The backdrop is aria-hidden (see AddSongSheet.tsx) so it doesn't steal
+// initial keyboard/screen-reader focus from the panel's real first control.
+// getByRole's `name` matcher computes an empty accessible name for an
+// aria-hidden element even with `hidden: true` (that option only restores the
+// element to the role query, not to name computation), so it has to be picked
+// out by its aria-label attribute directly.
+const backdrop = () =>
+  screen.getAllByRole('button', { hidden: true }).find((el) => el.getAttribute('aria-label') === 'Dismiss')!
 
 describe('AddSongSheet dirty-close guard', () => {
   it('closes immediately on backdrop tap when nothing has been entered', () => {

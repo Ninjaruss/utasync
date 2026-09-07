@@ -30,12 +30,35 @@ describe('AddSongSheet', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  it('does not close when the backdrop is tapped', () => {
+  it('closes on backdrop tap when nothing has been entered', () => {
+    // The generic `[aria-hidden="true"]` selector this test used to use matched
+    // a decorative checkmark span instead of the real backdrop — it passed by
+    // accident and never actually exercised backdrop-tap behavior. The backdrop
+    // is now correctly aria-hidden itself (see the initial-focus test below).
+    // getByRole's `name` matcher computes an empty accessible name for an
+    // aria-hidden element even with `hidden: true` (that option only restores
+    // the element to the role query, not to name computation), so the backdrop
+    // has to be picked out by its aria-label attribute directly.
+    // `AddSongSheet.dirtyClose.test.tsx` covers the full busy/dirty
+    // confirmation matrix for this same click.
     const onClose = vi.fn()
-    const { container } = render(<AddSongSheet onSongReady={vi.fn()} onClose={onClose} />)
-    const backdrop = container.querySelector('[aria-hidden="true"]')
+    render(<AddSongSheet onSongReady={vi.fn()} onClose={onClose} />)
+    const backdrop = screen
+      .getAllByRole('button', { hidden: true })
+      .find((el) => el.getAttribute('aria-label') === 'Dismiss')
     expect(backdrop).toBeTruthy()
     fireEvent.click(backdrop!)
-    expect(onClose).not.toHaveBeenCalled()
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('does not put initial focus on the invisible backdrop button', () => {
+    // The backdrop button is a full-screen sibling inside the focus trap. Before
+    // it was marked aria-hidden, useModalDialog's `focusableWithin` resolved it
+    // as the panel's first focusable element, so a keyboard/screen-reader user
+    // opening the sheet landed on an invisible "Dismiss" control instead of the
+    // first real control (the visible "Close" button).
+    render(<AddSongSheet onSongReady={vi.fn()} onClose={vi.fn()} />)
+    expect(document.activeElement?.getAttribute('aria-label')).not.toBe('Dismiss')
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Close')
   })
 })

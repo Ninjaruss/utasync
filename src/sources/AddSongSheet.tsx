@@ -158,6 +158,7 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
       <button
         type="button"
         aria-label="Dismiss"
+        aria-hidden="true"
         onClick={requestClose}
         className="absolute inset-0 bg-black/60"
       />
