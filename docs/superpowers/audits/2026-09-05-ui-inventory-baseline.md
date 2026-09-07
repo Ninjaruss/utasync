@@ -142,8 +142,13 @@ filename-ambiguity helper, registry row 7, has its own copy and its own "Swap ti
 artist" control and had been silently omitted). The rule is trace-level, not
 registry-level: it counts panels the user actually met, so Journey A's YouTube-link tab
 counts even though it is part of registry row 5. For anyone who prefers the stricter
-registry-row count, the equivalents are A **6** and B **5**; Phase 5 must re-measure with
+registry-row count, the equivalents are A **6** and B **6**; Phase 5 must re-measure with
 whichever of the two it states, and the numbers below use the trace-level rule.
+
+(Journey A folds to 6 because its YouTube-link tab is part of registry row 5. Journey B
+does **not** fold: its six panels are registry rows 1, 2, 4, 5, 7 and 3, all distinct. An
+earlier draft stated B as 5 by subtracting one from each journey symmetrically, which is
+wrong.)
 
 
 | Measure | Value |
@@ -285,7 +290,7 @@ Results on this branch:
     "More" menu on outside click.
   - `src/player/PlayerControls.tsx:1409` — backdrop `<button>` of the shared mobile
     controls `Sheet` (`MobileControlsSheet`, used by the Saved-loops panel).
-- **`useModalDialog` → 12 call sites.** Four of them belong to surfaces the `fixed
+- **`useModalDialog` → 12 call sites.** Six of them belong to surfaces the `fixed
   inset-0` grep never returned: `TimestampPopover.tsx:147`, `EditMode.tsx:377` (the
   "More" menu itself — only its *scrim* was in the 15), `TranslationRepairPopover.tsx:30`,
   `WordLookupPopover.tsx:28`, plus `ConfirmDialog.tsx:26` and `DisplayMenu.tsx:278`.
@@ -384,8 +389,15 @@ inherited the spec's wrong filter. Every row here is a `useModalDialog` and/or
 **Scope of the registry, stated explicitly.** All ten are added as rows. The registry is
 **not** limited to full-screen surfaces — it never was, since rows 6 and 7 are inline
 panels inside an open sheet and rows 8 and 9 are base-level swaps. The boundary drawn
-here is: *anything that owns keystrokes, focus, or the Escape key, or that gates the
-user's progress, is a surface.* Anchored menus and popovers qualify on the first clause;
+here is: *anything that owns keystrokes, focus, or the Escape key, that presents its own
+controls or its own decision, or that gates the user's progress, is a surface.*
+
+The middle clause matters and was missing from an earlier draft: registry row 7 (the
+filename-ambiguity helper) gates nothing — its Exits cell says so — but it presents its own
+copy and its own **Swap title and artist** control, so it is admitted on that clause. This
+is the same criterion the journey counting rule uses ("a panel that presents its own
+controls or its own decision counts; an advisory banner does not"), stated once here so the
+two cannot drift apart. Anchored menus and popovers qualify on the first clause;
 inline gating panels on the second. Purely decorative inline elements — banners that
 gate nothing — do not, which is why the "Line them up" nudge stays out (below).
 
@@ -398,8 +410,17 @@ Player, not a screen.
 
 ### Step 3 — registry
 
-`reach` ∈ `auto | headline | menu | precondition`. `devices` ⊆ `phone, desktop` — every
-surface below is reachable on both device classes; none is device-gated.
+`reach` ∈ `auto | headline | menu | precondition`. `devices` ⊆ `phone, desktop`. All but
+one surface below are reachable on both device classes. **The exception is row 29**, the
+mobile controls sheet: `PlayerControls.tsx:1672` opens a `mode === 'play' && (isDesktop ? …
+: …)` ternary whose non-desktop arm (from `:1718`) is the only place the "Saved" chip
+(`:1759`) and `MobileControlsSheet` (`:1773`) render. Desktop shows a *different* surface
+for the same job — the inline `SavedLoopsPanelSection` at `:1705`, which has no dialog role
+and so falls outside this registry's boundary.
+
+Phase 3 must not model row 29 as a device-agnostic variant. Note also that the demote
+table's row 2, and its evidence about the empty "Saved loops" state, describe the phone
+path; the desktop entry point opens the inline section instead.
 
 **A third axis: `tiers`.** `tiers` ⊆ `full | lite | manual`, from
 `getDeviceTier()` (`src/ai-pipeline/capability.ts`). This column is an addition to the
@@ -443,7 +464,7 @@ notes. With it, "which surfaces vanish on Manual tier?" is a column filter: rows
 | 26 | Translation-repair popover | `src/lyrics/TranslationRepairPopover.tsx:38`; hook at `:30`; rendered from `LyricDisplay.tsx:409` | precondition (a line has translation-repair candidates) | phone, desktop | full, lite, manual | advanced | **Overlay — `absolute z-20`** | ✕ / Escape; choosing a candidate |
 | 27 | "Repeats before next loop" menu | `src/player/PlayerControls.tsx:736` (portalled `fixed z-[60]`) | precondition (a loop playlist exists) then menu (the repeats chip) | phone, desktop | full, lite, manual | advanced | **Overlay — portalled, no `inset-0`; no `useModalDialog`** | outside `pointerdown` only (`:620`) — **no Escape** |
 | 28 | "More playback options" menu | `src/player/PlayerControls.tsx:1237` (portalled `fixed z-[60]`) | menu ("More options" chip in the player toolbar) | phone, desktop | full, lite, manual | advanced | **Overlay — portalled, no `inset-0`; no `useModalDialog`** | outside `pointerdown` only (`:1193`) — **no Escape** |
-| 29 | Mobile controls sheet (Saved loops / loop / speed) | `src/player/PlayerControls.tsx:1412` (`MobileControlsSheet`, backdrop at `:1409`); opened from the "Saved" chip at `:1759` | menu ("Saved loops" entry point in the default player viewport) | phone, desktop | full, lite, manual | advanced | **Overlay — its backdrop was registered as a scrim, the panel itself was not** | backdrop, drag handle, hand-rolled Escape (`:1399`) |
+| 29 | Mobile controls sheet (Saved loops / loop / speed) | `src/player/PlayerControls.tsx:1412` (`MobileControlsSheet`, backdrop at `:1409`); opened from the "Saved" chip at `:1759` | menu ("Saved loops" entry point in the default player viewport) | **phone only** | full, lite, manual | advanced | **Overlay — its backdrop was registered as a scrim, the panel itself was not** | backdrop, drag handle, hand-rolled Escape (`:1399`) |
 | 30 | Drag-retime strip (`retimeLine`) | `src/player/DragRetimeStrip.tsx:58`, rendered at `src/player/PlayerView.tsx:1745`; state at `:755`, latch at `:756`, waveform gate reads it at `:829` | precondition (Play mode, playback possible, and an anchor target is suggested or latched for the active line) | phone, desktop | full, lite, manual | advanced | **Inline — no dialog role, no `fixed inset-0`; not seen live** | Commit (`onCommit`) or the target clearing itself (`setRetimingLine(null)`) |
 
 Rows 6, 7, 8, 9 are the non-`fixed inset-0` findings called out in Step 2 (buckets 3 and

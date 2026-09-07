@@ -286,7 +286,7 @@ Stop the clock at the moment the lyrics first follow the music.
 1. **Decisions before that moment** — count every point where the user had to choose
    between two or more options or supply input. Paste-the-URL is one. Confirming
    metadata is one. Dismissing a screen is one.
-2. **Distinct surfaces met** — the row count from Step 3.
+2. **Distinct surfaces met** — the trace row count. (An earlier draft said "the row count from Step 3" here and "the trace row count" in the other journey; the audit settles this at trace level, and states the admission rule.)
 3. **Interactive controls in the default player viewport without opening a menu** —
    measure, do not eyeball:
 
@@ -508,11 +508,20 @@ so nothing is missed.
 
 - [ ] **Step 1: Re-derive the static inventory**
 
+> **CORRECTED AFTER EXECUTION — do not use this filter alone.** `fixed inset-0` is the
+> wrong boundary: it misses `ConfirmDialog` (`absolute inset-0`, 11 call sites) and
+> `DisplayMenu` (portalled `fixed z-50`, no `inset-0`), among others. The app's real modal
+> boundary is the `useModalDialog` hook. The corrected three-grep sweep — and the 30-row
+> registry it produced — is recorded in the audit's "Consolidated surface list". Anyone
+> re-running this plan must use that method, not the one below.
+
 ```bash
-grep -rn "fixed inset-0" src --include='*.tsx'
+grep -rn "useModalDialog(" src --include='*.tsx'          # 12 — the real modal boundary
+grep -rn 'role="dialog"\|role="alertdialog"' src --include='*.tsx'   # 16
+grep -rn "fixed inset-0" src --include='*.tsx'            # 15 — necessary, not sufficient
 ```
 
-Expect 15 sites. The spec classifies 13 as user-facing surfaces and 2 as
+Expect 15 `fixed inset-0` sites. The spec classifies 13 as user-facing surfaces and 2 as
 scrims/click-catchers (`src/lyrics/EditMode.tsx:648`, an `aria-hidden` click-catcher,
 and `src/player/PlayerControls.tsx:1409`, a backdrop). **If the count is no longer 15,
 record the difference** — main may have moved since the spec was written.
