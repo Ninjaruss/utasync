@@ -707,14 +707,24 @@ Append to `OVERLAY_SURFACES` in `tests/core/ui/overlaySurfaces.tsx`:
       />
     ),
   },
-  {
-    name: 'row 4 — onboarding carousel',
-    placement: 'sheet',
-    render: (onClose) => <Onboarding onDismiss={onClose} />,
-  },
 ```
 
-Add the imports at the top of the file. **If `Onboarding` does not currently take an `onDismiss` prop**, do not invent one — read the component, and register it with whatever exit path it really has. Report a mismatch rather than changing its API to suit the test.
+Add the `ConfirmDialog` import at the top of the file.
+
+**`Onboarding` is deliberately NOT registered here, and that is not an oversight.**
+`export function Onboarding()` (`src/core/ui/Onboarding.tsx:30`) takes **no props at all** —
+it owns its own `seen` state, derives `dismiss` internally (`:35`), and passes it to
+`useModalDialog` with an `enabled` flag (`:42`). There is no `onClose` a test can inject, so
+it cannot satisfy the `render: (onClose) => …` contract without an API change — and an API
+change is out of scope for a migration that must be behaviourally identical.
+
+Still migrate its root element to `<Overlay>` in Step 3: it gains scroll lock and Back either
+way. Record the absence beside the other rows so it reads as a decision:
+
+```tsx
+// Row 4 (onboarding) is migrated to <Overlay> but not registered here: Onboarding takes
+// no props and owns its own dismiss, so there is no onClose to inject. Giving it one is a
+// Phase 3 concern, when the screen model owns first-run state.
 
 - [ ] **Step 5: Run the contract test and the full suite**
 
@@ -954,20 +964,47 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Add the rule**
 
+Use `patterns`, **not** `paths`. `paths` matches an import specifier literally, and this hook
+is imported as `'./useModalDialog'` from inside `src/core/ui/` but as
+`'../core/ui/useModalDialog'` from everywhere else — a literal rule would silently miss every
+caller outside that directory. That is precisely the class of half-blind filter that caused
+Phase 1's Critical finding.
+
+`eslint.config.js` is a flat config built with `defineConfig([...])`, so append a new config
+object after the existing `files: ['**/*.{ts,tsx}']` block:
+
 ```js
-// eslint.config.js — add to the rules for src/**/*.tsx
-'no-restricted-imports': ['error', {
-  paths: [{
-    name: './useModalDialog',
-    message:
-      'Do not call useModalDialog directly — render the surface through <Overlay> ' +
-      '(src/core/ui/Overlay.tsx), which owns focus, Escape, Back and scroll lock and ' +
-      'requires a non-optional onClose. Transient layers with no exit use <BlockingOverlay>.',
-  }],
-}],
+{
+  files: ['src/**/*.tsx'],
+  ignores: ['src/core/ui/Overlay.tsx'],
+  rules: {
+    'no-restricted-imports': ['error', {
+      patterns: [{
+        group: ['**/useModalDialog'],
+        message:
+          'Do not call useModalDialog directly — render the surface through <Overlay> ' +
+          '(src/core/ui/Overlay.tsx), which owns focus, Escape, Back and scroll lock and ' +
+          'requires a non-optional onClose. Transient layers with no exit use <BlockingOverlay>.',
+      }],
+    }],
+  },
+},
 ```
 
-Then add an override block exempting the two files that legitimately use the hook — `src/core/ui/Overlay.tsx` — and note in a comment that `src/core/ui/useModalDialog.ts` is the hook itself.
+`src/core/ui/Overlay.tsx` is the one legitimate caller, so it is the only `ignores` entry.
+`src/core/ui/useModalDialog.ts` needs no exemption: the rule targets `*.tsx`, and the hook
+defines rather than imports itself.
+
+**Prove the rule bites before trusting it** — a pattern that matches nothing passes silently,
+which would leave you with a ratchet that only looks like one:
+
+```bash
+npx eslint src 2>&1 | tail -5          # after Tasks 5-9: expected clean
+git stash && npx eslint src 2>&1 | grep -c 'useModalDialog'; git stash pop
+```
+
+The stashed run is against the pre-migration tree and **must report a non-zero count**. Zero
+means the pattern is not matching.
 
 Run: `npx eslint src` — expected: clean, because Tasks 5–9 removed every other direct call.
 
