@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { BlockingOverlay } from './BlockingOverlay'
 import { ProcessProgress } from './ProcessProgress'
 import type { ProcessStep, TaskSubstep } from './progressUtils'
 
@@ -23,10 +24,7 @@ export function ProgressOverlay({
   action,
 }: Props) {
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 animate-[progress-enter_220ms_ease-out_both]"
-      role="presentation"
-    >
+    <BlockingOverlay label="Loading" className="animate-[progress-enter_220ms_ease-out_both]">
       <div className="w-full max-w-xs px-6">
         <ProcessProgress
           steps={steps}
@@ -38,6 +36,6 @@ export function ProgressOverlay({
           action={action}
         />
       </div>
-    </div>
+    </BlockingOverlay>
   )
 }

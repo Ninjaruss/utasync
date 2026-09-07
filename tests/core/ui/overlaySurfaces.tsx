@@ -39,6 +39,16 @@ export interface OverlaySurface {
  * table's "closes on Escape" assertion. Its absence is intentional, not an oversight; adding it
  * would just fail confusingly.
  *
+ * Task 9: row 15 (`ProgressOverlay`, src/core/ui/ProgressOverlay.tsx) and row 20
+ * (`LoadingOverlay`, src/core/ui/LoadingOverlay.tsx) are both now built on
+ * `BlockingOverlay` for exactly the reason above — they are transient progress
+ * layers with no exit by design, the work finishing is what dismisses them, and
+ * registering either here would make this table's Escape-closes assertion fail
+ * on a surface that was never supposed to close on Escape. Their coverage lives
+ * in tests/core/LoadingOverlay.test.tsx and tests/core/ProcessProgress.test.tsx
+ * (and tests/core/ui/BlockingOverlay.test.tsx for the shared component itself),
+ * not here.
+ *
  * IMPORTANT — mocks belong in the consuming test file, not here: a `vi.mock(...)` declared in
  * this fixture only patches modules that are first resolved *through* the fixture's own import
  * graph. `modal-dialogs.test.tsx` imports `AddSongSheet` and `SettingsSheet` directly, before it
