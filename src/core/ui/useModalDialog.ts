@@ -66,8 +66,21 @@ export function useModalDialog(
     if (!panel) return
 
     const opener = document.activeElement as HTMLElement | null
+    // A confirm rendered inside a sheet in the same initial render (mount
+    // order, not open order) has already run ITS effect and focused itself,
+    // since effects fire children-first. Without this check the sheet's own
+    // auto-focus below would unconditionally steal that focus back to its own
+    // first focusable control, and Escape would then resolve to the sheet
+    // instead of the nested confirm — see ownerOfKeystroke's DOM-containment
+    // contract above.
+    const nestedDialogAlreadyOwnsFocus = openDialogs.some((other) => {
+      const el = other.current
+      return !!el && el !== panel && panel.contains(el) && el.contains(document.activeElement)
+    })
     openDialogs.push(ref)
-    ;(focusableWithin(panel)[0] ?? panel).focus()
+    if (!nestedDialogAlreadyOwnsFocus) {
+      ;(focusableWithin(panel)[0] ?? panel).focus()
+    }
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' && e.key !== 'Tab') return

@@ -1,6 +1,5 @@
-import { useMemo, useRef, useState } from 'react'
-import { useModalDialog } from '../core/ui/useModalDialog'
-import { useHistoryDismiss } from '../core/ui/useHistoryDismiss'
+import { useMemo, useState } from 'react'
+import { Overlay } from '../core/ui/Overlay'
 import { LinkParser } from './LinkParser'
 import { UploadAudioFlow } from './UploadAudioFlow'
 import { ConfirmDialog } from '../core/ui/ConfirmDialog'
@@ -132,7 +131,6 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
   const [pendingSource, setPendingSource] = useState<Source | null>(null)
   // Tier cannot change without a navigation, so this is settled once per mount.
   const options = useMemo(() => sourceOptions(canAutoAlign()), [])
-  const panelRef = useRef<HTMLDivElement>(null)
   const { busy, dirty, setBusy, setDirty, confirming, requestClose, confirm, cancel } = useConfirmedClose(onClose)
 
   /* Switching tiles unmounts the active flow and everything in it. The tiles are
@@ -154,15 +152,9 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
     setBusy(false)
     setDirty(false)
   }
-  // Routed through requestClose, so Escape gets the same "your pasted lyrics
-  // will be lost" guard as the ✕ and the backdrop.
-  useModalDialog(panelRef, requestClose)
-  // Android's Back gesture is how people close sheets. Routed through the same
-  // guard, so it can't silently discard pasted lyrics the way navigating away did.
-  useHistoryDismiss(requestClose)
 
   return (
-    <div className="fixed inset-0 z-40 flex flex-col justify-end md:justify-center md:items-center md:p-6">
+    <Overlay onClose={requestClose} label="Add a song">
       <button
         type="button"
         aria-label="Dismiss"
@@ -170,12 +162,7 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
         className="absolute inset-0 bg-black/60"
       />
       <div
-        ref={panelRef}
-        tabIndex={-1}
         className="relative bg-cinnabar-950 border-t md:border border-cinnabar-900 rounded-t-2xl md:rounded-2xl p-4 md:p-5 w-full md:max-w-3xl max-h-[92dvh] md:max-h-[min(92vh,54rem)] flex flex-col overflow-hidden"
-        role="dialog"
-        aria-label="Add a song"
-        aria-modal="true"
         style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 1rem), 1rem)' }}
       >
         {/* One at a time: a close confirmation outranks a tile switch. */}
@@ -231,6 +218,6 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
             : <LinkParser embedded onSongReady={onSongReady} onBusyChange={setBusy} onDirtyChange={setDirty} />}
         </div>
       </div>
-    </div>
+    </Overlay>
   )
 }

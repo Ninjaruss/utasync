@@ -64,7 +64,7 @@ export const OVERLAY_SURFACES: OverlaySurface[] = [
     },
   },
   {
-    name: 'AddSongSheet',
+    name: 'row 5 — add-song sheet',
     open: () => {
       const onClose = vi.fn()
       render(<AddSongSheet onSongReady={vi.fn()} onClose={onClose} />)
@@ -72,7 +72,7 @@ export const OVERLAY_SURFACES: OverlaySurface[] = [
     },
   },
   {
-    name: 'SettingsSheet',
+    name: 'row 10 — settings sheet',
     open: () => {
       const onClose = vi.fn()
       render(<SettingsSheet onClose={onClose} />)
