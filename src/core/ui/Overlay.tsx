@@ -20,9 +20,26 @@ interface Props {
   label?: string
   labelledBy?: string
   describedBy?: string
-  /** Panel classes. Migrations pass the surface's existing classes verbatim so
-   * nothing moves on screen. */
+  /** Both `className` and `backdropClassName` land on the same single root
+   * element (see the `[ROOT_CLASS[placement], backdropClassName, className]`
+   * join below) — there is no separate backdrop element, so the split between
+   * them is purely conventional, not structural, and CSS precedence is
+   * stylesheet source order rather than attribute order, so their relative
+   * position here is also meaningless. For `placement="anchored"` (where
+   * `ROOT_CLASS` is `''`) this root *is* the panel, so `className` is the
+   * natural choice and matches every anchored migration. For `sheet` /
+   * `fullscreen` / `contained`, the root is the backdrop and the visible panel
+   * is a caller-supplied child, so every such migration correctly used
+   * `backdropClassName` and passes the surface's existing classes verbatim so
+   * nothing moves on screen — passing them as `className` instead would have
+   * the identical effect today, which is the asymmetry to watch for. Whether
+   * to collapse these into one prop, or give sheet/fullscreen/contained a real
+   * backdrop element so the split becomes structural, is an open Phase 3
+   * question — this is a known asymmetry, not an oversight. */
   className?: string
+  /** See `className` above — functionally the same prop today; use this one
+   * for `sheet` / `fullscreen` / `contained` placements, where the root
+   * element is the backdrop and the panel is a child you render yourself. */
   backdropClassName?: string
   /** For callers that must measure or position the panel themselves. */
   panelRef?: RefObject<HTMLDivElement | null>

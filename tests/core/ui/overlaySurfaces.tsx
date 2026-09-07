@@ -336,12 +336,13 @@ export const OVERLAY_SURFACES: OverlaySurface[] = [
     },
   },
   {
-    // Task 8: dismissed on a capture-phase pointerdown that also swallows the
-    // completing click (so a dismissing tap doesn't fall through and seek the
-    // lyric row underneath) but had no Escape. <Overlay> adds Escape; the
-    // pointerdown/swallow effect still owns the actual outside-tap dismissal
-    // (see the comment on that effect in the component for why both now fire
-    // harmlessly on the same event).
+    // Task 8: previously dismissed by a capture-phase pointerdown/click-swallow
+    // effect but had no Escape. <Overlay> adds Escape, and its own
+    // outside-pointerdown dismissal is now the sole owner of outside-tap
+    // dismissal (it calls onClose); the capture-phase effect no longer closes
+    // anything — it stays only to swallow the completing click so a dismissing
+    // outside tap doesn't fall through and seek the lyric row underneath (see
+    // the comment on that effect in the component).
     name: 'row 24 — word-lookup popover',
     open: () => {
       const onClose = vi.fn()
@@ -442,6 +443,38 @@ export const OVERLAY_SURFACES: OverlaySurface[] = [
         waitFor(() =>
           expect(screen.queryByRole('dialog', { name: /match translation lines/i })).toBeNull(),
         )
+    },
+  },
+  {
+    // Fix 1(a) of the final review pass: the deleted tests/player/menus.escape.test.tsx
+    // ran its DisplayMenu block as describe.each(['desktop', 'mobile']) with a
+    // matchMedia stub, precisely because — its own comment said — "the mobile
+    // panel is portaled and positioned a tick later, which is where Escape was
+    // actually broken." Row 21 above never stubs matchMedia, so useMinWidthMd
+    // (jsdom implements no matchMedia, and the hook falls back to `true` when
+    // it's missing) always reports desktop there, leaving the mobile arm — the
+    // historically-broken one, and the one this migration's panelPos/portal
+    // branch is built around — completely unexercised. This row uses the same
+    // stubMobileViewport() helper row 29 already relies on to reach the mobile
+    // arm of PlayerControls, so it renders DisplayMenu's portaled panel branch
+    // instead of the desktop one.
+    name: 'row 21 mobile — lyrics display options menu (mobile panel)',
+    open: () => {
+      stubMobileViewport()
+      render(
+        <DisplayMenu
+          isJapanese
+          hasTranslation
+          furiganaMode="furigana"
+          showTranslation
+          lyricsLayout="stacked"
+          onFuriganaCycle={vi.fn()}
+          onToggleTranslation={vi.fn()}
+          onToggleLayout={vi.fn()}
+        />,
+      )
+      fireEvent.click(screen.getByRole('button', { name: /lyrics display options/i }))
+      return () => waitFor(() => expect(screen.queryByRole('dialog', { name: /lyrics display options/i })).toBeNull())
     },
   },
   {

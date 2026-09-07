@@ -29,7 +29,7 @@ export default defineConfig([
     },
   },
   {
-    files: ['src/**/*.tsx'],
+    files: ['src/**/*.{ts,tsx}'],
     ignores: ['src/core/ui/Overlay.tsx'],
     rules: {
       'no-restricted-imports': ['error', {

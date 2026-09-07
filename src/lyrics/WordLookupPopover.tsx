@@ -129,11 +129,12 @@ export function WordLookupPopover({ token, anchorRect, grammar, onClose }: Props
     <Overlay
       // Escape closes it and focus returns to the word that opened it, so a
       // keyboard reader can look words up without losing their place in the
-      // line. The capture-phase pointerdown effect above still owns the actual
-      // outside-tap dismissal (it also swallows the completing click so the
-      // gesture doesn't fall through to the lyric row underneath); Overlay's
-      // own outside-dismiss additionally fires on the same event, which is
-      // harmless — both just call the same onClose.
+      // line. <Overlay>'s own outside-pointerdown dismissal (bubble-phase) is
+      // now the sole owner of outside-tap dismissal — it is what calls
+      // onClose. The capture-phase pointerdown effect above no longer closes
+      // anything; it exists purely to swallow the click that completes a
+      // dismissing outside tap, so that click doesn't fall through and seek
+      // the lyric row underneath (see that effect's own comment).
       onClose={onClose}
       placement="anchored"
       role="dialog"
