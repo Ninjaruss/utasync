@@ -34,7 +34,7 @@ Copied from the spec and the Phase 1 audit. Every task's requirements implicitly
 | `src/core/ui/Overlay.tsx` (create) | The one door. Composes `useModalDialog` + `useHistoryDismiss` + `useOutsideDismiss` + scroll lock. `onClose` non-optional. |
 | `src/core/ui/BlockingOverlay.tsx` (create) | Transient progress/loading layers that deliberately have **no** exit. Separate component so `<Overlay>`'s contract stays absolute. |
 | `tests/core/ui/overlaySurfaces.tsx` (create) | The registry-driven table: one entry per migrated surface, with how to mount it and how to open it. |
-| `tests/core/ui/Overlay.contract.test.tsx` (create) | The Tier-2 table test. Iterates the registry — a new surface is covered the moment it is registered. |
+| `tests/core/ui/modal-dialogs.test.tsx` (create) | The Tier-2 table test. Iterates the registry — a new surface is covered the moment it is registered. |
 | `eslint.config.js` (modify) | Tier-4 ratchet: no `useModalDialog` / dialog role outside `Overlay.tsx`. |
 | Migration targets (modify, batched) | `ConfirmDialog`, `Onboarding`, `AddSongSheet`, `SettingsSheet`, `TapSyncEditor`, `OffsetAlignScreen`, `AutoAlignFlow`, `PlayerView` dialogs, `EditMode` dialogs + More menu, `SecondLanguagePanel`, `AlignmentEditor`, `DisplayMenu`, `WordLookupPopover`, `TimestampPopover`, `TranslationRepairPopover`, `PlayerControls` menus + mobile sheet. |
 
@@ -493,143 +493,114 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 4: The registry-driven contract test
+## Task 4: Extend the existing contract table
 
-This is the spec's Tier-2 test. Its whole value is that it iterates a table: **a surface is covered the moment it is registered**, unlike today's `tests/player/menus.escape.test.tsx`, which hand-writes two cases and therefore covers two of ~22 surfaces.
+**Read this first — the plan's original premise here was wrong, and the correction changes the task.**
+`tests/core/ui/modal-dialogs.test.tsx` **already exists and is already table-driven**: it
+declares `const CASES = [...]` and runs `describe.each(CASES)('$name as a modal dialog', …)`
+over Onboarding, AddSongSheet and SettingsSheet, asserting modal role + accessible name,
+focus-moves-inside, and closes-on-Escape — plus separate Back-gesture cases for the two
+sheets. The spec's claim that the app's only contract coverage is two hand-written Escape
+cases in `tests/player/menus.escape.test.tsx` is false.
+
+So this task **extends that table**; it does not build a second one. Two competing
+contract tests would be verbatim duplication of a logic block, and they would drift.
 
 **Files:**
 - Create: `tests/core/ui/overlaySurfaces.tsx`
-- Create: `tests/core/ui/Overlay.contract.test.tsx`
+- Modify: `tests/core/ui/modal-dialogs.test.tsx`
 
 **Interfaces:**
-- Consumes: `<Overlay>` from Task 2.
-- Produces: `OVERLAY_SURFACES: OverlaySurface[]` where `interface OverlaySurface { name: string; placement: 'sheet' | 'fullscreen' | 'contained' | 'anchored'; render: (onClose: () => void) => ReactElement }`. Every migration task appends to this array — that is how the migration is proven, and later tasks depend on this exact shape.
+- Produces: `OverlaySurface` and `OVERLAY_SURFACES`. Adopt the shape the existing file already uses, **not** a new one:
 
-- [ ] **Step 1: Create the registry with the two components built so far**
-
-```tsx
-// tests/core/ui/overlaySurfaces.tsx
-import type { ReactElement } from 'react'
-import { Overlay } from '../../src/core/ui/Overlay'
-
+```ts
 export interface OverlaySurface {
   /** Registry row name from docs/superpowers/audits/2026-09-05-ui-inventory-baseline.md */
   name: string
-  placement: 'sheet' | 'fullscreen' | 'contained' | 'anchored'
-  /** Mount the surface with `onClose` wired to its real exit path. */
-  render: (onClose: () => void) => ReactElement
+  /** Render the surface, and return a function that asserts it has closed. */
+  open: () => () => Promise<void> | void
 }
-
-/**
- * Every layered surface that has been migrated to <Overlay>, and how to mount it.
- *
- * Append a row here as each surface migrates. The contract test iterates this
- * array, so a newly registered surface is covered without editing the test —
- * which is the point: the two hand-written Escape cases in
- * tests/player/menus.escape.test.tsx covered 2 of ~22 surfaces because each had
- * to be written by hand.
- */
-export const OVERLAY_SURFACES: OverlaySurface[] = [
-  {
-    name: 'bare sheet (the primitive itself)',
-    placement: 'sheet',
-    render: (onClose) => (
-      <Overlay onClose={onClose} label="Bare sheet">
-        <button type="button">inside</button>
-      </Overlay>
-    ),
-  },
-  {
-    name: 'bare anchored menu (the primitive itself)',
-    placement: 'anchored',
-    render: (onClose) => (
-      <Overlay onClose={onClose} placement="anchored" role="menu" label="Bare menu">
-        <button type="button">item</button>
-      </Overlay>
-    ),
-  },
-]
 ```
 
-- [ ] **Step 2: Write the contract test**
+Every migration task appends to `OVERLAY_SURFACES`. **Note the `open` shape solves a problem
+the plan flagged in Task 5:** `Onboarding` takes no props and dismisses itself, so it cannot
+supply an `onClose` — but `open` can return an assertion that watches the DOM instead, which
+is exactly what the existing file already does for it.
+
+- [ ] **Step 1: Move the existing CASES into the fixture, unchanged**
+
+Create `tests/core/ui/overlaySurfaces.tsx`. Cut the existing `CASES` array out of
+`modal-dialogs.test.tsx` and paste it in as the seed of `OVERLAY_SURFACES`, together with the
+imports and the `vi.mock` of `../../../src/core/opfs/audio` that those cases need.
+
+**Imports in this directory go up three levels** — `'../../../src/core/ui/Overlay'`, not
+`'../../src/…'`. Every existing file in `tests/core/ui/` does this; getting it wrong means the
+module simply will not resolve.
+
+Add the doc comment explaining why the fixture exists:
 
 ```tsx
-// tests/core/ui/Overlay.contract.test.tsx
-import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, fireEvent } from '@testing-library/react'
-import { OVERLAY_SURFACES } from './overlaySurfaces'
-import { resetScrollLock } from '../../src/core/ui/scrollLock'
-
-afterEach(() => {
-  resetScrollLock()
-  document.body.style.overflow = ''
-})
-
 /**
- * The contract every layered surface owes the user. Table-driven on purpose:
- * registering a surface in overlaySurfaces.tsx is what enrols it here.
+ * Every layered surface that has been migrated to <Overlay>, and how to open it.
+ *
+ * Append a row as each surface migrates: modal-dialogs.test.tsx runs the contract over this
+ * array, so registering a surface is what enrols it — no test edit required. That is the
+ * difference between this and tests/player/menus.escape.test.tsx, which covers two surfaces
+ * because each had to be hand-written.
+ *
+ * `open` returns an assertion rather than taking an onClose, because some surfaces (Onboarding)
+ * own their own dismissal and report to nobody.
  */
-describe.each(OVERLAY_SURFACES)('overlay contract: $name', (surface) => {
-  it('closes on Escape', () => {
-    const onClose = vi.fn()
-    render(surface.render(onClose))
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(onClose).toHaveBeenCalled()
-  })
-
-  it('moves focus into itself on open', () => {
-    const { container } = render(surface.render(vi.fn()))
-    expect(container.contains(document.activeElement)).toBe(true)
-  })
-
-  it('restores focus to the opener when it unmounts', () => {
-    const opener = document.createElement('button')
-    document.body.appendChild(opener)
-    opener.focus()
-    const { unmount } = render(surface.render(vi.fn()))
-    unmount()
-    expect(document.activeElement).toBe(opener)
-    opener.remove()
-  })
-
-  it('exposes an accessible name, so it is not an anonymous layer', () => {
-    const { container } = render(surface.render(vi.fn()))
-    const panel = container.querySelector('[role="dialog"],[role="alertdialog"],[role="menu"]')
-    expect(panel).not.toBeNull()
-    const named =
-      panel!.getAttribute('aria-label') ?? panel!.getAttribute('aria-labelledby')
-    expect(named).toBeTruthy()
-  })
-})
-
-describe.each(OVERLAY_SURFACES.filter((s) => s.placement === 'sheet' || s.placement === 'fullscreen'))(
-  'overlay contract (full-surface only): $name',
-  (surface) => {
-    it('closes on the system Back gesture instead of leaving the app', () => {
-      const onClose = vi.fn()
-      render(surface.render(onClose))
-      window.dispatchEvent(new PopStateEvent('popstate'))
-      expect(onClose).toHaveBeenCalled()
-    })
-
-    it('locks background scroll while it is open', () => {
-      render(surface.render(vi.fn()))
-      expect(document.body.style.overflow).toBe('hidden')
-    })
-  },
-)
 ```
 
-- [ ] **Step 3: Run it and confirm it passes for the two primitives**
+- [ ] **Step 2: Have the test import the fixture**
 
-Run: `npx vitest run tests/core/ui/Overlay.contract.test.tsx`
-Expected: PASS — 4 cases × 2 surfaces, plus 2 full-surface cases × 1 sheet = 10 tests.
+In `modal-dialogs.test.tsx`, replace the deleted local `CASES` with:
 
-- [ ] **Step 4: Commit**
+```tsx
+import { OVERLAY_SURFACES } from './overlaySurfaces'
+```
+
+and change the driver to `describe.each(OVERLAY_SURFACES)`. Leave the three `it(...)` bodies
+and the Back-gesture block exactly as they are — they are already correct, and this task is not
+licensed to rewrite passing assertions.
+
+- [ ] **Step 3: Run it and confirm nothing changed**
+
+Run: `npx vitest run tests/core/ui/modal-dialogs.test.tsx`
+Expected: PASS, with the same number of tests as before the refactor. If the count changed, the
+move dropped or duplicated a case.
+
+- [ ] **Step 4: Add the two primitives from Tasks 2 and 3 as rows**
+
+```tsx
+  {
+    name: 'primitive — bare sheet',
+    open: () => {
+      const onClose = vi.fn()
+      render(
+        <Overlay onClose={onClose} label="Bare sheet">
+          <button type="button">inside</button>
+        </Overlay>,
+      )
+      return () => waitFor(() => expect(onClose).toHaveBeenCalled())
+    },
+  },
+```
+
+- [ ] **Step 5: Run the file and the full suite**
+
+Run: `npx vitest run tests/core/ui/modal-dialogs.test.tsx`
+Expected: PASS, four surfaces covered.
+
+Run: `npx vitest run`
+Expected: 291 files passed, 2 skipped, 0 failed.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add tests/core/ui/overlaySurfaces.tsx tests/core/ui/Overlay.contract.test.tsx
-git commit -m "test: a table-driven overlay contract that grows with the registry
+git add tests/core/ui/overlaySurfaces.tsx tests/core/ui/modal-dialogs.test.tsx
+git commit -m "test: make the modal contract table a shared fixture surfaces can join
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
@@ -647,7 +618,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Test: existing `tests/core/ui/*` plus the contract test
 
 **Interfaces:**
-- Consumes: `<Overlay>` from Task 2; `OVERLAY_SURFACES` from Task 4.
+- Consumes: `<Overlay>` from Task 2; `OVERLAY_SURFACES` from Task 4 (shape: `{ name, open }`).
 
 **Visual-identity rule.** `ConfirmDialog`'s root is currently:
 
@@ -728,7 +699,7 @@ way. Record the absence beside the other rows so it reads as a decision:
 
 - [ ] **Step 5: Run the contract test and the full suite**
 
-Run: `npx vitest run tests/core/ui/Overlay.contract.test.tsx`
+Run: `npx vitest run tests/core/ui/modal-dialogs.test.tsx`
 Expected: PASS for all four registered surfaces.
 
 Run: `npx vitest run`
@@ -772,9 +743,9 @@ Same root class string, same treatment. It has a nested `ConfirmDialog` (already
 // tests/core/ui/Overlay.stacking.test.tsx
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, fireEvent, screen } from '@testing-library/react'
-import { Overlay } from '../../src/core/ui/Overlay'
-import { ConfirmDialog } from '../../src/core/ui/ConfirmDialog'
-import { resetScrollLock } from '../../src/core/ui/scrollLock'
+import { Overlay } from '../../../src/core/ui/Overlay'
+import { ConfirmDialog } from '../../../src/core/ui/ConfirmDialog'
+import { resetScrollLock } from '../../../src/core/ui/scrollLock'
 
 afterEach(() => {
   resetScrollLock()
@@ -1014,8 +985,8 @@ Run: `npx eslint src` — expected: clean, because Tasks 5–9 removed every oth
 
 This is a hard gate from the spec (success criterion 3). `tests/player/menus.escape.test.tsx` covers `DisplayMenu` and the Edit-mode More menu.
 
-Run: `npx vitest run tests/core/ui/Overlay.contract.test.tsx -t "DisplayMenu"`
-Run: `npx vitest run tests/core/ui/Overlay.contract.test.tsx -t "More menu"`
+Run: `npx vitest run tests/core/ui/modal-dialogs.test.tsx -t "DisplayMenu"`
+Run: `npx vitest run tests/core/ui/modal-dialogs.test.tsx -t "More menu"`
 
 Both must select and pass real tests. If either selects **zero** tests, those surfaces are not registered — **stop, register them, and do not delete anything.**
 
