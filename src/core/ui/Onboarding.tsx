@@ -48,11 +48,18 @@ export function Onboarding() {
     // Onboarding takes no props and owns its own dismiss, so there is no onClose
     // to inject into the contract's render(onClose) shape. Giving it one is a
     // Phase 3 concern, when the screen model owns first-run state.
+    //
+    // backdropClassName's `p-4` is overridden at md+ by the `sheet` placement's own
+    // `md:p-6` (both compile into the same @media block; Tailwind emits the spacing
+    // scale in ascending order, so md:p-6 always wins over md:p-4 regardless of
+    // which is listed last here). That is harmless, not a bug to "fix": the panel
+    // below is max-w-sm (384px), and md starts at 768px, so 768 - 48 > 384 means the
+    // backdrop padding never constrains it either way — do not re-add a md:p-4 override.
     <Overlay
       onClose={dismiss}
       placement="sheet"
       labelledBy="onboarding-title"
-      backdropClassName="z-[70] bg-black/70 items-center justify-center p-4 md:p-4"
+      backdropClassName="z-[70] bg-black/70 items-center justify-center p-4"
     >
       <div className="bg-cinnabar-900 rounded-2xl p-6 max-w-sm w-full space-y-4 animate-[progress-enter_220ms_ease-out_both] shadow-xl shadow-black/40">
         <div className="flex items-center gap-1.5" aria-hidden>

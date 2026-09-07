@@ -25,38 +25,25 @@ beforeEach(() => {
   localStorage.clear()
 })
 
-/** `screen.findByRole` matches a role literally — it does not treat `alertdialog`
- * as a subclass of `dialog` the way the ARIA spec does — so a surface registered
- * with role="alertdialog" (ConfirmDialog) would never be found by a query pinned
- * to 'dialog'. This queries both, since the contract is "announced as a modal
- * dialog of some kind", not "announced with this exact role string". */
-async function findAnyDialog(): Promise<HTMLElement> {
-  return waitFor(() => {
-    const el = document.querySelector<HTMLElement>('[role="dialog"], [role="alertdialog"]')
-    if (!el) throw new Error('no [role="dialog"] or [role="alertdialog"] found')
-    return el
-  })
-}
-
 /** Every blocking overlay in the app should behave the same way: announce
  * itself, hold focus, and close on Escape. */
-describe.each(OVERLAY_SURFACES)('$name as a modal dialog', ({ open }) => {
+describe.each(OVERLAY_SURFACES)('$name as a modal dialog', ({ open, role }) => {
   it('is announced as a modal dialog', async () => {
     open()
-    const dialog = await findAnyDialog()
+    const dialog = await screen.findByRole(role ?? 'dialog')
     expect(dialog.getAttribute('aria-modal')).toBe('true')
     expect(dialog.getAttribute('aria-label') || dialog.getAttribute('aria-labelledby')).toBeTruthy()
   })
 
   it('moves focus inside itself rather than leaving it on the page behind', async () => {
     open()
-    const dialog = await findAnyDialog()
+    const dialog = await screen.findByRole(role ?? 'dialog')
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true))
   })
 
   it('closes on Escape', async () => {
     const expectClosed = open()
-    await findAnyDialog()
+    await screen.findByRole(role ?? 'dialog')
     fireEvent.keyDown(document, { key: 'Escape' })
     await expectClosed()
   })

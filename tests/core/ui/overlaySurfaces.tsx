@@ -11,6 +11,8 @@ export interface OverlaySurface {
   name: string
   /** Render the surface, and return a function that asserts it has closed. */
   open: () => () => Promise<void> | void
+  /** The role this surface is announced with. Defaults to 'dialog'. */
+  role?: 'dialog' | 'alertdialog' | 'menu'
 }
 
 /**
@@ -50,6 +52,10 @@ export interface OverlaySurface {
  */
 export const OVERLAY_SURFACES: OverlaySurface[] = [
   {
+    // Not registered in OVERLAY_SURFACES beyond this row's own contract check:
+    // Onboarding takes no props and owns its own dismiss, so there is no onClose
+    // to inject into the contract's render(onClose) shape. Giving it one is a
+    // Phase 3 concern, when the screen model owns first-run state.
     name: 'Onboarding',
     open: () => {
       render(<Onboarding />)
@@ -75,6 +81,7 @@ export const OVERLAY_SURFACES: OverlaySurface[] = [
   },
   {
     name: 'row 23 — generic confirm dialog',
+    role: 'alertdialog',
     open: () => {
       const onCancel = vi.fn()
       render(
