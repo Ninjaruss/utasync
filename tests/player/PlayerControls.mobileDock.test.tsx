@@ -104,8 +104,24 @@ describe('mobile play-mode control dock', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Saved loops' }))
     expect(screen.getByRole('slider', { name: 'Volume' })).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    // The backdrop is aria-hidden (Overlay migration, task 9) so it doesn't
+    // steal initial focus from the panel's own controls — find it the same
+    // way tests/sources/AddSongSheet.test.tsx reaches its own hidden backdrop.
+    const backdrop = screen
+      .getAllByRole('button', { hidden: true })
+      .find((el) => el.getAttribute('aria-label') === 'Close')!
+    fireEvent.click(backdrop)
     expect(screen.queryByRole('slider', { name: 'Volume' })).toBeNull()
+  })
+
+  it('does not put initial focus on the invisible backdrop button', () => {
+    // Same gotcha as AddSongSheet.test.tsx: the backdrop is a full-screen
+    // sibling inside the focus trap, and must stay aria-hidden or
+    // focusableWithin() resolves it ahead of the panel's own first control.
+    render(<PlayerControls {...baseProps} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Loop' }))
+    expect(document.activeElement?.getAttribute('aria-label')).not.toBe('Close')
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Dismiss controls')
   })
 
   it('marks the Loop chip active when an AB point is set', () => {

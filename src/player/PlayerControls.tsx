@@ -1401,27 +1401,21 @@ function MobileControlsSheet({
   onClose: () => void
   children: ReactNode
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
-
   return createPortal(
-    <>
+    <Overlay onClose={onClose} label={title}>
+      {/* A sibling, not an ancestor, of the panel — so a click on the panel
+          never reaches this and no stopPropagation is needed. Must stay
+          aria-hidden: focusableWithin() would otherwise hand it initial
+          focus ahead of the panel's own "Dismiss controls" grabber. */}
       <button
         type="button"
         aria-label="Close"
+        aria-hidden="true"
         onClick={onClose}
-        className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[1px] transition-opacity duration-150 ease-out"
+        className="absolute inset-0 bg-black/50 backdrop-blur-[1px] transition-opacity duration-150 ease-out"
       />
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className="fixed inset-x-0 bottom-0 z-40 rounded-t-2xl border-t border-cinnabar-900 bg-cinnabar-950 shadow-2xl shadow-black/50 max-h-[75dvh] overflow-y-auto overscroll-contain"
+        className="relative w-full rounded-t-2xl border-t border-cinnabar-900 bg-cinnabar-950 shadow-2xl shadow-black/50 max-h-[75dvh] overflow-y-auto overscroll-contain"
         style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 12px), 12px)' }}
       >
         <button
@@ -1445,7 +1439,7 @@ function MobileControlsSheet({
         </div>
         <div className="flex flex-col gap-2 px-3 pb-3">{children}</div>
       </div>
-    </>,
+    </Overlay>,
     document.body,
   )
 }
