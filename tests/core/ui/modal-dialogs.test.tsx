@@ -6,6 +6,21 @@ import { AddSongSheet } from '../../../src/sources/AddSongSheet'
 import { SettingsSheet } from '../../../src/settings/SettingsSheet'
 import { OVERLAY_SURFACES } from './overlaySurfaces'
 
+// This mock must live in THIS file, not in overlaySurfaces.tsx. AddSongSheet/SettingsSheet are
+// imported above, before OVERLAY_SURFACES, and both transitively reach src/core/opfs/audio
+// (AddSongSheet -> UploadAudioFlow -> audioIngest -> saveAudio; SettingsSheet -> SettingsView ->
+// core/storage/quota -> estimateOpfsAudioBytes). Vitest hoists vi.mock above every import WITHIN
+// ITS OWN FILE, so declaring it here makes it apply regardless of import order; declaring it in
+// the fixture instead lets the real module be captured by earlier importers. See the doc comment
+// on OVERLAY_SURFACES in overlaySurfaces.tsx for the full explanation.
+vi.mock('../../../src/core/opfs/audio', () => ({
+  getAudioFile: vi.fn(async () => new File([], 'x.mp3')),
+  estimateOpfsAudioBytes: vi.fn(async () => 0),
+  deleteAudio: vi.fn(async () => {}),
+  saveAudio: vi.fn(async () => {}),
+  audioStoragePath: (id: string) => `songs/${id}.mp3`,
+}))
+
 beforeEach(() => {
   localStorage.clear()
 })
