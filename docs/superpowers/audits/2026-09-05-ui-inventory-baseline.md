@@ -309,7 +309,7 @@ class).
 | 17 | Tap-sync editor (tap-through) | `src/player/TapSyncEditor.tsx:97` | headline (Edit mode toolbar, no usable local audio) or menu (Edit mode → More, when local audio exists) | phone, desktop | core | Overlay | onComplete / onCancel |
 | 18 | Offset-align screen | `src/player/OffsetAlignScreen.tsx:52` | precondition (via the "Line them up" banner, itself gated on lyric provenance) | phone, desktop | advanced | Overlay | onUseFullAlignment / onKeepTimings |
 | 19 | Auto-align flow | `src/ai-pipeline/AutoAlignFlow.tsx:773` | headline (Edit mode confirm's "Continue") or auto (`autoAlignOnOpen` after Add-song, when lyrics arrive unsynced) | phone, desktop (gated on device tier ≠ manual) | core | Overlay | ✕ (with running-work confirm) / Done |
-| 20 | Generic loading overlay | `src/core/ui/LoadingOverlay.tsx:13` (used at `PlayerView.tsx:1672`, `:1676`, `:2107`) | auto (transient: lyrics loading, A/B-loop export, AI-tooling lazy-load) | phone, desktop | core | Overlay (transient, no exits — self-dismisses) | none |
+| 20 | Generic loading overlay | `src/core/ui/LoadingOverlay.tsx:13` (used at `PlayerView.tsx:1672`, `:1674`, `:2107`) | auto (transient: lyrics loading, A/B-loop export, AI-tooling lazy-load) | phone, desktop | core | Overlay (transient, no exits — self-dismisses) | none |
 
 Rows 6, 7, 8, 9 are the non-`fixed inset-0` findings called out in Step 2 (buckets 3 and
 4). Rows 15 and 20 are generic, multi-site components; "seen live" for them is genuinely
@@ -321,6 +321,11 @@ interaction. They are filed under bucket 2 rather than bucket 1 on that basis: n
 "Loading AI…" variant (`PlayerView.tsx:2107`), which is confirmed **not** to have fired in
 either journey, since it is the `Suspense` fallback for `AutoAlignFlow` (row 19), which
 itself never opened.
+
+**Note:** Rows 15 and 20 are each registered as a single row keyed to the component's
+definition line, with all call sites listed in the File:line column; if Phase 3's
+`Overlay` union wants one variant per call site rather than one generic variant per
+component, the table will need further splitting.
 
 Two scrims are excluded from the 20-surface count (per the spec's own classification),
 listed here for completeness since they were part of the Step-1 grep:
