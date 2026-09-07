@@ -18,7 +18,7 @@ vi.mock('../../src/player/AudioEngine', () => ({
 }))
 
 vi.mock('../../src/ai-pipeline/capability', () => ({
-  getDeviceTier: () => 'full', canUseVocalSeparation: () => true, hasWebGPU: () => true,
+  getDeviceTier: () => 'full', canUseVocalSeparation: () => true, canAutoAlign: () => true, hasWebGPU: () => true,
 }))
 
 const seed = async (id: string, title: string) => {

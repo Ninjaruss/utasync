@@ -88,6 +88,20 @@ export function getDeviceTier(): DeviceTier {
   return 'manual'
 }
 
+/**
+ * Whether this device can run on-device alignment at all.
+ *
+ * Manual tier has no Whisper path — WASM transcription on a phone CPU is too slow
+ * to offer honestly — so every "AI auto-align" affordance and every promise that
+ * attaching audio "unlocks AI align" must be gated on this. Named rather than
+ * inlined as `!== 'manual'` because that comparison was duplicated across five
+ * copy sites, three of which drifted into promising a manual-tier user a feature
+ * their device can never run.
+ */
+export function canAutoAlign(tier: DeviceTier = getDeviceTier()): boolean {
+  return tier !== 'manual'
+}
+
 /** Vocal separation needs WebGPU + enough RAM for Demucs + Whisper. */
 export function canUseVocalSeparation(tier: DeviceTier = getDeviceTier()): boolean {
   return tier === 'full'

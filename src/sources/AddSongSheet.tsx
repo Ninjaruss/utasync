@@ -1,10 +1,11 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useModalDialog } from '../core/ui/useModalDialog'
 import { useHistoryDismiss } from '../core/ui/useHistoryDismiss'
 import { LinkParser } from './LinkParser'
 import { UploadAudioFlow } from './UploadAudioFlow'
 import { ConfirmDialog } from '../core/ui/ConfirmDialog'
 import { useConfirmedClose } from '../core/ui/useConfirmedClose'
+import { canAutoAlign } from '../ai-pipeline/capability'
 
 type Source = 'upload' | 'link'
 
@@ -22,20 +23,27 @@ interface SourceOption {
   limitations: string[]
 }
 
-const SOURCE_OPTIONS: SourceOption[] = [
+/* Tier-aware: a manual-tier device has no on-device Whisper, so listing "AI
+ * auto-align lyrics" under INCLUDES promises a feature it can never run. The
+ * other three benefits of uploading are real on every tier, so the tile still
+ * earns its RECOMMENDED badge — only the unachievable claim is withdrawn, and
+ * the reason is stated rather than silently dropped. */
+function sourceOptions(autoAlignSupported: boolean): SourceOption[] {
+  return [
   {
     id: 'upload',
     title: 'Upload audio',
     badge: 'Recommended',
     summary: 'Full toolkit — best for learning and practice.',
     includes: [
-      'AI auto-align lyrics',
+      ...(autoAlignSupported ? ['AI auto-align lyrics'] : []),
       'A-B loop export',
       'Offline playback',
       'Reliable speed control',
     ],
     limitations: [
       'Need an audio file on your device',
+      ...(autoAlignSupported ? [] : ['This device can\u2019t run AI auto-align — time lyrics by tapping']),
     ],
   },
   {
@@ -49,12 +57,13 @@ const SOURCE_OPTIONS: SourceOption[] = [
       'A-B loop practice',
     ],
     limitations: [
-      'No AI auto-align or clip export',
+      autoAlignSupported ? 'No AI auto-align or clip export' : 'No clip export',
       'Requires internet',
       'Some videos limit playback speed',
     ],
   },
-]
+  ]
+}
 
 function SourceTile({
   option,
@@ -121,6 +130,8 @@ function SourceTile({
 export function AddSongSheet({ onSongReady, onClose }: Props) {
   const [source, setSource] = useState<Source>('upload')
   const [pendingSource, setPendingSource] = useState<Source | null>(null)
+  // Tier cannot change without a navigation, so this is settled once per mount.
+  const options = useMemo(() => sourceOptions(canAutoAlign()), [])
   const panelRef = useRef<HTMLDivElement>(null)
   const { busy, dirty, setBusy, setDirty, confirming, requestClose, confirm, cancel } = useConfirmedClose(onClose)
 
@@ -204,7 +215,7 @@ export function AddSongSheet({ onSongReady, onClose }: Props) {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3 md:mb-4 shrink-0">
-          {SOURCE_OPTIONS.map((option) => (
+          {options.map((option) => (
             <SourceTile
               key={option.id}
               option={option}

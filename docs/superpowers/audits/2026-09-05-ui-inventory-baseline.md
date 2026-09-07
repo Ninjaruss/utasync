@@ -540,6 +540,40 @@ journeys now obey. "Controls in player" is the non-lyric-row count from each jou
 listing. These five numbers are re-measured after Phase 5 per the spec's success criterion
 5, and reported honestly including if a number did not move.
 
+## Decisions taken (2026-09-07)
+
+The user ruled on the table below. Recorded here because Phase 5 is otherwise the
+next reader, and two of the three rows were **declined**.
+
+| Row | Decision | Why |
+|---|---|---|
+| 1 — cut 2 of 3 landing CTAs | **DECLINED** | The finding was wrong. Inspection of `src/landing/LandingScreen.tsx` shows the three are not redundant: `:52` is a quiet `text-white/70 text-xs` **header** link (escape hatch for returning visitors), `:74` is the **hero** accent button, and `:161` is a **closing CTA** inside a "Ready to study your favourite song?" card at the foot of the page. That is the standard landing-page pattern — header, hero, closing — and cutting two would force a reader who scrolled to the bottom back to the top. D2 counted "3 buttons, 1 action" structurally and missed scroll position and visual hierarchy. **D2 is withdrawn as a defect.** |
+| 2 — fold "Saved loops" one level down | **DECLINED** | The audit itself rates it the lowest-confidence row, and the loop-playlist measurement already showed the machinery is correctly disclosed. Not worth the menu hop for the users who actually loop. |
+| 3 — hide "+ Audio file" on manual tier | **DECLINED as a reach change** | Its own risk column argues against it: the Tap-sync editor is not tier-gated, so a manual-tier user may legitimately attach audio for tap-through timing, offline playback and speed control — none of which needs AI. The real problem with this control was never its *presence*; it was its *copy*. Addressed by fixing D1 instead. |
+
+**D1 — FIXED.** Implementing it turned up **two more sites than the audit recorded**,
+for a total of five. The audit measured on a phone, so it never saw
+`YouTubePlaybackPanel.tsx`'s desktop string (`hidden md:block`), and a trace cannot see
+an `aria-label` at all:
+
+| # | Site | Note |
+|---|---|---|
+| 1 | `AddSongSheet.tsx` upload tile INCLUDES | recorded by the audit |
+| 2 | `LinkParser.tsx` visible attach-audio label | recorded by the audit |
+| 3 | `YouTubePlaybackPanel.tsx` mobile status line | recorded by the audit |
+| 4 | `YouTubePlaybackPanel.tsx` **desktop** status line | **missed** — `hidden md:block`, invisible to a phone trace |
+| 5 | `LinkParser.tsx` **`aria-label`** | **missed** — screen-reader users got the same false promise |
+
+The `!== 'manual'` threshold had been re-implemented at each site, which is how three of
+them drifted. It is now the named predicate `canAutoAlign()` in
+`src/ai-pipeline/capability.ts`, alongside the existing `canUseVocalSeparation`, with the
+copy gated on it. `canRunWordAlignment` was deliberately **not** folded into it: word-pair
+colouring is a different capability that merely shares the same tier threshold today.
+
+Lesson for the remaining phases: **a live trace sees one viewport and no accessible
+names.** Copy audits need a source sweep as well as a journey — the same lesson the
+registry learned when `fixed inset-0` turned out to be the wrong filter.
+
 ## Draft demote/cut table
 
 Applying the criterion — *a surface earns default visibility only if the median user needs

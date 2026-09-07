@@ -18,6 +18,7 @@ vi.mock('../../src/core/opfs/audio', () => ({
 vi.mock('../../src/ai-pipeline/capability', () => ({
   getDeviceTier: () => 'full',
   canUseVocalSeparation: () => true,
+  canAutoAlign: () => true,
   hasWebGPU: () => true,
 }))
 

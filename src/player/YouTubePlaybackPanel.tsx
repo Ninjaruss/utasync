@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useRef, useState, type ChangeEvent } from 'react
 import { YouTubePlayer, type YouTubePlayerHandle } from './YouTubePlayer'
 import { useMinWidthMd } from '../core/ui/useMinWidthMd'
 import type { PlaybackState } from '../core/types'
+import { canAutoAlign } from '../ai-pipeline/capability'
 
 const COLLAPSED_KEY = 'utasync-yt-panel-collapsed'
 
@@ -113,11 +114,18 @@ export const YouTubePlaybackPanel = forwardRef<YouTubePlayerHandle, Props>(funct
       )}
 
       <div className={`flex items-center justify-between gap-2 ${!isDesktop && mode === 'play' ? 'mt-1.5' : 'mt-0 md:mt-2'}`}>
+        {/* Both variants are tier-gated. The mobile string was the one the UI audit
+          * caught; the desktop string above it made the same promise and was missed
+          * because the audit measured on a phone, where it is `hidden`. */}
         <p className="text-[10px] text-white/60 text-pretty leading-snug hidden md:block flex-1">
-          Streaming via YouTube — add audio to unlock AI align and export.
+          {canAutoAlign()
+            ? 'Streaming via YouTube — add audio to unlock AI align and export.'
+            : 'Streaming via YouTube — add audio for offline playback and reliable speed.'}
         </p>
         <p className="text-[10px] text-white/60 text-pretty leading-snug md:hidden flex-1">
-          YouTube stream · add audio for AI align
+          {canAutoAlign()
+            ? 'YouTube stream · add audio for AI align'
+            : 'YouTube stream · add audio for offline play'}
         </p>
         <button
           type="button"
