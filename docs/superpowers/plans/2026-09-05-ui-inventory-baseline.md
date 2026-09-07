@@ -366,7 +366,8 @@ location.reload()
 
 This matters: `utasync_landing_seen` in localStorage suppresses the landing page, and a
 returning visitor is not the user being measured. `sessionStorage` is deliberately NOT
-cleared — it holds the `?webgpu=off` override.
+cleared — it holds the `?webgpu=on` override that this journey just set (the phone
+journey's `?webgpu=off` is what `?webgpu=on` cleared).
 
 - [ ] **Step 1b: Install the lyric-endpoint stub**
 
