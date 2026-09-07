@@ -156,7 +156,61 @@ plus one YouTube oEmbed and one caption fetch. Recorded as an observation, not a
 
 ## Journey B — desktop, Full tier
 
-(Not yet traced — reserved for Task 3.)
+**Run:** 2026-09-07, viewport 1280x800, tier reading
+`{"tier":"full","webgpu":true,"mobileUA":false}`. State cleared first
+(`landingSeen: null` confirmed). Same lrclib/itunes stub as Journey A.
+
+**Note on viewport:** `resize_window` preset `desktop` clears emulation, and on a hidden
+pane that leaves `innerWidth/innerHeight` at **0**, which silently zeroes any in-view
+measurement. An explicit `1280x800` was used instead. Anyone re-running this must do the
+same or the control count will come back 0.
+
+**Song used:** `public/e2e/guitar.mp3` (3,663,980 bytes) injected as `Test - Guitar.mp3`
+via the `DataTransfer` technique. This exercised decode, metadata extraction, ingest and
+lyrics search for real.
+
+### Trace
+
+| # | Surface | How it appeared | Exits offered | Notes |
+|---|---|---|---|---|
+| 1 | Landing | `auto` (first visit) | 3 identical CTAs | Same as Journey A |
+| 2 | Library (empty) | `auto` after landing | — (root view) | Same 2 controls |
+| 3 | Onboarding carousel, 3 steps | `auto`, over Library | Skip; Back / Done | Same as Journey A — not tier-aware |
+| 4 | Add-song sheet, **Upload audio** tab | `headline` (＋ Add a song) | ✕ Close | Default tab, so no source choice needed on this path |
+| 5 | Player, Play mode | `auto` after Add song | ← Back | No alignment screen — lyrics arrived synced, so `chooseAutoAlignment` returned `null` despite `autoAlign: true` being passed |
+
+**Filename-ambiguity helper (in surface 4):** title and artist were both derived and
+tagged `FROM FILENAME`, with the copy "Filename could be 'Artist – Title' or
+'Title – Artist'. Swap if the fields look reversed." and a **Swap title and artist**
+button. Good `precondition` behaviour — it appears because the source was a filename.
+
+**Provenance nudge (in surface 5):** the player showed
+"Lyrics not lining up? These timings came from a lyrics database. **Line them up**".
+Another `precondition` reveal, keyed on lyric provenance. Not counted as a separate
+surface — it gates nothing.
+
+### Numbers
+
+| Measure | Value |
+|---|---|
+| Decision points | **4** — enter app; dismiss onboarding; choose the audio file; verify title/artist |
+| Required interactions | **7** — landing CTA, Next, Next, Done, ＋ Add a song, choose file, Add song |
+| Distinct surfaces met | **5** |
+| Controls in default player viewport | **17 total, 3 lyric rows, 14 non-lyric** |
+
+The 14 non-lyric controls: ← Back, Play, Edit, Settings, Line them up, Lyrics display
+options, Seek, Rewind 5 seconds, Start playback, Forward 5 seconds, Volume, Loop
+(Tap to set), Speed (Normal 1x), Open saved loops.
+
+**Journey B is shorter than Journey A** (4 decisions vs 5, 5 surfaces vs 7) because the
+Upload tab is the default and the stubbed lyrics matched the filename-derived metadata
+exactly, so no mismatch confirmation was needed. Journey A's extra steps are the source
+switch and the mismatch guard.
+
+### Endpoint caveat
+
+As in Journey A, playback could not be confirmed — hidden tab, no trusted user gesture.
+Measured to "player open, lyrics present and timed, transport rendered".
 
 ## Consolidated surface list
 
@@ -197,6 +251,22 @@ and it lands on the phone tier, which the spec treats as one of two primary audi
 The landing page renders "Get started →", "Open the app →" and "Open the app". All three
 call the same action. Not harmful; noted because the spec's simplification criterion
 targets exactly this kind of redundant default-surface choice.
+
+### Measured: the spec's loop-playlist hypothesis is REFUTED for the first-run surface
+
+The spec hypothesised that "a visible share of `PlayerControls`' 35 buttons is
+loop-playlist machinery (Saved loops, Rename, Move up, Move down, Remove, Plays before
+next loop) living on the surface a beginner meets".
+
+Measured on both journeys: **exactly one** of those six controls is in the default player
+viewport — the "Saved loops" entry point. Opening it with no loops saved reveals only a
+Close button and the empty state "Set A and B, then tap Save to add loops here."
+Rename / Move up / Move down / Remove / Plays before next loop **do not exist** for a
+first-time user; they render per-loop, so they are already gated behind the precondition
+of having created a loop.
+
+The machinery is therefore already correctly disclosed. Only the single entry point is a
+candidate for Phase 5, and it is a weak one.
 
 ## Not defects — verified false positives
 
