@@ -19,6 +19,7 @@ vi.mock('../../src/player/YouTubePlayer', () => ({
 vi.mock('../../src/ai-pipeline/capability', () => ({
   getDeviceTier: () => 'full',
   canUseVocalSeparation: () => true,
+  canAutoAlign: () => true,
   hasWebGPU: () => true,
 }))
 

@@ -10,6 +10,7 @@ import { resolveCoverArt } from './coverArt'
 import type { TimedLine, Language } from '../core/types'
 import { parseSubtitle } from '../lyrics/subtitle-parser'
 import { InlineError } from '../core/ui/InlineError'
+import { canAutoAlign } from '../ai-pipeline/capability'
 import { ProgressOverlay } from '../core/ui/ProgressOverlay'
 import { ProcessProgress } from '../core/ui/ProcessProgress'
 import { LyricsFoundConfirm, lyricsFoundReadyToApply } from '../lyrics/LyricsFoundConfirm'
@@ -318,11 +319,22 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
           className={fieldClass}
         />
 
+        {/* Tier-aware: on a manual-tier device attaching audio unlocks offline
+          * playback and reliable speed, but NOT auto-align. The aria-label carried
+          * the same false promise as the visible text, so both are gated. */}
         <label
-          aria-label="Attach audio file to unlock AI align and export"
+          aria-label={
+            canAutoAlign()
+              ? 'Attach audio file to unlock AI align and export'
+              : 'Attach audio file to unlock offline playback and reliable speed'
+          }
           className={fileLabelClass}
         >
-          {audioFile ? audioFile.name : '+ Add audio file (unlocks AI align & export — optional)'}
+          {audioFile
+            ? audioFile.name
+            : canAutoAlign()
+              ? '+ Add audio file (unlocks AI align & export — optional)'
+              : '+ Add audio file (unlocks offline playback & speed — optional)'}
           <input
             type="file"
             accept="audio/*"

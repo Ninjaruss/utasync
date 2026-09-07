@@ -42,7 +42,7 @@ import { tokenizeEnglish } from '../language/english/tokenizer'
 import { sentenceToIPA } from '../language/english/phonetics'
 import { detectEnglishGrammar } from '../language/english/grammar'
 import { TapSyncEditor } from './TapSyncEditor'
-import { getDeviceTier, canUseVocalSeparation } from '../ai-pipeline/capability'
+import { getDeviceTier, canUseVocalSeparation, canAutoAlign } from '../ai-pipeline/capability'
 import { useSettingsStore } from '../payment/SettingsStore'
 import { detectSheetLanguage } from '../ai-pipeline/whisperLanguage'
 import { accurateRealignReason } from '../ai-pipeline/alignTimestampMode'
@@ -1897,7 +1897,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               // tap pass leaves timings behind — which used to hide the tool
               // that produced them.
               showTapSync={canPlayback}
-              autoAlignSupported={getDeviceTier() !== 'manual'}
+              autoAlignSupported={canAutoAlign()}
               onTapSync={() => beginAlignment('tap')}
               onReplaceLyrics={() => setShowLyricsReimport(true)}
               onPausePlayback={pausePlayback}
