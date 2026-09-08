@@ -27,6 +27,7 @@ const SHORT_WIDE = [
   '[@media(max-height:520px)_and_(min-width:560px)]:overscroll-contain',
 ].join(' ')
 import { ConfirmDialog } from '../core/ui/ConfirmDialog'
+import { Overlay } from '../core/ui/Overlay'
 import {
   displayMenuTrigger,
   displayMenuTriggerActive,
@@ -612,18 +613,6 @@ function PlaylistCompactPlayer({
   const [repeatMenuPos, setRepeatMenuPos] = useState<{ left: number; bottom: number; width: number } | null>(null)
   const swipeStart = useRef<{ x: number; y: number } | null>(null)
 
-  useEffect(() => {
-    if (!repeatOpen) return
-    const onPointerDown = (e: Event) => {
-      const target = e.target as Node
-      if (repeatTriggerRef.current?.contains(target)) return
-      if (repeatMenuRef.current?.contains(target)) return
-      setRepeatOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [repeatOpen])
-
   useLayoutEffect(() => {
     if (!repeatOpen || !repeatTriggerRef.current) return
     const rect = repeatTriggerRef.current.getBoundingClientRect()
@@ -639,6 +628,26 @@ function PlaylistCompactPlayer({
         : window.innerHeight - rect.bottom - 4 - estHeight,
     })
   }, [repeatOpen])
+
+  // <Overlay placement="anchored"> dismisses on any outside pointerdown, with no
+  // way to also exclude the trigger button — so without this, closing the menu
+  // by clicking the trigger again would immediately reopen it: the outside-dismiss
+  // fires on pointerdown (before the trigger's own onClick toggle runs), and that
+  // toggle then flips the now-false state back to true. Stopping the trigger's
+  // pointerdown from reaching the document-level listener preserves the old
+  // click-to-toggle behaviour exactly.
+  const stopTriggerPointerDown = (e: ReactPointerEvent) => e.stopPropagation()
+
+  // The menu is portaled to document.body, so its style can't be set via the
+  // Overlay's className (a static string) — apply the measured position directly
+  // to the panel node once it mounts.
+  useLayoutEffect(() => {
+    const el = repeatMenuRef.current
+    if (!el || !repeatMenuPos) return
+    el.style.left = `${repeatMenuPos.left}px`
+    el.style.width = `${repeatMenuPos.width}px`
+    el.style.bottom = `${repeatMenuPos.bottom}px`
+  })
 
   if (!current) return null
 
@@ -720,6 +729,7 @@ function PlaylistCompactPlayer({
           ref={repeatTriggerRef}
           type="button"
           onClick={() => setRepeatOpen((v) => !v)}
+          onPointerDown={stopTriggerPointerDown}
           aria-expanded={repeatOpen}
           aria-haspopup="dialog"
           className={[
@@ -731,15 +741,12 @@ function PlaylistCompactPlayer({
           {playlistRepeatButtonLabel(playlistRepeatCount)}
         </button>
         {repeatOpen && repeatMenuPos && createPortal(
-          <div
-            ref={repeatMenuRef}
+          <Overlay
+            onClose={() => setRepeatOpen(false)}
+            placement="anchored"
             role="dialog"
-            aria-label="Repeats before next loop"
-            style={{
-              left: repeatMenuPos.left,
-              width: repeatMenuPos.width,
-              bottom: repeatMenuPos.bottom,
-            }}
+            label="Repeats before next loop"
+            panelRef={repeatMenuRef}
             className="fixed z-[60] rounded-lg border border-cinnabar-800 bg-cinnabar-900 shadow-lg shadow-black/40 p-2"
           >
             <p className="text-[10px] text-white/60 px-0.5 pb-1">Plays before next loop</p>
@@ -762,7 +769,7 @@ function PlaylistCompactPlayer({
                 </button>
               ))}
             </div>
-          </div>,
+          </Overlay>,
           document.body,
         )}
       </div>
@@ -1185,18 +1192,6 @@ function MoreMenu({
   const [menuPos, setMenuPos] = useState<{ left: number; bottom: number; width: number } | null>(null)
   const hasItems = showAbExport
 
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (e: Event) => {
-      const target = e.target as Node
-      if (triggerRef.current?.contains(target)) return
-      if (menuRef.current?.contains(target)) return
-      setOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [open])
-
   useLayoutEffect(() => {
     if (!open || !triggerRef.current) return
     const rect = triggerRef.current.getBoundingClientRect()
@@ -1213,6 +1208,22 @@ function MoreMenu({
     })
   }, [open])
 
+  // See the matching comment on the "Repeats before next loop" menu above: without
+  // this, closing via a second click on the trigger would immediately reopen,
+  // because <Overlay placement="anchored">'s outside-dismiss has no way to
+  // exclude the trigger from "outside".
+  const stopTriggerPointerDown = (e: ReactPointerEvent) => e.stopPropagation()
+
+  // Portaled to document.body, so position can't travel through Overlay's
+  // className (a static string) — apply it to the panel node directly.
+  useLayoutEffect(() => {
+    const el = menuRef.current
+    if (!el || !menuPos) return
+    el.style.left = `${menuPos.left}px`
+    el.style.width = `${menuPos.width}px`
+    el.style.bottom = `${menuPos.bottom}px`
+  })
+
   if (!hasItems) return null
 
   return (
@@ -1221,6 +1232,7 @@ function MoreMenu({
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
+        onPointerDown={stopTriggerPointerDown}
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label="More playback options"
@@ -1232,15 +1244,12 @@ function MoreMenu({
         More options
       </button>
       {open && menuPos && createPortal(
-        <div
-          ref={menuRef}
+        <Overlay
+          onClose={() => setOpen(false)}
+          placement="anchored"
           role="dialog"
-          aria-label="More playback options"
-          style={{
-            left: menuPos.left,
-            width: menuPos.width,
-            bottom: menuPos.bottom,
-          }}
+          label="More playback options"
+          panelRef={menuRef}
           className="fixed z-[60] rounded-xl border border-cinnabar-800 bg-cinnabar-900 shadow-xl shadow-black/40 p-2.5 space-y-2"
         >
           {showAbExport && onExportAb && (
@@ -1270,7 +1279,7 @@ function MoreMenu({
             </section>
           )}
           {exportError && <p className="text-[10px] text-red-400/90 px-1" role="alert">{exportError}</p>}
-        </div>,
+        </Overlay>,
         document.body,
       )}
     </div>
@@ -1392,27 +1401,21 @@ function MobileControlsSheet({
   onClose: () => void
   children: ReactNode
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
-
   return createPortal(
-    <>
+    <Overlay onClose={onClose} label={title}>
+      {/* A sibling, not an ancestor, of the panel — so a click on the panel
+          never reaches this and no stopPropagation is needed. Must stay
+          aria-hidden: focusableWithin() would otherwise hand it initial
+          focus ahead of the panel's own "Dismiss controls" grabber. */}
       <button
         type="button"
         aria-label="Close"
+        aria-hidden="true"
         onClick={onClose}
-        className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[1px] transition-opacity duration-150 ease-out"
+        className="absolute inset-0 bg-black/50 backdrop-blur-[1px] transition-opacity duration-150 ease-out"
       />
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className="fixed inset-x-0 bottom-0 z-40 rounded-t-2xl border-t border-cinnabar-900 bg-cinnabar-950 shadow-2xl shadow-black/50 max-h-[75dvh] overflow-y-auto overscroll-contain"
+        className="relative w-full rounded-t-2xl border-t border-cinnabar-900 bg-cinnabar-950 shadow-2xl shadow-black/50 max-h-[75dvh] overflow-y-auto overscroll-contain"
         style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 12px), 12px)' }}
       >
         <button
@@ -1436,7 +1439,7 @@ function MobileControlsSheet({
         </div>
         <div className="flex flex-col gap-2 px-3 pb-3">{children}</div>
       </div>
-    </>,
+    </Overlay>,
     document.body,
   )
 }

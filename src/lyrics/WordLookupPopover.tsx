@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Token } from '../core/types'
 import { lookupWord, jishoSearchUrl, type WordLookupResult } from '../language/japanese/wordLookup'
 import { useSettingsStore } from '../payment/SettingsStore'
-import { useModalDialog } from '../core/ui/useModalDialog'
+import { Overlay } from '../core/ui/Overlay'
 
 interface Props {
   token: Token
@@ -23,9 +23,6 @@ const CARD_EST_HEIGHT = 160 // rough card height, for deciding when to flip abov
  */
 export function WordLookupPopover({ token, anchorRect, grammar, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null)
-  // Escape closes it and focus returns to the word that opened it, so a
-  // keyboard reader can look words up without losing their place in the line.
-  useModalDialog(ref, onClose)
   // Keyed by token so a new tap derives back to the loading state without a
   // synchronous setState inside the effect.
   const [resolved, setResolved] = useState<{ token: Token; result: WordLookupResult | null } | null>(null)
@@ -41,13 +38,17 @@ export function WordLookupPopover({ token, anchorRect, grammar, onClose }: Props
     return () => { cancelled = true }
   }, [token, readingMode])
 
-  // Dismiss on pointerdown outside (capture phase so nothing re-routes it),
-  // and swallow the click that completes the dismissing tap: without this the
+  // Swallow the click that completes a dismissing outside tap: without this the
   // gesture lands on the lyric row underneath, whose onClick seeks playback.
-  // The swallower is deliberately detached from this effect's cleanup — the
-  // popover unmounts on onClose() before the click event fires, so tying it
-  // to the component lifetime would defeat the fix. It is one-shot and also
-  // self-removes on a short timer in case no click follows (e.g. a drag).
+  // Actually closing is now <Overlay>'s job (its own outside-pointerdown
+  // dismissal, bubble-phase) — this stays on the capture phase purely so the
+  // swallower is armed before that click has a chance to land anywhere. It no
+  // longer calls onClose itself: doing so as well as Overlay would fire it
+  // twice for the same tap. The swallower is deliberately detached from this
+  // effect's cleanup — the popover unmounts on onClose() before the click event
+  // fires, so tying it to the component lifetime would defeat the fix. It is
+  // one-shot and also self-removes on a short timer in case no click follows
+  // (e.g. a drag).
   useEffect(() => {
     const onPointerDown = (e: PointerEvent) => {
       if (!ref.current || ref.current.contains(e.target as Node)) return
@@ -63,11 +64,10 @@ export function WordLookupPopover({ token, anchorRect, grammar, onClose }: Props
       }
       document.addEventListener('click', swallow, true)
       timer = window.setTimeout(remove, 400)
-      onClose()
     }
     document.addEventListener('pointerdown', onPointerDown, true)
     return () => document.removeEventListener('pointerdown', onPointerDown, true)
-  }, [onClose])
+  }, [])
 
   // A null lookup (punctuation-only token) renders nothing, so ask the parent
   // to unmount us — otherwise its state stays set and the outside-tap listener
@@ -75,6 +75,37 @@ export function WordLookupPopover({ token, anchorRect, grammar, onClose }: Props
   useEffect(() => {
     if (result === null) onClose()
   }, [result, onClose])
+
+  const narrow = window.innerWidth < 640
+  const anchored = !narrow && anchorRect !== null
+  // Flip above the word when the card would spill past the bottom edge. Using
+  // `bottom:` for the flipped case avoids needing the real card height.
+  const fitsBelow = anchorRect !== null && anchorRect.bottom + 8 + CARD_EST_HEIGHT <= window.innerHeight
+  const style = anchored
+    ? {
+        left: Math.max(8, Math.min(anchorRect.left, window.innerWidth - CARD_WIDTH - 8)),
+        ...(fitsBelow
+          ? { top: anchorRect.bottom + 8 }
+          : { bottom: window.innerHeight - anchorRect.top + 8 }),
+      }
+    : // Bottom-card layout: sit just above the playback dock. PlayerControls
+      // publishes --player-dock-height on mobile; the fallback matches the
+      // old fixed offset (bottom-24 = 96px).
+      { bottom: 'calc(var(--player-dock-height, 96px) + 12px)' }
+
+  // Positioning can't travel through Overlay's className (a static string), so
+  // apply it to the panel node directly. Cleared first: which of left/top/bottom
+  // are active differs between the anchored and bottom-card layouts. Declared
+  // before the early return below so this hook always runs, whether or not the
+  // popover ends up rendering anything this pass.
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.left = el.style.top = el.style.bottom = ''
+    for (const [prop, value] of Object.entries(style)) {
+      el.style.setProperty(prop, typeof value === 'number' ? `${value}px` : String(value))
+    }
+  })
 
   // Nothing to show for punctuation-only tokens.
   if (result === null) return null
@@ -94,36 +125,30 @@ export function WordLookupPopover({ token, anchorRect, grammar, onClose }: Props
         ? [{ posLabel: null, glosses: result.glosses }]
         : []
 
-  const narrow = window.innerWidth < 640
-  const anchored = !narrow && anchorRect !== null
-  // Flip above the word when the card would spill past the bottom edge. Using
-  // `bottom:` for the flipped case avoids needing the real card height.
-  const fitsBelow = anchorRect !== null && anchorRect.bottom + 8 + CARD_EST_HEIGHT <= window.innerHeight
-  const style = anchored
-    ? {
-        left: Math.max(8, Math.min(anchorRect.left, window.innerWidth - CARD_WIDTH - 8)),
-        ...(fitsBelow
-          ? { top: anchorRect.bottom + 8 }
-          : { bottom: window.innerHeight - anchorRect.top + 8 }),
-      }
-    : // Bottom-card layout: sit just above the playback dock. PlayerControls
-      // publishes --player-dock-height on mobile; the fallback matches the
-      // old fixed offset (bottom-24 = 96px).
-      { bottom: 'calc(var(--player-dock-height, 96px) + 12px)' }
-
   return (
-    <div
-      ref={ref}
-      tabIndex={-1}
+    <Overlay
+      // Escape closes it and focus returns to the word that opened it, so a
+      // keyboard reader can look words up without losing their place in the
+      // line. <Overlay>'s own outside-pointerdown dismissal (bubble-phase) is
+      // now the sole owner of outside-tap dismissal — it is what calls
+      // onClose. The capture-phase pointerdown effect above no longer closes
+      // anything; it exists purely to swallow the click that completes a
+      // dismissing outside tap, so that click doesn't fall through and seek
+      // the lyric row underneath (see that effect's own comment).
+      onClose={onClose}
+      placement="anchored"
       role="dialog"
-      aria-label={`Dictionary entry for ${headword}`}
-      onClick={(e) => e.stopPropagation()}
-      style={style}
+      label={`Dictionary entry for ${headword}`}
+      panelRef={ref}
       className={[
         anchored ? 'fixed w-72' : 'fixed inset-x-3 mx-auto max-w-sm',
         'z-30 rounded-xl border border-cinnabar-accent/60 bg-cinnabar-900 p-3 space-y-1.5 shadow-xl text-left',
       ].join(' ')}
     >
+      {/* display:contents so this wrapper doesn't break the panel's space-y-1.5
+          child spacing — it exists only to stop a click from reaching the lyric
+          row underneath. */}
+      <div className="contents" onClick={(e) => e.stopPropagation()}>
       <button
         type="button"
         onClick={onClose}
@@ -183,6 +208,7 @@ export function WordLookupPopover({ token, anchorRect, grammar, onClose }: Props
       >
         jisho.org ↗
       </a>
-    </div>
+      </div>
+    </Overlay>
   )
 }

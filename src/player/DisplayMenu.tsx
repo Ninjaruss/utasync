@@ -1,9 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { FuriganaMode, LyricsLayout, ClozeDifficulty } from '../core/types'
-import { useOutsideDismiss } from '../core/ui/useOutsideDismiss'
 import { useMinWidthMd } from '../core/ui/useMinWidthMd'
-import { useModalDialog } from '../core/ui/useModalDialog'
+import { Overlay } from '../core/ui/Overlay'
 import {
   displayMenuTrigger,
   displayMenuTriggerActive,
@@ -259,7 +258,6 @@ export function DisplayMenu(props: Props) {
     clozeMode,
   } = props
   const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const [panelPos, setPanelPos] = useState<{ top: number; right: number; width: number } | null>(null)
@@ -267,15 +265,16 @@ export function DisplayMenu(props: Props) {
   const customized = hasNonDefaultDisplay(isJapanese, furiganaMode, showTranslation, lyricsLayout, !!sungLayoutActive, !!clozeMode)
   const summary = displaySummary(isJapanese, furiganaMode, showTranslation, lyricsLayout, !!sungLayoutActive, !!clozeMode)
 
-  useOutsideDismiss(rootRef, open && isDesktop, () => setOpen(false))
-  // Escape closes it and focus returns to the Display trigger — previously the
-  // only ways out were a pointer press outside or a click on the trigger.
-  //
-  // Gated on the panel actually being in the DOM: on mobile it waits for
-  // panelPos, which a useLayoutEffect fills in only AFTER the first open render.
-  // Enabling the hook before then means it sees a null ref, bails, and never
-  // re-runs — so Escape silently did nothing on exactly the devices that need it.
-  useModalDialog(panelRef, () => setOpen(false), open && (isDesktop || !!panelPos))
+  // <Overlay placement="anchored"> now owns both Escape and the outside-pointerdown
+  // dismissal (previously a manual useOutsideDismiss on desktop and a hand-rolled
+  // pointerdown listener on mobile). Its dismiss boundary is the panel alone, with
+  // no way to also exclude the trigger — so without this, closing the menu by
+  // clicking the trigger again would immediately reopen: the outside-dismiss fires
+  // on pointerdown (before the trigger's own onClick toggle runs), and that toggle
+  // then flips the now-false state back to true. Stopping the trigger's pointerdown
+  // from reaching the document-level listener preserves the old click-to-toggle
+  // behaviour exactly, on both layouts.
+  const stopTriggerPointerDown = (e: ReactPointerEvent) => e.stopPropagation()
 
   useLayoutEffect(() => {
     if (!open || isDesktop || !triggerRef.current) return
@@ -291,28 +290,29 @@ export function DisplayMenu(props: Props) {
     })
   }, [open, isDesktop])
 
-  useEffect(() => {
-    if (!open || isDesktop) return
-    const onPointerDown = (e: Event) => {
-      const target = e.target as Node
-      if (triggerRef.current?.contains(target)) return
-      if (panelRef.current?.contains(target)) return
-      setOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [open, isDesktop])
+  // Mobile panel is portaled to document.body, so its measured position can't
+  // travel through Overlay's className (a static string) — apply it to the
+  // panel node directly once it mounts.
+  useLayoutEffect(() => {
+    if (isDesktop) return
+    const el = panelRef.current
+    if (!el || !panelPos) return
+    el.style.top = `${panelPos.top}px`
+    el.style.right = `${panelPos.right}px`
+    el.style.width = `${panelPos.width}px`
+  })
 
   if (!isJapanese && !hasTranslation && !phrasingAvailable) return null
 
   const triggerActive = open || customized
 
   return (
-    <div ref={rootRef} className="relative shrink-0">
+    <div className="relative shrink-0">
       <button
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
+        onPointerDown={stopTriggerPointerDown}
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label="Lyrics display options"
@@ -331,35 +331,32 @@ export function DisplayMenu(props: Props) {
       </button>
 
       {open && isDesktop && (
-        <div
-          ref={panelRef}
-          tabIndex={-1}
+        <Overlay
+          onClose={() => setOpen(false)}
+          placement="anchored"
           role="dialog"
-          aria-label="Lyrics display options"
+          label="Lyrics display options"
+          panelRef={panelRef}
           className="absolute left-auto right-0 top-full mt-2 z-50 w-60 rounded-xl border border-cinnabar-800 bg-cinnabar-900 shadow-xl shadow-black/40 p-3 space-y-3 max-h-[70dvh] overflow-y-auto overscroll-contain"
         >
           <DisplayMenuPanel {...props} />
-        </div>
+        </Overlay>
       )}
 
       {open && !isDesktop && panelPos && createPortal(
-        <div
-          ref={panelRef}
-          tabIndex={-1}
+        <Overlay
+          onClose={() => setOpen(false)}
+          placement="anchored"
           role="dialog"
-          aria-label="Lyrics display options"
-          style={{
-            top: panelPos.top,
-            right: panelPos.right,
-            width: panelPos.width,
-          }}
+          label="Lyrics display options"
+          panelRef={panelRef}
           // max-h/overflow: in landscape the panel starts ~155px down a 375px
           // viewport, so its lower rows (Side by side, Match song phrasing) were
           // drawn off the bottom edge with no way to reach them.
           className="fixed z-50 rounded-xl border border-cinnabar-800 bg-cinnabar-900 shadow-xl shadow-black/40 p-2.5 space-y-2 max-h-[70dvh] overflow-y-auto overscroll-contain"
         >
           <DisplayMenuPanel {...props} compact />
-        </div>,
+        </Overlay>,
         document.body,
       )}
     </div>

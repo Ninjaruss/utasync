@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import type { TimedLine } from '../core/types'
 import { WaveformStrip, type WaveformMarker } from '../player/WaveformStrip'
 import type { Peaks } from '../player/waveformPeaks'
-import { useModalDialog } from '../core/ui/useModalDialog'
+import { Overlay } from '../core/ui/Overlay'
 
 interface Props {
   line: TimedLine
@@ -140,11 +140,6 @@ const anchorTabOff = 'bg-cinnabar-950 text-white/50'
  */
 export function TimestampPopover({ line, autoEnd, onCommit, onClose, onScrub, onScrubStart, onScrubEnd, canCascade = false, prevStart, peaks, waveformState, positionSec }: Props) {
   const panelRef = useRef<HTMLDivElement>(null)
-  /* The popover advertises "tap outside to cancel", but a keyboard user has no
-   * outside to tap — and Escape did nothing, so the only way out was to commit
-   * with Done. Escape is now exactly that same cancel, matching every other
-   * overlay in the app. */
-  useModalDialog(panelRef, onClose)
   const hasExplicitEnd = line.endTime > line.startTime
   const [mode, setMode] = useState<Mode>('start')
   const [draftStart, setDraftStart] = useState(line.startTime)
@@ -217,13 +212,33 @@ export function TimestampPopover({ line, autoEnd, onCommit, onClose, onScrub, on
   )
 
   return (
-    <div
-      ref={panelRef}
+    <Overlay
+      // The popover advertises "tap outside to cancel", but a keyboard user has
+      // no outside to tap — and Escape did nothing, so the only way out was to
+      // commit with Done. Escape is now exactly that same cancel, matching
+      // every other overlay in the app.
+      onClose={onClose}
+      placement="anchored"
+      // dismissOnOutside={false}: this panel holds uncommitted draft state
+      // (draftStart, draftEnd, cascade — see the useState calls above) that is
+      // only persisted by the "Done" button. Before this migration there was no
+      // outside-pointerdown handler at all, so <Overlay placement="anchored">'s
+      // default outside-dismiss would be new behaviour: a single stray tap
+      // outside the panel silently discarding the user's in-progress edit with
+      // no undo. The "tap outside to cancel" copy below has never been backed by
+      // a real handler, so no user has adapted to it — whether to make it real
+      // is a product decision, separate from this migration. Escape still
+      // cancels (see the comment above), and Done still commits.
+      dismissOnOutside={false}
       role="dialog"
-      aria-label="Edit line timing"
+      label="Edit line timing"
+      panelRef={panelRef}
       className="absolute z-20 mt-1 left-0 right-0 rounded-xl border border-cinnabar-accent/60 bg-cinnabar-900 p-3 space-y-2 shadow-xl"
-      onClick={(e) => e.stopPropagation()}
     >
+      {/* display:contents so this wrapper doesn't break the panel's space-y-2
+          child spacing — it exists only to stop a click from reaching whatever
+          row-level click handler sits underneath the popover. */}
+      <div className="contents" onClick={(e) => e.stopPropagation()}>
       <div className="flex gap-1" role="tablist" aria-label="Timestamp anchor">
         {tab('start', 'Start')}
         {tab('end', 'End')}
@@ -322,6 +337,7 @@ export function TimestampPopover({ line, autoEnd, onCommit, onClose, onScrub, on
           Done
         </button>
       </div>
-    </div>
+      </div>
+    </Overlay>
   )
 }

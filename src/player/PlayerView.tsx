@@ -82,7 +82,7 @@ import { WordColorProgressBanner } from './WordColorProgressBanner'
 import { PlayEditToggle } from './PlayEditToggle'
 import { ConfirmDialog } from '../core/ui/ConfirmDialog'
 import { useConfirmedClose } from '../core/ui/useConfirmedClose'
-import { useModalDialog } from '../core/ui/useModalDialog'
+import { Overlay } from '../core/ui/Overlay'
 import { displayToolbarRow } from '../core/ui/toolbarClasses'
 
 const AutoAlignFlow = lazy(() => import('../ai-pipeline/AutoAlignFlow'))
@@ -363,12 +363,6 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     confirm: confirmLyricsReimportCloseNow,
     cancel: cancelLyricsReimportClose,
   } = useConfirmedClose(() => setShowLyricsReimport(false))
-  const lyricsReimportRef = useRef<HTMLDivElement>(null)
-  // Escape routes through requestClose so it inherits the "lyrics are still
-  // being fetched" guard rather than cancelling a search silently.
-  // Gated on `song` too, because that is what the dialog's own render is gated
-  // on — enabling the hook while the element is absent would leave it unarmed.
-  useModalDialog(lyricsReimportRef, requestLyricsReimportClose, showLyricsReimport && !!song)
   const seekRef = useRef<(time: number, opts?: { fromRetime?: boolean }) => void>(() => {})
   const enrichmentJobRef = useRef(0)
   const wordColorJobRef = useRef(0)
@@ -1995,18 +1989,29 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
       </div>
 
       {showLyricsReimport && song && (
-        <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4"
-          onClick={requestLyricsReimportClose}
+        <Overlay
+          onClose={requestLyricsReimportClose}
+          placement="fullscreen"
+          label="Replace lyrics"
+          // fullscreen's ROOT_CLASS is flex-col; these translate the old flex-row
+          // centring (items-end sm:items-center on the row cross-axis, justify-center
+          // on its main axis) into the column equivalent, so the panel still sits at
+          // the bottom on mobile and centred from sm: up, horizontally centred always.
+          backdropClassName="justify-end sm:justify-center items-center p-4"
         >
+          {/* A sibling, not an ancestor, of the panel — so a click on the panel
+              never reaches this and no stopPropagation is needed. Must stay
+              aria-hidden: focusableWithin() would otherwise hand it initial
+              focus ahead of the panel's own "Close" button. */}
+          <button
+            type="button"
+            aria-label="Dismiss"
+            aria-hidden="true"
+            onClick={requestLyricsReimportClose}
+            className="absolute inset-0 bg-black/60"
+          />
           <div
-            ref={lyricsReimportRef}
-            tabIndex={-1}
-            onClick={(e) => e.stopPropagation()}
             className="relative w-full max-w-md rounded-2xl bg-cinnabar-950 border border-cinnabar-800 p-4 max-h-[min(90dvh,32rem)] flex flex-col overflow-hidden"
-            role="dialog"
-            aria-label="Replace lyrics"
-            aria-modal="true"
           >
             {confirmLyricsReimportClose && (
               <ConfirmDialog
@@ -2043,7 +2048,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
             />
             </div>
           </div>
-        </div>
+        </Overlay>
       )}
 
       {/* Overlay, NOT an early return: tap-through has to be rendered inside the

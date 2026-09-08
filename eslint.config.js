@@ -28,4 +28,19 @@ export default defineConfig([
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     },
   },
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/core/ui/Overlay.tsx'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{
+          group: ['**/useModalDialog'],
+          message:
+            'Do not call useModalDialog directly — render the surface through <Overlay> ' +
+            '(src/core/ui/Overlay.tsx), which owns focus, Escape, Back and scroll lock and ' +
+            'requires a non-optional onClose. Transient layers with no exit use <BlockingOverlay>.',
+        }],
+      }],
+    },
+  },
 ])

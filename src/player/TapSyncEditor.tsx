@@ -1,7 +1,7 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback } from 'react'
 import type { TimedLine } from '../core/types'
 import { ConfirmDialog } from '../core/ui/ConfirmDialog'
-import { useModalDialog } from '../core/ui/useModalDialog'
+import { Overlay } from '../core/ui/Overlay'
 
 interface Props {
   plainLines: string[]
@@ -38,7 +38,6 @@ const SPEED_PRESETS = [
 export function TapSyncEditor({ plainLines, translations, audioPosition, onComplete, onCancel, isPlaying, onTogglePlay, onSeek, volume, onVolumeChange, speed, onSpeedChange }: Props) {
   const [tapped, setTapped] = useState<number[]>([])
   const [confirmingCancel, setConfirmingCancel] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
   const current = tapped.length
   const done = current >= plainLines.length
 
@@ -52,8 +51,6 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
     if (tapped.length === 0) onCancel()
     else setConfirmingCancel(true)
   }, [tapped.length, onCancel])
-
-  useModalDialog(rootRef, requestCancel)
 
   const handleFinish = () => {
     // Emit every line, not just the tapped ones: a partial pass is still worth
@@ -88,15 +85,17 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
     'min-w-11 min-h-11 flex items-center justify-center rounded-full border border-cinnabar-800 text-white/70 hover:text-white hover:border-cinnabar-accent/50 touch-manipulation transition-[color,border-color,transform] duration-150 ease-out active:scale-[0.96]'
 
   return (
-    <div
-      ref={rootRef}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Tap-through timing"
-      tabIndex={-1}
-      className="fixed inset-0 z-50 bg-cinnabar-950 flex flex-col"
-      style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+    <Overlay
+      onClose={requestCancel}
+      placement="fullscreen"
+      label="Tap-through timing"
+      backdropClassName="bg-cinnabar-950"
     >
+      {/* Overlay's own root is the fixed inset-0 flex-col layer; this inner div
+          carries the safe-area padding a raw <Overlay> can't (it takes no
+          `style` prop), while staying a flex child that fills the layer exactly
+          as the header/scroll rows below did directly on the old root. */}
+      <div className="flex flex-col flex-1 min-h-0 w-full" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
       {confirmingCancel && (
         <ConfirmDialog
           title="Leave tap-through?"
@@ -235,6 +234,7 @@ export function TapSyncEditor({ plainLines, translations, audioPosition, onCompl
         )}
       </div>
       </div>
-    </div>
+      </div>
+    </Overlay>
   )
 }

@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { useModalDialog } from './useModalDialog'
+import { useState } from 'react'
+import { Overlay } from './Overlay'
 
 export const ONBOARDING_STORAGE_KEY = 'utasync_onboarding_seen'
 
@@ -30,16 +30,11 @@ function markOnboardingSeen(): void {
 export function Onboarding() {
   const [seen, setSeen] = useState(hasSeenOnboarding)
   const [step, setStep] = useState(0)
-  const ref = useRef<HTMLDivElement>(null)
 
   const dismiss = () => {
     markOnboardingSeen()
     setSeen(true)
   }
-
-  // Escape dismisses for good, exactly like Skip — reappearing after the user
-  // has told it to go away would be worse than not honouring the key at all.
-  useModalDialog(ref, dismiss, !seen)
 
   if (seen) return null
 
@@ -47,13 +42,24 @@ export function Onboarding() {
   const current = STEPS[step]
 
   return (
-    <div
-      ref={ref}
-      tabIndex={-1}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="onboarding-title"
-      className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4"
+    // Escape dismisses for good, exactly like Skip — reappearing after the user
+    // has told it to go away would be worse than not honouring the key at all.
+    // Not registered in OVERLAY_SURFACES (tests/core/ui/overlaySurfaces.tsx):
+    // Onboarding takes no props and owns its own dismiss, so there is no onClose
+    // to inject into the contract's render(onClose) shape. Giving it one is a
+    // Phase 3 concern, when the screen model owns first-run state.
+    //
+    // backdropClassName's `p-4` is overridden at md+ by the `sheet` placement's own
+    // `md:p-6` (both compile into the same @media block; Tailwind emits the spacing
+    // scale in ascending order, so md:p-6 always wins over md:p-4 regardless of
+    // which is listed last here). That is harmless, not a bug to "fix": the panel
+    // below is max-w-sm (384px), and md starts at 768px, so 768 - 48 > 384 means the
+    // backdrop padding never constrains it either way — do not re-add a md:p-4 override.
+    <Overlay
+      onClose={dismiss}
+      placement="sheet"
+      labelledBy="onboarding-title"
+      backdropClassName="z-[70] bg-black/70 items-center justify-center p-4"
     >
       <div className="bg-cinnabar-900 rounded-2xl p-6 max-w-sm w-full space-y-4 animate-[progress-enter_220ms_ease-out_both] shadow-xl shadow-black/40">
         <div className="flex items-center gap-1.5" aria-hidden>
@@ -93,6 +99,6 @@ export function Onboarding() {
           </button>
         </div>
       </div>
-    </div>
+    </Overlay>
   )
 }
