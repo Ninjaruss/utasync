@@ -181,6 +181,64 @@ export function isPlausibleAudioFile(file: File): boolean {
   return AUDIO_EXTENSIONS.includes(ext)
 }
 
+/**
+ * Container/codec signatures covering every extension AUDIO_EXTENSIONS accepts.
+ * Read from the first bytes only — no decode, no full-file buffering.
+ */
+function hasAudioSignature(head: Uint8Array): boolean {
+  const at = (offset: number, ascii: string) =>
+    ascii.split('').every((c, i) => head[offset + i] === c.charCodeAt(0))
+  if (head.length < 4) return false
+  if (at(0, 'ID3')) return true // MP3 carrying an ID3 tag
+  if (head[0] === 0xff && (head[1] & 0xe0) === 0xe0) return true // MPEG / AAC frame sync
+  if (at(0, 'RIFF') && at(8, 'WAVE')) return true // WAV
+  if (at(0, 'OggS')) return true // Ogg Vorbis / Opus
+  if (at(0, 'fLaC')) return true // FLAC
+  if (at(4, 'ftyp')) return true // MP4 / M4A
+  if (head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3) return true // Matroska / WebM
+  return false
+}
+
+/**
+ * True when the picked file actually carries a known audio container signature.
+ *
+ * `isPlausibleAudioFile` cannot catch a non-audio file renamed to `.mp3`: the
+ * browser derives `file.type` from the extension, so `file.type.startsWith('audio/')`
+ * is true for garbage. Without this, such a file was stored, a song row was
+ * written, and the user was told the song was added — then it would not play or
+ * align. Reads 16 bytes, so it works for large files and never blocks on a decode.
+ * An unreadable file is allowed through rather than rejected on our own failure.
+ */
+export async function hasPlayableAudioHeader(file: File): Promise<boolean> {
+  try {
+    return hasAudioSignature(new Uint8Array(await file.slice(0, 16).arrayBuffer()))
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Full up-front validation: the cheap extension/MIME check, then the container
+ * signature for the extensions we advertise.
+ *
+ * The signature is enforced only for `AUDIO_EXTENSIONS`. A file the browser
+ * types `audio/*` under some other extension (`.aiff`, say) keeps the old
+ * MIME-only behaviour rather than being rejected by a signature list it was
+ * never part of.
+ */
+export async function isPlayableAudioFile(file: File): Promise<boolean> {
+  if (!isPlausibleAudioFile(file)) return false
+  const ext = fileExtension(file.name)
+  if (!ext || !AUDIO_EXTENSIONS.includes(ext)) return true
+  return hasPlayableAudioHeader(file)
+}
+
+/** Lowercased extension without the dot, or null when there is none. */
+export function fileExtension(name: string): string | null {
+  const dot = name.lastIndexOf('.')
+  return dot < 0 ? null : name.slice(dot + 1).toLowerCase()
+}
+
 // Best-effort read of embedded title/artist tags. Lazily loads music-metadata
 // so it never affects initial page load, and never throws — a parse failure
 // yields {} and the caller falls back (e.g. to the filename).

@@ -7,14 +7,19 @@ import { extractVideoId } from '../../sources/youtube'
  */
 export function deriveSources(song: Song): SourceRef[] {
   if (song.sources && song.sources.length > 0) return song.sources
+  const sources: SourceRef[] = []
   if (song.sourceUrl) {
     const videoId = extractVideoId(song.sourceUrl)
-    if (videoId) return [{ provider: 'youtube', ref: videoId, url: song.sourceUrl, hasAudio: false }]
+    if (videoId) sources.push({ provider: 'youtube', ref: videoId, url: song.sourceUrl, hasAudio: false })
   }
+  // A link song can gain local audio later (attaching a file unlocks auto-align
+  // and A/B export). Emitting only the youtube entry claimed it had no local
+  // audio, contradicting the audioStoredPath the rest of the app actually gates
+  // on — so record both when both are present.
   if (song.audioStoredPath) {
-    return [{ provider: 'upload', ref: song.audioStoredPath, hasAudio: true }]
+    sources.push({ provider: 'upload', ref: song.audioStoredPath, hasAudio: true })
   }
-  return []
+  return sources
 }
 
 /** Above this share of unverifiable (needs_review) lines, a fully-timed song is

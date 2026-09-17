@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { LinkParser } from '../../src/sources/LinkParser'
 import { db } from '../../src/core/db/schema'
+import { mp3File } from './helpers/audioFixtures'
 
 vi.mock('../../src/sources/youtube', () => ({
   fetchYouTubeMeta: vi.fn(async () => ({ title: 'Test Song', artist: 'Test Artist', videoId: 'abc123' })),
@@ -110,11 +111,56 @@ describe('LinkParser', () => {
     await waitFor(() => expect(resolver.resolveLyricsForSong).toHaveBeenCalledTimes(2), { timeout: 3000 })
   })
 
+  // The sheet's close guard asks "Discard this song?" only when the flow reports
+  // itself dirty. In the link flow nothing ever marked the metadata fields dirty,
+  // so correct the parsed title/artist and closing dropped the correction with no
+  // prompt.
+  describe('dirty tracking', () => {
+    async function loadMetadata(onDirtyChange: (d: boolean) => void) {
+      render(<LinkParser onSongReady={vi.fn()} onDirtyChange={onDirtyChange} />)
+      fireEvent.change(screen.getByPlaceholderText(/paste a youtube link/i), { target: { value: 'https://youtu.be/abc123' } })
+      fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+      await waitFor(() => expect(screen.getByLabelText(/song title/i)).toHaveValue('Test Song'))
+    }
+
+    it('marks the sheet dirty on a title correction', async () => {
+      const onDirtyChange = vi.fn()
+      await loadMetadata(onDirtyChange)
+      onDirtyChange.mockClear()
+      fireEvent.change(screen.getByLabelText(/song title/i), { target: { value: 'Corrected Title' } })
+      await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(true))
+    })
+
+    it('marks the sheet dirty on an artist correction alone', async () => {
+      const onDirtyChange = vi.fn()
+      await loadMetadata(onDirtyChange)
+      onDirtyChange.mockClear()
+      fireEvent.change(screen.getByLabelText(/^artist$/i), { target: { value: 'Corrected Artist' } })
+      await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(true))
+    })
+
+    it('marks the sheet dirty when a subtitle file is attached', async () => {
+      const resolver = await import('../../src/sources/lyricsResolver')
+      vi.mocked(resolver.resolveLyricsForSong).mockResolvedValue({ lines: [], synced: false, source: 'none' })
+      const onDirtyChange = vi.fn()
+      const { container } = render(<LinkParser onSongReady={vi.fn()} onDirtyChange={onDirtyChange} />)
+      fireEvent.change(screen.getByPlaceholderText(/paste a youtube link/i), { target: { value: 'https://youtu.be/abc123' } })
+      fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+      await waitFor(() => expect(screen.getByText(/no match in captions or the lyrics database/i)).toBeInTheDocument(), { timeout: 3000 })
+
+      fireEvent.click(screen.getByRole('button', { name: /subtitle file/i }))
+      onDirtyChange.mockClear()
+      const subtitleInput = container.querySelector('input[accept*=".srt"]') as HTMLInputElement
+      fireEvent.change(subtitleInput, { target: { files: [new File(['x'], 'cap.srt', { type: 'text/plain' })] } })
+      await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(true))
+    })
+  })
+
   it('attaches uploaded audio to the built song when provided', async () => {
     const onSongReady = vi.fn()
     render(<LinkParser onSongReady={onSongReady} />)
     fireEvent.change(screen.getByPlaceholderText(/paste a youtube link/i), { target: { value: 'https://youtu.be/abc123' } })
-    const file = new File([new Uint8Array([1, 2, 3])], 'song.mp3', { type: 'audio/mpeg' })
+    const file = mp3File()
     const fileInput = screen.getAllByLabelText(/add audio file/i).find((el) => el.tagName === 'INPUT') as HTMLInputElement
     fireEvent.change(fileInput, { target: { files: [file] } })
     fireEvent.click(screen.getByRole('button', { name: /continue/i }))

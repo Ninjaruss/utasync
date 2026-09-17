@@ -1,6 +1,14 @@
 import type { TimedLine } from '../core/types'
 
-const TIMESTAMP_RE = /^\[(\d{2}):(\d{2})\.(\d{2,3})\]/
+/**
+ * The numeric shape here must stay in step with `LEADING_LRC_TAGS_RE` in
+ * lyricCleanup.ts, which decides what counts as a strippable LRC tag. When the
+ * two disagreed, a paste like `[0:05.00]` (single-digit minutes) or `[0:05]`
+ * (no fraction) was stripped as a tag by the cleanup path but NOT detected as
+ * LRC here — so `linesFromPaste` fell back to plain text and the user's timings
+ * were silently thrown away.
+ */
+const TIMESTAMP_RE = /^\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/
 const METADATA_RE = /^\[(?:ti|ar|al|by|re|ve):/i
 const OFFSET_RE = /^\[offset:\s*([+-]?\d+)\]/i
 
@@ -9,10 +17,11 @@ function parseTimestamp(line: string): { time: number; text: string } | null {
   if (!match) return null
   const minutes = parseInt(match[1])
   const seconds = parseInt(match[2])
-  const centiseconds = match[3].length === 3
-    ? parseInt(match[3]) / 1000
-    : parseInt(match[3]) / 100
-  const time = minutes * 60 + seconds + centiseconds
+  // The fraction is optional; its digit count sets the scale (1 = tenths,
+  // 2 = hundredths, 3 = milliseconds).
+  const frac = match[3]
+  const fraction = frac ? parseInt(frac) / 10 ** frac.length : 0
+  const time = minutes * 60 + seconds + fraction
   const text = line.slice(match[0].length).trim()
   return { time, text }
 }

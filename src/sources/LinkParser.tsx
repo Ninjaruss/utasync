@@ -6,6 +6,7 @@ import { buildSong, linesFromPaste, type BuildSongInput } from './songBuilder'
 import { LrcTimingNotice } from '../lyrics/LrcTimingNotice'
 import { detectLanguage } from '../lyrics/bilingual'
 import { ingestAudioFile } from './audioIngest'
+import { isPlausibleAudioFile, isPlayableAudioFile } from './audioMetadata'
 import { resolveCoverArt } from './coverArt'
 import type { TimedLine, Language } from '../core/types'
 import { parseSubtitle } from '../lyrics/subtitle-parser'
@@ -53,7 +54,8 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
   const [audioFile, setAudioFile] = useState<File | null>(null)
   const [title, setTitle] = useState('')
   const [artist, setArtist] = useState('')
-  const [titleEdited, setTitleEdited] = useState(false)
+  /** True once the user has touched the title or artist fields by hand. */
+  const [metaEdited, setMetaEdited] = useState(false)
   const [videoId, setVideoId] = useState<string | null>(null)
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null)
   const [metaLoaded, setMetaLoaded] = useState(false)
@@ -65,15 +67,39 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
   const [saveProgress, setSaveProgress] = useState<{ phase: LinkSavePhase; includeAudio: boolean; taskProgress?: number | null } | null>(null)
   const [lyricSearchStage, setLyricSearchStage] = useState<ResolveLyricsStage | null>(null)
   const [error, setError] = useState('')
+  const [audioWarning, setAudioWarning] = useState('')
   const [matchConfirmed, setMatchConfirmed] = useState(false)
   const searchGenRef = useRef(0)
+
+  /** Validate an attached audio file before accepting it. A browser types a file
+   * by its extension, so an unreadable file renamed to .mp3 used to be accepted
+   * here and stored as a song that could never play. */
+  const handleAudioFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] ?? null
+    if (f && !isPlausibleAudioFile(f)) {
+      setAudioFile(null)
+      setAudioWarning("This file doesn't look like playable audio. Pick an MP3, M4A, WAV, or similar.")
+      return
+    }
+    if (f && !(await isPlayableAudioFile(f))) {
+      setAudioFile(null)
+      setAudioWarning("This file doesn't contain readable audio. Pick an MP3, M4A, WAV, or similar.")
+      return
+    }
+    setAudioWarning('')
+    setAudioFile(f)
+  }
 
   const isBusy = !!saveProgress || metadataLoading || lyricsPhase.kind === 'searching'
   useEffect(() => {
     onBusyChange?.(isBusy)
   }, [isBusy, onBusyChange])
 
-  const isDirty = !!pasted.trim() || !!audioFile || (titleEdited && !!title.trim())
+  // Any of these is unsaved user work that closing the sheet would discard.
+  // An artist-only correction counts: only the title used to be tracked, so
+  // fixing a wrong artist and closing lost it with no confirm.
+  const isDirty = !!pasted.trim() || !!audioFile || !!subtitleFile
+    || (metaEdited && (!!title.trim() || !!artist.trim()))
   useEffect(() => {
     onDirtyChange?.(isDirty)
   }, [isDirty, onDirtyChange])
@@ -85,7 +111,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
     try {
       const meta = await fetchYouTubeMeta(url)
       setTitle(meta.title)
-      setTitleEdited(false)
+      setMetaEdited(false)
       setArtist(meta.artist)
       setVideoId(meta.videoId)
       setThumbnailUrl(meta.thumbnailUrl)
@@ -339,9 +365,12 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
             type="file"
             accept="audio/*"
             className="sr-only"
-            onChange={(e: ChangeEvent<HTMLInputElement>) => setAudioFile(e.target.files?.[0] ?? null)}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => void handleAudioFileChange(e)}
           />
         </label>
+        {audioWarning && (
+          <p role="alert" className="text-amber-400/90 text-xs text-pretty">{audioWarning}</p>
+        )}
 
         {!metaLoaded ? (
           <button
@@ -365,7 +394,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
               <input
                 id="link-song-title"
                 value={title}
-                onChange={(e) => { setTitle(e.target.value); resetLyricsOnMetadataEdit() }}
+                onChange={(e) => { setTitle(e.target.value); setMetaEdited(true); resetLyricsOnMetadataEdit() }}
                 className={fieldClass}
               />
             </div>
@@ -377,7 +406,7 @@ export function LinkParser({ onSongReady, embedded = false, onBusyChange, onDirt
               <input
                 id="link-song-artist"
                 value={artist}
-                onChange={(e) => { setArtist(e.target.value); resetLyricsOnMetadataEdit() }}
+                onChange={(e) => { setArtist(e.target.value); setMetaEdited(true); resetLyricsOnMetadataEdit() }}
                 className={fieldClass}
               />
             </div>

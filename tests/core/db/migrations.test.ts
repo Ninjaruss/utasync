@@ -26,6 +26,19 @@ describe('deriveSources', () => {
     ])
   })
 
+  // A YouTube song that later gains a local audio file has BOTH sources. Emitting
+  // only the youtube entry claimed it had no local audio.
+  it('records both the link and the attached audio when a song has both', () => {
+    const s = baseSong({
+      sourceUrl: 'https://youtube.com/watch?v=abc123',
+      audioStoredPath: 'songs/s1.mp3',
+    })
+    expect(deriveSources(s)).toEqual([
+      { provider: 'youtube', ref: 'abc123', url: 'https://youtube.com/watch?v=abc123', hasAudio: false },
+      { provider: 'upload', ref: 'songs/s1.mp3', hasAudio: true },
+    ])
+  })
+
   it('returns existing sources untouched when already present', () => {
     const sources = [{ provider: 'youtube' as const, ref: 'x', hasAudio: true }]
     expect(deriveSources(baseSong({ sources }))).toBe(sources)

@@ -185,6 +185,34 @@ describe('findLyrics', () => {
     expect(result?.lrc).toBe('[00:01.00]Right take')
   })
 
+  // The /get endpoint can return a DIFFERENT recording under the same title and
+  // artist (album vs single, live vs studio). Scoring that hit without the target
+  // duration let it reach 1.0 and short-circuit shouldAcceptEarly, so the wrong
+  // master's lyrics came back before the /search fan-out could find the right one.
+  it('rejects an exact /get hit whose duration says it is a different master', async () => {
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('/api/get')) {
+        return {
+          ok: true,
+          json: async () => ({
+            id: 1, name: 'Home', artistName: 'Cover Band', duration: 250,
+            syncedLyrics: '[00:01.00]Wrong master', plainLyrics: null,
+          }),
+        } as Response
+      }
+      return {
+        ok: true,
+        json: async () => ([
+          { id: 2, name: 'Home', artistName: 'Cover Band', duration: 210, syncedLyrics: '[00:01.00]Right master' },
+        ]),
+      } as Response
+    })
+
+    const { lookup: result } = await findLyrics('Home', 'Cover Band', undefined, 210)
+    expect(result?.lrc).toBe('[00:01.00]Right master')
+  })
+
   it('prefers English lyrics for Western songs even when app default is Japanese', async () => {
     vi.mocked(fetch).mockImplementation(async (input) => {
       const url = String(input)

@@ -3,6 +3,8 @@ import {
   deriveTitle,
   extractAudioMetadata,
   isPlausibleAudioFile,
+  hasPlayableAudioHeader,
+  isPlayableAudioFile,
   parseFilename,
   unpackCombinedTags,
   resolveTrackMetadata,
@@ -29,6 +31,59 @@ describe('isPlausibleAudioFile', () => {
     expect(isPlausibleAudioFile(make('notes.txt', 'text/plain'))).toBe(false)
     expect(isPlausibleAudioFile(make('doc.pdf', 'application/pdf'))).toBe(false)
     expect(isPlausibleAudioFile(make('noextension'))).toBe(false)
+  })
+})
+
+/**
+ * `isPlausibleAudioFile` cannot see inside the file, and a browser types a file
+ * by its extension — so it accepts anything named `.mp3`. This is the check that
+ * actually reads the container, so a non-audio file cannot be stored as a song
+ * that will never play or align.
+ */
+describe('hasPlayableAudioHeader', () => {
+  const withBytes = (name: string, bytes: number[], type = 'audio/mpeg') =>
+    new File([new Uint8Array(bytes)], name, { type })
+
+  const ascii = (s: string) => s.split('').map((c) => c.charCodeAt(0))
+
+  it('accepts the container signatures of every supported format', async () => {
+    expect(await hasPlayableAudioHeader(withBytes('id3.mp3', [...ascii('ID3'), 0]))).toBe(true)
+    expect(await hasPlayableAudioHeader(withBytes('frame.mp3', [0xff, 0xfb, 0x90, 0x00]))).toBe(true)
+    expect(await hasPlayableAudioHeader(withBytes('a.wav', [...ascii('RIFF'), 0, 0, 0, 0, ...ascii('WAVE')]))).toBe(true)
+    expect(await hasPlayableAudioHeader(withBytes('a.ogg', ascii('OggS')))).toBe(true)
+    expect(await hasPlayableAudioHeader(withBytes('a.flac', ascii('fLaC')))).toBe(true)
+    expect(await hasPlayableAudioHeader(withBytes('a.m4a', [0, 0, 0, 0, ...ascii('ftyp')]))).toBe(true)
+    expect(await hasPlayableAudioHeader(withBytes('a.webm', [0x1a, 0x45, 0xdf, 0xa3]))).toBe(true)
+  })
+
+  it('rejects a file that merely claims to be audio', async () => {
+    // A browser gives a renamed text file `audio/mpeg` from the .mp3 extension.
+    expect(await hasPlayableAudioHeader(withBytes('fake.mp3', ascii('this is not audio')))).toBe(false)
+  })
+
+  it('rejects a file too short to carry a signature', async () => {
+    expect(await hasPlayableAudioHeader(withBytes('tiny.mp3', [0xff]))).toBe(false)
+  })
+})
+
+describe('isPlayableAudioFile', () => {
+  it('accepts a real container under an advertised extension', async () => {
+    expect(await isPlayableAudioFile(new File([new Uint8Array([0xff, 0xfb, 0, 0])], 'song.mp3', { type: 'audio/mpeg' }))).toBe(true)
+  })
+
+  it('rejects garbage renamed to .mp3', async () => {
+    expect(await isPlayableAudioFile(new File(['not audio at all'], 'song.mp3', { type: 'audio/mpeg' }))).toBe(false)
+  })
+
+  // A file the browser types `audio/*` under an extension we do not advertise
+  // keeps the old MIME-only behaviour rather than failing a signature check it
+  // was never part of.
+  it('leaves an unadvertised extension to the MIME check', async () => {
+    expect(await isPlayableAudioFile(new File(['x'], 'song.aiff', { type: 'audio/aiff' }))).toBe(true)
+  })
+
+  it('still rejects a file the cheap check turns away', async () => {
+    expect(await isPlayableAudioFile(new File(['x'], 'notes.txt', { type: 'text/plain' }))).toBe(false)
   })
 })
 

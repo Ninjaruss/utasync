@@ -14,6 +14,7 @@ import {
   extractAudioMetadata,
   resolveTrackMetadata,
   isPlausibleAudioFile,
+  isPlayableAudioFile,
   type MetadataFieldSource,
 } from './audioMetadata'
 import type { LyricsData, TimedLine } from '../core/types'
@@ -102,7 +103,8 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
   const [file, setFile] = useState<File | null>(null)
   const [title, setTitle] = useState('')
   const [artist, setArtist] = useState('')
-  const [titleEdited, setTitleEdited] = useState(false)
+  /** True once the user has touched the title or artist fields by hand. */
+  const [metaEdited, setMetaEdited] = useState(false)
   const [durationSec, setDurationSec] = useState<number | undefined>(undefined)
   const [titleSource, setTitleSource] = useState<MetadataFieldSource | null>(null)
   const [artistSource, setArtistSource] = useState<MetadataFieldSource | null>(null)
@@ -124,7 +126,10 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
     onBusyChange?.(isBusy)
   }, [isBusy, onBusyChange])
 
-  const isDirty = !!pasted.trim() || !!file || (titleEdited && !!title.trim())
+  // Any of these is unsaved user work that closing the sheet would discard.
+  // An artist-only correction counts: only the title used to be tracked.
+  const isDirty = !!pasted.trim() || !!file || !!subtitleFile
+    || (metaEdited && (!!title.trim() || !!artist.trim()))
   useEffect(() => {
     onDirtyChange?.(isDirty)
   }, [isDirty, onDirtyChange])
@@ -136,6 +141,14 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
     if (f && !isPlausibleAudioFile(f)) {
       setFile(null)
       setFileWarning("This file doesn't look like playable audio. Pick an MP3, M4A, WAV, or similar.")
+      return
+    }
+    // The extension/MIME check above cannot see inside the file, and browsers
+    // type a file by its extension — so garbage renamed to .mp3 passed it and was
+    // stored as a song that could never play. Check the actual container bytes.
+    if (f && !(await isPlayableAudioFile(f))) {
+      setFile(null)
+      setFileWarning("This file doesn't contain readable audio. Pick an MP3, M4A, WAV, or similar.")
       return
     }
     // Very large files still process, but warn — long songs can strain the device.
@@ -403,7 +416,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
             value={title}
             onChange={(e) => {
               setTitle(e.target.value)
-              setTitleEdited(true)
+              setMetaEdited(true)
               setTitleSource(null)
               setFilenameAmbiguous(false)
               resetLyricsOnMetadataEdit()
@@ -425,6 +438,7 @@ export function UploadAudioFlow({ onSongReady, embedded = false, onBusyChange, o
             value={artist}
             onChange={(e) => {
               setArtist(e.target.value)
+              setMetaEdited(true)
               setArtistSource(null)
               setFilenameAmbiguous(false)
               resetLyricsOnMetadataEdit()

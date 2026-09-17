@@ -90,6 +90,15 @@ describe('linesFromPaste', () => {
     expect(lines.length).toBe(5)
     expect(lines.every((l) => l.startTime === 0)).toBe(true)
   })
+
+  // Single-digit minutes and a missing fraction are stripped by lyricCleanup, so
+  // they must also be recognised as LRC here. When they were not, the tags were
+  // stripped AND the timings dropped, leaving untimed lines at t=0.
+  it('keeps the timings for the tag shapes the cleanup path strips', () => {
+    const lines = linesFromPaste('[0:05.00]first\n[0:09]second')
+    expect(lines.map((l) => l.startTime)).toEqual([5, 9])
+    expect(lines.map((l) => l.original)).toEqual(['first', 'second'])
+  })
 })
 
 describe('pastedLrcTimedLines', () => {

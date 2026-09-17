@@ -18,6 +18,29 @@ describe('parseSubtitle', () => {
     expect(lines[0]).toMatchObject({ startTime: 2, endTime: 5, original: 'Konnichiwa' })
   })
 
+  // WebVTT permits `MM:SS.mmm` with the hours field omitted, and short-clip
+  // files routinely do. Requiring it dropped every cue, so a valid import
+  // silently produced no lines at all.
+  it('parses VTT cues whose timestamps omit the hours field', () => {
+    const vtt = 'WEBVTT\n\n00:02.000 --> 00:05.500\nHello'
+    const lines = parseSubtitle(vtt, 'cap.vtt')
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ startTime: 2, endTime: 5.5, original: 'Hello' })
+  })
+
+  // Captions are HTML-ish text: `&` is written `&amp;` and stays literal after
+  // tag-stripping, so "Rock & Roll" reached the lyric sheet as "Rock &amp; Roll".
+  it('decodes HTML entities in cue text', () => {
+    const vtt = 'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nRock &amp; Roll &lt;live&gt;'
+    expect(parseSubtitle(vtt, 'cap.vtt')[0].original).toBe('Rock & Roll <live>')
+  })
+
+  // Decoding `&amp;` last is what keeps a genuinely escaped entity intact.
+  it('does not double-decode an escaped entity', () => {
+    const vtt = 'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nA &amp;lt; B'
+    expect(parseSubtitle(vtt, 'cap.vtt')[0].original).toBe('A &lt; B')
+  })
+
   it('collapses multi-line cues into one line', () => {
     const srt = '1\n00:00:01,000 --> 00:00:02,000\nline a\nline b'
     expect(parseSubtitle(srt, 'x.srt')[0].original).toBe('line a line b')

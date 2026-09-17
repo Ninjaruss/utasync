@@ -1,3 +1,4 @@
+import { mp3File } from './helpers/audioFixtures'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { UploadAudioFlow } from '../../src/sources/UploadAudioFlow'
@@ -26,7 +27,7 @@ beforeEach(async () => {
 async function pickFileAndTitle(container: HTMLElement, title = 'Mistyped Titel') {
   fireEvent.change(screen.getByLabelText(/song title/i), { target: { value: title } })
   const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
-  fireEvent.change(fileInput, { target: { files: [new File(['x'], 'song.mp3', { type: 'audio/mpeg' })] } })
+  fireEvent.change(fileInput, { target: { files: [mp3File()] } })
   await waitFor(() => expect(screen.getByRole('button', { name: /paste lyrics/i })).toBeInTheDocument())
 }
 

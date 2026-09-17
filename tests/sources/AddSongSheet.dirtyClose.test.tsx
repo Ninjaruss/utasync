@@ -1,3 +1,4 @@
+import { mp3File } from './helpers/audioFixtures'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { AddSongSheet } from '../../src/sources/AddSongSheet'
@@ -58,7 +59,7 @@ describe('AddSongSheet dirty-close guard', () => {
     const { container } = render(<AddSongSheet onSongReady={vi.fn()} onClose={onClose} />)
     fireEvent.change(screen.getByLabelText(/song title/i), { target: { value: 'My Song' } })
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
-    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'song.mp3', { type: 'audio/mpeg' })] } })
+    fireEvent.change(fileInput, { target: { files: [mp3File()] } })
     await waitFor(
       () => expect(screen.getByText(/no match in the lyrics database/i)).toBeInTheDocument(),
       { timeout: 3000 },
@@ -80,14 +81,18 @@ describe('AddSongSheet dirty-close guard', () => {
     const { container } = render(<AddSongSheet onSongReady={vi.fn()} onClose={onClose} />)
     fireEvent.change(screen.getByLabelText(/song title/i), { target: { value: 'My Song' } })
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
-    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'song.mp3', { type: 'audio/mpeg' })] } })
-    await waitFor(
-      () => expect(screen.getByText(/checking the lyrics database for an exact match/i)).toBeInTheDocument(),
-      { timeout: 3000 },
-    )
+    fireEvent.change(fileInput, { target: { files: [mp3File()] } })
+    await waitFor(() => expect(lrclib.findLyrics).toHaveBeenCalled(), { timeout: 3000 })
 
-    fireEvent.click(backdrop())
+    // Retry the tap rather than assuming one lands after the busy flag
+    // propagates: the flow starts the search and marks itself busy in the same
+    // tick, and that flag only reaches the sheet a render later. A tap in that
+    // gap gets the (also-correct) unsaved-work dialog instead. Either way the
+    // sheet never closes, so re-tapping is safe.
+    await waitFor(() => {
+      fireEvent.click(backdrop())
+      expect(screen.getByText(/lyric search or saving is still in progress/i)).toBeInTheDocument()
+    })
     expect(onClose).not.toHaveBeenCalled()
-    expect(screen.getByText(/lyric search or saving is still in progress/i)).toBeInTheDocument()
   })
 })

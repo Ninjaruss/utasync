@@ -135,6 +135,7 @@ function lookupFromResult(
   trackName: string,
   artistName: string,
   matchKind: LyricsLookupMatch['matchKind'],
+  targetDurationSec?: number,
 ): LyricsLookup {
   return {
     lrc,
@@ -142,7 +143,11 @@ function lookupFromResult(
     match: {
       track: result.name,
       artist: result.artistName,
-      matchScore: lyricsMatchScore(result, trackName, artistName),
+      // Duration MUST be part of this score: it is what tells two same-titled
+      // masters apart, and `shouldAcceptEarly` short-circuits on this score.
+      // Scoring the exact /get hit without it let a different recording of the
+      // same title/artist score 1.0 and win before the /search fan-out ran.
+      matchScore: lyricsMatchScore(result, trackName, artistName, targetDurationSec),
       matchKind,
     },
   }
@@ -151,6 +156,7 @@ function lookupFromResult(
 async function fetchLRCLIBExact(
   trackName: string,
   artistName: string,
+  targetDurationSec?: number,
 ): Promise<LyricsLookup | null> {
   try {
     const params = new URLSearchParams({ track_name: trackName, artist_name: artistName })
@@ -159,7 +165,9 @@ async function fetchLRCLIBExact(
     const data = r.data
     const lrc = data.syncedLyrics ?? data.plainLyrics
     if (!lrc) return null
-    return lookupFromResult(data, lrc, !!data.syncedLyrics, trackName, artistName, 'exact')
+    return lookupFromResult(
+      data, lrc, !!data.syncedLyrics, trackName, artistName, 'exact', targetDurationSec,
+    )
   } catch {
     return null
   }
@@ -350,12 +358,14 @@ async function findLyricsInner(
     candidates.push({
       score,
       synced,
-      lookup: lookupFromResult(result, lrc, synced, trackName, artistName, matchKind),
+      lookup: lookupFromResult(
+        result, lrc, synced, trackName, artistName, matchKind, targetDurationSec,
+      ),
     })
   }
 
   onStage?.('exact')
-  const primaryExact = await fetchLRCLIBExact(trackName, artistName)
+  const primaryExact = await fetchLRCLIBExact(trackName, artistName, targetDurationSec)
   if (primaryExact) {
     candidates.push({
       lookup: primaryExact,
@@ -376,7 +386,7 @@ async function findLyricsInner(
   const exactResults = await mapConcurrent(
     exactPairs,
     LRCLIB_EXACT_CONCURRENCY,
-    ({ artist, title }) => fetchLRCLIBExact(title, artist),
+    ({ artist, title }) => fetchLRCLIBExact(title, artist, targetDurationSec),
   )
   exactResults.forEach((exact, i) => {
     if (!exact) return

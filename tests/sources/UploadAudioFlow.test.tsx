@@ -1,3 +1,4 @@
+import { mp3File } from './helpers/audioFixtures'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { UploadAudioFlow } from '../../src/sources/UploadAudioFlow'
@@ -30,7 +31,7 @@ beforeEach(async () => {
 async function pickFileAndTitle(container: HTMLElement, title = 'My Song') {
   fireEvent.change(screen.getByLabelText(/song title/i), { target: { value: title } })
   const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
-  fireEvent.change(fileInput, { target: { files: [new File(['x'], 'song.mp3', { type: 'audio/mpeg' })] } })
+  fireEvent.change(fileInput, { target: { files: [mp3File()] } })
   await waitFor(() => expect(screen.getByRole('button', { name: /paste lyrics/i })).toBeInTheDocument())
 }
 
@@ -65,7 +66,7 @@ describe('UploadAudioFlow', () => {
     const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
-    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'whatever.mp3', { type: 'audio/mpeg' })] } })
+    fireEvent.change(fileInput, { target: { files: [mp3File(undefined, 'whatever.mp3')] } })
 
     await waitFor(() => expect(screen.getByLabelText(/song title/i)).toHaveValue('Tagged Title'))
     expect(screen.getByLabelText(/^artist$/i)).toHaveValue('Tagged Artist')
@@ -76,7 +77,7 @@ describe('UploadAudioFlow', () => {
     const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
-    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'My Eyes Only.mp3', { type: 'audio/mpeg' })] } })
+    fireEvent.change(fileInput, { target: { files: [mp3File(undefined, 'My Eyes Only.mp3')] } })
 
     await waitFor(() => expect(screen.getByLabelText(/song title/i)).toHaveValue('My Eyes Only'))
     expect(screen.getByText(/from filename/i)).toBeInTheDocument()
@@ -88,7 +89,7 @@ describe('UploadAudioFlow', () => {
 
     fireEvent.change(screen.getByLabelText(/song title/i), { target: { value: 'My Manual Title' } })
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
-    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'song.mp3', { type: 'audio/mpeg' })] } })
+    fireEvent.change(fileInput, { target: { files: [mp3File()] } })
 
     await waitFor(() => expect(extractAudioMetadata).toHaveBeenCalled())
     expect(screen.getByLabelText(/song title/i)).toHaveValue('My Manual Title')
@@ -98,7 +99,7 @@ describe('UploadAudioFlow', () => {
     const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
-    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'Yorushika - Itte.mp3', { type: 'audio/mpeg' })] } })
+    fireEvent.change(fileInput, { target: { files: [mp3File(undefined, 'Yorushika - Itte.mp3')] } })
 
     await waitFor(() => expect(screen.getByLabelText(/song title/i)).toHaveValue('Itte'))
     expect((screen.getByLabelText(/^artist$/i) as HTMLInputElement).value).toBe('Yorushika')
@@ -107,7 +108,7 @@ describe('UploadAudioFlow', () => {
   it('swaps title and artist when the swap control is used', async () => {
     const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
-    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'Yorushika - Itte.mp3', { type: 'audio/mpeg' })] } })
+    fireEvent.change(fileInput, { target: { files: [mp3File(undefined, 'Yorushika - Itte.mp3')] } })
     await waitFor(() => expect(screen.getByLabelText(/song title/i)).toHaveValue('Itte'))
 
     fireEvent.click(screen.getByRole('button', { name: /swap title and artist/i }))
@@ -223,7 +224,7 @@ describe('UploadAudioFlow', () => {
     vi.mocked(extractAudioMetadata).mockClear()
     const { container } = render(<UploadAudioFlow onSongReady={() => {}} />)
 
-    const big = new File(['x'], 'long-live.mp3', { type: 'audio/mpeg' })
+    const big = mp3File(undefined, 'long-live.mp3')
     Object.defineProperty(big, 'size', { value: 150 * 1024 * 1024 })
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
     fireEvent.change(fileInput, { target: { files: [big] } })

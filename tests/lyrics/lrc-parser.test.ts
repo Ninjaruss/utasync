@@ -44,6 +44,17 @@ describe('parseLRC', () => {
     expect(lines[0].startTime).toBeCloseTo(9.5)
   })
 
+  it('parses single-digit minutes and a missing fraction', () => {
+    // Shapes the cleanup path already strips, so the parser must read them too.
+    expect(parseLRC('[0:05.50]a\n[0:10]b').map((l) => l.startTime)).toEqual([5.5, 10])
+  })
+
+  it('scales the fraction by its digit count', () => {
+    expect(parseLRC('[00:01.5]a')[0].startTime).toBeCloseTo(1.5)   // tenths
+    expect(parseLRC('[00:01.05]a')[0].startTime).toBeCloseTo(1.05) // hundredths
+    expect(parseLRC('[00:01.005]a')[0].startTime).toBeCloseTo(1.005) // milliseconds
+  })
+
   it('returns empty array for empty input', () => {
     expect(parseLRC('')).toEqual([])
   })
@@ -72,6 +83,17 @@ describe('hasLrcTimestamps', () => {
 
   it('is true for a full LRC with fractional-ms tags', () => {
     expect(hasLrcTimestamps('[00:03.720]a\n[00:06.760]b\n[00:10.08]c')).toBe(true)
+  })
+
+  // These shapes are stripped as LRC tags by lyricCleanup's LEADING_LRC_TAGS_RE,
+  // so detection has to accept them too. When it did not, the paste was stripped
+  // *and* judged untimed, and the user's timings were silently discarded.
+  it('accepts the same tag shapes the cleanup path strips', () => {
+    expect(hasLrcTimestamps('[0:05.00]a\n[0:10.00]b')).toBe(true)
+    expect(hasLrcTimestamps('[0:05]a\n[0:10]b')).toBe(true)
+    expect(hasLrcTimestamps('[00:05]a\n[00:10]b')).toBe(true)
+    expect(hasLrcTimestamps('[0:05:00]a\n[0:10:00]b')).toBe(true)
+    expect(hasLrcTimestamps('[123:45.678]a\n[124:00.000]b')).toBe(true)
   })
 
   it('is false for plain lyrics', () => {
