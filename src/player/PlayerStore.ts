@@ -1,6 +1,7 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
 import type { PlaybackState, ABLoop } from '../core/types'
+import { safeLocalStorage } from '../core/storage/safeLocalStorage'
 
 interface PlayerState {
   currentSongId: string | null
@@ -43,7 +44,17 @@ export const usePlayerStore = create<PlayerState>()(
       volume: DEFAULT_VOLUME,
       abLoop: DEFAULT_AB_LOOP,
       armingAB: null,
-      setCurrentSong: (id) => set({ currentSongId: id, position: 0, duration: 0, playbackState: 'idle' }),
+      setCurrentSong: (id) => set({
+        currentSongId: id,
+        position: 0,
+        duration: 0,
+        playbackState: 'idle',
+        // A/B loop endpoints are timestamps in ONE song's audio; carrying them to a
+        // different song would seek the wrong moments. Clear on a song switch (and
+        // release a half-armed A/B tap) so a loop set on song 1 never applies to song 2.
+        abLoop: { ...DEFAULT_AB_LOOP },
+        armingAB: null,
+      }),
       setPlaybackState: (playbackState) => set({ playbackState }),
       setPosition: (position) => set({ position }),
       setDuration: (duration) => set({ duration }),
@@ -59,8 +70,12 @@ export const usePlayerStore = create<PlayerState>()(
         position: s.position,
         speed: s.speed,
         volume: s.volume,
-        abLoop: s.abLoop,
+        // `abLoop` (a/b) is intentionally NOT persisted: the endpoints are
+        // song-relative and transient, and the other fields (preRoll/loopCount/
+        // crossfadeDuration) are unused. Persisting them only rehydrated stale
+        // timestamps onto whatever song opened next.
       }),
+      storage: createJSONStorage(() => safeLocalStorage),
     }
   )
 )

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
 import type { Language, ReadingMode, UserSettings } from '../core/types'
+import { safeLocalStorage } from '../core/storage/safeLocalStorage'
 
 interface SettingsState extends UserSettings {
   setDefaultSongLanguage: (lang: Language) => void
@@ -49,6 +50,7 @@ export const useSettingsStore = create<SettingsState>()(
       name: 'utasync-settings',
       version: 1,
       migrate: (persisted, version) => migrateSettings(persisted, version) as SettingsState,
+      storage: createJSONStorage(() => safeLocalStorage),
     }
   )
 )

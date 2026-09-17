@@ -4,6 +4,7 @@ import type { Song, TimedLine, AlignmentMode, Language, LyricsData } from '../co
 import { getDefaultSongLanguage } from '../payment/SettingsStore'
 import { cleanPastedLyrics, stripInlineFurigana } from '../lyrics/lyricCleanup'
 import { hasLrcTimestamps, parseLRC } from '../lyrics/lrc-parser'
+import { deriveSources, computeSyncState } from '../core/db/migrations'
 
 export interface BuildSongInput {
   id?: string
@@ -26,7 +27,7 @@ export function buildSong(input: BuildSongInput): Song {
   const defaultLang = getDefaultSongLanguage()
   const sourceLanguage = input.sourceLanguage ?? defaultLang
   const translationLanguage = input.translationLanguage ?? (sourceLanguage === 'ja' ? 'en' : 'ja')
-  return {
+  const song: Song = {
     id: input.id ?? uuidv4(),
     title: input.title,
     artist: input.artist,
@@ -49,6 +50,12 @@ export function buildSong(input: BuildSongInput): Song {
     },
     createdAt: new Date(),
   }
+  // Write the denormalized fields the library badge + source list depend on,
+  // rather than leaving them for the Dexie reading hook to backfill in memory
+  // (which it never persisted, so a fresh read re-derives them every time).
+  song.sources = deriveSources(song)
+  song.syncState = computeSyncState(song)
+  return song
 }
 
 export function linesFromPlainText(text: string): TimedLine[] {

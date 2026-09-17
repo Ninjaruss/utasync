@@ -1859,9 +1859,16 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
               onLineClick={(line) => {
               if (armingAB) {
                 const patch = abLoopPatchFromLineTap(armingAB, line, abLoop)
+                const next = { ...abLoop, ...patch }
                 setABLoop(patch)
                 const t = patch[armingAB]
-                if (t !== undefined) seek(t)
+                if (t === undefined) return
+                // When this tap completes a valid pair, land the playhead at the
+                // loop START, not the just-tapped endpoint. A B-tap seeks to b,
+                // leaving the wrap detector's lastPos === b; the edge-triggered
+                // wrap (lastPos < b) can then never fire, so the freshly-armed
+                // loop would never actually loop even though the UI says "Looping".
+                seek(isValidABPair(next.a, next.b) ? next.a! : t)
               } else {
                 interruptPracticeLoops()
                 const idx = useLyricsStore.getState().lines.indexOf(line)

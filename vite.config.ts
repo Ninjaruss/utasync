@@ -334,8 +334,14 @@ export default defineConfig({
           {
             // Cache any .onnx model (local /models/… or a remote VITE_DEMUCS_MODEL_URL
             // host) after first download, like the runtime-fetched Whisper weights.
+            // StaleWhileRevalidate, not CacheFirst: the URL is unversioned, so
+            // CacheFirst would serve a redeployed model binary forever (opaque
+            // cross-origin responses never read a Date header, so the freshness
+            // check treats them as fresh indefinitely). Revalidating in the
+            // background lets a redeployed model win on the next load while still
+            // loading instantly (and offline) from cache.
             urlPattern: /\.onnx(\?.*)?$/,
-            handler: 'CacheFirst',
+            handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'ai-models-v1',
               expiration: { maxAgeSeconds: 60 * 60 * 24 * 30 },

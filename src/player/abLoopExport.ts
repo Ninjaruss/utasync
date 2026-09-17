@@ -173,10 +173,14 @@ export function exportAbLoopSRT(lines: TimedLine[]): string {
 }
 
 function formatSrtTime(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.floor(seconds % 60)
-  const ms = Math.round((seconds % 1) * 1000)
+  // Round to whole milliseconds FIRST so a fraction like 1.9996 carries into the
+  // next second rather than emitting an invalid ",1000" timecode (SRT allows
+  // only 0–999 ms, and many parsers reject or mis-time a ,1000 value).
+  const totalMs = Math.round(seconds * 1000)
+  const h = Math.floor(totalMs / 3600000)
+  const m = Math.floor((totalMs % 3600000) / 60000)
+  const s = Math.floor((totalMs % 60000) / 1000)
+  const ms = totalMs % 1000
   const pad = (n: number, len: number) => n.toString().padStart(len, '0')
   return `${pad(h, 2)}:${pad(m, 2)}:${pad(s, 2)},${pad(ms, 3)}`
 }

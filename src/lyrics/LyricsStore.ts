@@ -1,7 +1,8 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
 import type { TimedLine, FuriganaMode, LyricsLayout, ClozeDifficulty } from '../core/types'
 import { lineIndexAtPlayhead } from './lineTiming'
+import { safeLocalStorage } from '../core/storage/safeLocalStorage'
 
 interface LyricsState {
   lines: TimedLine[]
@@ -58,6 +59,7 @@ export const useLyricsStore = create<LyricsState>()(
         lyricsLayout: s.lyricsLayout,
         clozeDifficulty: s.clozeDifficulty,
       }),
+      storage: createJSONStorage(() => safeLocalStorage),
     }
   )
 )

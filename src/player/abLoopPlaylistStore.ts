@@ -1,6 +1,7 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
 import type { ABLoopPlaylistEntry } from '../core/types'
+import { safeLocalStorage } from '../core/storage/safeLocalStorage'
 import {
   DEFAULT_PLAYLIST_REPEAT_COUNT,
   movePlaylistEntryByIndex,
@@ -90,6 +91,7 @@ export const useAbLoopPlaylistStore = create<AbLoopPlaylistState>()(
         playlists: s.playlists,
         playlistRepeatCount: s.playlistRepeatCount,
       }),
+      storage: createJSONStorage(() => safeLocalStorage),
     },
   ),
 )

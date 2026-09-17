@@ -1,5 +1,6 @@
-import { useRef } from 'react'
+import { useRef, type RefObject } from 'react'
 import { Overlay } from '../core/ui/Overlay'
+import { useFixedAnchorPosition } from '../core/ui/useFixedAnchorPosition'
 
 export interface RepairCandidate {
   text: string
@@ -17,6 +18,8 @@ interface Props {
   candidates: RepairCandidate[]
   onChoose: (text: string) => void
   onClose: () => void
+  /** The row this popover is anchored to, for viewport-fixed positioning. */
+  anchorRef?: RefObject<HTMLElement | null>
 }
 
 /**
@@ -25,8 +28,9 @@ interface Props {
  * in. Styled after TimestampPopover/WordLookupPopover so it reads as the same
  * kind of control as the rest of the editor.
  */
-export function TranslationRepairPopover({ lineIndex, candidates, onChoose, onClose }: Props) {
+export function TranslationRepairPopover({ lineIndex, candidates, onChoose, onClose, anchorRef }: Props) {
   const ref = useRef<HTMLDivElement>(null)
+  useFixedAnchorPosition(ref, anchorRef, { estimatedHeightPx: 320 })
 
   const ranked = [...candidates].sort((a, b) => b.score - a.score)
 
@@ -45,7 +49,7 @@ export function TranslationRepairPopover({ lineIndex, candidates, onChoose, onCl
       role="dialog"
       label={`Fix translation for line ${lineIndex + 1}`}
       panelRef={ref}
-      className="absolute z-20 mt-1 left-0 right-0 rounded-xl border border-cinnabar-accent/60 bg-cinnabar-900 p-3 space-y-2 shadow-xl"
+      className="z-20 rounded-xl border border-cinnabar-accent/60 bg-cinnabar-900 p-3 space-y-2 shadow-xl"
     >
       {/* display:contents so this wrapper doesn't break the panel's space-y-2
           child spacing — it exists only to stop a click from reaching whatever

@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, type RefObject } from 'react'
 import type { TimedLine } from '../core/types'
 import { WaveformStrip, type WaveformMarker } from '../player/WaveformStrip'
 import type { Peaks } from '../player/waveformPeaks'
 import { Overlay } from '../core/ui/Overlay'
+import { useFixedAnchorPosition } from '../core/ui/useFixedAnchorPosition'
 
 interface Props {
   line: TimedLine
@@ -11,7 +12,12 @@ interface Props {
   /** `shiftRestBy` (seconds) asks the editor to shift every following line by that
    * delta too — the "this whole section drifted" cascade. Omitted/0 = this line only. */
   onCommit: (patch: { start: number; end: number | null; shiftRestBy?: number }) => void
+  /** Fires after the draft is committed (the Done button) — closes without reverting. */
   onClose: () => void
+  /** Fires when the overlay is dismissed WITHOUT committing (Escape). The caller
+   * reverts its preview seek and ends the scrub loop — the "cancel" that must be
+   * distinct from `onClose`, whose Done path keeps the committed playhead. */
+  onCancel?: () => void
   /** Fires while dragging. `framing` says whether the moment is a line's start or
    * its end, which decides how the preview loop is framed around it. */
   onScrub?: (time: number, framing?: 'start' | 'end') => void
@@ -26,6 +32,9 @@ interface Props {
   waveformState?: 'pending' | 'ready' | 'unavailable'
   /** Live playhead, so the preview loop can be seen sweeping the window. */
   positionSec?: number
+  /** The row/button this popover is anchored to, so it can pin `fixed` to the
+   * viewport and escape the scroll container's clipping on low rows. */
+  anchorRef?: RefObject<HTMLElement | null>
 }
 
 /** Half-width (seconds) of the scrub window on each side of the drag anchor. Small
@@ -138,8 +147,9 @@ const anchorTabOff = 'bg-cinnabar-950 text-white/50'
  * With following lines present, "Shift later lines too" propagates the same
  * offset to the rest of the song. Dragging previews the audio position live.
  */
-export function TimestampPopover({ line, autoEnd, onCommit, onClose, onScrub, onScrubStart, onScrubEnd, canCascade = false, prevStart, peaks, waveformState, positionSec }: Props) {
+export function TimestampPopover({ line, autoEnd, onCommit, onClose, onCancel, onScrub, onScrubStart, onScrubEnd, canCascade = false, prevStart, peaks, waveformState, positionSec, anchorRef }: Props) {
   const panelRef = useRef<HTMLDivElement>(null)
+  useFixedAnchorPosition(panelRef, anchorRef, { estimatedHeightPx: 380 })
   const hasExplicitEnd = line.endTime > line.startTime
   const [mode, setMode] = useState<Mode>('start')
   const [draftStart, setDraftStart] = useState(line.startTime)
@@ -214,10 +224,12 @@ export function TimestampPopover({ line, autoEnd, onCommit, onClose, onScrub, on
   return (
     <Overlay
       // The popover advertises "tap outside to cancel", but a keyboard user has
-      // no outside to tap — and Escape did nothing, so the only way out was to
-      // commit with Done. Escape is now exactly that same cancel, matching
-      // every other overlay in the app.
-      onClose={onClose}
+      // no outside to tap — and Escape used to do nothing, so the only way out
+      // was to commit with Done. Escape now routes through `onCancel` (the same
+      // revert-and-close as tapping outside), not `onClose` (Done's commit
+      // path) — otherwise dismissing the popover left the scrub preview loop
+      // running, and the playhead stayed stuck on the time just dragged to.
+      onClose={onCancel ?? onClose}
       placement="anchored"
       // dismissOnOutside={false}: this panel holds uncommitted draft state
       // (draftStart, draftEnd, cascade — see the useState calls above) that is
@@ -233,7 +245,7 @@ export function TimestampPopover({ line, autoEnd, onCommit, onClose, onScrub, on
       role="dialog"
       label="Edit line timing"
       panelRef={panelRef}
-      className="absolute z-20 mt-1 left-0 right-0 rounded-xl border border-cinnabar-accent/60 bg-cinnabar-900 p-3 space-y-2 shadow-xl"
+      className="z-20 rounded-xl border border-cinnabar-accent/60 bg-cinnabar-900 p-3 space-y-2 shadow-xl"
     >
       {/* display:contents so this wrapper doesn't break the panel's space-y-2
           child spacing — it exists only to stop a click from reaching whatever

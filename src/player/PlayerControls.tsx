@@ -11,6 +11,7 @@ import {
   wrapPlaylistIndexPrev,
 } from './abLoopPlaylist'
 import { useWideLayout } from '../core/ui/useWideLayout'
+import { useFixedAnchorPosition } from '../core/ui/useFixedAnchorPosition'
 
 /** Sidebar treatment for a phone held sideways — mirrors the md: rules above it.
  * Written out because Tailwind cannot compose an arbitrary variant from a
@@ -239,7 +240,10 @@ function TransportButtons({
   playSize?: 'md' | 'lg'
   compact?: boolean
 }) {
-  const playClass = playSize === 'lg' ? 'w-14 h-14 text-2xl' : 'w-10 h-10 text-xl'
+  // The compact play button was 40×40 (w-10 h-10) — smaller than the 44px skip
+  // buttons beside it, even though it is the most-used transport control. Match
+  // the skips so the primary control clears the touch-target floor too.
+  const playClass = playSize === 'lg' ? 'w-14 h-14 text-2xl' : 'w-11 h-11 text-xl'
   // Even the compact variant clears 44px: these are used one-handed mid-song,
   // and a missed skip costs your place in the track.
   const skipClass = compact
@@ -807,50 +811,19 @@ function ABLoopPlaylistControls({
   compactMobile?: boolean
 }) {
   const [menuId, setMenuId] = useState<string | null>(null)
-  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
   const editRef = useRef<HTMLInputElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
-  const dropdownRef = useRef<HTMLDivElement>(null)
+  const menuPanelRef = useRef<HTMLDivElement>(null)
+  // Pin the options menu to the ⋯ trigger with `fixed` so it escapes the saved-loops
+  // scroll list, and let <Overlay> own Escape / focus / outside-dismiss instead of
+  // the hand-rolled listeners that used to let Escape close the whole controls sheet.
+  useFixedAnchorPosition(menuPanelRef, triggerRef, { align: 'right', estimatedHeightPx: 160 })
 
   useEffect(() => {
     if (editingId) editRef.current?.focus()
   }, [editingId])
-
-  useLayoutEffect(() => {
-    if (!menuId || !triggerRef.current) return
-    const rect = triggerRef.current.getBoundingClientRect()
-    const estMenuHeight = 160
-    const margin = 8
-    const top = rect.bottom + 2 + estMenuHeight > window.innerHeight
-      ? Math.max(margin, rect.top - 2 - estMenuHeight)
-      : rect.bottom + 2
-    setMenuPos({ top, right: window.innerWidth - rect.right })
-  }, [menuId])
-
-  useEffect(() => {
-    if (!menuId) return
-    const close = () => setMenuId(null)
-    document.addEventListener('scroll', close, true)
-    window.addEventListener('resize', close)
-    return () => {
-      document.removeEventListener('scroll', close, true)
-      window.removeEventListener('resize', close)
-    }
-  }, [menuId])
-
-  useEffect(() => {
-    if (!menuId) return
-    const onPointerDown = (e: Event) => {
-      const target = e.target as Node
-      if (triggerRef.current?.contains(target)) return
-      if (dropdownRef.current?.contains(target)) return
-      setMenuId(null)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [menuId])
 
   const startRename = (entry: ABLoopPlaylistEntry) => {
     setMenuId(null)
@@ -930,24 +903,31 @@ function ABLoopPlaylistControls({
                         ref={menuOpen ? triggerRef : undefined}
                         type="button"
                         onClick={() => setMenuId(menuOpen ? null : entry.id)}
+                        // Stop the trigger's pointerdown from reaching <Overlay>'s
+                        // outside-dismiss, which would close the menu an instant
+                        // before this click re-opens it (the anchored-menu hazard).
+                        onPointerDown={(e) => e.stopPropagation()}
                         className="min-w-8 min-h-8 flex items-center justify-center text-white/55 hover:text-white/70 text-sm touch-manipulation"
                         aria-label={`Options for loop ${playlistEntryLabel(entry)}`}
                         aria-expanded={menuOpen}
+                        aria-haspopup="menu"
                       >
                         ⋯
                       </button>
-                      {menuOpen && menuPos && createPortal(
-                        <div
-                          ref={dropdownRef}
-                          style={{ top: menuPos.top, right: menuPos.right }}
-                          className="fixed z-[60] w-36 rounded-lg border border-cinnabar-800 bg-cinnabar-900 shadow-lg shadow-black/40 py-1"
+                      {menuOpen && (
+                        <Overlay
+                          onClose={() => setMenuId(null)}
+                          placement="anchored"
+                          role="menu"
+                          label={`Options for loop ${playlistEntryLabel(entry)}`}
+                          panelRef={menuPanelRef}
+                          className="z-[60] w-36 rounded-lg border border-cinnabar-800 bg-cinnabar-900 shadow-lg shadow-black/40 py-1"
                         >
                           <button type="button" onClick={() => startRename(entry)} className="w-full text-left px-3 py-2 text-xs text-white/75 hover:bg-white/5">Rename</button>
                           <button type="button" disabled={index === 0} onClick={() => { onMoveEntry(index, index - 1); setMenuId(null) }} className="w-full text-left px-3 py-2 text-xs text-white/75 hover:bg-white/5 disabled:opacity-30">Move up</button>
                           <button type="button" disabled={index >= entries.length - 1} onClick={() => { onMoveEntry(index, index + 1); setMenuId(null) }} className="w-full text-left px-3 py-2 text-xs text-white/75 hover:bg-white/5 disabled:opacity-30">Move down</button>
                           <button type="button" onClick={() => { onRemoveEntry(entry.id); setMenuId(null) }} className="w-full text-left px-3 py-2 text-xs text-red-400/90 hover:bg-white/5">Remove</button>
-                        </div>,
-                        document.body,
+                        </Overlay>
                       )}
                     </div>
                   </li>
@@ -1640,6 +1620,10 @@ export function PlayerControls({
         'border-t md:border-t-0 md:border-l border-cinnabar-900',
         'bg-cinnabar-950/95 md:bg-cinnabar-950 backdrop-blur-sm md:backdrop-blur-none',
         'px-3 pt-2 md:pt-4 md:px-5 md:w-72 lg:w-80',
+        // Cap the mobile dock so an active loop playlist (inline mini-player +
+        // Stop) can't grow the dock to consume most of the viewport and collapse
+        // the lyrics area. Scrolls when it overflows; the transport sits at the top.
+        'max-md:max-h-[min(46dvh,21rem)] max-md:overflow-y-auto max-md:overscroll-contain',
         'md:overflow-y-auto md:overscroll-contain',
         // Landscape phone: same sidebar treatment as desktop, at a width that
         // still leaves the lyrics the majority of a short, wide screen.

@@ -110,6 +110,26 @@ describe('PlayerView A/B loop', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
+  // The fix: after A-then-B arming, the playhead must land on the loop START,
+  // not on B. A B-tap used to seek to b, leaving the wrap detector's lastPos === b
+  // so the edge-triggered wrap (lastPos < b) could never fire — the loop showed
+  // "Looping" but never actually looped.
+  it('seeks to the loop start when arming B completes the pair', async () => {
+    render(<PlayerView songId="song1" onBack={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
+    expandLabeledSection('A-B Loop')
+    fireEvent.click(screen.getByRole('button', { name: /a loop point/i }))
+    fireEvent.click(screen.getByText('hello'))
+    seek.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: /b loop point/i }))
+    fireEvent.click(screen.getByText('hello'))
+    const { abLoop } = usePlayerStore.getState()
+    expect(abLoop.a).toBe(helloPlayback)
+    expect(abLoop.b).toBe(3)
+    expect(seek).toHaveBeenCalledWith(helloPlayback)
+    expect(seek).not.toHaveBeenCalledWith(3)
+  })
+
   it('loops a single lyric line when B is set before A', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())

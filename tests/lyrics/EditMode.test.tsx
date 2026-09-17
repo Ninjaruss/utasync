@@ -70,6 +70,24 @@ describe('EditMode', () => {
     expect(screen.queryByLabelText('Scrub start timestamp')).toBeNull()
   })
 
+  // The bug this guards: Escape closed the popover but never ended the scrub
+  // preview loop, so the playhead stayed stuck looping the time just dragged to.
+  it('Escape cancels an open timestamp preview and ends the scrub loop', () => {
+    const seek = vi.fn()
+    const onScrubEnd = vi.fn()
+    const { onChangeLines } = renderEditMode({ seek, onScrubStart: vi.fn(), onScrubEnd, playhead: () => 4 })
+    fireEvent.click(screen.getByRole('button', { name: /edit timestamp for line 2/i }))
+    fireEvent.change(screen.getByLabelText('Scrub start timestamp'), { target: { value: '5' } })
+    expect(seek).toHaveBeenCalledWith(5, 'start')
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    expect(onChangeLines).not.toHaveBeenCalled()
+    expect(onScrubEnd).toHaveBeenCalled()
+    expect(seek).toHaveBeenLastCalledWith(4)
+    expect(screen.queryByLabelText('Scrub start timestamp')).toBeNull()
+  })
+
   it('tapping another lyric cancels an open timestamp preview', () => {
     const seek = vi.fn()
     const onScrubEnd = vi.fn()

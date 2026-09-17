@@ -316,6 +316,8 @@ function Line({ line, lineIndex, isActive, loopHighlight, onLineClick, lineRef, 
   const [hoveredPair, setHoveredPair] = useState<HoveredPair | null>(null)
   const [repairOpen, setRepairOpen] = useState(false)
   const [repairCandidates, setRepairCandidates] = useState<RepairCandidate[]>([])
+  // Anchor for the repair popover's fixed positioning (escapes the scroll list).
+  const repairAnchorRef = useRef<HTMLDivElement>(null)
   const hasTranslation = hasVisibleTranslation(line)
   // A line whose translation duplicates the original has no second column, so it falls back to the stacked layout even in side-by-side mode.
   const sideBySide = lyricsLayout === 'sideBySide' && hasTranslation
@@ -385,7 +387,7 @@ function Line({ line, lineIndex, isActive, loopHighlight, onLineClick, lineRef, 
   }
 
   const flagEl = showFlag ? (
-    <div className="relative" onClick={(e) => e.stopPropagation()}>
+    <div ref={repairAnchorRef} className="relative" onClick={(e) => e.stopPropagation()}>
       <button
         type="button"
         onClick={openRepair}
@@ -411,6 +413,7 @@ function Line({ line, lineIndex, isActive, loopHighlight, onLineClick, lineRef, 
           candidates={repairCandidates}
           onChoose={(text) => { onChooseRepair?.(lineIndex, text); setRepairOpen(false) }}
           onClose={() => setRepairOpen(false)}
+          anchorRef={repairAnchorRef}
         />
       )}
     </div>
@@ -671,7 +674,7 @@ export function LyricDisplay({
          scroll region, i.e. zero usable height, with the one visible line
          clipped through its own kanji. The clamp keeps the padding decorative
          on short screens and unchanged on tall ones. */
-      className="flex-1 min-h-0 overflow-y-auto px-4 py-[clamp(0.25rem,4vh,1rem)] [@media(min-height:640px)]:py-[clamp(1rem,14vh,7rem)] [@media(min-height:900px)]:py-[16vh]"
+      className="flex-1 min-h-0 overflow-y-auto px-4 py-[clamp(0.25rem,4dvh,1rem)] [@media(min-height:640px)]:py-[clamp(1rem,14dvh,7rem)] [@media(min-height:900px)]:py-[16dvh]"
       style={{ touchAction: 'pan-y', scrollbarWidth: 'thin' }}
     >
       {leadingUnplaced && <UnplacedTranslationsNote entries={leadingUnplaced} />}

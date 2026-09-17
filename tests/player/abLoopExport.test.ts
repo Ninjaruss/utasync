@@ -86,6 +86,15 @@ describe('exportAbLoopSRT', () => {
     expect(srt).toContain('Inside loop\nIn the loop')
     expect(srt).toContain('00:00:00,000 --> 00:00:01,000')
   })
+
+  // SRT timecodes only allow 0–999 ms. A fraction like 1.9996 used to round to
+  // ",1000" instead of carrying into the next second, which parsers reject.
+  it('carries sub-second rounding into the next second instead of emitting ,1000', () => {
+    const line: TimedLine = { startTime: 0, endTime: 1.9996, original: 'x', translation: '' }
+    const srt = exportAbLoopSRT([line])
+    expect(srt).toContain('00:00:02,000')
+    expect(srt).not.toContain(',1000')
+  })
 })
 
 describe('encodeWavSegment', () => {

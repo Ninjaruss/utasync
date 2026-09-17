@@ -6,6 +6,7 @@ import { AlignmentEditor } from './AlignmentEditor'
 import { pairsToTimedLines, hasVisibleTranslation } from './bilingual'
 import { lastTranslatedRowIndex, TRANSLATION_PAIRING_VERSION } from './translationRefit'
 import { Overlay } from '../core/ui/Overlay'
+import { ConfirmDialog } from '../core/ui/ConfirmDialog'
 import { TimestampPopover } from './TimestampPopover'
 import type { Peaks } from '../player/waveformPeaks'
 import {
@@ -170,7 +171,10 @@ interface RowProps {
   onScrubStart?: () => void
   onScrubEnd?: () => void
   onCommitTimes: (patch: { start: number; end: number | null; shiftRestBy?: number }) => void
+  /** Fires after the draft commits (Done) — close without reverting the preview. */
   onClosePopover: () => void
+  /** Fires on Escape — revert the preview seek and end the scrub loop, then close. */
+  onCancelPopover: () => void
   /** Where an auto end lands for this line (next line's start). */
   autoEnd: number
   /** Previous line's start, for the timing popover's context strip (0 for the first line). */
@@ -189,12 +193,14 @@ interface RowProps {
 /** One lyric row. Holds local draft text so typing doesn't push a change on every keystroke — committed only on blur, same discipline the old expand-into-panel editor used. */
 function Row({
   line, index, timed, editing, deleteArmed, playheadActive, onStartEdit, onStopEdit, onCommitText, onAdd,
-  onArmDelete, onConfirmDelete, onOpenPopover, popoverOpen, seek, onScrubPreview, onScrubStart, onScrubEnd, onCommitTimes, onClosePopover, autoEnd,
+  onArmDelete, onConfirmDelete, onOpenPopover, popoverOpen, seek, onScrubPreview, onScrubStart, onScrubEnd, onCommitTimes, onClosePopover, onCancelPopover, autoEnd,
   peaks, waveformState, positionSec,
   prevStart, canCascade, alignmentQuality, showAlignmentQuality,
 }: RowProps) {
   const [original, setOriginal] = useState(line.original)
   const [translation, setTranslation] = useState(line.translation)
+  // Anchor for the timestamp popover's fixed positioning (escapes the scroll list).
+  const rowRef = useRef<HTMLDivElement>(null)
 
   // Reset local drafts only on the false->true transition of `editing`, not on every
   // change to the line's text while already editing — otherwise an external lines
@@ -212,7 +218,7 @@ function Row({
   }
 
   return (
-    <div className={[
+    <div ref={rowRef} className={[
       editRowSurface,
       editing ? editRowSurfaceActive : '',
       playheadActive && !editing ? lyricRowPlayheadActive : '',
@@ -336,6 +342,7 @@ function Row({
           prevStart={prevStart}
           onCommit={onCommitTimes}
           onClose={onClosePopover}
+          onCancel={onCancelPopover}
           onScrub={onScrubPreview ?? seek}
           peaks={peaks}
           waveformState={waveformState}
@@ -343,6 +350,7 @@ function Row({
           onScrubStart={onScrubStart}
           onScrubEnd={onScrubEnd}
           canCascade={canCascade}
+          anchorRef={rowRef}
         />
       )}
     </div>
@@ -827,6 +835,7 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
             applyChange(next)
           }}
           onClosePopover={closePopoverAfterCommit}
+          onCancelPopover={cancelPopover}
           canCascade={i < lines.length - 1}
           autoEnd={lines[i + 1]?.startTime ?? Infinity}
           prevStart={lines[i - 1]?.startTime}
@@ -838,16 +847,14 @@ export function EditMode({ lines, playhead, playheadPosition, seek, onScrubPrevi
       </div>
 
       {confirmAutoAlign && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setConfirmAutoAlign(false)}>
-          <div className="w-full max-w-sm rounded-2xl bg-cinnabar-900 border border-cinnabar-800 p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
-            <p className="text-white text-sm">This replaces timing for all {lines.length} lines. Continue?</p>
-            <p className="text-white/50 text-xs">This takes a few minutes.</p>
-            <div className="flex gap-2">
-              <button onClick={() => setConfirmAutoAlign(false)} className="flex-1 py-2 rounded-lg bg-cinnabar-950 text-white/70 text-sm">Cancel</button>
-              <button onClick={() => { setConfirmAutoAlign(false); onAutoAlign() }} className="flex-1 py-2 rounded-lg bg-cinnabar-accent text-cinnabar-950 text-sm font-medium">Continue</button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title={`This replaces timing for all ${lines.length} lines.`}
+          message="This takes a few minutes."
+          confirmLabel="Continue"
+          cancelLabel="Cancel"
+          onConfirm={() => { setConfirmAutoAlign(false); onAutoAlign() }}
+          onCancel={() => setConfirmAutoAlign(false)}
+        />
       )}
 
       {showSecondLang && (
