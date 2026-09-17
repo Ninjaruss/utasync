@@ -12,9 +12,15 @@ import { LegalLinks } from '../core/ui/LegalLinks'
 import { InlineError } from '../core/ui/InlineError'
 import { ConfirmDialog } from '../core/ui/ConfirmDialog'
 import { LEGAL_LAST_UPDATED, SUPPORT_URL } from '../core/legal'
+import { APP_REPO_URL, appBuildTime, formatAppBuildTime } from '../core/appInfo'
 import { getDeviceTier, canUseVocalSeparation } from '../ai-pipeline/capability'
 import { refreshDemucsModelAvailability } from '../ai-pipeline/demucsSeparator'
 import type { Language, Song } from '../core/types'
+
+/** Build metadata is fixed for the life of the bundle, so it is read once here
+ * rather than on every render. Empty strings hide the row entirely. */
+const buildTime = appBuildTime()
+const buildTimeLabel = formatAppBuildTime(buildTime)
 
 /** A song with no timing exports an LRC stamped [00:00.00] on every line — a
  * file that looks valid and is useless, so the action is offered only when
@@ -353,18 +359,42 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
       </div>
 
       <div className="bg-cinnabar-900 rounded-xl p-4 space-y-2">
+        <p className="text-sm font-medium">App information</p>
+        {buildTimeLabel && (
+          <dl className="text-xs">
+            <div className="flex justify-between gap-3">
+              <dt className="text-white/50">App last updated</dt>
+              <dd className="text-white/60">
+                <time dateTime={buildTime} title={buildTime}>{buildTimeLabel}</time>
+              </dd>
+            </div>
+          </dl>
+        )}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <a
+            href={APP_REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="min-h-11 flex items-center text-xs text-white/60 hover:text-white underline underline-offset-2 touch-manipulation transition-colors duration-150 ease-out"
+          >
+            GitHub repository ↗
+          </a>
+          {onViewLanding && (
+            <button
+              type="button"
+              onClick={onViewLanding}
+              className="min-h-11 flex items-center text-xs text-white/60 hover:text-white underline underline-offset-2 touch-manipulation transition-colors duration-150 ease-out"
+            >
+              About 歌sync
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-cinnabar-900 rounded-xl p-4 space-y-2">
         <p className="text-sm font-medium">Legal</p>
         <LegalLinks external />
         <p className="text-xs text-white/55 text-center">Last updated {LEGAL_LAST_UPDATED}</p>
-        {onViewLanding && (
-          <button
-            type="button"
-            onClick={onViewLanding}
-            className="block mx-auto min-h-11 px-3 text-xs text-white/60 hover:text-white/70 underline underline-offset-2 touch-manipulation transition-colors duration-150"
-          >
-            About 歌sync
-          </button>
-        )}
       </div>
     </div>
   )

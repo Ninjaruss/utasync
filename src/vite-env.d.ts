@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
 /// <reference types="vite-plugin-pwa/react" />
 
+declare const __APP_BUILD_TIME__: string
+
 interface ImportMetaEnv {
   /** CORS-enabled URL for the vocal-separation ONNX model, fetched at runtime
    * instead of shipping it in the build. Falls back to /models/demucs-v1.onnx. */

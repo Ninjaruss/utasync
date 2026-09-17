@@ -305,6 +305,12 @@ const e2eStatus = {
 }
 
 export default defineConfig({
+  define: {
+    // Captured once per build (once per dev-server start), so the date shown in
+    // Settings identifies the version being viewed rather than the moment
+    // someone happened to open Settings. Read via `appBuildTime()`.
+    __APP_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
   plugins: [
     onnxRuntimeForTransformers,
     serveOnnxWasm,
