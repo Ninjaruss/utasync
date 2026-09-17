@@ -1099,10 +1099,20 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     { clamped }: { clamped: boolean },
   ) => {
     if (!song) return
-    // Clamped means the thumb was pinned to the window edge: the difference is
-    // larger than one shift can express, so this is a genuinely different master.
-    // Escalate rather than persist a guess we know is wrong.
-    if (clamped) { setAlignMode('auto'); return }
+    // Clamped means the thumb was pinned to the window edge — the user ran out of
+    // slider rather than found the spot, so this must NOT be persisted as truth.
+    //
+    // It used to escalate to full alignment on the premise that a difference one
+    // shift cannot express means a different master. That premise no longer holds:
+    // the strip's step buttons walk the line out to any distance, and the common
+    // case here is a song whose instrumental intro is simply longer than the
+    // timings expect — a constant shift the user can now place by hand. So point
+    // them at the way forward and leave them on the screen they were already
+    // using; "Run full alignment instead" is still there for a real mismatch.
+    if (clamped) {
+      toast("That's as far as the slider reaches — use +10s to move further, or run full alignment.", 'info')
+      return
+    }
 
     const current = song.lyrics.lines
     const delta = offsetForLine(current, lineIndex, droppedAtSec)

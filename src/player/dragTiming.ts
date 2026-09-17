@@ -3,10 +3,7 @@
  *
  * Pure and DOM-free so the window logic can be tested without a pointer.
  *
- * There is deliberately no position->time mapping here: the strip uses a native
- * `<input type="range">` with these bounds as min/max, so the browser owns that
- * arithmetic. A hand-rolled timeAtFraction/fractionAtTime pair lived here for a
- * while, fully tested and never called by anything but its own tests.
+ * Pointer geometry and edge panning live in TimingDragInput.
  *
  * The point of dragging rather than tapping: a tap commits the playhead at the
  * moment of the click, so it carries the user's reaction latency (~250-400ms,
@@ -33,11 +30,50 @@
  *
  * The 6 lines still out of reach are 7.9–16.4s out: an intro crammed at t=0 and
  * the known mixed-merge collapse. A slider wide enough for those would cost
- * every ordinary correction its precision; they need the alignment fix, not a
- * bigger control.
+ * every ordinary correction its precision — so the window stays tight and the
+ * STRIP's step buttons carry the line out to them instead (see RETIME_STEPS):
+ * jump near the target, then drag to settle on it. Widening the drag window was
+ * the wrong lever; a control that can be walked is the right one.
  */
 export const DRAG_WINDOW_BACK_SEC = 2.5
 export const DRAG_WINDOW_FORWARD_SEC = 6
+
+/**
+ * Coarse steps for the strip's "move the line" buttons.
+ *
+ * The window above only reaches ±2.5/+6s around where the line currently sits,
+ * which is the right size for an ordinary correction and far too small for the
+ * common case where a line's real start is simply outside it — classically a
+ * first line whose song has an instrumental intro much longer than the timings
+ * expect. Dragging to the edge used to be a dead end there (the offset screen
+ * escalated to a full transcription instead of aligning).
+ *
+ * A coarse jump plus a fine one covers any gap: a 10s jump alone would leave
+ * unreachable 1.5s holes between where one window ends and the next begins, and
+ * the 1s step closes them.
+ */
+export const RETIME_STEP_COARSE_SEC = 10
+export const RETIME_STEP_FINE_SEC = 1
+
+/** Button order: back-coarse, back-fine, forward-fine, forward-coarse. */
+export const RETIME_STEPS: readonly number[] = [
+  -RETIME_STEP_COARSE_SEC,
+  -RETIME_STEP_FINE_SEC,
+  RETIME_STEP_FINE_SEC,
+  RETIME_STEP_COARSE_SEC,
+]
+
+/**
+ * Move a draft time by `delta` seconds, never before the start of the track.
+ *
+ * Rounded to 2dp so the result stays on the slider's 0.05s step after repeated
+ * additions (float drift would otherwise put it fractionally off-step).
+ */
+export function stepRetimeTime(value: number, delta: number): number {
+  const next = value + delta
+  if (!Number.isFinite(next) || next <= 0) return 0
+  return Math.round(next * 100) / 100
+}
 
 export interface DragWindow {
   minSec: number

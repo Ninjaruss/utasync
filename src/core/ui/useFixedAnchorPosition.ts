@@ -31,24 +31,41 @@ export function useFixedAnchorPosition(
     const panel = panelRef.current
     const anchor = anchorRef?.current
     if (!panel || !anchor) return
-    const rect = anchor.getBoundingClientRect()
-    const fitsBelow = rect.bottom + gap + estimatedHeightPx <= window.innerHeight
-    panel.style.position = 'fixed'
-    if (align === 'right') {
-      panel.style.left = ''
-      panel.style.right = `${Math.max(0, window.innerWidth - rect.right)}px`
-      panel.style.width = ''
-    } else {
-      panel.style.left = `${Math.max(0, rect.left)}px`
-      panel.style.right = ''
-      panel.style.width = `${rect.width}px`
-    }
-    if (fitsBelow) {
-      panel.style.top = `${rect.bottom + gap}px`
+    const place = () => {
+      const rect = anchor.getBoundingClientRect()
+      const viewport = window.visualViewport
+      const left = (viewport?.offsetLeft ?? 0) + 8
+      const top = (viewport?.offsetTop ?? 0) + 8
+      const width = Math.max(0, (viewport?.width ?? window.innerWidth) - 16)
+      const height = Math.max(0, (viewport?.height ?? window.innerHeight) - 16)
+      panel.style.position = 'fixed'
+      panel.style.maxWidth = `${width}px`
+      panel.style.maxHeight = `${height}px`
+      panel.style.overflowY = 'auto'
+      panel.style.width = align === 'left' ? `${Math.min(rect.width, width)}px` : ''
+      const measured = panel.getBoundingClientRect()
+      const panelHeight = measured.height || Math.min(estimatedHeightPx, height)
+      const panelWidth = measured.width || Math.min(rect.width, width)
+      const below = rect.bottom + gap
+      const preferredTop = below + panelHeight <= top + height ? below : rect.top - gap - panelHeight
+      panel.style.top = `${Math.max(top, Math.min(preferredTop, top + height - panelHeight))}px`
+      panel.style.left = `${Math.max(left, Math.min(align === 'right' ? rect.right - panelWidth : rect.left, left + width - panelWidth))}px`
       panel.style.bottom = ''
-    } else {
-      panel.style.top = ''
-      panel.style.bottom = `${window.innerHeight - rect.top + gap}px`
+      panel.style.right = ''
+    }
+    place()
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(place) : null
+    observer?.observe(panel)
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    window.visualViewport?.addEventListener('resize', place)
+    window.visualViewport?.addEventListener('scroll', place)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+      window.visualViewport?.removeEventListener('resize', place)
+      window.visualViewport?.removeEventListener('scroll', place)
     }
   })
 }

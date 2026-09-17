@@ -67,6 +67,12 @@ export function OffsetAlignScreen({
           We found synced lyrics for this song. Drag until the first line sits where it is sung —
           you will hear it as you drag. Everything else moves with it.
         </p>
+        {/* Long intros are the common case where the line's real start is outside
+            what the drag reaches on its own, so name the way out of it here rather
+            than leaving the user to discover that the drag has an edge. */}
+        <p className="text-white/45 text-xs mt-1 text-pretty">
+          Drag to either edge and hold to move the range. Use ±10s for a larger jump.
+        </p>
       </div>
 
       {/* Column, not row. DragRetimeStrip's root carries `shrink-0`, which in a

@@ -1,8 +1,9 @@
-import { useRef, useState, type RefObject } from 'react'
+import { useRef, useState, type RefObject, type ReactNode } from 'react'
 import type { TimedLine } from '../core/types'
 import { WaveformStrip, type WaveformMarker } from '../player/WaveformStrip'
 import type { Peaks } from '../player/waveformPeaks'
 import { Overlay } from '../core/ui/Overlay'
+import { TimingDragInput } from '../player/TimingDragInput'
 import { useFixedAnchorPosition } from '../core/ui/useFixedAnchorPosition'
 
 interface Props {
@@ -59,12 +60,13 @@ const round1 = (t: number) => Math.round(t * 10) / 10
 /** A small spatial bearing: the current scrub window drawn as a track, with the
  * draft start/end and the neighbouring lines' starts placed on it so the user can
  * see WHERE in the song this line sits — not just a bare number. The track spans
- * the same [min, max] as the slider directly below it, so a marker's horizontal
+ * the same [min, max] as the overlaid drag control, so a marker's horizontal
  * position matches the thumb. Neighbours outside the window collapse to an edge
  * arrow instead of vanishing. */
 function ContextStrip({
-  min, max, draftStart, draftEnd, prevStart, nextStart, mode, peaks, waveformState, positionSec,
+  min, max, draftStart, draftEnd, prevStart, nextStart, mode, peaks, waveformState, positionSec, control,
 }: {
+  control: ReactNode
   min: number
   max: number
   draftStart: number
@@ -99,7 +101,7 @@ function ContextStrip({
 
   return (
     <div className="pb-4">
-      <div className="relative">
+      <div className="relative rounded-md focus-within:ring-2 focus-within:ring-cinnabar-accent">
         {/* The audio itself, replacing an abstract track of tick marks. That track
             showed WHERE this line sat relative to its neighbours but not what was
             actually there to line it up with, which is the only thing that settles a
@@ -122,6 +124,7 @@ function ContextStrip({
         {typeof nextStart === 'number' && Number.isFinite(nextStart) && nextStart > max && (
           <span className="absolute right-1 bottom-1 text-[9px] text-white/55">next ▸</span>
         )}
+        {control}
       </div>
       {(prevGap !== null || nextGap !== null) && (
         <div className="mt-0.5 flex justify-between text-[10px] text-white/60 tabular-nums">
@@ -156,9 +159,10 @@ export function TimestampPopover({ line, autoEnd, onCommit, onClose, onCancel, o
   const [draftEnd, setDraftEnd] = useState<number | null>(hasExplicitEnd ? line.endTime : null)
   const [cascade, setCascade] = useState(false)
   // While a drag is active this holds the window centre captured at pointer-down,
-  // so min/max stay FIXED for the whole gesture and the thumb tracks the finger.
+  // so fine adjustments stay steady. Edge panning overrides this window.
   // null = idle, window re-centres on the current value, so the next grab starts
   // anchored under the thumb and can travel further than one window.
+  const [pointerWindow, setPointerWindow] = useState<{ min: number; max: number } | null>(null)
   const [dragCenter, setDragCenter] = useState<number | null>(null)
 
   // Slider value for the active mode. An auto end scrubs from where it currently
@@ -170,10 +174,10 @@ export function TimestampPopover({ line, autoEnd, onCommit, onClose, onCancel, o
   // the range doesn't shift under the thumb mid-gesture — the old bug where the
   // window followed the live draft made every push spring back to centre and race
   // the value by seconds. When idle the centre is the current value, so releasing
-  // and grabbing again re-anchors to travel further than one window.
+  // and grabbing again re-anchors. Holding at an edge pans without releasing.
   const center = dragCenter ?? value
-  const min = mode === 'end' ? Math.max(draftStart + 0.1, center - WINDOW_HALF) : Math.max(0, center - WINDOW_HALF)
-  const max = center + WINDOW_HALF
+  const min = pointerWindow?.min ?? (mode === 'end' ? Math.max(draftStart + 0.1, center - WINDOW_HALF) : Math.max(0, center - WINDOW_HALF))
+  const max = pointerWindow?.max ?? center + WINDOW_HALF
 
   const setStart = (t: number) => {
     const v = round1(Math.max(0, t))
@@ -257,7 +261,7 @@ export function TimestampPopover({ line, autoEnd, onCommit, onClose, onCancel, o
         {tab('line', 'Whole line')}
       </div>
       <p className="text-xs text-white/60 text-center text-pretty">
-        {mode === 'line' ? 'Moves the whole line · ' : ''}Drag to preview · tap outside to cancel
+        {mode === 'line' ? 'Moves the whole line · ' : ''}Drag to preview · hold at an edge to move further
       </p>
       <ContextStrip
         min={min}
@@ -270,25 +274,20 @@ export function TimestampPopover({ line, autoEnd, onCommit, onClose, onCancel, o
         peaks={peaks}
         waveformState={waveformState}
         positionSec={positionSec}
+        control={<TimingDragInput
+          min={min}
+          max={max}
+          step={0.1}
+          value={value}
+          lowerBound={mode === 'end' ? draftStart + 0.1 : 0}
+          onChange={move}
+          onWindowChange={(min, max) => setPointerWindow({ min, max })}
+          onDragStart={() => { setDragCenter(value); onScrubStart?.() }}
+          onDragEnd={() => { setDragCenter(null); setPointerWindow(null) }}
+          label={mode === 'start' ? 'Scrub start timestamp' : mode === 'end' ? 'Scrub end timestamp' : 'Move whole line'}
+        />}
       />
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={0.1}
-        value={value}
-        // Releasing the thumb does NOT end the preview. It used to, which meant you
-        // could only hear the moment while your finger was on it — the same "evidence
-        // expires before you can judge it" problem the Play-mode strip had. The
-        // preview loop keeps the moment repeating until the editor is closed, so you
-        // can hold still and decide. Only the frozen window centre resets here.
-        onPointerDown={() => { setDragCenter(value); onScrubStart?.() }}
-        onPointerUp={() => setDragCenter(null)}
-        onPointerCancel={() => setDragCenter(null)}
-        onChange={(e) => move(Number(e.target.value))}
-        aria-label={mode === 'start' ? 'Scrub start timestamp' : mode === 'end' ? 'Scrub end timestamp' : 'Move whole line'}
-        className="w-full accent-cinnabar-accent slider-touch"
-      />
+
       <div className="flex items-center gap-1.5">
         {([-0.5, -0.1, 0.1, 0.5] as const).map((d) => (
           <button

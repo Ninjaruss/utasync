@@ -1,8 +1,16 @@
 import { useState } from 'react'
-import { dragWindowFor, isAtWindowEdge, DRAG_WINDOW_BACK_SEC, DRAG_WINDOW_FORWARD_SEC } from './dragTiming'
+import {
+  dragWindowFor,
+  isAtWindowEdge,
+  stepRetimeTime,
+  RETIME_STEPS,
+  DRAG_WINDOW_BACK_SEC,
+  DRAG_WINDOW_FORWARD_SEC,
+} from './dragTiming'
 import { type Peaks } from './waveformPeaks'
 import { retimeLoopFor } from './retimeLoop'
 import { WaveformStrip } from './WaveformStrip'
+import { TimingDragInput } from './TimingDragInput'
 
 interface Props {
   /** Flagged line to re-time, or null to render nothing. */
@@ -47,9 +55,9 @@ const fmt = (t: number) => {
  * the result as they go, and can overshoot and correct — which a tap structurally
  * cannot allow.
  *
- * The waveform is the control. A native range input is still the interaction and
- * accessibility layer — it keeps role=slider, its label, keyboard stepping and
- * click-to-position — but it is transparent, and every mark you see is drawn here
+ * The waveform is the control. A transparent range keeps native keyboard and
+ * accessibility support, while pointer capture handles waveform dragging and
+ * edge panning. Every mark you see is drawn here
  * on the audio's own axis. That is deliberate: the range thumb is drawn by the
  * browser at a browser-defined size, so a marker aligned to it in Chromium drifts
  * in Gecko. Owning the geometry means the line you drag and the transient you are
@@ -59,8 +67,8 @@ export function DragRetimeStrip({
   lineIndex, lineText, startSec, remaining, peaks, waveformState, positionSec, onPreview, onCommit,
 }: Props) {
   const [value, setValue] = useState(startSec)
-  // The window centre is frozen for as long as the strip points at one line, so the
-  // range cannot shift under the user's finger mid-drag.
+  // Keep the window steady for fine adjustments; only edge dragging pans it.
+  const [pointerWindow, setPointerWindow] = useState<{ minSec: number; maxSec: number } | null>(null)
   const [centreSec, setCentreSec] = useState(startSec)
   const [targetLine, setTargetLine] = useState(lineIndex)
   const [seenStartSec, setSeenStartSec] = useState(startSec)
@@ -75,13 +83,30 @@ export function DragRetimeStrip({
   if (lineIndex !== targetLine || startSec !== seenStartSec) {
     setTargetLine(lineIndex)
     setSeenStartSec(startSec)
+    setPointerWindow(null)
     setCentreSec(startSec)
     setValue(startSec)
   }
 
   if (lineIndex === null) return null
 
-  const win = dragWindowFor(centreSec, DRAG_WINDOW_BACK_SEC, DRAG_WINDOW_FORWARD_SEC)
+  /* Walk the line by a fixed step, taking the window with it.
+   *
+   * The window is frozen only for the duration of a DRAG, so re-centring here is
+   * safe and is the whole point: after a step the value sits back inside the
+   * range instead of pinned to its edge, so the next step (or drag) reaches
+   * further rather than dead-ending. That is what makes a line whose real start
+   * lies outside the window reachable at all — and at the drag's full precision,
+   * since the window itself never had to be widened. */
+  const step = (delta: number) => {
+    const t = stepRetimeTime(value, delta)
+    setValue(t)
+    setPointerWindow(null)
+    setCentreSec(t)
+    onPreview(t)
+  }
+
+  const win = pointerWindow ?? dragWindowFor(centreSec, DRAG_WINDOW_BACK_SEC, DRAG_WINDOW_FORWARD_SEC)
   const loop = retimeLoopFor(value)
   const more = typeof remaining === 'number' && remaining > 1 ? ` · ${remaining} lines left` : ''
   /* A YouTube-only song never gets peaks, so "drag to the first sound" pointed at
@@ -125,29 +150,40 @@ export function DragRetimeStrip({
           positionSec={positionSec}
         />
 
-        {/* The real control, kept for pointer, keyboard and screen readers. Invisible
-            because everything it would draw is drawn above, on the audio's axis. */}
-        <input
-          type="range"
+        <TimingDragInput
           min={win.minSec}
           max={win.maxSec}
           step={0.05}
           value={value}
-          aria-label={`Line ${lineIndex + 1} start time`}
-          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer touch-manipulation"
-          onChange={(e) => {
-            const t = Number(e.target.value)
-            setValue(t)
-            onPreview(t)
-          }}
+          label={`Line ${lineIndex + 1} start time`}
+          onChange={(t) => { setValue(t); onPreview(t) }}
+          onWindowChange={(minSec, maxSec) => setPointerWindow({ minSec, maxSec })}
+          onDragEnd={() => { setCentreSec(value); setPointerWindow(null) }}
         />
       </div>
 
-      <div className="flex items-center justify-end gap-3">
-        <span aria-hidden="true" className="text-white/70 text-xs tabular-nums">{fmt(value)}</span>
+      <p className="text-[11px] text-white/50">Hold the marker at either edge to move further.</p>
+
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        {/* Step buttons: the drag window reaches ±2.5/+6s around where the line
+            sits, which is too short for a line whose real start is further out —
+            a song with a long instrumental intro, most often. These walk the line
+            out to it and take the window along, so the drag keeps its precision. */}
+        {RETIME_STEPS.map((delta) => (
+          <button
+            key={delta}
+            type="button"
+            onClick={() => step(delta)}
+            aria-label={`Move this line ${Math.abs(delta)} second${Math.abs(delta) === 1 ? '' : 's'} ${delta < 0 ? 'earlier' : 'later'}`}
+            className="shrink-0 min-w-10 min-h-11 px-1.5 rounded-lg border border-cinnabar-800 text-white/70 text-[11px] font-medium tabular-nums touch-manipulation hover:text-white hover:border-cinnabar-accent/50 transition-[color,border-color,transform] duration-150 ease-out active:scale-[0.96]"
+          >
+            {delta < 0 ? '−' : '+'}{Math.abs(delta)}s
+          </button>
+        ))}
+        <span aria-hidden="true" className="ml-auto text-white/70 text-xs tabular-nums">{fmt(value)}</span>
         <button
           type="button"
-          onClick={() => onCommit(lineIndex, value, { clamped: isAtWindowEdge(win, value) })}
+          onClick={() => onCommit(lineIndex, value, { clamped: value > 0 && isAtWindowEdge(win, value) })}
           className="shrink-0 min-h-11 px-3 rounded-lg bg-cinnabar-accent text-cinnabar-950 text-[11px] font-semibold touch-manipulation transition-transform duration-150 ease-out active:scale-[0.96]"
         >
           Use this

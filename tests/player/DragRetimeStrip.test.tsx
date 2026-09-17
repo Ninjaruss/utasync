@@ -298,6 +298,65 @@ describe('DragRetimeStrip start marker', () => {
 })
 
 /**
+ * The drag window is deliberately tight (±2.5/+6s) so an ordinary correction
+ * keeps its precision. That left a line whose real start lies further out — most
+ * commonly the first line of a song whose instrumental intro is longer than the
+ * timings expect — impossible to align at all: the drag dead-ended at the edge
+ * and the offset screen escalated to a full transcription instead.
+ */
+describe('DragRetimeStrip stepping past the window', () => {
+  const stepBtn = (label: string) => screen.getByRole('button', { name: new RegExp(`^Move this line ${label}$`, 'i') })
+
+  it('reaches a time the drag window cannot', () => {
+    const { onPreview, onCommit } = setup()
+    expect(Number(slider().max)).toBeCloseTo(36, 5)
+
+    fireEvent.click(stepBtn('10 seconds later'))
+
+    expect(Number(slider().value)).toBeCloseTo(40, 5)
+    expect(onPreview).toHaveBeenCalledWith(40)
+    // A stepped value is a placement the user chose, not a slider running out.
+    fireEvent.click(screen.getByRole('button', { name: /use this/i }))
+    expect(onCommit).toHaveBeenCalledWith(3, 40, { clamped: false })
+  })
+
+  // The step takes the window with it, so the next step (or drag) reaches
+  // further instead of hitting the same edge again.
+  it('walks the window with the value', () => {
+    setup()
+    const fine = stepBtn('1 second later')
+    fireEvent.click(fine)
+    fireEvent.click(fine)
+    fireEvent.click(fine)
+    expect(Number(slider().value)).toBeCloseTo(33, 5)
+    expect(Number(slider().min)).toBeCloseTo(30.5, 5)
+    expect(Number(slider().max)).toBeCloseTo(39, 5)
+  })
+
+  it('can walk a line far past the original window, still settling finely', () => {
+    setup()
+    const coarse = stepBtn('10 seconds later')
+    for (let i = 0; i < 5; i++) fireEvent.click(coarse)
+    expect(Number(slider().value)).toBeCloseTo(80, 5)
+    expect(Number(slider().value)).toBeGreaterThan(Number(slider().min))
+    expect(Number(slider().value)).toBeLessThan(Number(slider().max))
+  })
+
+  it('steps backwards too', () => {
+    setup()
+    fireEvent.click(stepBtn('1 second earlier'))
+    fireEvent.click(stepBtn('10 seconds earlier'))
+    expect(Number(slider().value)).toBeCloseTo(19, 5)
+  })
+
+  it('does not step before the start of the track', () => {
+    setup({ startSec: 0.4 })
+    fireEvent.click(stepBtn('10 seconds earlier'))
+    expect(Number(slider().value)).toBe(0)
+  })
+})
+
+/**
  * A window can be genuinely silent — flagged lines often sit next to instrumental
  * gaps, which is part of why they were flagged. "This window is quiet" and "this
  * track has no waveform" are different statements, and conflating them tells the

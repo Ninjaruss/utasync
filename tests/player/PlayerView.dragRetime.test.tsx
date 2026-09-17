@@ -99,6 +99,31 @@ describe('re-timing a flagged line by dragging', () => {
     })
   })
 
+  // A line whose real start lies outside the drag window — the classic case
+  // being a song whose instrumental intro is longer than the timings expect —
+  // used to be impossible to place at all: the drag dead-ended at the edge.
+  it('reaches a time the drag window cannot, by stepping to it', async () => {
+    await openOnFlaggedLine()
+    await waitFor(() => expect(slider()).toBeTruthy())
+    // The window reaches 30 + 6 = 36; the real start is well past that.
+    expect(Number(slider().max)).toBeCloseTo(36, 5)
+
+    const coarse = screen.getByRole('button', { name: /^Move this line 10 seconds later$/i })
+    fireEvent.click(coarse)
+    fireEvent.click(coarse)
+    expect(Number(slider().value)).toBeCloseTo(50, 5)
+
+    fireEvent.click(screen.getByRole('button', { name: /use this/i }))
+
+    await waitFor(async () => {
+      const saved = await db.songs.get('drag-1')
+      expect(saved?.lyrics.lines[1].startTime).toBeCloseTo(50, 2)
+      // Placed deliberately, so it IS truth for that row and leaves the queue —
+      // unlike a clamped commit, which stays flagged.
+      expect(saved?.lyrics.lineAlignmentQuality?.[1]).toBe('good')
+    })
+  })
+
   // The whole point: what lands is where the thumb was, not when the click was.
   it('does not commit the playhead position', async () => {
     await openOnFlaggedLine()
