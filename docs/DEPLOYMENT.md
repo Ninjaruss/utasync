@@ -33,7 +33,16 @@ Re-run this after `npm install` if you remove `public/dict`.
 
 ### Vocal separation model (auto-downloaded)
 
-On full-tier devices (WebGPU + 6 GB+ RAM), auto-align isolates vocals with Demucs before transcription **by default** — a stem sanity-check falls back to the raw mix if a separation comes back empty, so isolation can never make alignment worse. The model is a bespoke MDX-Net/Demucs ONNX with no npm package, provisioned one of three ways:
+On full-tier devices (WebGPU + 6 GB+ RAM), auto-align isolates vocals with Demucs before transcription **by default**. Two guards keep that from ever costing accuracy:
+
+- **Before transcription** — a stem sanity-check (vocal-activity floor) falls back to the raw mix when a separation comes back destroyed/near-silent.
+- **After transcription** — a stem whose transcript the honesty pass cannot verify (< 25% of content lines scored `good`, e.g. a live acoustic recording where Demucs' "vocals" retain guitar/reverb bleed) is discarded and the mix is re-aligned instead. Measured on one such song: 15.4s → 1.4s mean per-line error.
+
+Because the second guard necessarily runs after the separation, the verdict is remembered per song (`Song.audioIsolationVerdict`): the next align on that song skips isolation instead of re-paying the separation, and the flow's toggle starts unchecked with a note saying why. Ticking it, or the low-confidence screen's re-run button, separates anyway.
+
+Word-vs-segment: the result screen offers **"Try again with segment timestamps"** when a run is flagged or leaves ≥6 lines unverified. On the song above that switch took the mix path from 2.8s to 0.33s mean error, so it is the first thing to try when timings look stretched.
+
+The model is a bespoke MDX-Net/Demucs ONNX with no npm package, provisioned one of three ways:
 
 - **Automatic (default)** — `scripts/download-models.mjs` runs as a `prebuild` step (and during `npm run dev` setup), fetching `Kim_Vocal_2.onnx` (~64 MB) from a public UVR release into `public/models/`. No manual step; this is the path that runs on Vercel.
 - **Ship your own** — place a file at `public/models/Kim_Vocal_2.onnx`; the download step verifies size and skips it if already present.

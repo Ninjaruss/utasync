@@ -100,7 +100,7 @@ if (!NO_ANCHOR) {
   const vocalSig = computeVocalActivity(vocals, STEM_SR, { source: 'stem' })
   const onset = firstVocalOnset(vocalSig)
   const spans = computeLineMatchedSpans(refined.lines.map((l) => l.original || l.translation), sanitizeTranscript(transcriptWords))
-  if (onset != null) refined = { ...refined, lines: anchorLeadingEdge(refined.lines, onset, alignmentLanguage, { spans }) }
+  if (onset != null) refined = { ...refined, lines: anchorLeadingEdge(refined.lines, onset, alignmentLanguage, { spans, transcriptWords: sanitizeTranscript(transcriptWords) }) }
   if (SNAP_VERSE && onset != null) refined = { ...refined, lines: snapLeadingVerseToOnset(refined.lines, onset, alignmentLanguage, { spans }) }
   refined = { ...refined, lines: backfillLateStartsToAcousticOnset(refined.lines, spans, vocalSig) }
   onsetInfo = onset == null ? 'null (no clean intro→onset)' : `${onset.toFixed(2)}s`

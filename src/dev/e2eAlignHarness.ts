@@ -25,6 +25,14 @@ import { preferredWhisperTimestampMode } from '../ai-pipeline/alignTimestampMode
 import { detectSheetLanguage } from '../ai-pipeline/whisperLanguage'
 import { transcribeAudio } from '../ai-pipeline/whisperTranscriber'
 import { computeLineMatchedSpans, normalizeForMatch } from '../ai-pipeline/contentAligner'
+import {
+  DEMUCS_OUTPUT_SAMPLE_RATE,
+  isDemucsModelAvailable,
+  separateVocals,
+} from '../ai-pipeline/demucsSeparator'
+import { computeVocalActivityAsync, firstVocalOnset, type VocalActivitySignal } from '../ai-pipeline/vocalActivity'
+import { assessStemPass, assessStemQuality } from '../ai-pipeline/stemQuality'
+import { anchorLeadingEdge, backfillLateStartsToAcousticOnset } from '../lyrics/leadingEdgeAnchor'
 
 /* ---- LRC truth helpers (browser copies of scripts/lib/lrcTruth.mjs — that
  * module imports node:path and can't load here; keep in sync) ---- */
@@ -173,6 +181,7 @@ export async function runE2eAlignHarness(root: HTMLElement): Promise<void> {
     }
 
     const songName = (new URLSearchParams(location.search).get('e2e') ?? 'stranger').replace(/[^a-z0-9-]/g, '')
+    const isolateVocals = new URLSearchParams(location.search).get('isolate') === '1'
     report.song = songName
     title.textContent = `utasync E2E align harness — ${songName}`
     say(`tier=${tier}, webgpu=${report.webgpu} — fetching audio + lyrics for "${songName}"…`)
@@ -197,11 +206,86 @@ export async function runE2eAlignHarness(root: HTMLElement): Promise<void> {
     const sheetRows = lineTexts.map((original) => ({ original, translation: '', startTime: 0, endTime: 0 }))
 
     say('decoding audio…')
-    const { data: audioData, sampleRate } = await decodeAudioFileToMono(audioFile)
+    const decoded = await decodeAudioFileToMono(audioFile)
+    let audioData = decoded.data
+    let sampleRate = decoded.sampleRate
+    // Retained for the post-transcription stem guard below.
+    const decodedMix = decoded.data
+    const decodedMixRate = decoded.sampleRate
     const durationSec = audioData.length / sampleRate
     const alignmentLanguage = detectSheetLanguage(lineTexts, 'ja')
-    const timestampMode = preferredWhisperTimestampMode(tier, durationSec)
+    // `?mode=segment|word` overrides the app's default. The default (word, on
+    // every transcribing tier) is not always the better pass — on some songs the
+    // long-form word merge drifts by tens of seconds in one region while segment
+    // stays within a second — so an A/B on the actual song is the only honest way
+    // to choose. Reported in the scorecard alongside the mode used.
+    const modeOverride = new URLSearchParams(location.search).get('mode')
+    const timestampMode =
+      modeOverride === 'word' || modeOverride === 'segment'
+        ? modeOverride
+        : preferredWhisperTimestampMode(tier, durationSec)
     Object.assign(report, { durationSec: +durationSec.toFixed(1), alignmentLanguage, timestampMode })
+
+    // --- optional vocal isolation, mirroring AutoAlignFlow's separating stage ---
+    // `?e2e=<song>&isolate=1`. This is the ONLY way the WebGPU separation path can
+    // be exercised live (no Node runner has a GPU adapter), and it reports the
+    // provider the worker actually resolved to, the stem-quality verdict, and
+    // whether the isolated pass beat the mix on the same truth scorecard.
+    let vocalSig: VocalActivitySignal | null = null
+    let isolateError: string | null = null
+    if (isolateVocals) {
+      const modelThere = await isDemucsModelAvailable(true)
+      report.demucsModelAvailable = modelThere
+      if (!modelThere) {
+        isolateError = 'model not available'
+        say('isolation requested but the Demucs model is not reachable — aligning on the mix')
+      } else {
+        say('isolating vocals (slowest step — watch the provider line below)…')
+        const sepStart = performance.now()
+        try {
+          const stem = await separateVocals(audioData, {
+            sampleRate,
+            durationSec: audioData.length / sampleRate,
+            onProvider: (p) => {
+              report.separationProvider = p
+              say(`isolation running on ${p}`)
+            },
+            onProgress: (pct) => say(`isolating vocals ${Math.round(pct)}%`),
+            onLongEstimate: async (projectedMs) => {
+              report.projectedSeparationMs = projectedMs
+              return 'continue'
+            },
+          })
+          const stemRate = DEMUCS_OUTPUT_SAMPLE_RATE
+          const stemSig = await computeVocalActivityAsync(stem, stemRate, { source: 'stem' })
+          const verdict = assessStemQuality(stemSig, stem.length / stemRate)
+          report.separationMs = Math.round(performance.now() - sepStart)
+          report.stem = {
+            seconds: +(stem.length / stemRate).toFixed(1),
+            usable: verdict.usable,
+            reason: verdict.reason,
+            voicedFraction: +verdict.voicedFraction.toFixed(3),
+          }
+          if (verdict.usable) {
+            audioData = stem
+            sampleRate = stemRate
+            vocalSig = stemSig
+            report.isolation = 'stem'
+            say(`isolated ${(stem.length / stemRate).toFixed(1)}s of vocals (voiced ${verdict.voicedFraction.toFixed(2)}) — transcribing the stem`)
+          } else {
+            report.isolation = 'rejected'
+            say(`stem rejected by the sanity guard (${verdict.reason}) — aligning on the mix`)
+          }
+        } catch (e) {
+          isolateError = e instanceof Error ? e.message : String(e)
+          report.separationMs = Math.round(performance.now() - sepStart)
+          report.isolation = 'failed'
+          report.isolationError = isolateError
+          say(`isolation failed (${isolateError}) — aligning on the mix`)
+        }
+      }
+    }
+    report.isolateRequested = isolateVocals
 
     // --- transcription + alignment, mirroring AutoAlignFlow's default path ---
     const t0 = performance.now()
@@ -217,22 +301,47 @@ export async function runE2eAlignHarness(root: HTMLElement): Promise<void> {
         say(`${label}: transcribing ${Math.round(progress)}%`),
     })
 
-    let refined: RefinedAlignment
-    let transcriptWords: TranscriptWord[]
-    if (alignmentLanguage === 'mixed') {
-      const jaT = await transcribeAudio(audioData, sampleRate, opts('ja', 'JA pass', timestampMode))
-      const enT = await transcribeAudio(audioData, sampleRate, opts('en', 'EN pass', 'segment'))
-      say('merging + aligning…')
-      const mixed = refineMixedLanguageAlignment(sheetRows, chunksToWords(jaT), chunksToWords(enT))
-      refined = mixed.refined
-      transcriptWords = mixed.transcriptWords
-    } else {
+    // Mirrors AutoAlignFlow's extracted runPasses().
+    const runPasses = async (): Promise<{ refined: RefinedAlignment; transcriptWords: TranscriptWord[] }> => {
+      if (alignmentLanguage === 'mixed') {
+        const jaT = await transcribeAudio(audioData, sampleRate, opts('ja', 'JA pass', timestampMode))
+        const enT = await transcribeAudio(audioData, sampleRate, opts('en', 'EN pass', 'segment'))
+        say('merging + aligning…')
+        const mixed = refineMixedLanguageAlignment(sheetRows, chunksToWords(jaT), chunksToWords(enT), vocalSig ?? undefined)
+        return { refined: mixed.refined, transcriptWords: mixed.transcriptWords }
+      }
       const tr = await transcribeAudio(audioData, sampleRate, opts(alignmentLanguage, 'pass', timestampMode))
       const words = chunksToWords(tr)
-      transcriptWords = sanitizeTranscript(words)
-      refined = refineAlignmentWithPhrases(sheetRows, words, alignmentLanguage)
+      const transcriptWords = sanitizeTranscript(words)
+      const refined = refineAlignmentWithPhrases(sheetRows, words, alignmentLanguage, undefined, {
+        vocalActivity: vocalSig ?? undefined,
+      })
+      return { refined, transcriptWords }
     }
+
+    const firstPass = await runPasses()
+    let refined: RefinedAlignment = firstPass.refined
+    let transcriptWords: TranscriptWord[] = firstPass.transcriptWords
     report.transcribeMs = Math.round(performance.now() - t0)
+
+    // Mirrors AutoAlignFlow's post-transcription stem guard (stemQuality.assessStemPass).
+    if (report.isolation === 'stem') {
+      const verdict = assessStemPass(refined.lines, refined.lineAlignmentQuality, 'stem')
+      report.stemPassGoodShare = +verdict.goodShare.toFixed(2)
+      if (verdict.weak) {
+        report.stemPassFallback = true
+        say(`stem pass unverifiable (${verdict.goodShare.toFixed(2)} of ${verdict.scoreable} rows) — re-aligning on the mix`)
+        audioData = decodedMix
+        sampleRate = decodedMixRate
+        vocalSig = null
+        report.isolation = 'stem-rejected-after-transcription'
+        const fallbackStart = performance.now()
+        const mixPass = await runPasses()
+        refined = mixPass.refined
+        transcriptWords = mixPass.transcriptWords
+        report.fallbackTranscribeMs = Math.round(performance.now() - fallbackStart)
+      }
+    }
 
     say('focused gap re-pass…')
     const sliceTx = createSliceTranscriber({
@@ -254,6 +363,25 @@ export async function runE2eAlignHarness(root: HTMLElement): Promise<void> {
     refined = gap.refined
     transcriptWords = gap.transcriptWords
     report.gapSectionsFilled = gap.filledCount
+
+    // Stem-only acoustic anchors (AutoAlignFlow.tsx:583-603): a no-op on the mix,
+    // so an isolated run has to reproduce this pass to be comparable to a real one.
+    if (vocalSig) {
+      try {
+        const onset = firstVocalOnset(vocalSig)
+        const anchorSpans = computeLineMatchedSpans(
+          refined.lines.map((l) => l.original || l.translation),
+          sanitizeTranscript(transcriptWords),
+        )
+        if (onset != null) {
+          refined = { ...refined, lines: anchorLeadingEdge(refined.lines, onset, alignmentLanguage, { spans: anchorSpans, transcriptWords }) }
+        }
+        refined = { ...refined, lines: backfillLateStartsToAcousticOnset(refined.lines, anchorSpans, vocalSig) }
+        report.firstVocalOnset = onset == null ? null : +onset.toFixed(2)
+      } catch (e) {
+        report.acousticAnchorError = e instanceof Error ? e.message : String(e)
+      }
+    }
     report.totalMs = Math.round(performance.now() - t0)
 
     // --- score vs truth ---
