@@ -10,14 +10,17 @@ import type { TranscriptWord } from '../../src/ai-pipeline/aligner'
  * (computeVocalActivity + assessStemQuality) runs for real here.
  */
 
-// Capture exactly what audio buffer + rate the slice transcriber receives.
+// Capture EVERY slice transcriber created, in order: with the mix retry there can
+// be two, and which source each one saw is the thing under test.
+const created: { audioData: Float32Array; sampleRate: number }[] = []
 const sliceDeps: { audioData: Float32Array | null; sampleRate: number } = { audioData: null, sampleRate: 0 }
 const mockTranscribe = vi.fn(async (): Promise<TranscriptWord[]> => [])
 vi.mock('../../src/ai-pipeline/sliceTranscriber', () => ({
   createSliceTranscriber: (deps: { audioData: Float32Array; sampleRate: number }) => {
+    created.push({ audioData: deps.audioData, sampleRate: deps.sampleRate })
     sliceDeps.audioData = deps.audioData
     sliceDeps.sampleRate = deps.sampleRate
-    return { transcribe: () => mockTranscribe() }
+    return { transcribe: (...args: unknown[]) => mockTranscribe(...(args as [])) }
   },
 }))
 
@@ -84,6 +87,7 @@ function voicedStem(): Float32Array {
 }
 
 beforeEach(() => {
+  created.length = 0
   sliceDeps.audioData = null
   sliceDeps.sampleRate = 0
   mockTranscribe.mockReset()
@@ -97,8 +101,40 @@ describe('recoverGapsForStoredSong vocal isolation', () => {
     stemToReturn = voicedStem()
     await recoverGapsForStoredSong({ lyrics: storedWithHole(), songId: 's', isolateVocals: true, isCancelled: () => false })
     expect(separateVocalsSpy).toHaveBeenCalledTimes(1)
-    expect(sliceDeps.audioData).toBe(stemToReturn)
-    expect(sliceDeps.sampleRate).toBe(44100)
+    // First pass on the stem at the model's rate...
+    expect(created[0].audioData).toBe(stemToReturn)
+    expect(created[0].sampleRate).toBe(44100)
+    // ...and because that pass recovered nothing here (the mock returns no words),
+    // the same holes are handed to the decoded mix at the decode rate.
+    expect(created).toHaveLength(2)
+    expect(created[1].audioData).toBe(MIX)
+    expect(created[1].sampleRate).toBe(48000)
+  })
+
+  it('retries on the mix only when the stem pass recovered nothing', async () => {
+    stemToReturn = voicedStem()
+    // A slice re-transcription that actually corroborates the hole's lines.
+    mockTranscribe.mockImplementation(async (t0: number, t1: number) => {
+      const mid = t0 + (t1 - t0) / 2
+      return [...anchorWords(GAP1, t0 + 1, mid - 1), ...anchorWords(GAP2, mid + 1, t1 - 1)]
+    })
+    const res = await recoverGapsForStoredSong({
+      lyrics: storedWithHole(),
+      songId: 's',
+      isolateVocals: true,
+      isCancelled: () => false,
+    })
+    expect(res!.filledCount).toBeGreaterThan(0)
+    // The stem earned its keep — no second pass over the same holes.
+    expect(created).toHaveLength(1)
+    expect(created[0].audioData).toBe(stemToReturn)
+  })
+
+  it('does not retry the mix when the stem was never used', async () => {
+    stemToReturn = new Float32Array(44100) // destroyed → rejected before transcription
+    await recoverGapsForStoredSong({ lyrics: storedWithHole(), songId: 's', isolateVocals: true, isCancelled: () => false })
+    expect(created).toHaveLength(1)
+    expect(created[0].audioData).toBe(MIX)
   })
 
   it('falls back to the raw mix (at the decode rate) when the stem is destroyed', async () => {

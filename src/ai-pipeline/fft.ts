@@ -119,12 +119,17 @@ export interface StftResult {
 /**
  * Short-time Fourier transform.
  * Returns one-sided complex spectrogram: n_bins = nFft/2+1, indexed [bin][frame].
+ *
+ * `onProgress` is a throttled (≤20 call) fraction-of-frames reporter, for callers
+ * that must prove liveness to a watchdog while this loop runs — it is pure JS and
+ * takes seconds to minutes on a full-length song.
  */
 export function stft(
   audio: Float32Array,
   nFft: number,
   hop: number,
   win: Float32Array,
+  onProgress?: (fraction: number) => void,
 ): StftResult {
   const nBins = Math.floor(nFft / 2) + 1
   // Center-pad so the first and last frames are centered on the signal edges.
@@ -139,6 +144,8 @@ export function stft(
   const re = new Float64Array(nFft)
   const im = new Float64Array(nFft)
 
+  const reportEvery = Math.max(1, Math.floor(frames / 20))
+
   for (let f = 0; f < frames; f++) {
     const offset = f * hop
     re.fill(0); im.fill(0)
@@ -150,6 +157,7 @@ export function stft(
       real[b][f] = re[b]
       imag[b][f] = im[b]
     }
+    if (onProgress && (f % reportEvery === 0 || f === frames - 1)) onProgress((f + 1) / frames)
   }
   return { real, imag, frames }
 }
@@ -157,7 +165,7 @@ export function stft(
 /**
  * Inverse STFT via overlap-add.
  * real/imag must be indexed [bin][frame] with n_bins = nFft/2+1.
- * Returns audio of exactly `length` samples.
+ * Returns audio of exactly `length` samples. `onProgress` behaves as in `stft`.
  */
 export function istft(
   real: Float32Array[],
@@ -166,6 +174,7 @@ export function istft(
   hop: number,
   win: Float32Array,
   length: number,
+  onProgress?: (fraction: number) => void,
 ): Float32Array {
   const nBins = real.length
   const frames = real[0].length
@@ -175,6 +184,7 @@ export function istft(
 
   const re = new Float64Array(nFft)
   const im = new Float64Array(nFft)
+  const reportEvery = Math.max(1, Math.floor(frames / 20))
 
   for (let f = 0; f < frames; f++) {
     re.fill(0); im.fill(0)
@@ -191,6 +201,7 @@ export function istft(
       output[offset + i] += re[i] * win[i]
       wSum[offset + i] += win[i] * win[i]
     }
+    if (onProgress && (f % reportEvery === 0 || f === frames - 1)) onProgress((f + 1) / frames)
   }
 
   // Normalize by window overlap sum, trim center-padding

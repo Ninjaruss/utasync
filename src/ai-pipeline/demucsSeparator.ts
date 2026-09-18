@@ -4,6 +4,8 @@ import type { SeparationProvider } from './separationProvider'
 import {
   etaPromptThresholdMs,
   STALL_TIMEOUT_MS,
+  LOAD_STALL_TIMEOUT_MS,
+  CANCEL_POLL_MS,
   acceptedCapMs,
   projectSeparationMs,
   separationCapMs,
@@ -25,7 +27,13 @@ export async function isDemucsModelAvailable(force = false): Promise<boolean> {
 
   try {
     const res = await fetch(DEMUCS_MODEL_URL, { method: 'HEAD' })
-    modelAvailable = res.ok
+    // `res.ok` alone is not enough: a SPA rewrite (vercel.json sends every
+    // unmatched path to index.html, HEAD included) answers a MISSING model with
+    // 200 text/html, so isolation would be advertised, then fail inside ORT with
+    // an unparseable model and surface as "unavailable" instead of "not found".
+    // A real ONNX binary is never served as HTML.
+    const contentType = res.headers?.get?.('content-type') ?? ''
+    modelAvailable = res.ok && !/text\/html/i.test(contentType)
   } catch {
     modelAvailable = false
   }
@@ -100,9 +108,12 @@ export interface SeparateVocalsOptions {
 export const DEMUCS_OUTPUT_SAMPLE_RATE = 44100
 
 /**
- * Isolates vocals from mono PCM via the Demucs worker. Returns the original
- * buffer unchanged when separation fails or is cancelled mid-run. The returned
- * audio is at DEMUCS_OUTPUT_SAMPLE_RATE regardless of the input rate.
+ * Isolates vocals from mono PCM via the Demucs worker. The returned audio is at
+ * DEMUCS_OUTPUT_SAMPLE_RATE regardless of the input rate.
+ *
+ * THROWS on every failure (model missing, worker error, stall, cap, cancel) —
+ * it never falls back to returning the input. Both callers rely on that: they
+ * keep the decoded mix they already hold and transcribe that instead.
  */
 export async function separateVocals(
   audioData: Float32Array,
@@ -110,7 +121,7 @@ export async function separateVocals(
 ): Promise<Float32Array> {
   if (!(await isDemucsModelAvailable())) {
     throw new Error(
-      'Vocal separation model not found. Place demucs-v1.onnx at public/models/ — see docs/DEPLOYMENT.md.',
+      `Vocal separation model not found at ${DEMUCS_MODEL_URL}. It is downloaded to public/models/ by scripts/download-models.mjs — see docs/DEPLOYMENT.md.`,
     )
   }
 
@@ -121,7 +132,9 @@ export async function separateVocals(
   let settled = false
   let askedEstimate = false
   let stallTimer: ReturnType<typeof setTimeout> | undefined
+  let loadTimer: ReturnType<typeof setTimeout> | undefined
   let capTimer: ReturnType<typeof setTimeout> | undefined
+  let cancelTimer: ReturnType<typeof setInterval> | undefined
   let capMs = separationCapMs(options?.durationSec ?? 0)
 
   try {
@@ -130,7 +143,9 @@ export async function separateVocals(
         if (settled) return
         settled = true
         clearTimeout(stallTimer)
+        clearTimeout(loadTimer)
         clearTimeout(capTimer)
+        clearInterval(cancelTimer)
         fn()
       }
       const fail = (err: Error) =>
@@ -140,7 +155,7 @@ export async function separateVocals(
         })
 
       /** Re-armed on every progress message: catches a wedge in 90s rather than
-       * making the user wait out the whole cap. */
+       * making the user wait out the whole cap. Inference only — see armLoad. */
       const armStall = () => {
         clearTimeout(stallTimer)
         stallTimer = setTimeout(
@@ -152,6 +167,25 @@ export async function separateVocals(
               ),
             ),
           STALL_TIMEOUT_MS,
+        )
+      }
+
+      /** The model fetch + session init, which report no progress at all. Kept
+       * apart from armStall so a slow (but healthy) download is not reported as
+       * a hung worker — and so a load that never completes is still caught,
+       * which nothing used to do: neither timer was armed until the worker's
+       * first message, so a worker that hung before replying never settled. */
+      const armLoad = () => {
+        clearTimeout(loadTimer)
+        loadTimer = setTimeout(
+          () =>
+            fail(
+              new SeparationAbandonedError(
+                'stalled',
+                `Vocal separation's model load produced no response for ${Math.round(LOAD_STALL_TIMEOUT_MS / 1000)}s`,
+              ),
+            ),
+          LOAD_STALL_TIMEOUT_MS,
         )
       }
 
@@ -168,6 +202,22 @@ export async function separateVocals(
       // Abort does not depend on the worker being responsive — that dependency
       // was the original bug.
       options?.signal?.addEventListener('abort', () => fail(new Error('cancelled')), { once: true })
+
+      // gapRecovery's callers still pass the legacy polling callback instead of
+      // a signal, and it was only read on progress messages — so a Cancel during
+      // a wedged session.run() left the worker burning CPU for up to the full
+      // stall timeout after the user asked it to stop.
+      if (options?.isCancelled) {
+        cancelTimer = setInterval(() => {
+          if (options.isCancelled?.()) fail(new Error('cancelled'))
+        }, CANCEL_POLL_MS)
+      }
+
+      // Both bounds run from the moment the worker is asked to load, because
+      // that is when the run's real cost starts: the download IS part of what the
+      // user is waiting for.
+      armLoad()
+      armCap(capMs)
 
       const maybeAskEstimate = (payload: {
         chunk?: number
@@ -204,9 +254,15 @@ export async function separateVocals(
       worker.onmessage = (e: MessageEvent) => {
         const { type, payload } = e.data
         if (type === 'loaded') {
+          // A message can still be delivered after the run settled (terminate()
+          // races the queue): without this guard the clamps below would re-arm
+          // both timers and clone the whole song for a worker that is gone.
+          if (settled) return
+          clearTimeout(loadTimer)
           if (payload?.provider) options?.onProvider?.(payload.provider as SeparationProvider)
           armStall()
-          armCap(capMs)
+          // The cap is NOT re-armed here: it bounds the entire run, download
+          // included, rather than resetting the clock once the model is up.
           // Clone before transfer — the worker takes ownership of the buffer and
           // cancel/retry must not neuter the caller's decoded audio.
           const pcm = new Float32Array(audioData)
@@ -230,7 +286,11 @@ export async function separateVocals(
             fail(new Error('cancelled'))
             return
           }
-          armStall()
+          // A load-phase message is a download heartbeat, not inference: it
+          // extends the load budget and must not be judged by the 90s inference
+          // watchdog (that was the false "stopped responding" on slow links).
+          if (payload?.status === 'loading') armLoad()
+          else armStall()
           options?.onProgress?.(payload?.progress ?? 0)
           maybeAskEstimate(payload ?? {})
         }
@@ -240,7 +300,9 @@ export async function separateVocals(
     })
   } finally {
     clearTimeout(stallTimer)
+    clearTimeout(loadTimer)
     clearTimeout(capTimer)
+    clearInterval(cancelTimer)
     worker.terminate()
   }
 }

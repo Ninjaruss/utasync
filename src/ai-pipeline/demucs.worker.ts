@@ -32,6 +32,13 @@ function demucsOrtWasmBaseUrl(): string {
 /** Linear resampler — accurate enough for 44100↔48000. */
 function resample(audio: Float32Array, fromRate: number, toRate: number): Float32Array {
   if (fromRate === toRate) return audio
+  // A non-finite or non-positive rate would make outLen NaN/Infinity and
+  // `new Float32Array(NaN)` silently produces an EMPTY buffer — an empty "stem"
+  // that the fail-open stem-quality guard would then accept, so the flow would
+  // align on silence. Fail loudly instead.
+  if (!Number.isFinite(fromRate) || fromRate <= 0) {
+    throw new Error(`Invalid input sample rate: ${fromRate}`)
+  }
   const ratio = fromRate / toRate
   const outLen = Math.round(audio.length / ratio)
   const out = new Float32Array(outLen)
@@ -109,7 +116,18 @@ self.onmessage = async (e: MessageEvent) => {
 
       // 2. STFT (mono — both L and R will be the same)
       const win = hannWindow(N_FFT)
-      const spec = stft(audio, N_FFT, HOP, win)
+      const spec = stft(audio, N_FFT, HOP, win, (fraction) => {
+        // Heartbeat: this loop is O(duration) JS with no GPU work in it (the
+        // 7680-point Bluestein FFT is ~3x a 16384-point FFT per frame), so on a
+        // long song or a slow device it can run silently for minutes — which the
+        // host's 90s inference watchdog read as a hung worker. Reporting progress
+        // keeps that watchdog honest AND makes the bar move instead of sitting at
+        // "Separating vocals 8%".
+        self.postMessage({
+          type: 'progress',
+          payload: { status: 'analyzing', progress: 3 + Math.round(fraction * 5) },
+        })
+      })
       const totalFrames = spec.frames
 
       self.postMessage({ type: 'progress', payload: { status: 'separating', progress: 8 } })
@@ -176,7 +194,10 @@ self.onmessage = async (e: MessageEvent) => {
           type: 'progress',
           payload: {
             status: 'separating',
-            progress: 8 + Math.round((c / nChunks) * 82),
+            // (c + 1): the message is sent AFTER chunk c completed, so the old
+            // 0-based `c / nChunks` plateaued just under 90% and made a
+            // single-chunk song look stuck at 8% for the whole GPU cost.
+            progress: 8 + Math.round(((c + 1) / nChunks) * 82),
             chunk: c + 1,
             nChunks,
             elapsedMs: performance.now() - runStartMs,
@@ -211,10 +232,17 @@ self.onmessage = async (e: MessageEvent) => {
         return row
       })
 
-      self.postMessage({ type: 'progress', payload: { status: 'separating', progress: 92 } })
+      self.postMessage({ type: 'progress', payload: { status: 'synthesizing', progress: 92 } })
 
-      // 7. ISTFT → mono vocals waveform
-      const vocals = istft(vRe, vIm, N_FFT, HOP, win, origLen)
+      // 7. ISTFT → mono vocals waveform. Also heartbeat-reporting: this is the
+      // last long silent JS phase, and all of the GPU work is already spent by
+      // the time it runs, so a false stall here throws the whole run away.
+      const vocals = istft(vRe, vIm, N_FFT, HOP, win, origLen, (fraction) => {
+        self.postMessage({
+          type: 'progress',
+          payload: { status: 'synthesizing', progress: 92 + Math.round(fraction * 7) },
+        })
+      })
 
       self.postMessage({ type: 'progress', payload: { status: 'separating', progress: 100 } })
       self.postMessage({ type: 'result', payload: vocals }, [vocals.buffer])

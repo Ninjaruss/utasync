@@ -32,8 +32,34 @@ export function etaPromptThresholdMs(durationSec: number): number {
 
 /** No progress message for this long means the run is wedged (typically a lost
  * WebGPU device), not merely slow. Distinct from the cap: a wedge should be
- * caught in seconds, not waited out. */
+ * caught in seconds, not waited out.
+ *
+ * Covers INFERENCE only — it must not be armed until the worker reports its
+ * model loaded. See LOAD_STALL_TIMEOUT_MS. */
 export const STALL_TIMEOUT_MS = 90_000
+
+/**
+ * Budget for the worker's model load (the 66.8 MB ONNX fetch, then session init)
+ * before the run is declared dead.
+ *
+ * That phase is ONE silent block: onnxruntime exposes no byte- or op-level
+ * progress for `InferenceSession.create`, and the worker's single
+ * `{status:'loading'}` message is posted *before* it starts. That message used to
+ * arm STALL_TIMEOUT_MS, so any link slower than ~6 Mbps (66.8 MB / 90 s) failed
+ * the first run as a false "stopped responding" — and because failing terminates
+ * the worker, the half-downloaded model was discarded (the service worker only
+ * caches complete responses), so every retry repeated the identical 90-second
+ * death. A slow download is not a wedge, so it gets a real budget.
+ *
+ * 15 minutes matches the un-negotiated run cap's floor: under ~0.6 Mbps the fetch
+ * is genuinely broken rather than merely slow. */
+export const LOAD_STALL_TIMEOUT_MS = 15 * 60_000
+
+/** How often an `isCancelled` poll runs while a separation is in flight. That
+ * legacy callback is otherwise consulted only on progress messages — which a
+ * wedged `session.run()` never sends, the exact window the abort signal exists
+ * to close. */
+export const CANCEL_POLL_MS = 250
 
 /** Budget per second of audio for the un-negotiated hard cap. Whisper uses 20x
  * (whisperTranscriber.ts), which on a 3:50 song permits ~77 minutes — precisely

@@ -1,5 +1,13 @@
 import { describe, it, expect, vi } from 'vitest'
-import { assessStemQuality, warnIfStemRejected, STEM_VOICED_FLOOR } from '../../src/ai-pipeline/stemQuality'
+import {
+  assessStemPass,
+  assessStemQuality,
+  warnIfStemPassWeak,
+  warnIfStemRejected,
+  STEM_GOOD_SHARE_FLOOR,
+  STEM_VOICED_FLOOR,
+} from '../../src/ai-pipeline/stemQuality'
+import type { LineAlignmentQuality, TimedLine } from '../../src/core/types'
 import type { VocalActivitySignal } from '../../src/ai-pipeline/vocalActivity'
 import { VOICED_THRESHOLD } from '../../src/ai-pipeline/vocalActivity'
 
@@ -72,6 +80,73 @@ describe('warnIfStemRejected', () => {
     try {
       warnIfStemRejected('unit', assessStemQuality(stemSignal(0.55, 200), 200))
       expect(warn).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+})
+
+describe('assessStemPass', () => {
+  const at = (i: number): TimedLine => ({ original: `line ${i}`, translation: '', startTime: i * 2, endTime: i * 2 + 1.8 })
+  const mk = (n: number, labels: LineAlignmentQuality[]) =>
+    [Array.from({ length: n }, (_, i) => at(i)), labels] as const
+
+  it('rejects a stem pass whose lines are essentially unverifiable (the live case)', () => {
+    // AKFG "Rock'n'Roll…" (THE FIRST TAKE): the isolated run verified 0 of 30 rows
+    // while the mix verified 21 of 30 — 15.4s vs 2.8s mean error.
+    const [lines, quality] = mk(30, Array.from({ length: 30 }, () => 'approximate' as LineAlignmentQuality))
+    const v = assessStemPass(lines, quality, 'stem')
+    expect(v.weak).toBe(true)
+    expect(v.reason).toBe('unverifiable-stem')
+    expect(v.goodShare).toBe(0)
+  })
+
+  it('keeps a merely-approximate stem pass (every other measured song)', () => {
+    // stranger stem 0.41, veil stem 0.40, guitar 0.67 — all above the floor.
+    const labels = [
+      ...Array.from({ length: 24 }, () => 'good' as LineAlignmentQuality),
+      ...Array.from({ length: 35 }, () => 'approximate' as LineAlignmentQuality),
+    ]
+    const v = assessStemPass(Array.from({ length: 59 }, (_, i) => at(i)), labels, 'stem')
+    expect(v.weak).toBe(false)
+    expect(v.goodShare).toBeCloseTo(24 / 59, 2)
+    expect(v.goodShare).toBeGreaterThan(STEM_GOOD_SHARE_FLOOR)
+  })
+
+  it('never triggers on a mix pass (the fallback must not recurse)', () => {
+    const labels = Array.from({ length: 30 }, () => 'needs_review' as LineAlignmentQuality)
+    expect(assessStemPass(Array.from({ length: 30 }, (_, i) => at(i)), labels, 'mix').weak).toBe(false)
+  })
+
+  it('does not judge a clip too short to have a signal', () => {
+    const labels = Array.from({ length: 3 }, () => 'needs_review' as LineAlignmentQuality)
+    const v = assessStemPass(Array.from({ length: 3 }, (_, i) => at(i)), labels, 'stem')
+    expect(v.weak).toBe(false)
+    expect(v.reason).toBe('too-few-lines')
+  })
+
+  it('ignores blank/translation-only rows when scoring', () => {
+    const lines: TimedLine[] = [
+      ...Array.from({ length: 8 }, (_, i) => at(i)),
+      { original: '', translation: '', startTime: 30, endTime: 31 },
+    ]
+    const labels = [
+      ...Array.from({ length: 8 }, () => 'needs_review' as LineAlignmentQuality),
+      'good' as LineAlignmentQuality,
+    ]
+    const v = assessStemPass(lines, labels, 'stem')
+    expect(v.scoreable).toBe(8)
+    expect(v.goodShare).toBe(0)
+    expect(v.weak).toBe(true)
+  })
+
+  it('logs (once) when a stem pass is discarded, so real-world firing is observable', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const labels = Array.from({ length: 8 }, () => 'needs_review' as LineAlignmentQuality)
+      warnIfStemPassWeak('unit', assessStemPass(Array.from({ length: 8 }, (_, i) => at(i)), labels, 'stem'))
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(String(warn.mock.calls[0][0])).toContain('unit')
     } finally {
       warn.mockRestore()
     }

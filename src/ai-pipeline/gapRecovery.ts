@@ -178,6 +178,11 @@ export async function recoverGapsForStoredSong(
   }
   let { data, sampleRate } = await decodeAudioFileToMono(file)
   if (isCancelled?.()) return null
+  // Retained for the mix retry below: once the stem replaces `data` the decoded mix
+  // is otherwise unreachable, and a stem that re-transcribes nothing must be able to
+  // hand the same holes back to the mix.
+  const mixData = data
+  const mixRate = sampleRate
 
   // Isolation parity with the fresh align (GAP_RECOVERY_VERSION 3): re-transcribe
   // the garbled gaps on the same isolated vocal stem the song was aligned on. Only
@@ -191,6 +196,11 @@ export async function recoverGapsForStoredSong(
     try {
       const stem = await separateVocals(data, {
         sampleRate,
+        // Without a duration the cap falls back to its 15-minute floor, so a song
+        // the fresh align was allowed 6x its length for (23 minutes on a 3:50
+        // track) could be abandoned here as a 'timeout' on exactly the slow
+        // devices the cap exists to protect.
+        durationSec: data.length / sampleRate,
         isCancelled: () => isCancelled?.() ?? false,
       })
       if (isCancelled?.()) return null
@@ -210,25 +220,45 @@ export async function recoverGapsForStoredSong(
   }
 
   const alignmentLanguage = detectSheetLanguage(sheetTexts, lyrics.sourceLanguage)
-  const sliceTx = createSliceTranscriber({
-    audioData: data,
-    sampleRate,
-    isCancelled: () => isCancelled?.() ?? false,
-    highAccuracy,
-    timestampMode,
-  })
+  const sliceTranscriberFor = (audio: Float32Array, rate: number) =>
+    createSliceTranscriber({
+      audioData: audio,
+      sampleRate: rate,
+      isCancelled: () => isCancelled?.() ?? false,
+      highAccuracy,
+      timestampMode,
+    })
 
-  const result = await reanalyzeGaps({
-    refined,
-    transcriptWords: words,
-    sheetRows,
-    alignmentLanguage,
-    sourceLanguage: lyrics.sourceLanguage,
-    transcribeSlice: sliceTx.transcribe,
-    isCancelled,
-    refineOpts: { lyricsBase: lyrics },
-    onProgress,
-  })
+  const runGapPass = async (transcribeSlice: ReturnType<typeof createSliceTranscriber>['transcribe']) =>
+    reanalyzeGaps({
+      refined,
+      transcriptWords: words,
+      sheetRows,
+      alignmentLanguage,
+      sourceLanguage: lyrics.sourceLanguage,
+      transcribeSlice,
+      isCancelled,
+      refineOpts: { lyricsBase: lyrics },
+      onProgress,
+    })
+
+  const usedStem = data !== mixData
+  let result = await runGapPass(sliceTranscriberFor(data, sampleRate).transcribe)
+
+  // Post-transcription parity with the fresh align (stemQuality.assessStemPass).
+  // The pre-transcription guard above only rejects a DESTROYED stem; a stem that
+  // holds vocal-band energy and still transcribes badly slips through, and here its
+  // slices simply match nothing — every hole is rejected by accept-if-better, so the
+  // recovery silently does nothing while having paid for a whole separation. Retry
+  // the SAME holes on the decoded mix once: the accept-if-better gate still decides
+  // what survives, so this can only add recoveries, never damage one.
+  if (usedStem && result.filledCount === 0 && !isCancelled?.()) {
+    console.warn(
+      '[gapRecovery] isolation recovered nothing — retrying the same sections on the raw mix.',
+    )
+    const mixResult = await runGapPass(sliceTranscriberFor(mixData, mixRate).transcribe)
+    if (mixResult.filledCount > 0) result = mixResult
+  }
 
   // applyRefinedAlignment doesn't carry transcriptWords — thread the recovered
   // timeline (and the version stamp) through the lyrics arg (mirrors AutoAlignFlow).
