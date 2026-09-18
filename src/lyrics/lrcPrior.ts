@@ -1,6 +1,37 @@
-import type { TimedLine } from '../core/types'
+import type { AlignmentMode, TimedLine } from '../core/types'
 import type { LineMatchedSpan } from '../ai-pipeline/contentAligner'
 import { enforceLineMonotonicity } from './phraseAlignment'
+
+/**
+ * The song's existing line times, IF they are a legitimate OUTSIDE prior — a
+ * pasted LRC, a subtitle, or a lyrics-database entry the user adopted. Returns
+ * null when there is nothing to constrain with, and for the one source that must
+ * never be treated as truth: timing this pipeline produced itself.
+ *
+ * That case is not hypothetical. `onComplete` writes an auto-align's line times
+ * straight back into the song, so re-running (the low-confidence screen's
+ * "Re-run with vocal isolation", or Edit mode's re-align) would otherwise hand
+ * `applyLrcPrior` the previous run's output as though a human had supplied it —
+ * and its rule is to snap every line it is not confident about onto the prior,
+ * i.e. exactly the misheard lines a re-run exists to fix. A second pass could
+ * then only reproduce the first one's errors. `alignmentMode === 'auto'` is this
+ * app's existing marker for "these times came out of the pipeline" (see
+ * `chooseAutoAlignment`), so it is the right gate.
+ *
+ * `expectedLineCount` guards the caller's index math: applyLrcPrior indexes
+ * priorTimes by line, so a sheet whose stored lines no longer match the rows
+ * being aligned (e.g. a sung-phrase layout) must be skipped, not padded.
+ */
+export function usablePriorTimes(
+  lyrics: { alignmentMode?: AlignmentMode; lines: readonly TimedLine[] },
+  expectedLineCount: number,
+): number[] | null {
+  if (lyrics.alignmentMode === 'auto') return null
+  const times = lyrics.lines.map((l) => l.startTime)
+  if (times.length !== expectedLineCount) return null
+  if (times.filter((t) => t > 0).length < Math.ceil(times.length / 2)) return null
+  return times
+}
 
 /** Median of a numeric array (0 for empty). Does not mutate the input. */
 export function median(xs: number[]): number {

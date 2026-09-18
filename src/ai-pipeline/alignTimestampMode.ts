@@ -3,13 +3,30 @@ import type { DeviceTier, LineAlignmentQuality, TimedLine, TimedTranscriptWord }
 /** Word-level (cross-attention) timestamps verify readings, refine phrase
  * boundaries, and keep line-end tails tight (segment chunks clip a sung final
  * syllable ~0.7-1.0s early and interpolate per-line boundaries inside multi-line
- * chunks). Every transcribing tier (full and lite) uses word mode: both run the
- * WebGPU worker's manual per-window word calls (`whisper.worker.ts`), which
- * sidestep the broken long-form merge that originally motivated a duration/tier
- * cutoff — measured at ~1.0x the segment-mode wall-clock, so word timestamps add
- * negligible compute. Segment mode now only arises from the whisper-medium
- * high-accuracy pass (its word mode has a repetition-loop pathology). Manual tier
- * does not transcribe. */
+ * chunks). Every transcribing tier (full and lite) uses word mode; manual tier
+ * does not transcribe.
+ *
+ * CORRECTION (2026-09-17): this comment used to claim word mode runs "the WebGPU
+ * worker's manual per-window word calls (whisper.worker.ts), which sidestep the
+ * broken long-form merge". It does not. `whisperBackend()` is hard-wired to WASM
+ * (inferenceBackend.ts — the WebGPU word path was attempted and rejected), so
+ * `requestedDevice === 'webgpu'` is never true for transcription and word mode
+ * goes through exactly the transformers.js long-form word merge that the removed
+ * duration/tier cutoff existed to avoid. Measured consequence on the isolated
+ * vocal stem of tests/e2e stranger-than-heaven (same audio, same lyrics, same
+ * whisper-small — mode is the only difference):
+ *   segment: mean|err| 0.74s, p90 1.71s, 1 line >3s   (needs_review 4/59)
+ *   word:    mean|err| 5.61s, p90 16.90s, 29 lines >3s (needs_review 21/59)
+ * The word-mode failure is a late ramp from line #31 onward (+24s decaying to
+ * +2s), i.e. a transcript time-domain artifact the aligner then follows. It is
+ * NOT isolation-specific: the committed mix fixtures show the same song's
+ * ja-only word pass at p90 36.1s (scripts/audit-vs-lrc.mjs).
+ *
+ * So the case for word mode is real (line ends and phrase boundaries) but it is
+ * NOT free, and it is not the windowed path. A long-form merge failure is
+ * currently indistinguishable from a good word run except through the per-line
+ * labels — which do report it (needs_review 21 vs 4), and which is why the
+ * low-confidence warning and the Edit-mode accurate-realign hint fire on it. */
 export function preferredWhisperTimestampMode(
   tier: DeviceTier,
   durationSec: number,

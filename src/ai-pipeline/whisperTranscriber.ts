@@ -43,6 +43,12 @@ const loadProgressListeners = new Set<(p: LoadProgress) => void>()
 // Tracks the reject callback of any in-flight transcribeAudio promise so that
 // resetWhisperTranscriber() can surface a cancellation error instead of hanging.
 let transcribeReject: ((e: Error) => void) | null = null
+// Same, for the in-flight model load. `loaded` is otherwise resolved/rejected only
+// by worker messages, and resetWhisperTranscriber() terminates that worker — so
+// without this, an `await ensureLoaded(...)` in flight at reset never settled at
+// all: the abandoned align run hung forever instead of unwinding (Cancel during
+// "Loading AI model").
+let loadReject: ((e: Error) => void) | null = null
 
 const WORKER_IDLE_RELEASE_MS = 3 * 60 * 1000
 
@@ -74,15 +80,20 @@ function scheduleWorkerRelease(): void {
 
 /** Terminates the worker and rejects any in-flight transcription promise. */
 export function resetWhisperTranscriber(): void {
-  const r = transcribeReject
+  const rejectTranscribe = transcribeReject
   transcribeReject = null
-  r?.(new Error('Transcription cancelled'))
+  const rejectLoad = loadReject
+  loadReject = null
   cancelWorkerRelease()
   worker?.terminate()
   worker = null
   loaded = null
   loadedModel = null
   loadProgressListeners.clear()
+  // After the teardown, so a listener that reacts to the rejection cannot touch
+  // the worker we just killed.
+  rejectLoad?.(new Error('Model load cancelled'))
+  rejectTranscribe?.(new Error('Transcription cancelled'))
 }
 
 function broadcastLoadProgress(p: LoadProgress): void {
@@ -105,6 +116,7 @@ function ensureLoaded(onProgress?: (p: LoadProgress) => void, highAccuracy = fal
 
   if (!loaded) {
     loaded = new Promise((resolve, reject) => {
+      loadReject = reject
       const w = getWorker()
       const onMessage = (e: MessageEvent) => {
         if (e.data.type === 'load-progress') {
@@ -113,6 +125,7 @@ function ensureLoaded(onProgress?: (p: LoadProgress) => void, highAccuracy = fal
           w.removeEventListener('message', onMessage)
           loadProgressListeners.clear()
           loadedModel = model
+          loadReject = null
           resolve()
         } else if (e.data.type === 'error') {
           w.removeEventListener('message', onMessage)
@@ -121,6 +134,7 @@ function ensureLoaded(onProgress?: (p: LoadProgress) => void, highAccuracy = fal
           loaded = null
           loadedModel = null
           loadProgressListeners.clear()
+          loadReject = null
           reject(new Error(String(e.data.payload)))
         }
       }
@@ -143,7 +157,9 @@ function ensureLoaded(onProgress?: (p: LoadProgress) => void, highAccuracy = fal
 /** Low-priority warm-up — does not load the model during initial paint. */
 export function preloadWhisper(): void {
   if (getDeviceTier() === 'manual') return
-  runWhenIdle(() => { void ensureLoaded() }, 10_000)
+  // Swallow the rejection: a reset (Cancel, or a model switch) between idle and
+  // the load would otherwise be an unhandled rejection for a warm-up nobody awaits.
+  runWhenIdle(() => { void ensureLoaded().catch(() => {}) }, 10_000)
 }
 
 export async function transcribeAudio(

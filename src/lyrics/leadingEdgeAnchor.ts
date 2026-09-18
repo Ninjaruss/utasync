@@ -6,6 +6,25 @@ import { computeLineMatchedSpans } from '../ai-pipeline/contentAligner'
 
 const MIN_HIGHLIGHT_S = 1.2
 
+/** How far around `firstVocalOnset`'s result a transcript word still counts as
+ * evidence that speech begins there. Slightly before, because a word can start a
+ * frame earlier than the detector's frame boundary; 4s after, to tolerate a
+ * phrase Whisper timed loosely. */
+const ONSET_SPEECH_BEFORE_S = 1.0
+const ONSET_SPEECH_AFTER_S = 4.0
+
+/** True when the transcription of this same audio emitted a word at/around
+ * `onsetSec` — i.e. Whisper heard speech where the acoustic detector claims the
+ * vocals begin. See the corroboration guard in `anchorLeadingEdge`. */
+function hasSpeechNearOnset(
+  words: readonly { startTime: number; endTime: number }[],
+  onsetSec: number,
+): boolean {
+  const lo = onsetSec - ONSET_SPEECH_BEFORE_S
+  const hi = onsetSec + ONSET_SPEECH_AFTER_S
+  return words.some((w) => w.endTime > lo && w.startTime < hi)
+}
+
 /** Pin the opening lines to the detected first vocal onset and re-spread the
  * displaced leading lines (by singing weight) into the gap. Bidirectional:
  *  - Opening crammed BEFORE the onset (onto an instrumental intro): bound the
@@ -22,7 +41,15 @@ export function anchorLeadingEdge(
   lines: TimedLine[],
   onsetTime: number,
   sourceLanguage: AlignmentLanguage,
-  opts?: { minGapSec?: number; spans?: ReturnType<typeof computeLineMatchedSpans>; minCoverage?: number },
+  opts?: {
+    minGapSec?: number
+    spans?: ReturnType<typeof computeLineMatchedSpans>
+    minCoverage?: number
+    /** The transcript the alignment was built from. REQUIRED for the late branch:
+     * moving an opening forward asserts that singing begins at `onsetTime`, and
+     * that assertion must be corroborated by speech actually transcribed there. */
+    transcriptWords?: readonly { startTime: number; endTime: number }[]
+  },
 ): TimedLine[] {
   const MIN_GAP = opts?.minGapSec ?? 3.0
   const MIN_COV = opts?.minCoverage ?? 0.5
@@ -64,6 +91,20 @@ export function anchorLeadingEdge(
     if (!spans) return lines
     // A content-matched first line is trustworthy where it is — don't pull it back.
     if (coverage(firstIdx) >= MIN_COV) return lines
+    // Corroboration. This branch moves the opening ONTO the claimed vocal entry,
+    // which is a large, destructive guess when the onset is not a vocal at all.
+    // Field case (live, 2026-09-18) — AKFG "Rock'n'Roll, Morning Light Falls on
+    // You" (THE FIRST TAKE): on that live acoustic recording the isolated stem
+    // keeps enough guitar/reverb bleed for firstVocalOnset to report 31.35s, while
+    // the singing actually starts at 98s. This branch then pulled line #0 66
+    // seconds early and re-spread the whole opening onto that bleed (app path
+    // scored mean|err| 16.7s, 0/30 lines 'good', all of it on top of an otherwise
+    // 0.4s-aligned song). Whisper transcribed no word anywhere near 31.35s — the
+    // transcription of the same audio is the witness that the "entry" is silence,
+    // so without a word there the pull is unsupported and must not happen.
+    // Fail closed: no transcript evidence ⇒ leave the alignment alone.
+    if (!opts?.transcriptWords) return lines
+    if (!hasSpeechNearOnset(opts.transcriptWords, onsetTime)) return lines
     for (let j = firstIdx + 1; j < lines.length; j++) {
       if (coverage(j) >= MIN_COV && lines[j].startTime >= onsetTime + MIN_GAP) {
         boundIdx = j

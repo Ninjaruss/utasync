@@ -51,7 +51,9 @@ describe('anchorLeadingEdge', () => {
 
   it('re-spreads a late-shifted opening back to the vocal onset (bidirectional)', () => {
     // First 4 lines are interpolated 12s late (no content match); line 4 is the
-    // first content-anchored line at 25s. Onset detected at 2.2s.
+    // first content-anchored line at 25s. Onset detected at 2.2s, and the
+    // transcription heard speech there (which is what makes the onset credible —
+    // see leadingEdgeAnchor.falseOnset.test.ts for the bleed case where it did not).
     const lines = [
       line('tag', 14.8, 15.8),
       line('verse1', 16, 17),
@@ -59,6 +61,10 @@ describe('anchorLeadingEdge', () => {
       line('verse3', 20, 21),
       line('chorus', 25, 27),
       line('chorus2', 28, 30),
+    ]
+    const transcriptWords = [
+      { word: 'oh', startTime: 2.3, endTime: 3.4 },
+      { word: 'chorus', startTime: 25, endTime: 26.5 },
     ]
     const spans = [
       span(0, 3, 0, 0),
@@ -68,7 +74,7 @@ describe('anchorLeadingEdge', () => {
       span(6, 6, 25, 27),
       span(6, 6, 28, 30),
     ]
-    const out = anchorLeadingEdge(lines, 2.2, 'en', { spans })
+    const out = anchorLeadingEdge(lines, 2.2, 'en', { spans, transcriptWords })
     expect(out[0].startTime).toBeGreaterThanOrEqual(2.1)
     expect(out[0].startTime).toBeLessThanOrEqual(2.4)
     expect(out[4].startTime).toBe(25) // trusted line untouched

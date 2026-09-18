@@ -230,6 +230,13 @@ export interface Song {
    * of the same song apart. */
   durationSec?: number
   syncState?: SyncState
+  /** Set when vocal isolation was tried on this song and its stem proved useless
+   * (destroyed, or a transcript nothing could verify). Remembering it means the
+   * next align on the same song does not pay for a separation that will be thrown
+   * away again — measured at ~17 minutes on a 6:33 track. An explicit user action
+   * (ticking "Isolate vocals first", or the low-confidence screen's re-run button)
+   * still separates, since the audio may have changed. */
+  audioIsolationVerdict?: 'unusable' | 'ok'
 }
 
 export interface UserSettings {

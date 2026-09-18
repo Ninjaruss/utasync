@@ -1,8 +1,37 @@
 import { describe, it, expect } from 'vitest'
-import { fitPriorTimeMap } from '../../src/lyrics/lrcPrior'
+import { fitPriorTimeMap, usablePriorTimes } from '../../src/lyrics/lrcPrior'
 import { applyLrcPrior } from '../../src/lyrics/lrcPrior'
 import type { TimedLine } from '../../src/core/types'
 import type { LineMatchedSpan } from '../../src/ai-pipeline/contentAligner'
+
+describe('usablePriorTimes', () => {
+  const lyrics = (alignmentMode: 'manual' | 'auto', times: number[]) => ({
+    alignmentMode,
+    lines: times.map((t, i) => line(String(i), t)),
+  })
+
+  it('accepts user- or catalogue-supplied timing', () => {
+    expect(usablePriorTimes(lyrics('manual', [2, 5, 9]), 3)).toEqual([2, 5, 9])
+  })
+
+  it('never treats this pipeline\'s own output as a prior', () => {
+    // The re-run case: onComplete already wrote the first auto-align's times back
+    // into the song, so the second pass would otherwise be snapped onto them by
+    // applyLrcPrior — the lines it exists to fix among them.
+    expect(usablePriorTimes(lyrics('auto', [2, 5, 9]), 3)).toBeNull()
+  })
+
+  it('skips a mostly-untimed sheet (nothing to constrain with)', () => {
+    expect(usablePriorTimes(lyrics('manual', [0, 0, 9]), 3)).toBeNull()
+    expect(usablePriorTimes(lyrics('manual', [1, 0, 9]), 3)).toEqual([1, 0, 9])
+  })
+
+  it('skips a sheet whose stored lines no longer match the rows being aligned', () => {
+    // A sung-phrase layout, or an edited sheet: applyLrcPrior indexes the prior by
+    // line, so a length mismatch must skip the pass rather than misplace times.
+    expect(usablePriorTimes(lyrics('manual', [2, 5, 9]), 4)).toBeNull()
+  })
+})
 
 const line = (original: string, startTime: number): TimedLine => ({
   original, translation: '', startTime, endTime: startTime + 2,

@@ -20,15 +20,15 @@ import { Overlay } from '../core/ui/Overlay'
 import { alignSteps, alignStepIndex, type AlignStage } from './alignProgress'
 import { preferredWhisperTimestampMode } from './alignTimestampMode'
 import { detectSheetLanguage } from './whisperLanguage'
-import { isRecoverableTranscriptionError, classifyAlignError } from './workerError'
+import { isRecoverableTranscriptionError, classifyAlignError, isNetworkFailure } from './workerError'
 import { resetWhisperTranscriber, transcribeAudio, type LoadProgress, type TranscribeProgressStatus } from './whisperTranscriber'
 import { DEMUCS_OUTPUT_SAMPLE_RATE, SeparationAbandonedError, isDemucsModelAvailable, refreshDemucsModelAvailability, separateVocals } from './demucsSeparator'
 import { formatEta } from './separationEta'
 import { computeVocalActivityAsync, firstVocalOnset, type VocalActivitySignal } from './vocalActivity'
-import { assessStemQuality, warnIfStemRejected } from './stemQuality'
+import { assessStemPass, assessStemQuality, warnIfStemPassWeak, warnIfStemRejected } from './stemQuality'
 import { anchorLeadingEdge, backfillLateStartsToAcousticOnset } from '../lyrics/leadingEdgeAnchor'
 import { computeLineMatchedSpans } from './contentAligner'
-import { applyLrcPrior } from '../lyrics/lrcPrior'
+import { applyLrcPrior, usablePriorTimes } from '../lyrics/lrcPrior'
 import { useSettingsStore } from '../payment/SettingsStore'
 import { yieldToMainThread } from '../core/idle'
 
@@ -103,6 +103,15 @@ function loadTaskProgress(p: LoadProgress | null, phase: 'download' | 'init'): n
   return Math.min(99, pct)
 }
 
+/** Unverified lines (carrying sheet text but not corroborated by the audio) above
+ * which the result screen offers the OTHER timestamp mode as a one-tap re-run.
+ * Six mirrors the floor `accurateRealignReason` uses to call a result weak ("a
+ * handful of stray rows belongs to the off-timing banner") — and it is deliberately
+ * NOT tied to the overall confidence: measured live on the AKFG THE FIRST TAKE
+ * recording, the mix pass was confident with 20 of 30 rows verified and still left
+ * 4 lines more than 3s out, which the word→segment switch fixes. */
+const MODE_RETRY_MIN_UNVERIFIED = 6
+
 export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: Props) {
   const tier = getDeviceTier()
   const vocalSeparationSupported = canUseVocalSeparation(tier)
@@ -117,11 +126,20 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
   // in start() and falls back to the raw mix, so default-on can't regress a song.
   // `vocalSeparationDefault` is tri-state: null = use this default, true/false =
   // an explicit user choice (always honored). The user can still uncheck it here.
+  // A song whose stem already proved useless starts with the toggle OFF, so what
+  // the screen shows matches what the run will do. Ticking it is then an explicit
+  // "try anyway" (see vocalSeparationForced) rather than a no-op that looked on.
   const [vocalSeparation, setVocalSeparation] = useState(
-    vocalSeparationSupported && (vocalSeparationDefault ?? true),
+    vocalSeparationSupported
+      && (vocalSeparationDefault ?? true)
+      && song.audioIsolationVerdict !== 'unusable',
   )
   const [demucsReady, setDemucsReady] = useState<boolean | null>(null)
   const [vocalSeparationRun, setVocalSeparationRun] = useState(false)
+  // Whether the user (or the re-run affordance) asked for isolation directly, as
+  // opposed to it being the remembered default. An explicit ask overrides the
+  // per-song "isolation was useless here" memory below.
+  const [vocalSeparationForced, setVocalSeparationForced] = useState(false)
   // D8: opt into whisper-medium (full tier only) for more accurate transcription
   // at the cost of a larger download and slower inference.
   const [highAccuracy, setHighAccuracy] = useState(false)
@@ -150,6 +168,16 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
   // the user sees friendly copy, power users can still expand the real message.
   const [errorDetail, setErrorDetail] = useState<string | null>(null)
   const [lowConfidence, setLowConfidence] = useState(false)
+  // The timestamp mode the last run used, so the low-confidence result can offer
+  // the OTHER one (the only lever a user has over the long-form word-merge
+  // failure — see alignTimestampMode.ts).
+  const [lastTimestampMode, setLastTimestampMode] = useState<'word' | 'segment' | null>(null)
+  // How many content-bearing lines the last run could NOT verify. Drives the
+  // "different timestamps" offer below: a run can be perfectly confident overall
+  // (so the low-confidence screen never appears) and still leave a handful of
+  // lines 3s+ out — the case measured live on the AKFG THE FIRST TAKE recording,
+  // where the mix pass scored 20/30 verified and still missed 4 lines by >3s.
+  const [unverifiedLines, setUnverifiedLines] = useState(0)
   const [confirmCancel, setConfirmCancel] = useState(false)
   const cancelledRef = useRef(false)
   const abortRef = useRef<AbortController | null>(null)
@@ -194,7 +222,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
     })
   }, [vocalSeparationSupported, stage])
 
-  const start = async (opts?: { forceVocalSeparation?: boolean }) => {
+  const start = async (opts?: { forceVocalSeparation?: boolean; timestampMode?: 'word' | 'segment' }) => {
     cancelledRef.current = false
     abortRef.current = new AbortController()
     setEtaPrompt(null)
@@ -206,10 +234,19 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
     try {
       let audioData: Float32Array | null = null
       let sampleRate = 44100
+      // The decoded mix as-is, retained so a stem that transcribes badly can be
+      // discarded AFTER transcription without decoding again (see the
+      // post-transcription stem guard below).
+      let decodedMix: Float32Array | null = null
+      let decodedMixRate = 44100
       // Whether a separated stem passed the sanity guard and is what we transcribe.
       // Distinct from `willSeparate`/`vocalSeparationRun` (separation was attempted):
       // a destroyed stem is rejected and we transcribe the raw mix instead.
       let stemAccepted = false
+      // Per-song memory of whether isolation was worth its cost here. Set when a
+      // stem is discarded (before or after transcription), cleared when a stem is
+      // used — so the next align on this song skips a separation it would throw away.
+      let isolationVerdict: 'unusable' | 'ok' | undefined
       // Stem vocal-activity envelope, computed once at separation and reused by the
       // leading-edge onset anchor below (stem-only) — null when running on the mix.
       let vocalSig: VocalActivitySignal | null = null
@@ -219,20 +256,43 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       setLoadDetail(null)
       setRetryNotice(null)
 
+      // Per-song memory: a stem that proved useless last time is not worth the
+      // separation again (measured: ~17 minutes on a 6:33 track), so the remembered
+      // verdict silences the default — but never an explicit ask.
+      const isolationKnownUseless = song.audioIsolationVerdict === 'unusable'
+      const isolationForced = opts?.forceVocalSeparation === true || vocalSeparationForced
       const willSeparate =
-        (opts?.forceVocalSeparation || vocalSeparation)
+        (isolationForced || (vocalSeparation && !isolationKnownUseless))
         && vocalSeparationSupported
         && await isDemucsModelAvailable()
       setVocalSeparationRun(willSeparate)
+      if (isolationKnownUseless && !isolationForced) {
+        // Say it rather than silently ignoring the remembered default: the toggle
+        // stays visible (now unchecked) and ticking it separates anyway.
+        console.info('[AutoAlignFlow] isolation skipped — it produced no usable stem for this song before')
+        setRetryNotice('Skipped vocal isolation — it did not help on this song before. Tick “Isolate vocals first” to try again anyway.')
+      }
 
       if (song.audioStoredPath) {
         const file = await getAudioFile(song.id)
         const decoded = await decodeAudioFileToMono(file)
         audioData = decoded.data
         sampleRate = decoded.sampleRate
+        // Retained separately: a stem that transcribes badly must be able to fall
+        // back to the mix WITHOUT decoding again (see the post-transcription stem
+        // guard below). `audioData`/`sampleRate` are reassigned to the stem when
+        // isolation is accepted.
+        decodedMix = decoded.data
+        decodedMixRate = decoded.sampleRate
       }
 
       if (!audioData) { setError('No audio file found. Upload audio first.'); setStage('error'); return }
+
+      // Cancel can land while the file is being decoded ("Preparing audio"). With
+      // isolation off (or unavailable) nothing checked the flag again until AFTER
+      // the model load and the whole transcription had run, so Stop still paid
+      // minutes of CPU for a run it had already thrown away.
+      if (cancelledRef.current) return
 
       // A definitive "no adapter" means separation WILL run on WASM — minutes
       // become tens of minutes. Ask before paying for the model download, not
@@ -304,11 +364,13 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
             audioData = stem
             sampleRate = DEMUCS_OUTPUT_SAMPLE_RATE
             stemAccepted = true
+            isolationVerdict = 'ok'
             vocalSig = stemSig
           } else {
             // Keep the decoded mix (audioData/sampleRate unchanged) and transcribe
             // that. Surface it so the user understands why isolation had no effect.
             warnIfStemRejected('auto-align', verdict)
+            isolationVerdict = 'unusable'
             setRetryNotice('Vocal isolation produced no usable vocals — aligning on the original mix instead.')
           }
         } catch (e) {
@@ -336,6 +398,14 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
         }
         if (cancelledRef.current) return
         setRemainingLabel(null)
+        // The separation step is over, one way or another. An ETA prompt the user
+        // left open (or a no-GPU prompt) would otherwise stay rendered over every
+        // remaining stage — loading, transcribing, aligning — offering a decision
+        // the run can no longer honour (a late answer is dropped by the host's own
+        // `settled` guard). Clearing here also releases the pending promise.
+        setEtaPrompt(null)
+        setNoGpuPrompt(null)
+        resolveOpenPromptRef.current = null
       }
 
       // First run downloads the Whisper model
@@ -350,10 +420,20 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       const durationSec = audioData.length / sampleRate
       const useHighAccuracy = highAccuracy && highAccuracySupported
       // High-accuracy (whisper-medium) forces segment mode — its word-timestamp mode
-      // has a repetition-loop hallucination pathology that segment mode avoids.
-      const timestampMode = useHighAccuracy
-        ? 'segment'
-        : preferredWhisperTimestampMode(tier, durationSec)
+      // has a repetition-loop hallucination pathology that segment mode avoids. An
+      // explicit per-run override (the low-confidence screen's "Try segment
+      // timestamps") takes precedence over the policy, since the whole point is to
+      // reach the OTHER mode than the one that just produced this result.
+      const timestampMode = opts?.timestampMode
+        ?? (useHighAccuracy ? 'segment' : preferredWhisperTimestampMode(tier, durationSec))
+      // Remembered for the result screen: whether the run that just finished could
+      // still be improved by switching modes.
+      setLastTimestampMode(timestampMode)
+      // Same reasoning as the separation-provider log: which of the two timestamp
+      // modes produced a set of timings is otherwise unknowable from the result, and
+      // it is the single biggest quality lever on the songs that fail. Also what a
+      // headless run (the dev harness) reads back to prove the mode it requested.
+      console.info(`[AutoAlignFlow] timestamp mode: ${timestampMode}`)
 
       // Detect the alignment language from the sheet itself: the stored song
       // language defaults to 'ja', which would force Japanese transcription
@@ -423,8 +503,11 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
         // intact for the other pass (used by the EN-forced mixed pass below).
         timestampModeOverride?: 'segment',
       ) => {
+        // Non-null: the flow returns early when there is no audio, and nothing
+        // between there and here clears it.
+        const audio = audioData as Float32Array
         const run = () =>
-          transcribeAudio(audioData, sampleRate, {
+          transcribeAudio(audio, sampleRate, {
             ...transcribeOptions(language, scaleProgress),
             timestampMode: timestampModeOverride ?? effectiveTimestampMode,
             highAccuracy: effectiveHighAccuracy,
@@ -437,7 +520,14 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
             effectiveTimestampMode = 'segment'
             // Shown in the transcribing stage's detail area (loadDetail never
             // rendered there — the bar just snapped to 0 unexplained).
-            setRetryNotice('Word-level pass failed (likely out of memory) — retrying with segment timestamps…')
+            // A load/interrupted-download failure lands in this same rung, so it
+            // must not be described as memory pressure: that sends the user off to
+            // close tabs for a problem that is their connection.
+            setRetryNotice(
+              isNetworkFailure(e)
+                ? 'Downloading the speech model was interrupted — retrying…'
+                : 'Word-level pass failed (likely out of memory) — retrying with segment timestamps…',
+            )
           } else if (effectiveHighAccuracy) {
             effectiveHighAccuracy = false
             const notice = 'High-accuracy model failed — retrying with the standard model…'
@@ -461,51 +551,94 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
           }
         }
       }
-      let refined: RefinedAlignment
-      let transcriptWords: TranscriptWord[]
-      if (alignmentLanguage === 'mixed') {
-        // Code-switching sheet: per-chunk language auto-detect garbles whichever
-        // language loses each 30s window and collapses content-match confidence
-        // to the proportional fallback. Transcribe twice with a forced language
-        // instead and merge per line by alignment quality.
-        const jaTranscript = await transcribeWithFallback('ja', (p) => p / 2)
-        if (cancelledRef.current) return
-        // The EN pass always runs at segment granularity, regardless of the
-        // user's word-mode setting: the merge only takes line-level times from
-        // it, and Whisper's forced-EN word timestamps on sung vocals are
-        // unreliable enough to fail the confidence gate and waste the pass.
-        const enTranscript = await transcribeWithFallback('en', (p) => 50 + p / 2, 'segment')
-        if (cancelledRef.current) return
+      // One full transcribe+align pass over whatever `audioData`/`sampleRate`
+      // currently hold. Extracted so the post-transcription stem guard below can
+      // repeat it on the decoded mix when the stem's transcript turns out to be
+      // unverifiable. Returns null when the user cancelled.
+      const runPasses = async (): Promise<
+        { refined: RefinedAlignment; transcriptWords: TranscriptWord[] } | null
+      > => {
+        let refined: RefinedAlignment
+        let transcriptWords: TranscriptWord[]
+        if (alignmentLanguage === 'mixed') {
+          // Code-switching sheet: per-chunk language auto-detect garbles whichever
+          // language loses each 30s window and collapses content-match confidence
+          // to the proportional fallback. Transcribe twice with a forced language
+          // instead and merge per line by alignment quality.
+          const jaTranscript = await transcribeWithFallback('ja', (p) => p / 2)
+          if (cancelledRef.current) return null
+          // The EN pass always runs at segment granularity, regardless of the
+          // user's word-mode setting: the merge only takes line-level times from
+          // it, and Whisper's forced-EN word timestamps on sung vocals are
+          // unreliable enough to fail the confidence gate and waste the pass.
+          const enTranscript = await transcribeWithFallback('en', (p) => 50 + p / 2, 'segment')
+          if (cancelledRef.current) return null
 
-        setTranscribeMerging(false)
-        setTranscribePhase('transcribing')
-        setStage('aligning')
-        setProgress(0)
-        await yieldToMainThread()
-        const mixed = refineMixedLanguageAlignment(sheetRows, chunksToWords(jaTranscript), chunksToWords(enTranscript), vocalSig ?? undefined)
-        refined = mixed.refined
-        transcriptWords = mixed.transcriptWords
-      } else {
-        const transcriptResult = await transcribeWithFallback(alignmentLanguage, (p) => p)
-        if (cancelledRef.current) return
+          setTranscribeMerging(false)
+          setTranscribePhase('transcribing')
+          setStage('aligning')
+          setProgress(0)
+          await yieldToMainThread()
+          const mixed = refineMixedLanguageAlignment(sheetRows, chunksToWords(jaTranscript), chunksToWords(enTranscript), vocalSig ?? undefined)
+          refined = mixed.refined
+          transcriptWords = mixed.transcriptWords
+        } else {
+          const transcriptResult = await transcribeWithFallback(alignmentLanguage, (p) => p)
+          if (cancelledRef.current) return null
 
-        setTranscribeMerging(false)
-        setTranscribePhase('transcribing')
-        setStage('aligning')
-        setProgress(0)
-        await yieldToMainThread()
-        const words = chunksToWords(transcriptResult)
-        transcriptWords = sanitizeTranscript(words)
-        refined = refineAlignmentWithPhrases(
-          sheetRows,
-          words,
-          alignmentLanguage,
-          song.lyrics,
-          // Feed the accepted vocal stem's envelope to the acoustic label-honesty
-          // gate (demotes confident lines that sit on non-vocal audio). Null when
-          // isolation is off/failed/rejected → text-only, gate no-ops.
-          { vocalActivity: vocalSig ?? undefined },
-        )
+          setTranscribeMerging(false)
+          setTranscribePhase('transcribing')
+          setStage('aligning')
+          setProgress(0)
+          await yieldToMainThread()
+          const words = chunksToWords(transcriptResult)
+          transcriptWords = sanitizeTranscript(words)
+          refined = refineAlignmentWithPhrases(
+            sheetRows,
+            words,
+            alignmentLanguage,
+            song.lyrics,
+            // Feed the accepted vocal stem's envelope to the acoustic label-honesty
+            // gate (demotes confident lines that sit on non-vocal audio). Null when
+            // isolation is off/failed/rejected → text-only, gate no-ops.
+            { vocalActivity: vocalSig ?? undefined },
+          )
+        }
+        return { refined, transcriptWords }
+      }
+
+      const firstPass = await runPasses()
+      if (!firstPass) return
+      let refined: RefinedAlignment = firstPass.refined
+      let transcriptWords: TranscriptWord[] = firstPass.transcriptWords
+
+      // Post-transcription stem guard. `assessStemQuality` (before transcription)
+      // only catches a DESTROYED stem; it cannot see a stem that holds plenty of
+      // vocal-band energy and still transcribes badly — measured live on AKFG
+      // "Rock'n'Roll, Morning Light Falls on You" (THE FIRST TAKE), where isolation
+      // cost 15.4s mean error against 2.8s on the mix, 0 of 30 rows verified
+      // against 21. Falling back to the mix is exactly what isolation-off would
+      // have done, so isolation still can never make a song worse than not using it.
+      if (stemAccepted && decodedMix) {
+        const verdict = assessStemPass(refined.lines, refined.lineAlignmentQuality, 'stem')
+        if (verdict.weak) {
+          warnIfStemPassWeak('auto-align', verdict)
+          isolationVerdict = 'unusable'
+          audioData = decodedMix
+          sampleRate = decodedMixRate
+          stemAccepted = false
+          // The stem envelope describes audio we are no longer aligning: left in
+          // place it would gate the mix alignment on a stem's bleed.
+          vocalSig = null
+          setRetryNotice('Vocal isolation produced a transcript it could not verify — re-aligning on the original mix…')
+          setStage('transcribing')
+          setProgress(0)
+          const mixPass = await runPasses()
+          if (!mixPass) return
+          refined = mixPass.refined
+          transcriptWords = mixPass.transcriptWords
+          setRetryNotice(null)
+        }
       }
 
       // Round-8 gap re-transcription: where the aligner left a HOLE (a run of
@@ -552,19 +685,19 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
         transcriptWords = gap.transcriptWords
       }
 
-      // LRC-prior guardrail: when the song already carries timing (a pasted LRC,
-      // a subtitle, or a prior alignment), use it as a monotonic prior so a
-      // confident-but-wrong transcript match can't drop a line onto entirely
-      // different content. Pure — needs no audio/stem — and a no-op for
+      // LRC-prior guardrail: when the song already carries OUTSIDE timing (a
+      // pasted LRC, a subtitle, a lyrics-database entry), use it as a monotonic
+      // prior so a confident-but-wrong transcript match can't drop a line onto
+      // entirely different content. Pure — needs no audio/stem — and a no-op for
       // plain-text songs (all startTimes 0), so freshly-added untimed songs and
       // the offline corpus are byte-identical. Runs before the acoustic onset
       // anchor so that pass sharpens the opening within the prior.
+      //
+      // "Outside" excludes this pipeline's own output — see usablePriorTimes: a
+      // re-run must not be anchored to the timings it is meant to improve.
       {
-        const priorTimes = song.lyrics.lines.map((l) => l.startTime)
-        const hasPrior =
-          priorTimes.length === refined.lines.length &&
-          priorTimes.filter((t) => t > 0).length >= Math.ceil(priorTimes.length / 2)
-        if (hasPrior) {
+        const priorTimes = usablePriorTimes(song.lyrics, refined.lines.length)
+        if (priorTimes) {
           const priorSpans = computeLineMatchedSpans(
             refined.lines.map((l) => l.original || l.translation),
             sanitizeTranscript(transcriptWords),
@@ -592,7 +725,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
             sanitizeTranscript(transcriptWords),
           )
           if (onset != null) {
-            refined = { ...refined, lines: anchorLeadingEdge(refined.lines, onset, alignmentLanguage, { spans }) }
+            refined = { ...refined, lines: anchorLeadingEdge(refined.lines, onset, alignmentLanguage, { spans, transcriptWords }) }
           }
           // Late-start complement: after fixing a crammed opening, pull any line
           // whose start sits AFTER its true vocal onset back to the acoustic onset.
@@ -604,6 +737,10 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
 
       const updated: Song = {
         ...song,
+        // Only ever written by a run that actually tried isolation, so a plaintext
+        // mix align cannot erase a previous verdict... except to CLEAR it when a
+        // stem is used, which means the audio (or the model) now separates well.
+        ...(isolationVerdict ? { audioIsolationVerdict: isolationVerdict } : {}),
         lyrics: applyRefinedAlignment(
           // Stamp gapRecoveryVersion here too: this flow already ran its own gap
           // re-transcription pass above, so a leftover unrecoverable hole (some are
@@ -636,6 +773,15 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       setLowConfidence(
         refined.mode === 'proportional' || refined.confidence < LOW_CONFIDENCE_WARN_THRESHOLD,
       )
+      {
+        const quality = refined.lineAlignmentQuality ?? []
+        let unverified = 0
+        for (let i = 0; i < refined.lines.length; i++) {
+          const text = (refined.lines[i].original || refined.lines[i].translation || '').trim()
+          if (text && quality[i] !== 'good') unverified++
+        }
+        setUnverifiedLines(unverified)
+      }
       setStage('done')
       onComplete(updated)
     } catch (e: unknown) {
@@ -667,6 +813,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
   const rerunWithVocalIsolation = () => {
     setVocalSeparation(true)
     setVocalSeparationEnabled(true)
+    setVocalSeparationForced(true)
     void start({ forceVocalSeparation: true })
   }
 
@@ -768,6 +915,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
   const toggleVocalSeparation = (enabled: boolean) => {
     setVocalSeparation(enabled)
     setVocalSeparationEnabled(enabled)
+    if (enabled) setVocalSeparationForced(true)
   }
 
   return (
@@ -946,25 +1094,42 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
           </div>
         )}
         {stage === 'done' && (
-          lowConfidence
-            ? <div className="space-y-3">
+          <div className="space-y-3">
+            {lowConfidence
+              ? (
                 <p className="text-yellow-400 text-sm">
                   Alignment is approximate — the vocals were hard to transcribe, so per-line timings may be off.
                   {vocalSeparationSupported && demucsReady === true && !vocalSeparationRun
                     ? ' Turn on “Isolate vocals first” and re-run for a cleaner result, or use Tap-through.'
                     : ' Try Tap-through or double-check your lyrics.'}
                 </p>
-                {vocalSeparationSupported && demucsReady === true && !vocalSeparationRun && (
-                  <button
-                    type="button"
-                    onClick={rerunWithVocalIsolation}
-                    className="w-full py-3 bg-cinnabar-accent text-cinnabar-950 rounded-xl font-medium touch-manipulation"
-                  >
-                    Re-run with vocal isolation
-                  </button>
-                )}
-              </div>
-            : <p className="text-green-400 text-sm">Lyrics aligned successfully.</p>
+              )
+              : <p className="text-green-400 text-sm">Lyrics aligned successfully.</p>}
+            {lowConfidence && vocalSeparationSupported && demucsReady === true && !vocalSeparationRun && (
+              <button
+                type="button"
+                onClick={rerunWithVocalIsolation}
+                className="w-full py-3 bg-cinnabar-accent text-cinnabar-950 rounded-xl font-medium touch-manipulation"
+              >
+                Re-run with vocal isolation
+              </button>
+            )}
+            {/* The other timestamp mode. Offered when the result is flagged — or
+                when enough individual lines stayed unverified, which is the shape a
+                CONFIDENT word-mode run leaves behind: measured live on the AKFG THE
+                FIRST TAKE recording, the mix pass came back confident with 20 of 30
+                rows verified and still missed 4 lines by more than 3s, which the
+                word→segment switch fixes (0.4s vs 2.8s mean error on that audio). */}
+            {lastTimestampMode === 'word' && (lowConfidence || unverifiedLines >= MODE_RETRY_MIN_UNVERIFIED) && (
+              <button
+                type="button"
+                onClick={() => void start({ timestampMode: 'segment' })}
+                className="w-full py-3 bg-cinnabar-800 text-white/90 rounded-xl font-medium touch-manipulation border border-cinnabar-700"
+              >
+                Try again with segment timestamps
+              </button>
+            )}
+          </div>
         )}
 
         {!awaitingConsent && (
