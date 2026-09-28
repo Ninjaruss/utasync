@@ -102,7 +102,10 @@ export function abLoopPlaylistHasTimedLyrics(
   )
 }
 
-/** Shift each segment's lyrics so timestamps continue across the concatenated clip. */
+/** Shift each segment's lyrics so timestamps continue across the concatenated
+ * clip. Callers MUST pass the same clamped segment list that produced the audio
+ * (see clampSegmentsToAudio): advancing the offset by a requested length that
+ * the decoder truncated makes every later cue late by the truncation. */
 export function combineSrtLinesForPlaylistExport(
   lines: TimedLine[],
   segments: { a: number; b: number }[],
@@ -123,18 +126,45 @@ export function combineSrtLinesForPlaylistExport(
   return combined
 }
 
+/** Length of a decoded buffer, from its sample count rather than
+ * AudioBuffer.duration so test doubles can stay minimal. */
+function decodedDuration(audioBuffer: AudioBuffer): number {
+  return audioBuffer.length / audioBuffer.sampleRate
+}
+
+/**
+ * The one segment list an export may act on: each B clamped to the audio that
+ * actually exists, and zero-length segments dropped. B can outlive the file —
+ * it comes from a lyric line's endTime with no duration clamp, TapSyncEditor
+ * gives an untimed last line startTime + 5, and saved playlist entries survive
+ * an audio swap. Audio and subtitles must both be built from this list, or the
+ * .wav is truncated while the .srt keeps the requested length and every later
+ * cue is late by the difference.
+ */
+export function clampSegmentsToAudio(
+  segments: { a: number; b: number }[],
+  audioDuration: number,
+): { a: number; b: number }[] {
+  return segments
+    .map(({ a, b }) => ({ a, b: Math.min(b, audioDuration) }))
+    .filter(({ a, b }) => b > a)
+}
+
 export function concatenateAbLoopSegments(
   audioBuffer: AudioBuffer,
   segments: { a: number; b: number }[],
 ): Uint8Array {
-  if (segments.length === 0) throw new Error('No valid loop segments to export.')
+  // Clamped here too, so a caller that skipped clampSegmentsToAudio still gets a
+  // clip whose samples match the segments it thinks it passed.
+  const effective = clampSegmentsToAudio(segments, decodedDuration(audioBuffer))
+  if (effective.length === 0) throw new Error('No valid loop segments to export.')
 
   const sampleRate = audioBuffer.sampleRate
   const numChannels = audioBuffer.numberOfChannels
   const parts: { startSample: number; length: number }[] = []
   let totalLength = 0
 
-  for (const { a, b } of segments) {
+  for (const { a, b } of effective) {
     const startSample = Math.max(0, Math.floor(a * sampleRate))
     const endSample = Math.min(audioBuffer.length, Math.ceil(b * sampleRate))
     const length = Math.max(0, endSample - startSample)
@@ -240,6 +270,12 @@ function writeAscii(view: DataView, offset: number, text: string) {
 
 /** Store-only ZIP (no compression) for broad browser support. */
 export function createZipArchive(files: { name: string; data: Uint8Array }[]): Blob {
+  // Entry names are written as UTF-8 (below), so general-purpose bit 11 must be
+  // set in both headers: readers that follow the spec — Python's zipfile,
+  // Info-ZIP unzip — otherwise decode those bytes as CP437 and render mojibake.
+  // Every exported name contains an em dash (abLoopExportBasename), and titles
+  // can be Japanese, so this is the normal case, not an edge case.
+  const UTF8_NAME_FLAG = 0x0800
   const localParts: Uint8Array[] = []
   const centralParts: Uint8Array[] = []
   let offset = 0
@@ -251,6 +287,7 @@ export function createZipArchive(files: { name: string; data: Uint8Array }[]): B
     const lv = new DataView(local.buffer)
     lv.setUint32(0, 0x04034b50, true)
     lv.setUint16(4, 20, true)
+    lv.setUint16(6, UTF8_NAME_FLAG, true)
     lv.setUint16(8, 0, true)
     lv.setUint16(10, 0, true)
     lv.setUint16(12, 0, true)
@@ -267,7 +304,7 @@ export function createZipArchive(files: { name: string; data: Uint8Array }[]): B
     cv.setUint32(0, 0x02014b50, true)
     cv.setUint16(4, 20, true)
     cv.setUint16(6, 20, true)
-    cv.setUint16(8, 0, true)
+    cv.setUint16(8, UTF8_NAME_FLAG, true)
     cv.setUint16(10, 0, true)
     cv.setUint16(12, 0, true)
     cv.setUint32(16, crc, true)
@@ -331,8 +368,12 @@ export async function exportAbLoopClip(options: {
   const ctx = new AudioContext()
   try {
     const decoded = await ctx.decodeAudioData(await audioFile.arrayBuffer())
-    const wavData = encodeWavSegment(decoded, a, b)
-    const sliced = sliceLinesForAbExport(lines, a, b)
+    // Clamp B once and use the clamped value for BOTH sides: encodeWavSegment
+    // already stops at the end of the decoded audio, so slicing the lyrics to
+    // the requested B made the .srt describe a tail the .wav never contained.
+    const bEff = Math.min(b, decodedDuration(decoded))
+    const wavData = encodeWavSegment(decoded, a, bEff)
+    const sliced = sliceLinesForAbExport(lines, a, bEff)
     const shouldIncludeSrt = includeSrt && sliced.length > 0
 
     if (shouldIncludeSrt) {
@@ -369,8 +410,15 @@ export async function exportAbLoopPlaylistClip(options: {
   const ctx = new AudioContext()
   try {
     const decoded = await ctx.decodeAudioData(await audioFile.arrayBuffer())
-    const wavData = concatenateAbLoopSegments(decoded, segments)
-    const combinedLines = combineSrtLinesForPlaylistExport(lines, segments)
+    // One clamped list drives all three consumers — the concatenated samples,
+    // the SRT offsets, and the per-segment line slicing — so the .wav and its
+    // .srt can never disagree about how long the clip is.
+    const effective = clampSegmentsToAudio(segments, decodedDuration(decoded))
+    if (effective.length === 0) {
+      throw new Error('Saved loops lie past the end of this audio file.')
+    }
+    const wavData = concatenateAbLoopSegments(decoded, effective)
+    const combinedLines = combineSrtLinesForPlaylistExport(lines, effective)
     const shouldIncludeSrt = includeSrt && combinedLines.length > 0
 
     if (shouldIncludeSrt) {

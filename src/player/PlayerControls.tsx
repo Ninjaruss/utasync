@@ -1258,9 +1258,20 @@ function MoreMenu({
               </div>
             </section>
           )}
-          {exportError && <p className="text-[10px] text-red-400/90 px-1" role="alert">{exportError}</p>}
         </Overlay>,
         document.body,
+      )}
+      {/* Outside the popover ON PURPOSE. This menu is unmounted by the very
+          click that starts an export (which closes it), so while the message
+          lived inside the panel a failed export looked exactly like a
+          successful one — no file, no explanation. Rendered next to the
+          trigger instead, so it survives the click and stays visible on
+          desktop and inside the still-open mobile sheet. The parent clears it
+          when the next export starts. */}
+      {exportError && (
+        <p className="mt-1 px-1 text-[10px] text-red-400/90 text-pretty" role="alert">
+          {exportError}
+        </p>
       )}
     </div>
   )
