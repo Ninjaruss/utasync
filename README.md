@@ -5,7 +5,7 @@
 Utasync is an offline-first PWA that turns YouTube links or your own audio files into a bilingual practice player. Paste a link or upload a track, sync the lyrics, and study line by line with readings, translations, and tools built for language learners. Playback and AI processing run in your browser — no account, no backend server, no subscription.
 
 > **🎤 Try it now → [utasync.ninjaruss.net](https://utasync.ninjaruss.net)**  
-> The official hosted version is a fully offline PWA with one-click model downloads, automatic updates, and zero setup — free to use.
+> The official hosted version is an installable PWA with one-click model downloads, automatic updates, and zero setup — free to use. The app shell is cached on install, so it opens with no connection; per-song assets (lyrics, readings, dictionary data, AI models) are cached the first time you use them and work offline from then on.
 
 *Utasync is built and maintained by a solo developer, and stays private, ad-free, and independent. If it helps your studies, you can [support development on Patreon](https://patreon.ninjaruss.net).*
 
@@ -48,9 +48,9 @@ Utasync is an offline-first PWA that turns YouTube links or your own audio files
 
 ### Export and manage storage
 
-- **Export lyrics** — LRC or SRT from Settings or the player.
+- **Export lyrics** — LRC from Settings or the player (SRT subtitles ship alongside an A/B loop export, below).
 - **Storage dashboard** — see usage for songs, AI model cache, and orphaned uploads; clear cache or remove stale audio.
-- **Everything stays local** — library metadata in IndexedDB (Dexie), audio in OPFS, settings in localStorage, AI models in Cache Storage.
+- **Everything stays local** — library metadata in IndexedDB (Dexie), audio in OPFS, settings in localStorage, AI models and dictionary data in Cache Storage.
 
 ## Two ways to add a song
 

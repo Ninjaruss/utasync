@@ -1,6 +1,6 @@
 import { pipeline, env, type AutomaticSpeechRecognitionPipeline } from '@huggingface/transformers'
 import { clearWhisperModelCache, purgeCorruptModelCaches } from '../core/storage/modelCache'
-import { friendlyModelLoadError, withNetworkRetry } from './networkErrors'
+import { classifyModelLoadFailure, friendlyModelLoadError, withNetworkRetry } from './networkErrors'
 import type { Dtype, InferenceBackend } from './inferenceBackend'
 
 function onnxWasmBaseUrl(): string {
@@ -90,19 +90,38 @@ export async function loadWhisperAsrPipeline(
 
 /**
  * A load that fails after the in-function retries (and WebGPU→WASM fallback) are
- * exhausted is usually a truncated/corrupt Cache Storage entry — v3's cache layer
- * does a bare `cache.match()` with no size/integrity check, so a mid-write abort
- * (likely for the ~1.5GB medium model) becomes a permanent "cache hit" that loops
- * the same failure. Purge the model's cache here (only on exhaustion, never on a
- * transient blip, to avoid nuking a fine partial download) so the user's next
+ * exhausted is *sometimes* a truncated/corrupt Cache Storage entry — v3's cache
+ * layer does a bare `cache.match()` with no size/integrity check, so a mid-write
+ * abort (likely for the ~1.5GB medium model) becomes a permanent "cache hit" that
+ * loops the same failure. Purge the model's cache here so the user's next
  * "Try again" re-downloads clean — which is what `friendlyModelLoadError` promises.
+ *
+ * Only purge what the failure actually proves is bad, though. An offline attempt
+ * fails in exactly the same shape as a corrupt cache (a fetch that never
+ * completes), and purging then deleted the user's healthy ~240 MB of cached
+ * Whisper weights and told them to "tap Try again" — an instruction that cannot
+ * work with no network, so the next online run re-downloaded everything:
+ *   - offline      → keep every cached byte; what is missing is on the network.
+ *   - corrupt      → drop the damaged entries (size-checked) plus the model's own
+ *     files, which is what makes the promised retry able to succeed.
+ *   - interrupted  → drop only entries provably shorter than their Content-Length;
+ *     a flaky connection does not justify discarding a healthy 240 MB model.
+ * The classification is passed to `friendlyModelLoadError` so the message cannot
+ * contradict what was (or wasn't) deleted.
  */
 async function purgeThenFriendly(err: unknown, modelId: string): Promise<Error> {
+  const failure = classifyModelLoadFailure(err)
   try {
-    await purgeCorruptModelCaches()
-    await clearWhisperModelCache(modelId)
+    if (failure === 'offline') {
+      // Nothing cached is implicated — never delete the user's downloaded model.
+    } else if (failure === 'corrupt') {
+      await purgeCorruptModelCaches()
+      await clearWhisperModelCache(modelId)
+    } else {
+      await purgeCorruptModelCaches()
+    }
   } catch {
     // best effort — cache may be unavailable (private mode / iframe)
   }
-  return friendlyModelLoadError(err)
+  return friendlyModelLoadError(err, failure)
 }

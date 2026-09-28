@@ -327,25 +327,63 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         skipWaiting: true,
         clientsClaim: true,
-        // Do not precache index.html — cached Responses kept old COEP headers and broke YouTube on Firefox/Zen.
-        globPatterns: ['**/*.{js,css,woff2,png,svg,ico,wasm}'],
-        globIgnores: ['**/index.html', '**/ort-wasm*.wasm'],
-        // Never serve index.html from precache — stale COEP headers broke YouTube on Firefox/Zen.
-        navigateFallback: null,
+        // Precache the document itself. It used to be excluded (together with
+        // `navigateFallback: null` below) because a cached index.html carried the
+        // COEP headers of the build that created it, which broke YouTube on
+        // Firefox/Zen. That reason no longer applies and is handled elsewhere:
+        // the cacheId is v3 (the COEP-era caches were `utasync-v2-no-coep`),
+        // src/core/pwa/purgeStaleCoepCaches.ts deletes the pre-v3 `utasync-*`
+        // caches, and cleanupOutdatedCaches() drops precaches from older Workbox
+        // versions. v3 itself has never precached an html document, so no stale
+        // header-pinned copy exists to inherit — while excluding it left the
+        // service worker unable to answer ANY document request, so a cold start
+        // with no network fell through to the browser's offline page.
+        // If the host ever goes back behind COEP, bump the cacheId (and the purge
+        // flag in purgeStaleCoepCaches.ts) instead of re-excluding index.html.
+        globPatterns: ['**/*.{js,css,html,woff2,png,svg,ico,wasm}'],
+        // ONNX wasm blobs are 14–26 MB and only needed when AI features run, so keep
+        // them out of the precache (Workbox's 2 MiB precache cap); the runtime route
+        // below caches them on first use instead.
+        globIgnores: ['**/ort-wasm*.wasm'],
+        // Serve the precached shell for every navigation, which is what makes a cold
+        // start with no network open the app at all. Freshness online still holds:
+        // the precache entry for index.html is content-hashed (__WB_REVISION__), so
+        // any deploy that changes the document installs a new revision, and
+        // registerType 'autoUpdate' + skipWaiting/clientsClaim apply it on the next
+        // load. The legal pages are denied: they are separate documents, and letting
+        // the fallback answer /privacy or /terms would render the app instead of the
+        // policy the link promises. (Their precached copies still answer /privacy/
+        // offline, because the precache route is registered before this fallback.)
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/privacy/, /^\/terms/],
         runtimeCaching: [
           {
-            urlPattern: ({ request }) => request.mode === 'navigate',
-            handler: 'NetworkOnly',
+            // Same-origin model copy (the default /models/Kim_Vocal_2.onnx, ~66 MB).
+            // CacheFirst, not StaleWhileRevalidate: SWR re-downloaded the whole
+            // 66.8 MB binary in the background on every single run — on metered
+            // mobile data too — to revalidate a URL that never changes.
+            // Invalidation: entries expire after 30 days; Settings → Clear AI model
+            // cache clears this bucket (`ai-models-v1` is one of the names in
+            // src/core/storage/modelCache.ts). To replace a shipped model binary
+            // sooner, bump that cache name in BOTH files.
+            urlPattern: ({ url, sameOrigin }) =>
+              sameOrigin && url.pathname.startsWith('/models/') && url.pathname.endsWith('.onnx'),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'ai-models-v1',
+              expiration: { maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [200] },
+            },
           },
           {
-            // Cache any .onnx model (local /models/… or a remote VITE_DEMUCS_MODEL_URL
-            // host) after first download, like the runtime-fetched Whisper weights.
+            // A remote VITE_DEMUCS_MODEL_URL (cross-origin, CORS-enabled host).
             // StaleWhileRevalidate, not CacheFirst: the URL is unversioned, so
             // CacheFirst would serve a redeployed model binary forever (opaque
             // cross-origin responses never read a Date header, so the freshness
             // check treats them as fresh indefinitely). Revalidating in the
             // background lets a redeployed model win on the next load while still
-            // loading instantly (and offline) from cache.
+            // loading instantly (and offline) from cache. The same-origin route
+            // above matches first, so this only ever handles the remote case.
             urlPattern: /\.onnx(\?.*)?$/,
             handler: 'StaleWhileRevalidate',
             options: {
@@ -354,9 +392,52 @@ export default defineConfig({
               cacheableResponse: { statuses: [0, 200] },
             },
           },
-          // ONNX wasm is served from /onnx-wasm/ on the same origin — do not
-          // CacheFirst it here; a truncated SW entry causes "Content-Length
-          // header exceeds response Body" when ORT loads the wasm.
+          {
+            // The ONNX Runtime the models run ON, served from our own origin:
+            // /onnx-wasm/ (the build @huggingface/transformers bundles, used by the
+            // whisper path) and /onnx-wasm-demucs/ (onnxruntime-web 1.26, used by the
+            // demucs worker). Neither was cached by anything, so an offline
+            // auto-align could never succeed even with every model weight cached —
+            // the runtime fetch, not the model, was the thing that failed.
+            // Cached on first use rather than precached (21–26 MB per .wasm), and
+            // reused offline afterwards. `onnx-runtime-v1` is one of the buckets
+            // src/core/storage/modelCache.ts already reports and clears, and
+            // purgeCorruptModelCaches() (called when a model load fails) deletes any
+            // entry whose body is shorter than its Content-Length — the truncated
+            // cached response that surfaces as "Content-Length header exceeds
+            // response Body" when ORT loads it, which is why CacheFirst was
+            // previously avoided here.
+            urlPattern: /\/onnx-wasm(?:-demucs)?\/ort-wasm[^/?]*\.(?:wasm|mjs)$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'onnx-runtime-v1',
+              expiration: { maxEntries: 24, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+          {
+            // Dictionary and linguistic data: JMdict gloss/popover/readings,
+            // CMUdict, and kuromoji's own dictionaries. All fetched same-origin
+            // (/jmdict-gloss.json, /jmdict-popover.json, /jmdict-readings.json,
+            // /cmudict.json, /dict/*.dat.gz), none matched a precache glob — they
+            // are 3.8–29.8 MB each, i.e. ~53 MB that must never be an install cost —
+            // and none matched a runtime route, so offline they simply failed:
+            // tokenization, romaji, ruby and tap-lookup degraded silently while the
+            // offline banner promised they worked. CacheFirst after first use, so
+            // they work offline from then on. Workbox's
+            // maximumFileSizeToCacheInBytes does not apply here: it caps precache
+            // manifest entries, and these are runtime-cached, never precached.
+            // Bump `linguistic-assets-v1` when shipping new dictionary data (the
+            // same manual convention as cacheId) — the URL does not change.
+            urlPattern:
+              /\/(?:jmdict-(?:gloss|popover|readings)|cmudict)\.json(?:\?.*)?$|\/dict\/[^/?]+\.dat\.gz(?:\?.*)?$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'linguistic-assets-v1',
+              expiration: { maxEntries: 32, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
         ],
       },
       manifest: {
