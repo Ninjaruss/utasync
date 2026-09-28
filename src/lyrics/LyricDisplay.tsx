@@ -3,6 +3,7 @@ import { useLyricsStore } from './LyricsStore'
 import { useSettingsStore } from '../payment/SettingsStore'
 import type { TimedLine, FuriganaMode, ReadingMode, Token, GrammarAnnotation, ClozeDifficulty } from '../core/types'
 import { ClozeOverlay } from '../cloze/ClozeOverlay'
+import { hasClozeBlanks } from '../cloze/ClozeEngine'
 import { isSameText, hasVisibleTranslation } from './bilingual'
 import { colorForToken, colorForTranslationWord, splitTranslationLines } from '../language/wordColors'
 import { resolveTokenReading, lineRomajiFromTokens } from './readingDisplay'
@@ -327,10 +328,16 @@ function Line({ line, lineIndex, isActive, loopHighlight, onLineClick, lineRef, 
     : 'group-hover:underline group-hover:text-white/60 decoration-white/20 underline-offset-4'
 
   const showTranslationArea = hasTranslation && (showTranslation || sideBySide)
+  /* An unrevealed drill hides the SECOND LANGUAGE too, for the same reason word
+   * lookup stands down (see PrimaryText): leaving "snow falls" under a blanked
+   * 「雪が降る」 means Reveal gives the answer away for free — and a 'member' row's
+   * bracket carries the same string in an sr-only span, so it leaks to a screen
+   * reader even when it is visually just a bar. */
+  const drillHidden = !!cloze && !cloze.revealed
   // A grouped row's shared translation renders once, on the 'start' row; a
   // 'member' row shows a bracket tying it back up to 'start' instead of
   // repeating (or blanking) the same text.
-  const translationEl = showTranslationArea && groupRole !== 'member' ? (
+  const translationEl = showTranslationArea && groupRole !== 'member' && !drillHidden ? (
     <div
       lang="en"
       translate="no"
@@ -354,7 +361,7 @@ function Line({ line, lineIndex, isActive, loopHighlight, onLineClick, lineRef, 
   // but the row's own translation text — the same shared string 'start' shows —
   // still needs to reach assistive tech, or a screen-reader user gets no
   // translation at all for this row (MUST-FIX DEFERRED).
-  const groupBracketEl = showTranslationArea && groupRole === 'member' ? (
+  const groupBracketEl = showTranslationArea && groupRole === 'member' && !drillHidden ? (
     <div
       data-testid="group-bracket"
       className={[sideBySide ? 'text-left' : 'mt-1.5', 'flex items-center', isActive ? 'h-5' : 'h-4'].join(' ')}
@@ -492,6 +499,11 @@ function Line({ line, lineIndex, isActive, loopHighlight, onLineClick, lineRef, 
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onReveal() }}
+          /* The row itself treats Enter/Space as "seek here", and while a loop
+             point is being armed it treats them as "place the point" — so a
+             keyboard Reveal would both reveal the answer and move the playhead
+             (or drop a loop point) onto the row. The button owns its keys. */
+          onKeyDown={(e) => e.stopPropagation()}
           className="mt-2 min-h-11 px-4 rounded-full border border-cinnabar-accent/50 text-cinnabar-accent text-xs font-medium touch-manipulation active:scale-[0.97] transition-transform"
         >
           Reveal
@@ -547,10 +559,25 @@ export function LyricDisplay({
   onChooseRepair,
 }: Props) {
   const { lines, activeLine, clozeMode, clozeDifficulty } = useLyricsStore()
-  // Which line the user has revealed. Holding the INDEX rather than a boolean
-  // means moving to the next line un-reveals on its own, with no effect syncing
-  // state back from the playhead.
-  const [revealedLine, setRevealedLine] = useState(-1)
+  /* Which row the user has revealed, held as the row itself rather than a bare
+   * index. Holding the index is what makes moving to the next line re-blank on
+   * its own, with no effect syncing state back from the playhead — but the index
+   * alone goes stale: this component is reused across songs (App swaps songId
+   * rather than remounting), and `lines` is also replaced by background
+   * enrichment and by the phrasing regroup. A stale index then "revealed"
+   * whichever row now sat at that position, showing that line's answer with no
+   * Reveal button and no way to get the drill back. Pinning the line's own text
+   * and start time means a replaced line simply stops matching, while an
+   * enrichment pass over the same lines keeps the reveal. */
+  const [revealedRow, setRevealedRow] = useState<{ index: number; original: string; startTime: number } | null>(null)
+  const isRevealed = (index: number, line: TimedLine) =>
+    revealedRow?.index === index &&
+    revealedRow.original === line.original &&
+    revealedRow.startTime === line.startTime
+  // Switching the drill off and on again is a fresh attempt, not the "moved on
+  // to the next line" case the index is designed to handle — without this the
+  // row came back already revealed, with the answer on screen.
+  useEffect(() => { setRevealedRow(null) }, [clozeMode])
   const tapLookupEnabled = useSettingsStore((s) => s.tapLookupEnabled)
   const [wordTap, setWordTap] = useState<WordTap | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -715,10 +742,10 @@ export function LyricDisplay({
               // Lookup stands down during a drill — reading the definition of the
               // word you are being asked to recall defeats the exercise.
               onWordTap={tapLookupEnabled && isActive && !armingAB && !clozeMode ? setWordTap : undefined}
-              cloze={clozeMode && isActive && line.tokens?.length
-                ? { difficulty: clozeDifficulty, revealed: revealedLine === i }
+              cloze={clozeMode && isActive && hasClozeBlanks(line.tokens, clozeDifficulty)
+                ? { difficulty: clozeDifficulty, revealed: isRevealed(i, line) }
                 : undefined}
-              onReveal={() => setRevealedLine(i)}
+              onReveal={() => setRevealedRow({ index: i, original: line.original, startTime: line.startTime })}
               flagged={flaggedForIndex[i]}
               onFetchRepairCandidates={onFetchRepairCandidates}
               onChooseRepair={onChooseRepair}
