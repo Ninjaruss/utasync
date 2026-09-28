@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="index, follow" />
     <title>Privacy Policy — Utasync</title>
-    <meta name="description" content="How Utasync handles your data. Local-first lyrics practice with no accounts and no analytics." />
+    <meta name="description" content="How Utasync handles your data. Free, open-source, local-first lyrics practice with no accounts, no tracking, and no server of its own." />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/legal/legal.css" />
   </head>
@@ -15,48 +15,58 @@
       <header>
         <h1>Privacy Policy</h1>
         <p class="subtitle">Utasync (歌sync) — learn languages through music</p>
-        <p class="updated">Last updated: June 30, 2026</p>
+        <p class="updated">Last updated: September 28, 2026</p>
       </header>
 
       <main>
         <p>
-          Utasync is an offline-first web app. We designed it so your library, audio files, and
-          practice data stay on your device. This policy explains what information the app uses,
-          where it is stored, and which third-party services may be contacted when you choose to
-          use certain features.
+          Utasync is a free, open-source, offline-first web app. It was designed so that your
+          library, audio files, and practice data stay on your device: there is no account, no
+          tracking, and no server of ours to send anything to. This policy explains what the app
+          stores locally and which third-party services your browser may contact when you choose
+          to use particular features.
         </p>
 
         <h2>Summary</h2>
         <ul>
-          <li>No user accounts or sign-in required to use the app.</li>
-          <li>No analytics, advertising, or crash-reporting SDKs are built into Utasync.</li>
+          <li>No accounts, sign-in, or personal details are required — or even accepted.</li>
+          <li>No analytics, advertising, telemetry, or crash-reporting services are built in.</li>
+          <li>We operate no backend: there is no Utasync server that could receive your data.</li>
           <li>Songs, lyrics, audio, and settings are stored locally in your browser.</li>
-          <li>Some optional features contact third-party services (YouTube, LRCLIB, lyrics.ovh, Hugging Face, Payhip).</li>
-          <li>AI features run on your device after models are downloaded; your audio is not sent to us for processing.</li>
+          <li>Some optional features contact third-party services (YouTube, LRCLIB, lyrics.ovh, Apple’s iTunes Search API, Hugging Face).</li>
+          <li>AI features run on your device, after models are downloaded; your audio is never uploaded for processing.</li>
         </ul>
 
         <h2>Information stored on your device</h2>
-        <p>When you use Utasync, the app may store the following locally in your browser:</p>
+        <p>
+          When you use Utasync, the app stores the following locally in your browser. None of it is
+          transmitted to us:
+        </p>
         <ul>
           <li><strong>Song library</strong> — titles, artists, lyrics, sync timing, translations, and related metadata (IndexedDB).</li>
-          <li><strong>Uploaded audio</strong> — files you choose to import (Origin Private File System, when supported).</li>
-          <li><strong>App preferences</strong> — playback speed, volume, display options, and similar settings (local storage).</li>
-          <li><strong>License status</strong> — whether Pro is unlocked, trial usage, and your license key if you enter one (local storage).</li>
-          <li><strong>Device fingerprint</strong> — a short identifier derived from browser and screen characteristics (language, time zone, screen size, hardware concurrency). It is generated and stored locally to support license verification. It is not used for advertising.</li>
-          <li><strong>Cached AI models</strong> — Whisper, embedding, and related model files downloaded for on-device features (browser cache storage).</li>
+          <li><strong>Uploaded audio</strong> — files you choose to import (Origin Private File System, where supported).</li>
+          <li><strong>App preferences</strong> — playback speed, volume, display and practice options, and similar settings (local storage).</li>
+          <li><strong>Cached AI models</strong> — Whisper, embedding, and vocal-separation model files, plus the ONNX Runtime they execute on, downloaded the first time you use those features (browser cache storage).</li>
+          <li><strong>Cached dictionary data</strong> — Japanese and English dictionary and reading data downloaded by the service worker so readings and word lookup work offline after first use (browser cache storage).</li>
         </ul>
         <p>
-          You can delete songs from Settings, clear the AI model cache, and remove the app’s site
-          data through your browser if you want to erase local information.
+          You are in control of all of it: delete individual songs from Settings, clear the AI model
+          cache from Settings, or remove the app’s site data through your browser to erase
+          everything. Nothing survives on our side, because there is no “our side.”
         </p>
 
-        <h2>Information we do not collect on a server</h2>
+        <h2>No server, no tracking</h2>
         <p>
-          Utasync does not operate a backend that receives your lyrics, audio, or library. We do
-          not maintain user profiles and do not collect your email through normal use of the app.
-          The only server endpoint is license verification: when you restore a Pro license, your
-          browser sends the license key to our <code>/api/verify-license</code> endpoint, which
-          forwards it to Payhip for validation. No lyrics, audio, or library data is sent.
+          Utasync has no backend. When you use the hosted version, the app is delivered to you as
+          static files; like any website, the host serving those files may keep standard
+          request logs (such as IP address and user agent) for security and operations. We do not
+          receive, aggregate, or analyse them, and we run no analytics of any kind.
+        </p>
+        <p>
+          The app sets no tracking cookies. It uses browser storage — IndexedDB, the Origin Private
+          File System, local storage, and the cache storage described above — purely to make the
+          app work, and that data is not sent anywhere. You can self-host Utasync yourself; in that
+          case these Terms and this policy apply to your own deployment’s storage, not to us.
         </p>
 
         <h2>Third-party services</h2>
@@ -75,50 +85,60 @@
           <li>
             <strong>lyrics.ovh</strong> — when LRCLIB does not have plain lyrics for a song, the
             app may send title and artist text to
-            <a href="https://lyrics.ovh/" rel="noopener noreferrer" target="_blank">api.lyrics.ovh</a>
-            to find matching lyrics.
+            <a href="https://lyrics.ovh/" rel="noopener noreferrer" target="_blank">api.lyrics.ovh</a>,
+            which sources lyrics from public lyric sites.
+          </li>
+          <li>
+            <strong>Apple (iTunes Search API)</strong> — when the app looks for cover artwork, it
+            sends the song title and artist to
+            <a href="https://itunes.apple.com/" rel="noopener noreferrer" target="_blank">itunes.apple.com</a>
+            and downloads the matching artwork, under Apple’s terms.
           </li>
           <li>
             <strong>Hugging Face</strong> — when you first use on-device AI features, the app
             downloads open machine-learning models from Hugging Face to your browser cache. No
-            account with Hugging Face is required.
+            account with Hugging Face is required, and nothing about you is sent.
           </li>
           <li>
-            <strong>Payhip</strong> — if you purchase Utasync Pro, checkout and payment
-            processing are handled by
-            <a href="https://payhip.com/" rel="noopener noreferrer" target="_blank">Payhip</a>.
-            They collect payment and contact information according to their policies. License key
-            verification may contact our server endpoint, which forwards the key to Payhip; we do
-            not receive your lyrics, audio, or library data through this flow.
+            <strong>Patreon</strong> — only if you follow the optional
+            <a href="https://patreon.ninjaruss.net" rel="noopener noreferrer" target="_blank">support link</a>
+            from Settings. That opens Patreon in a new tab; nothing is sent to them by the app, and
+            their policies apply once you are there.
           </li>
         </ul>
+        <p>
+          The app also links out to lyric and dictionary sites (for example uta-net.com, utaten.com,
+          animelyrics.com, lyricstranslate.com, or jisho.org) so you can compare a source yourself.
+          Those are ordinary links: nothing is sent to those sites unless you open one.
+        </p>
 
         <h2>On-device processing</h2>
         <p>
-          Features such as auto-align, word-pair coloring, and transcription run in your browser
-          using downloaded models. Audio you analyze for these features is processed locally and is
-          not uploaded to Utasync-operated servers.
+          Features such as auto-align, transcription, word-pair colouring, and vocal isolation run
+          in your browser using the downloaded models described above. Audio you analyse is
+          processed locally and is not uploaded anywhere.
         </p>
 
         <h2>Children’s privacy</h2>
         <p>
-          Utasync is not directed at children under 13. We do not knowingly collect personal
-          information from children. If you believe a child has provided information through a
-          purchase flow, contact us and we will help address it with our payment provider where
-          applicable.
+          Utasync is not directed at children under 13. Because the app collects no personal
+          information — there is no account, no sign-in, and no server — there is nothing for us to
+          receive from a child or anyone else. If you have a concern about how the app handles
+          something on your device, contact us and we will help where we can.
         </p>
 
         <h2>International users</h2>
         <p>
-          Utasync is available globally. Local data stays on your device. Third-party services
-          listed above may process data in other countries under their own terms.
+          Utasync is available globally, and your local data stays on your device wherever you are.
+          The third-party services listed above may process requests in other countries under their
+          own terms.
         </p>
 
         <h2>Changes to this policy</h2>
         <p>
           We may update this Privacy Policy from time to time. The “Last updated” date at the top
-          will change when we do. Continued use of the app after an update means you accept the
-          revised policy.
+          will change when we do. These pages are part of the public source, so their history —
+          what changed, and when — is visible in the repository as well.
         </p>
 
         <h2>Contact</h2>
