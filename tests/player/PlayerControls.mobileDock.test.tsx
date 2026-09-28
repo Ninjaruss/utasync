@@ -99,6 +99,19 @@ describe('mobile play-mode control dock', () => {
     expect(screen.queryByRole('slider', { name: 'Volume' })).toBeNull()
   })
 
+  it.each(['a', 'b'] as const)('reveals the lyrics after arming loop point %s', (point) => {
+    const onToggleArm = vi.fn()
+    render(<PlayerControls {...baseProps} onToggleArm={onToggleArm} />)
+    const loopChip = screen.getByRole('button', { name: 'Loop' })
+    loopChip.focus()
+    fireEvent.click(loopChip)
+    fireEvent.click(screen.getByRole('button', { name: `${point.toUpperCase()} loop point` }))
+
+    expect(onToggleArm).toHaveBeenCalledWith(point)
+    expect(screen.queryByRole('dialog', { name: 'Controls' })).toBeNull()
+    expect(document.activeElement).toBe(loopChip)
+  })
+
   it('closes the drawer from the backdrop', () => {
     render(<PlayerControls {...baseProps} />)
     fireEvent.click(screen.getByRole('button', { name: 'Saved loops' }))

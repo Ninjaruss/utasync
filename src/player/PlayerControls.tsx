@@ -1766,7 +1766,10 @@ export function PlayerControls({
                 abLooping={abLooping}
                 playlistActive={playlistActive}
                 abActive={abActive}
-                onToggleArm={onToggleArm}
+                onToggleArm={(which) => {
+                  onToggleArm(which)
+                  if (armingAB !== which) closeControls()
+                }}
                 onClearAB={onClearAB}
                 forceCollapsed={false}
                 expanded={sheetLoopOpen}
