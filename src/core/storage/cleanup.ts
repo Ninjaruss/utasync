@@ -19,9 +19,23 @@ export async function findOrphanedAudioIds(knownSongIds: Iterable<string>): Prom
   }
 }
 
-/** Deletes orphaned OPFS audio left behind by interrupted uploads or deleted rows. */
+/** Deletes orphaned OPFS audio left behind by interrupted uploads or deleted rows.
+ *  Returns how many files were actually removed. A file whose deletion fails is
+ *  left in place, logged and not counted — the call never rejects for one file,
+ *  so a single unremovable entry cannot turn a partial cleanup into a silent
+ *  unhandled failure or into a claimed success. */
 export async function deleteOrphanedAudio(knownSongIds: Iterable<string>): Promise<number> {
   const orphans = await findOrphanedAudioIds(knownSongIds)
-  await Promise.all(orphans.map((id) => deleteAudio(id)))
-  return orphans.length
+  const results = await Promise.all(
+    orphans.map(async (id) => {
+      try {
+        await deleteAudio(id)
+        return true
+      } catch (e) {
+        console.warn(`Failed to delete orphaned audio ${id}.`, e)
+        return false
+      }
+    }),
+  )
+  return results.filter(Boolean).length
 }

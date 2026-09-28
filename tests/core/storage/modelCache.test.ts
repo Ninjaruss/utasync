@@ -69,6 +69,20 @@ describe('clearAiModelCache', () => {
     expect(await clearAiModelCache()).toBe(3)
     expect(await estimateModelCacheBytes()).toBe(0)
   })
+
+  // Cache.delete() resolves false when it removed nothing. Counting the keys we
+  // asked about reported "Cleared 1 cached model file." while the bytes — and
+  // the storage card's AI-models figure — were unchanged, so the user believed
+  // space had been reclaimed that was still there.
+  it('counts only entries that were really deleted', async () => {
+    const stuck = mockCache({ '/models/stuck.onnx': 100 })
+    stuck.delete.mockResolvedValue(false)
+    cacheStores.set('ai-models-v1', stuck)
+    cacheStores.set('transformers-cache', mockCache({ '/hf/gone': 20 }))
+
+    expect(await clearAiModelCache()).toBe(1)
+    expect(await estimateModelCacheBytes()).toBe(100)
+  })
 })
 
 describe('purgeCorruptCacheEntries', () => {

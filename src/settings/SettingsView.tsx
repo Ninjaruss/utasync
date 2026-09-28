@@ -5,6 +5,7 @@ import { useToast } from '../core/ui/Toast'
 import { estimateStorageBreakdown, formatBytes, type StorageBreakdown } from '../core/storage/quota'
 import { deleteOrphanedAudio, findOrphanedAudioIds } from '../core/storage/cleanup'
 import { clearAiModelCache } from '../core/storage/modelCache'
+import { sanitizeFilenamePart } from '../player/abLoopExport'
 import { exportLRC, downloadFile } from '../lyrics/exporter'
 import { useSettingsStore } from '../payment/SettingsStore'
 import { useAbLoopPlaylistStore } from '../player/abLoopPlaylistStore'
@@ -27,6 +28,17 @@ const buildTimeLabel = formatAppBuildTime(buildTime)
  * there is timing to export. */
 function songHasTiming(song: Song): boolean {
   return song.lyrics.lines.some((l) => l.startTime > 0 || l.endTime > 0)
+}
+
+/** Honest result line for orphan cleanup: only files that were really removed
+ *  are reported, so a partial failure cannot read as a success. */
+function orphanRemovalMessage(deleted: number, remaining: number): string {
+  if (remaining > 0) {
+    return `Removed ${deleted} orphaned audio file${deleted === 1 ? '' : 's'}; ${remaining} could not be deleted.`
+  }
+  return deleted > 0
+    ? `Removed ${deleted} orphaned audio file${deleted === 1 ? '' : 's'}.`
+    : 'No orphaned audio files were found.'
 }
 
 interface Props {
@@ -95,17 +107,43 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
   const [clearingCache, setClearingCache] = useState(false)
   const [confirmClearCache, setConfirmClearCache] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [confirmRemoveOrphans, setConfirmRemoveOrphans] = useState(false)
+  const [removingOrphans, setRemovingOrphans] = useState(false)
   const { defaultSongLanguage, setDefaultSongLanguage, vocalSeparationEnabled, setVocalSeparationEnabled, readingMode, setReadingMode, tapLookupEnabled, setTapLookupEnabled } = useSettingsStore()
 
-  const refreshStorage = async (library: Song[]) => {
-    setStorage(await estimateStorageBreakdown())
-    setOrphanedAudio((await findOrphanedAudioIds(library.map((s) => s.id))).length)
+  /** Storage figures are cosmetic bookkeeping. `navigator.storage.estimate()`
+   *  can reject (private mode, an embedded frame), and that rejection used to
+   *  escape from the delete handler and be reported as "Could not delete song"
+   *  — for a song that had in fact been deleted. It must never reject, and it
+   *  must never be able to fail a caller's action. */
+  const refreshStorage = async () => {
+    try {
+      setStorage(await estimateStorageBreakdown())
+    } catch {
+      // Keep the last known figures rather than blanking the card.
+    }
+  }
+
+  /** Song ids exactly as the database knows them right now. Read late, never
+   *  from a mount-time snapshot: an upload writes its OPFS audio file before
+   *  its row, so an id that has no row *yet* looks identical to an orphan and
+   *  deleting on a stale id set would destroy an upload in flight. */
+  const currentSongIds = async (): Promise<string[]> =>
+    (await db.songs.toArray()).map((s) => s.id)
+
+  const refreshOrphanCount = async () => {
+    try {
+      setOrphanedAudio((await findOrphanedAudioIds(await currentSongIds())).length)
+    } catch {
+      // Keep the last known count.
+    }
   }
 
   useEffect(() => {
-    db.songs.toArray().then(async (library) => {
+    db.songs.toArray().then((library) => {
       setSongs(library)
-      await refreshStorage(library)
+      void refreshStorage()
+      void refreshOrphanCount()
     })
   }, [])
 
@@ -116,19 +154,26 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
 
   const handleDelete = async (song: Song) => {
     setConfirmDeleteId(null)
-    try {
-      const { audioDeleteFailed } = await removeSong(song)
-      useAbLoopPlaylistStore.getState().clearPlaylist(song.id)
-      const next = (songs ?? []).filter((s) => s.id !== song.id)
-      if (audioDeleteFailed) {
-        toast('Song removed, but the audio file could not be deleted. Use "Remove orphaned audio" below to reclaim space.', 'warning')
-      }
-      setSongs(next)
-      await refreshStorage(next)
-      onSongDeleted?.(song.id)
-    } catch {
+    // deleteSong removes the row before the audio, so a failure here means
+    // nothing was destroyed: the song and its audio are untouched and a retry
+    // is safe. Only this case may be reported as a failed delete.
+    const result = await removeSong(song).catch(() => null)
+    if (!result) {
       toast('Could not delete song. Please try again.', 'error')
+      return
     }
+    useAbLoopPlaylistStore.getState().clearPlaylist(song.id)
+    setSongs((songs ?? []).filter((s) => s.id !== song.id))
+    if (result.audioDeleteFailed) {
+      toast('Song removed, but the audio file could not be deleted. Use "Remove orphaned audio" below to reclaim space.', 'warning')
+    }
+    // The song is already gone from the database, so tell the parent before any
+    // bookkeeping: a storage-number failure below must not be able to skip the
+    // library refresh or leave the app parked on a deleted song.
+    onSongDeleted?.(song.id)
+    await refreshStorage()
+    // A song whose audio could not be deleted is itself a new orphan.
+    await refreshOrphanCount()
   }
 
   const clearModelCache = async () => {
@@ -136,7 +181,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
     setCacheMessage(null)
     try {
       const deleted = await clearAiModelCache()
-      await refreshStorage(songs ?? [])
+      await refreshStorage()
       setCacheMessage(deleted > 0 ? `Cleared ${deleted} cached model file${deleted === 1 ? '' : 's'}.` : 'Model cache was already empty.')
     } catch {
       setCacheMessage('Could not clear model cache.')
@@ -145,9 +190,42 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
     }
   }
 
-  const clearOrphanedAudio = async () => {
-    await deleteOrphanedAudio((songs ?? []).map((s) => s.id))
-    await refreshStorage(songs ?? [])
+  /** Re-checks for orphans so the confirm states the count that is actually
+   *  there now, not the one rendered when the settings opened. */
+  const armOrphanRemoval = async () => {
+    setCacheMessage(null)
+    try {
+      const orphans = await findOrphanedAudioIds(await currentSongIds())
+      setOrphanedAudio(orphans.length)
+      if (orphans.length === 0) {
+        setCacheMessage('No orphaned audio files were found.')
+        return
+      }
+      setConfirmRemoveOrphans(true)
+    } catch {
+      setCacheMessage('Could not check for orphaned audio.')
+    }
+  }
+
+  const removeOrphanedAudio = async () => {
+    setConfirmRemoveOrphans(false)
+    setRemovingOrphans(true)
+    setCacheMessage(null)
+    try {
+      // Ids are read as late as possible (see currentSongIds): the decision to
+      // delete is never taken on a snapshot.
+      const knownIds = await currentSongIds()
+      const deleted = await deleteOrphanedAudio(knownIds)
+      // Rescan rather than assume: a file whose deletion failed is still there.
+      const remaining = (await findOrphanedAudioIds(knownIds)).length
+      setOrphanedAudio(remaining)
+      setCacheMessage(orphanRemovalMessage(deleted, remaining))
+      await refreshStorage()
+    } catch {
+      setCacheMessage('Could not remove orphaned audio.')
+    } finally {
+      setRemovingOrphans(false)
+    }
   }
 
   return (
@@ -245,11 +323,17 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
           <div className="flex flex-wrap gap-x-4 gap-y-1 items-center">
             {confirmClearCache ? (
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="text-xs text-white/60 text-pretty">
+                {/* role="alert" so the question is announced when it appears, and
+                    autoFocus so the safe action holds focus: arming this confirm
+                    unmounts the button that was just activated, which otherwise
+                    dropped focus to <body> and left the next Tab at the top of
+                    the sheet. Same shape as ConfirmDialog, which focuses Cancel. */}
+                <span role="alert" className="text-xs text-white/60 text-pretty">
                   Models re-download next time you align{storage.modelCache > 0 ? ` (${formatBytes(storage.modelCache)})` : ''}. Clear?
                 </span>
                 <button
                   type="button"
+                  autoFocus
                   onClick={() => setConfirmClearCache(false)}
                   className="min-h-11 flex items-center text-xs text-white/60 hover:text-white touch-manipulation"
                 >
@@ -275,9 +359,45 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
               </button>
             )}
             {orphanedAudio > 0 && (
-              <button onClick={clearOrphanedAudio} className="min-h-11 flex items-center text-xs text-white/60 hover:text-white underline touch-manipulation">
-                Remove orphaned audio
-              </button>
+              confirmRemoveOrphans ? (
+                // Arm-then-confirm, same shape as the cache clear above. This
+                // used to be a single unconfirmed tap on a count and an id set
+                // captured when Settings opened, so it could delete audio for a
+                // row that had just been created and said nothing either way
+                // afterwards.
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {/* Announced on appearance, and focus lands on the safe action
+                      rather than falling to <body> when the trigger unmounts. */}
+                  <span role="alert" className="text-xs text-white/60 text-pretty">
+                    Permanently delete {orphanedAudio} orphaned audio file{orphanedAudio === 1 ? '' : 's'}? The audio cannot be recovered.
+                  </span>
+                  <button
+                    type="button"
+                    autoFocus
+                    onClick={() => setConfirmRemoveOrphans(false)}
+                    className="min-h-11 flex items-center text-xs text-white/60 hover:text-white touch-manipulation"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { void removeOrphanedAudio() }}
+                    disabled={removingOrphans}
+                    className="min-h-11 flex items-center text-xs text-red-400 hover:text-red-300 font-medium touch-manipulation disabled:opacity-50"
+                  >
+                    {removingOrphans ? 'Removing…' : 'Delete'}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { void armOrphanRemoval() }}
+                  disabled={removingOrphans}
+                  className="min-h-11 flex items-center text-xs text-white/60 hover:text-white underline touch-manipulation disabled:opacity-50"
+                >
+                  Remove orphaned audio
+                </button>
+              )
             )}
           </div>
           {cacheMessage && (
@@ -317,7 +437,10 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
               <div className="flex gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={() => downloadFile(exportLRC(song.lyrics.lines), `${song.title}.lrc`, 'text/plain')}
+                  // Same sanitizer as the EditMode export of the same artifact:
+                  // a title is free text and may contain "/" or other characters
+                  // that are invalid in a file name.
+                  onClick={() => downloadFile(exportLRC(song.lyrics.lines), `${sanitizeFilenamePart(song.title) || 'lyrics'}.lrc`, 'text/plain')}
                   disabled={!songHasTiming(song)}
                   // Exporting an untimed song wrote an LRC where every line was
                   // stamped [00:00.00] — a file that looks valid and is useless.

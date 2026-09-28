@@ -65,15 +65,19 @@ export async function estimateModelCacheBytes(): Promise<number> {
   return sizes.reduce((sum, n) => sum + n, 0)
 }
 
-/** Deletes all cached ONNX / Hugging Face model files from the Cache API. */
+/** Deletes all cached ONNX / Hugging Face model files from the Cache API.
+ *  Returns how many entries were actually removed: Cache.delete() resolves
+ *  false when nothing was deleted, so counting the keys we asked about could
+ *  report a clear that never happened while the bytes (and the storage card's
+ *  figure) stayed exactly the same. */
 export async function clearAiModelCache(): Promise<number> {
   if (typeof caches === 'undefined') return 0
   let deleted = 0
   for (const name of AI_MODEL_CACHE_NAMES) {
     const cache = await caches.open(name)
     const keys = await cache.keys()
-    await Promise.all(keys.map((k) => cache.delete(k)))
-    deleted += keys.length
+    const results = await Promise.all(keys.map((k) => cache.delete(k)))
+    deleted += results.filter(Boolean).length
   }
   return deleted
 }
