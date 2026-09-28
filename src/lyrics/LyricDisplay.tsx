@@ -161,7 +161,11 @@ interface Props {
    * the full-song context this component doesn't hold. */
   onFetchRepairCandidates?: (lineIndex: number) => Promise<RepairCandidate[]>
   /** Commit a chosen replacement translation for one row. */
-  onChooseRepair?: (lineIndex: number, text: string) => void
+  /** Commit a chosen replacement. `source` says where the text came from:
+   * 'unplaced' means it was one of the pasted lines the fitter could not place,
+   * which the caller must then drop from that list — otherwise the promoted
+   * line keeps rendering as an unplaced note as well. */
+  onChooseRepair?: (lineIndex: number, text: string, source: RepairCandidate['source']) => void
 }
 
 /** Renders the Japanese (primary) text honoring the furigana/romaji mode. */
@@ -177,7 +181,7 @@ function PrimaryText({ line, isActive, furiganaMode, readingMode, colored, hover
   /** Set on the active line while cloze drilling. */
   cloze?: { difficulty: ClozeDifficulty; revealed: boolean }
 }) {
-  const sizeClass = isActive ? 'text-xl sm:text-2xl font-semibold text-white' : 'text-base font-normal text-white/45 group-hover:text-white/75'
+  const sizeClass = isActive ? 'text-xl sm:text-2xl font-semibold text-white' : 'text-base font-normal text-white/55 group-hover:text-white/75'
   const lineHoverClass = 'group-hover:underline decoration-white/30 underline-offset-4'
   const showFurigana = furiganaMode === 'furigana'
   const useTokenRender = line.tokens && line.tokens.length > 0 && (colored || showFurigana || (!!onWordTap && hasJapanese(line.original)))
@@ -222,7 +226,7 @@ function PrimaryText({ line, isActive, furiganaMode, readingMode, colored, hover
       {furiganaMode === 'romaji' && (() => {
         const romaji = line.tokens?.length ? lineRomajiFromTokens(line.tokens, readingMode) : line.reading
         return romaji && !isSameText(romaji, line.original) ? (
-          <div className={isActive ? 'text-sm text-cinnabar-accent/80 mt-1' : 'text-xs text-white/30 mt-0.5'}>
+          <div className={isActive ? 'text-sm text-cinnabar-accent/80 mt-1' : 'text-xs text-white/50 mt-0.5'}>
             {romaji}
           </div>
         ) : null
@@ -310,7 +314,11 @@ function Line({ line, lineIndex, isActive, loopHighlight, onLineClick, lineRef, 
    * or a song-wide pairing 'mismatch'. Never driven by translationConfidence. */
   flagged?: boolean
   onFetchRepairCandidates?: (lineIndex: number) => Promise<RepairCandidate[]>
-  onChooseRepair?: (lineIndex: number, text: string) => void
+  /** Commit a chosen replacement. `source` says where the text came from:
+   * 'unplaced' means it was one of the pasted lines the fitter could not place,
+   * which the caller must then drop from that list — otherwise the promoted
+   * line keeps rendering as an unplaced note as well. */
+  onChooseRepair?: (lineIndex: number, text: string, source: RepairCandidate['source']) => void
 }) {
   const { furiganaMode, showTranslation, lyricsLayout } = useLyricsStore()
   const readingMode = useSettingsStore((s) => s.readingMode)
@@ -343,7 +351,7 @@ function Line({ line, lineIndex, isActive, loopHighlight, onLineClick, lineRef, 
       translate="no"
       className={[
       lyricTextTransition,
-      isActive ? 'text-base italic text-white/70' : 'text-sm italic text-white/35',
+      isActive ? 'text-base italic text-white/70' : 'text-sm italic text-white/55',
       sideBySide ? 'text-left' : 'mt-1.5',
       translationHoverClass,
       'text-pretty select-text',
@@ -409,7 +417,10 @@ function Line({ line, lineIndex, isActive, loopHighlight, onLineClick, lineRef, 
         className={[
           sideBySide ? 'text-left' : '',
           'mt-1 text-[11px] touch-manipulation underline decoration-dotted decoration-current underline-offset-4',
-          isActive ? 'text-white/55 hover:text-white/75' : 'text-white/40 hover:text-white/60',
+          /* One colour for both states: this flag is a control, and at 11px it
+             needs AA (4.5:1) whether or not its row is the active one — the old
+             white/40 measured 3.72:1. */
+          'text-white/55 hover:text-white/75',
         ].join(' ')}
       >
         {hasTranslation ? 'Check this translation' : 'Translation missing'}
@@ -418,7 +429,7 @@ function Line({ line, lineIndex, isActive, loopHighlight, onLineClick, lineRef, 
         <TranslationRepairPopover
           lineIndex={lineIndex}
           candidates={repairCandidates}
-          onChoose={(text) => { onChooseRepair?.(lineIndex, text); setRepairOpen(false) }}
+          onChoose={(text, source) => { onChooseRepair?.(lineIndex, text, source); setRepairOpen(false) }}
           onClose={() => setRepairOpen(false)}
           anchorRef={repairAnchorRef}
         />
@@ -525,7 +536,7 @@ function UnplacedTranslationsNote({ entries }: { entries: { text: string }[] }) 
         type="button"
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v) }}
         aria-expanded={open}
-        className="text-[11px] text-white/40 hover:text-white/60 underline decoration-dotted decoration-current underline-offset-4 touch-manipulation"
+        className="text-[11px] text-white/55 hover:text-white/75 underline decoration-dotted decoration-current underline-offset-4 touch-manipulation"
       >
         {entries.length} {entries.length === 1 ? 'line' : 'lines'} weren&apos;t placed
       </button>

@@ -25,6 +25,9 @@ interface Props {
   /** Cloze drilling is on. */
   clozeMode?: boolean
   clozeDifficulty?: ClozeDifficulty
+  /** False when the drill has nothing to blank (no word data for this song).
+   * Defaults to available, so callers that do not know stay permissive. */
+  clozeAvailable?: boolean
   onToggleCloze?: () => void
   onClozeDifficulty?: (level: ClozeDifficulty) => void
   /** True when rows are currently rendered in the sung-phrase layout. */
@@ -89,6 +92,7 @@ function DisplayMenuPanel({
   phrasingBusy,
   clozeMode,
   clozeDifficulty,
+  clozeAvailable = true,
   onToggleCloze,
   onClozeDifficulty,
   onFuriganaCycle,
@@ -115,12 +119,13 @@ function DisplayMenuPanel({
             <span className={compact ? 'text-xs' : 'text-sm'}>{FURIGANA_LABEL[furiganaMode]}</span>
             {/* "Tap to cycle" told the user there were other states without ever
               * saying what they were, so the only way to find them was to poke the
-              * control repeatedly. Name the cycle instead. */}
-            {!compact && (
-              <span className="block text-[10px] text-white/60 mt-0.5 text-pretty">
-                Tap to cycle: Off → Romaji → Furigana
-              </span>
-            )}
+              * control repeatedly. Name the cycle instead — in the compact (mobile)
+              * panel too: the phone is where the control's whole visible text is
+              * the current mode's name, so it needed it most, and the panel now
+              * clamps its own position so one more line is reachable. */}
+            <span className="block text-[10px] text-white/60 mt-0.5 text-pretty">
+              Tap to cycle: Off → Romaji → Furigana
+            </span>
           </button>
         </section>
       )}
@@ -178,19 +183,28 @@ function DisplayMenuPanel({
           <p className={toolbarSectionLabel}>Practice</p>
           <div className="space-y-1.5">
             <label className={[
-              'flex items-center justify-between gap-3 px-2.5 py-2 rounded-lg border cursor-pointer touch-manipulation',
+              'flex items-center justify-between gap-3 px-2.5 py-2 rounded-lg border touch-manipulation',
               compact ? 'min-h-9 text-xs' : 'min-h-11 px-3 py-2.5 text-sm',
-              clozeMode ? 'border-cinnabar-accent/50 bg-cinnabar-accent/5' : 'border-cinnabar-800 hover:border-cinnabar-accent/30',
+              !clozeAvailable
+                ? 'opacity-40 border-cinnabar-800'
+                : clozeMode
+                  ? 'cursor-pointer border-cinnabar-accent/50 bg-cinnabar-accent/5'
+                  : 'cursor-pointer border-cinnabar-800 hover:border-cinnabar-accent/30',
             ].join(' ')}>
               <span className="text-white/80">Hide words to recall</span>
               <input
                 type="checkbox"
                 checked={!!clozeMode}
                 onChange={onToggleCloze}
+                // Disabled when the drill cannot act: the blanks (and the whole
+                // drill) hang off the tokens, and an enabled switch that silently
+                // does nothing is worse than a disabled one that explains itself
+                // in the hint below.
+                disabled={!clozeAvailable || !onToggleCloze}
                 className="accent-cinnabar-accent w-4 h-4 shrink-0"
               />
             </label>
-            {clozeMode && (
+            {clozeMode && clozeAvailable && (
               <div className="flex gap-1.5" role="group" aria-label="Difficulty">
                 {(['easy', 'medium', 'hard'] as const).map((level) => (
                   <button
@@ -211,7 +225,9 @@ function DisplayMenuPanel({
               </div>
             )}
             <p className="text-[10px] text-white/60 px-1 text-pretty leading-snug">
-              Blanks out content words on the line being sung. Reveal when you want the answer.
+              {clozeAvailable
+                ? 'Blanks out content words on the line being sung. Reveal when you want the answer.'
+                : 'The drill needs word data for this song, which is not available yet. It arrives with readings and word colours once the lyrics have been analysed. The drill also does nothing before the first line starts \u2014 blanks begin with the singing.'}
             </p>
           </div>
         </section>
@@ -297,7 +313,15 @@ export function DisplayMenu(props: Props) {
     if (isDesktop) return
     const el = panelRef.current
     if (!el || !panelPos) return
-    el.style.top = `${panelPos.top}px`
+    /* Pin vertically from the panel's MEASURED height, not from the anchor alone.
+     * `max-h-[70dvh]` caps the panel against the viewport, but the panel starts
+     * BELOW the trigger, so 70dvh of panel can still end past the bottom edge —
+     * and content below the panel's own bottom is unreachable, because its scroll
+     * area stops there (its own comment records the landscape case: ~155px down a
+     * 375px viewport, with the lower rows drawn off-screen). Raising the top keeps
+     * the whole panel, and therefore its whole scroll area, on screen. */
+    const maxTop = Math.max(8, window.innerHeight - el.offsetHeight - 8)
+    el.style.top = `${Math.min(panelPos.top, maxTop)}px`
     el.style.right = `${panelPos.right}px`
     el.style.width = `${panelPos.width}px`
   })

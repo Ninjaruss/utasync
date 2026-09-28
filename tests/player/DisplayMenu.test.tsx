@@ -82,6 +82,54 @@ describe('DisplayMenu', () => {
     expect((screen.getByRole('checkbox', { name: /match song phrasing/i }) as HTMLInputElement).disabled).toBe(true)
   })
 
+  // The drill blanks tokens, so on a song whose lyrics have no word data the
+  // toggle was enabled, checkable, and did nothing at all — the menu showed
+  // "Hide words to recall" checked and highlighted while the lyric column showed
+  // nothing to drill. Rows without tokens are normal: enrichment is background
+  // work that can fail or be skipped (gated on word alignment being available).
+  it('explains an unavailable recall drill instead of offering a dead toggle', () => {
+    render(<DisplayMenu {...baseProps} clozeAvailable={false} onToggleCloze={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /lyrics display options/i }))
+
+    const toggle = screen.getByRole('checkbox', { name: /hide words to recall/i }) as HTMLInputElement
+    expect(toggle.disabled).toBe(true)
+    expect(screen.getByText(/needs word data for this song/i)).toBeTruthy()
+    expect(screen.queryByText(/blanks out content words/i)).toBeNull()
+  })
+
+  it('keeps the drill offered, and its difficulty picker visible, when word data exists', () => {
+    render(<DisplayMenu {...baseProps} clozeMode clozeDifficulty="easy" clozeAvailable onToggleCloze={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /lyrics display options/i }))
+
+    expect((screen.getByRole('checkbox', { name: /hide words to recall/i }) as HTMLInputElement).disabled).toBe(false)
+    expect(screen.getByRole('group', { name: 'Difficulty' })).toBeTruthy()
+    expect(screen.getByText(/blanks out content words/i)).toBeTruthy()
+  })
+
+  // The reading cycle is the one control whose entire visible label on a phone is
+  // the current mode's name, so the hint naming the other two states was missing
+  // exactly where it was most needed.
+  it('names the furigana cycle in the compact (mobile) panel too', () => {
+    const originalMatchMedia = window.matchMedia
+    window.matchMedia = ((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia
+    try {
+      render(<DisplayMenu {...baseProps} />)
+      fireEvent.click(screen.getByRole('button', { name: /lyrics display options/i }))
+      expect(screen.getByText(/Tap to cycle: Off → Romaji → Furigana/i)).toBeTruthy()
+    } finally {
+      window.matchMedia = originalMatchMedia
+    }
+  })
+
   // Fix 1(b)/(c) of the final review pass: the shared OVERLAY_SURFACES contract
   // (tests/core/ui/overlaySurfaces.tsx, row 21 and row 21 mobile) checks the
   // generic close-on-Escape/focus-trap/accessible-name contract every migrated
@@ -128,6 +176,39 @@ describe('DisplayMenu', () => {
       // way to reach them.
       expect(panel.className).toMatch(/max-h-/)
       expect(panel.className).toMatch(/overflow-y-auto/)
+    })
+
+    // …but a max-height alone did not fix it: the panel starts BELOW the trigger,
+    // so "70dvh of panel" can still end below the fold, and content past the
+    // panel's own bottom edge is unreachable — its scroll area stops there. The
+    // position now comes from the measured height, which this pins down.
+    it('raises the panel so its bottom edge stays on screen', async () => {
+      stubMobileViewport()
+      // Landscape-ish phone: trigger ~155px down a 375px-tall viewport, panel
+      // measuring 70dvh = 262px. Unclamped, the panel ran to 155+6+262 = 423px.
+      const heightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')
+      const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+        top: 130, bottom: 155, left: 200, right: 320,
+        width: 120, height: 25, x: 200, y: 130,
+        toJSON: () => ({}),
+      } as DOMRect)
+      const innerHeightDescriptor = Object.getOwnPropertyDescriptor(window, 'innerHeight')
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: 375 })
+      Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => 262 })
+
+      try {
+        render(<DisplayMenu {...baseProps} />)
+        fireEvent.click(screen.getByRole('button', { name: /lyrics display options/i }))
+        const panel = await screen.findByRole('dialog', { name: /lyrics display options/i })
+
+        // 375 - 262 - 8 = 105px, i.e. bottom edge at 367px: on screen.
+        expect(panel.style.top).toBe('105px')
+        expect(155 + 6 + 262).toBeGreaterThan(375) // the unclamped case this guards
+      } finally {
+        rectSpy.mockRestore()
+        if (heightDescriptor) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', heightDescriptor)
+        if (innerHeightDescriptor) Object.defineProperty(window, 'innerHeight', innerHeightDescriptor)
+      }
     })
   })
 

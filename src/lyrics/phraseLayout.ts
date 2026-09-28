@@ -69,26 +69,80 @@ export function phrasesToTimedLines(phrases: SungPhrase[]): TimedLine[] {
   }))
 }
 
+/** An unplaced pasted line's `afterLineIndex` points into whichever row space is
+ * currently rendered. Regrouping rows into phrases changes that space — a merge
+ * makes it shorter — so an anchor kept verbatim pointed at a different row or past
+ * the end: the "N lines weren't placed" note, and the repair entry point it
+ * carries, either vanished or attached itself to an unrelated lyric. */
+type Unplaced = LyricsData['unplacedTranslations']
+
+function remapUnplaced(unplaced: Unplaced, remap: (afterLineIndex: number) => number): Unplaced {
+  if (!unplaced?.length) return unplaced
+  return unplaced.map((u) => ({ ...u, afterLineIndex: remap(u.afterLineIndex) }))
+}
+
+/** Source-row index → the phrase row that now contains it. A row merged away
+ * resolves to the nearest earlier row that survived, so its note stays with the
+ * text it belongs to; -1 (before the first row) stays -1. */
+function sheetToPhraseIndex(phrases: SungPhrase[]) {
+  const owner = new Map<number, number>()
+  phrases.forEach((p, phraseIndex) => {
+    for (const sourceIndex of p.sourceLineIndices) owner.set(sourceIndex, phraseIndex)
+  })
+  return (sheetIndex: number): number => {
+    if (sheetIndex < 0) return -1
+    for (let i = sheetIndex; i >= 0; i--) {
+      const phraseIndex = owner.get(i)
+      if (phraseIndex !== undefined) return phraseIndex
+    }
+    return -1
+  }
+}
+
+/** The inverse: a phrase row → the last sheet row it was built from, which is
+ * where its note goes back to when the pasted rows return. */
+function phraseToSheetIndex(phrases: SungPhrase[]) {
+  return (phraseIndex: number): number => {
+    if (phraseIndex < 0) return -1
+    let last = -1
+    for (let i = 0; i <= phraseIndex && i < phrases.length; i++) {
+      for (const sourceIndex of phrases[i].sourceLineIndices) last = Math.max(last, sourceIndex)
+    }
+    return last
+  }
+}
+
 /** Switch the rendered rows to the sung phrases, snapshotting the pasted sheet so
  * it can be restored. Idempotent: re-applying keeps the original snapshot. */
 export function applySungLayout(lyrics: LyricsData): LyricsData {
   if (!lyrics.phrases?.length) return lyrics
+  // Already sung: `lines` ARE the phrases, so the anchors are already in phrase
+  // space and remapping them again would walk them off the end.
+  const switching = lyrics.phraseLayout !== 'sung'
   return {
     ...lyrics,
     sheetLinesSnapshot:
       lyrics.phraseLayout === 'sung' ? lyrics.sheetLinesSnapshot : lyrics.lines,
     lines: phrasesToTimedLines(lyrics.phrases),
     phraseLayout: 'sung',
+    ...(switching
+      ? { unplacedTranslations: remapUnplaced(lyrics.unplacedTranslations, sheetToPhraseIndex(lyrics.phrases)) }
+      : {}),
   }
 }
 
-/** Restore the pasted sheet rows captured by {@link applySungLayout}. */
+/** Restore the pasted sheet rows captured by {@link applySungLayout}, carrying the
+ * unplaced-line anchors back into sheet-row space. */
 export function revertToSheetLayout(lyrics: LyricsData): LyricsData {
   if (!lyrics.sheetLinesSnapshot) return lyrics
+  const switching = lyrics.phraseLayout === 'sung'
   return {
     ...lyrics,
     lines: lyrics.sheetLinesSnapshot,
     phraseLayout: 'sheet',
     sheetLinesSnapshot: undefined,
+    ...(switching && lyrics.phrases?.length
+      ? { unplacedTranslations: remapUnplaced(lyrics.unplacedTranslations, phraseToSheetIndex(lyrics.phrases)) }
+      : {}),
   }
 }

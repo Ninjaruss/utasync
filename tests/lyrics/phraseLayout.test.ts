@@ -106,3 +106,63 @@ describe('applySungLayout / revertToSheetLayout', () => {
     expect(applySungLayout(base)).toBe(base)
   })
 })
+
+// `afterLineIndex` indexes the rows currently on screen, so regrouping rows has
+// to carry it: a merge makes the space shorter, and an anchor left verbatim
+// either pointed at a different lyric or past the end — where the "N lines
+// weren't placed" note (and the repair entry point inside it) simply disappeared.
+describe('unplaced-translation anchors across the phrasing switch', () => {
+  // 3 sheet rows merged into 2 phrases: [0,1] and [2].
+  const sheet = [line('岩は転がって', 1, 4), line('', 4, 5), line('明日へ', 5, 7)]
+  const phrases = [
+    phrase('岩は転がって', [0, 1], 1, 5),
+    phrase('明日へ', [2], 5, 7),
+  ]
+  const withUnplaced = (afterLineIndex: number) =>
+    lyrics({
+      lines: sheet,
+      phrases,
+      unplacedTranslations: [{ text: 'and falls', afterLineIndex }],
+    })
+
+  it('re-points an anchor at the row that now holds its text', () => {
+    // Anchor 1 was "after sheet row 1", which the merge folded into phrase 0.
+    const applied = applySungLayout(withUnplaced(1))
+    expect(applied.unplacedTranslations).toEqual([{ text: 'and falls', afterLineIndex: 0 }])
+    // …and that row exists, so the note renders instead of being dropped.
+    expect(applied.unplacedTranslations![0].afterLineIndex).toBeLessThan(applied.lines.length)
+  })
+
+  it('follows the text rather than the number when a merge shortens the space', () => {
+    // The old bug in one line: anchor 2 (the last sheet row) survived verbatim
+    // and landed past the end of a 2-row phrase space.
+    expect(applySungLayout(withUnplaced(2)).unplacedTranslations).toEqual([
+      { text: 'and falls', afterLineIndex: 1 },
+    ])
+  })
+
+  it('keeps a leading anchor before the first row', () => {
+    expect(applySungLayout(withUnplaced(-1)).unplacedTranslations).toEqual([
+      { text: 'and falls', afterLineIndex: -1 },
+    ])
+  })
+
+  it('maps the anchor back into sheet-row space on revert', () => {
+    const roundTrip = revertToSheetLayout(applySungLayout(withUnplaced(2)))
+    expect(roundTrip.phraseLayout).toBe('sheet')
+    expect(roundTrip.lines).toEqual(sheet)
+    expect(roundTrip.unplacedTranslations).toEqual([{ text: 'and falls', afterLineIndex: 2 }])
+  })
+
+  it('does not remap anchors a second time when applied while already sung', () => {
+    const once = applySungLayout(withUnplaced(2))
+    const twice = applySungLayout(once)
+    expect(twice.unplacedTranslations).toEqual([{ text: 'and falls', afterLineIndex: 1 }])
+    expect(twice.sheetLinesSnapshot).toEqual(sheet)
+  })
+
+  it('leaves the anchors alone when a song has none', () => {
+    const applied = applySungLayout(lyrics({ lines: sheet, phrases }))
+    expect(applied.unplacedTranslations).toBeUndefined()
+  })
+})

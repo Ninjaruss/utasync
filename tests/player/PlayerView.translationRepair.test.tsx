@@ -60,12 +60,37 @@ describe('PlayerView translation repair', () => {
     // original than the neighbor's own translation 'worse fit', so it ranks first.
     expect(options[0]).toHaveTextContent('better fit')
     expect(screen.getByText(/unplaced/i)).toBeInTheDocument()
+    // A candidate that came from another row says which row: choosing it copies
+    // that sentence onto this row, leaving the original looking unchanged.
+    expect(screen.getByRole('button', { name: /^worse fit/i })).toHaveTextContent('from line 1')
 
     fireEvent.click(screen.getByRole('button', { name: /^better fit/i }))
 
     await waitFor(async () => {
       const stored = await db.songs.get('song1')
       expect(stored?.lyrics.lines[1].translation).toBe('better fit')
+      // Promoting the unplaced line RESOLVES it. Leaving it in the list showed
+      // the same sentence twice — once as the row's translation, once under
+      // "1 line weren't placed" — and kept offering it as a candidate, so the
+      // count never went down. Edit mode's AlignmentEditor already cleared a
+      // resolved orphan; this path did not.
+      expect(stored?.lyrics.unplacedTranslations).toEqual([])
+    })
+  })
+
+  // The other direction: a pick that came from a row must NOT consume an unplaced
+  // entry — that list is about pasted lines the fitter could not place.
+  it('leaves the unplaced list alone when the pick came from another row', async () => {
+    render(<PlayerView songId="song1" onBack={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('flagged original')).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: /translation missing for line 2/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^worse fit/i }))
+
+    await waitFor(async () => {
+      const stored = await db.songs.get('song1')
+      expect(stored?.lyrics.lines[1].translation).toBe('worse fit')
+      expect(stored?.lyrics.unplacedTranslations).toEqual([{ text: 'better fit', afterLineIndex: 0 }])
     })
   })
 })

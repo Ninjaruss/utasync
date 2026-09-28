@@ -11,12 +11,18 @@ export interface RepairCandidate {
   /** 'nearby' = another row's current translation; 'unplaced' = a pasted line
    * the fitter could not place anywhere. */
   source: 'nearby' | 'unplaced'
+  /** For 'nearby', the row this text currently belongs to. The list is a set of
+   * bare strings without it, so a candidate picked from a neighbouring row could
+   * not be labelled as that row's — and picking one copies the sentence into
+   * this row, leaving the original looking unchanged. Naming the source row is
+   * what makes that visible instead of silent. */
+  sourceLineIndex?: number
 }
 
 interface Props {
   lineIndex: number
   candidates: RepairCandidate[]
-  onChoose: (text: string) => void
+  onChoose: (text: string, source: RepairCandidate['source']) => void
   onClose: () => void
   /** The row this popover is anchored to, for viewport-fixed positioning. */
   anchorRef?: RefObject<HTMLElement | null>
@@ -74,15 +80,22 @@ export function TranslationRepairPopover({ lineIndex, candidates, onChoose, onCl
             <li key={`${c.source}-${i}-${c.text}`}>
               <button
                 type="button"
-                onClick={() => onChoose(c.text)}
+                onClick={() => onChoose(c.text, c.source)}
                 className="w-full text-left px-2.5 py-2 rounded-lg bg-cinnabar-950 border border-cinnabar-800 text-sm text-white/85 hover:border-cinnabar-accent/50 transition-colors touch-manipulation"
               >
                 <span className="text-pretty">{c.text}</span>
-                {c.source === 'unplaced' && (
+                {c.source === 'unplaced' ? (
                   <span className="ml-2 inline-block align-middle px-1.5 py-0.5 rounded-full bg-cinnabar-800 text-[10px] text-white/60">
                     unplaced
                   </span>
-                )}
+                ) : c.sourceLineIndex !== undefined ? (
+                  /* Says where this text is coming from: choosing it puts the
+                     same sentence on two rows, and only the label makes that
+                     legible before the fact. */
+                  <span className="ml-2 inline-block align-middle text-[10px] text-white/50">
+                    from line {c.sourceLineIndex + 1}
+                  </span>
+                ) : null}
               </button>
             </li>
           ))}

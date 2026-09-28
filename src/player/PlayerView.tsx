@@ -65,6 +65,7 @@ import { reconcileLinesReadingsAsync, reconcileLineReadingsAsync } from '../ai-p
 import { fixAdjacentTranslationOrder } from '../ai-pipeline/translationOrder'
 import { LoadingOverlay } from '../core/ui/LoadingOverlay'
 import { linePlaybackStart } from '../lyrics/lineTiming'
+import { hasClozeBlanks } from '../cloze/ClozeEngine'
 import { abPairError, abLoopPatchFromLineTap, isValidABPair } from './abLoopUtils'
 import { exportAbLoopClip, exportAbLoopPlaylistClip, abLoopHasTimedLyrics, abLoopPlaylistHasTimedLyrics, getValidPlaylistExportSegments, lyricHintForAbLoop } from './abLoopExport'
 import { createPlaylistEntry, shouldAdvancePlaylistAfterCycle, wrapPlaylistIndex } from './abLoopPlaylist'
@@ -1326,21 +1327,48 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         text,
         score: cosineSimilarity(originalVec, vecs[i + 1]),
         source: sourceFor(i),
+        // Which row this text currently belongs to, so the picker can say so:
+        // choosing it copies the sentence onto this row, and without the label
+        // there is no way to tell which row it came from.
+        ...(i < nearbyTexts.length ? { sourceLineIndex: nearbyIndices[i] } : {}),
       }))
     } catch {
       // Embedder unavailable (manual tier, worker load failure) — still offer
       // the candidates, unranked, rather than nothing.
-      return candidateTexts.map((text, i) => ({ text, score: 0, source: sourceFor(i) }))
+      return candidateTexts.map((text, i) => ({
+        text,
+        score: 0,
+        source: sourceFor(i),
+        ...(i < nearbyTexts.length ? { sourceLineIndex: nearbyIndices[i] } : {}),
+      }))
     }
   }
 
   /** Commit a chosen replacement translation for one row (Task 11 repair),
    * through the same persistence path as any other hand edit. */
-  const handleChooseRepair = (lineIndex: number, text: string) => {
+  const handleChooseRepair = (lineIndex: number, text: string, source: 'nearby' | 'unplaced') => {
     if (!song) return
     const next = song.lyrics.lines.map((l, i) =>
       (i === lineIndex ? applyLineTextPatch(l, { translation: text }) : l),
     )
+    // Promoting an unplaced pasted line RESOLVES it: it is now a row's
+    // translation, so it must leave the unplaced list. Leaving it there showed
+    // the same sentence twice — once as the row, once under "1 line weren't
+    // placed" — and kept offering it as a candidate, so the count never went
+    // down. Edit mode's AlignmentEditor already resolves orphans this way
+    // (EditMode recomputes from what it placed); this path did not.
+    // Remove ONE occurrence, not every match: duplicate pasted lines are real,
+    // and only the one the user picked has been placed. A 'nearby' pick changes
+    // nothing here — that text came from a row, not from this list.
+    const unplaced = song.lyrics.unplacedTranslations ?? []
+    let removedOne = false
+    const remainingUnplaced = source === 'unplaced'
+      ? unplaced.filter((u) => {
+        if (removedOne || u.text !== text) return true
+        removedOne = true
+        return false
+      })
+      : unplaced
     // Record that the user hand-fixed this pairing (IMPORTANT 3): stamp
     // `translationPairing.userEdited` so a later automatic re-fit
     // (refitStaleTranslation) skips instead of silently re-deriving from the
@@ -1348,7 +1376,7 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
     // fields are carried through unchanged — this call isn't a fresh fit.
     void handleEditLines(next, {
       source: song.lyrics.translationSource ?? '',
-      unplaced: song.lyrics.unplacedTranslations ?? [],
+      unplaced: remainingUnplaced,
       pairing: {
         ...(song.lyrics.translationPairing ?? {
           method: 'index',
@@ -1828,6 +1856,12 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
             phrasingBusy={phrasingBusy}
             clozeMode={clozeMode}
             clozeDifficulty={clozeDifficulty}
+            // The drill blanks tokens, so with no word data on this song the
+            // toggle can only lie: enabled, checked, and visibly doing nothing.
+            // Tokenization is background work that can fail or be skipped (the
+            // enrichment effect is gated on word alignment being available), so
+            // this is a normal state, not an error.
+            clozeAvailable={lines.some((l) => hasClozeBlanks(l.tokens, clozeDifficulty))}
             onToggleCloze={() => setClozeMode(!clozeMode)}
             onClozeDifficulty={setClozeDifficulty}
             onFuriganaCycle={cycleFurigana}
