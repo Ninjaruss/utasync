@@ -106,6 +106,16 @@ describe('DisplayMenu', () => {
     expect(screen.getByText(/blanks out content words/i)).toBeTruthy()
   })
 
+  // Verified live in Firefox: with nothing playing, NO row is active (the active
+  // row renders at text-xl, both rows were 16px), so switching the drill on showed
+  // no blanks and no Reveal button with nothing explaining why. The hint now says
+  // the dependency out loud.
+  it('says the drill follows playback, so a paused player does not look broken', () => {
+    render(<DisplayMenu {...baseProps} clozeAvailable onToggleCloze={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /lyrics display options/i }))
+    expect(screen.getByText(/press play first/i)).toBeTruthy()
+  })
+
   // The reading cycle is the one control whose entire visible label on a phone is
   // the current mode's name, so the hint naming the other two states was missing
   // exactly where it was most needed.

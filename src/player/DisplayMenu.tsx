@@ -226,8 +226,8 @@ function DisplayMenuPanel({
             )}
             <p className="text-[10px] text-white/60 px-1 text-pretty leading-snug">
               {clozeAvailable
-                ? 'Blanks out content words on the line being sung. Reveal when you want the answer.'
-                : 'The drill needs word data for this song, which is not available yet. It arrives with readings and word colours once the lyrics have been analysed. The drill also does nothing before the first line starts \u2014 blanks begin with the singing.'}
+                ? 'Blanks out content words on the line being sung. Press play first \u2014 a paused player has no line being sung yet, so the drill stays blank-less until it starts. Reveal when you want the answer.'
+                : 'The drill needs word data for this song, which is not available yet. It arrives with readings and word colours once the lyrics have been analysed.'}
             </p>
           </div>
         </section>
