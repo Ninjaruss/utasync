@@ -3,6 +3,7 @@ import 'fake-indexeddb/auto'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { db } from '../../src/core/db/schema'
 import { PlayerView } from '../../src/player/PlayerView'
+import { useLyricsStore } from '../../src/lyrics/LyricsStore'
 
 // Task 11 Step 5/6: repair candidates are scored against nearby rows'
 // translations plus unplaced lines via the cached embedder, and choosing one
@@ -31,6 +32,12 @@ vi.mock('../../src/ai-pipeline/textEmbedder', () => ({
 }))
 
 beforeEach(async () => {
+  /* The lyrics store is a module-level singleton that outlives every mount, so a
+   * spec's `getByText('flagged original')` could be satisfied by the PREVIOUS
+   * spec's rows while this one's song is still loading — the same trap
+   * tests/player/PlayerView.staleLoad.test.tsx documents. Clearing it is what
+   * makes the assertion below about THIS song. */
+  useLyricsStore.setState({ lines: [], activeLine: -1, clozeMode: false })
   await db.songs.clear()
   await db.songs.put({
     id: 'song1', title: 'T', artist: 'A',
@@ -51,6 +58,9 @@ beforeEach(async () => {
 describe('PlayerView translation repair', () => {
   it('offers nearby and unplaced candidates ranked best-first, and persists the chosen one', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
+    // The header renders the title only once this song's load settled, so waiting
+    // for both means the row under test cannot belong to another spec's song.
+    await waitFor(() => expect(screen.getByText('T')).toBeTruthy())
     await waitFor(() => expect(screen.getByText('flagged original')).toBeTruthy())
 
     fireEvent.click(screen.getByRole('button', { name: /translation missing for line 2/i }))
@@ -82,6 +92,9 @@ describe('PlayerView translation repair', () => {
   // entry — that list is about pasted lines the fitter could not place.
   it('leaves the unplaced list alone when the pick came from another row', async () => {
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
+    // The header renders the title only once this song's load settled, so waiting
+    // for both means the row under test cannot belong to another spec's song.
+    await waitFor(() => expect(screen.getByText('T')).toBeTruthy())
     await waitFor(() => expect(screen.getByText('flagged original')).toBeTruthy())
 
     fireEvent.click(screen.getByRole('button', { name: /translation missing for line 2/i }))

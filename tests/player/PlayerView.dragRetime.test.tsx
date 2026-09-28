@@ -56,7 +56,18 @@ const song = () => ({
 
 beforeEach(async () => {
   engineCalls.seeks = []; engineCalls.plays = 0; engineCalls.pauses = 0
-  usePlayerStore.setState({ duration: 0, position: 0, currentSongId: null, abLoop: { a: null, b: null } })
+  /* playbackState belongs in the reset. The player store is a module-level
+   * singleton that outlives every mount, and the re-timing loop STARTS playback —
+   * so a spec that scrubs can leave the store 'playing' for the next one. That
+   * decides whether the next spec's onScrubStart calls engine.play() at all
+   * (PlayerView.tsx:971-977 only plays when the song is not already playing),
+   * which is exactly what "starts playback, because dragging a paused song was
+   * silent" asserts. Left leaking, the assertion passed or failed depending on
+   * whether the previous spec's pending teardown had landed yet: green in
+   * isolation, red under full-suite load. Each spec establishes its own premise. */
+  usePlayerStore.setState({
+    duration: 0, position: 0, currentSongId: null, abLoop: { a: null, b: null }, playbackState: 'paused',
+  })
   await db.songs.clear()
   await db.songs.put(song() as never)
 })
