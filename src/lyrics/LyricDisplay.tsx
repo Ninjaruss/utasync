@@ -586,9 +586,16 @@ export function LyricDisplay({
     revealedRow.original === line.original &&
     revealedRow.startTime === line.startTime
   // Switching the drill off and on again is a fresh attempt, not the "moved on
-  // to the next line" case the index is designed to handle — without this the
-  // row came back already revealed, with the answer on screen.
-  useEffect(() => { setRevealedRow(null) }, [clozeMode])
+  // to the next line" case the row identity is designed to handle — without this
+  // the row came back already revealed, with the answer on screen. Adjusted
+  // during render rather than in an effect: this is React's documented pattern
+  // for resetting state when a value changes (and an effect here would be a
+  // cascading render for no reason).
+  const [drillIsOn, setDrillIsOn] = useState(clozeMode)
+  if (drillIsOn !== clozeMode) {
+    setDrillIsOn(clozeMode)
+    setRevealedRow(null)
+  }
   const tapLookupEnabled = useSettingsStore((s) => s.tapLookupEnabled)
   const [wordTap, setWordTap] = useState<WordTap | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)

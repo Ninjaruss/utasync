@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { db } from '../core/db/schema'
 import { deleteSong as removeSong } from '../core/db/deleteSong'
 import { useToast } from '../core/ui/Toast'
@@ -26,6 +26,14 @@ const buildTimeLabel = formatAppBuildTime(buildTime)
 /** A song with no timing exports an LRC stamped [00:00.00] on every line — a
  * file that looks valid and is useless, so the action is offered only when
  * there is timing to export. */
+/** Song ids exactly as the database knows them right now. Read late, never from
+ *  a mount-time snapshot: an upload writes its OPFS audio file before its row,
+ *  so an id that has no row *yet* looks identical to an orphan, and deleting on a
+ *  stale id set would destroy an upload in flight. */
+async function currentSongIds(): Promise<string[]> {
+  return (await db.songs.toArray()).map((s) => s.id)
+}
+
 function songHasTiming(song: Song): boolean {
   return song.lyrics.lines.some((l) => l.startTime > 0 || l.endTime > 0)
 }
@@ -116,36 +124,29 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
    *  escape from the delete handler and be reported as "Could not delete song"
    *  — for a song that had in fact been deleted. It must never reject, and it
    *  must never be able to fail a caller's action. */
-  const refreshStorage = async () => {
+  const refreshStorage = useCallback(async () => {
     try {
       setStorage(await estimateStorageBreakdown())
     } catch {
       // Keep the last known figures rather than blanking the card.
     }
-  }
+  }, [])
 
-  /** Song ids exactly as the database knows them right now. Read late, never
-   *  from a mount-time snapshot: an upload writes its OPFS audio file before
-   *  its row, so an id that has no row *yet* looks identical to an orphan and
-   *  deleting on a stale id set would destroy an upload in flight. */
-  const currentSongIds = async (): Promise<string[]> =>
-    (await db.songs.toArray()).map((s) => s.id)
-
-  const refreshOrphanCount = async () => {
+  const refreshOrphanCount = useCallback(async () => {
     try {
       setOrphanedAudio((await findOrphanedAudioIds(await currentSongIds())).length)
     } catch {
       // Keep the last known count.
     }
-  }
+  }, [])
 
   useEffect(() => {
-    db.songs.toArray().then((library) => {
-      setSongs(library)
-      void refreshStorage()
-      void refreshOrphanCount()
-    })
-  }, [])
+    void (async () => {
+      setSongs(await db.songs.toArray())
+      await refreshStorage()
+      await refreshOrphanCount()
+    })()
+  }, [refreshStorage, refreshOrphanCount])
 
   useEffect(() => {
     if (!canUseVocalSeparation(getDeviceTier())) return
