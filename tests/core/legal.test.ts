@@ -51,8 +51,8 @@ describe('static legal pages', () => {
     expect(TERMS).toContain('MIT License')
     expect(TERMS).toContain(APP_REPO_URL)
     expect(TERMS).toMatch(/free to use/i)
-    // A donation is explicitly not a purchase.
-    expect(TERMS).toMatch(/donation, not a purchase/i)
+    // The support link is explicitly not a purchase of the app.
+    expect(TERMS).toMatch(/separate publication, not a purchase/i)
   })
 
   it('no longer promises a tier, licence key, or verification endpoint that does not exist', () => {
@@ -76,7 +76,7 @@ describe('static legal pages', () => {
   // (src/sources/youtube*.ts, lrclib.ts, lyricsOvh.ts, coverArt.ts, the
   // transformers.js model downloads, and the Settings support link).
   it('names the third parties the app really contacts, and nothing it does not', () => {
-    for (const party of ['YouTube', 'LRCLIB', 'lyrics.ovh', 'iTunes Search API', 'Hugging Face', 'Patreon']) {
+    for (const party of ['YouTube', 'LRCLIB', 'lyrics.ovh', 'iTunes Search API', 'Hugging Face', 'Substack']) {
       expect(PRIVACY).toContain(party)
     }
     // The cover-art lookup sends title and artist to Apple, so a policy that

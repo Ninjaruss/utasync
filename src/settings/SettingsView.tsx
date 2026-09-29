@@ -469,7 +469,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
         <div className="space-y-1">
           <p className="text-sm font-medium">Support Utasync</p>
           <p className="text-xs text-white/70 text-pretty">
-            Utasync is free and runs entirely on your device. If it helps your studies, you can support ongoing development.
+            Utasync is free and runs entirely on your device. If it helps your studies, you can support ongoing development — the newsletter link below is separate from the app and unlocks nothing in it.
           </p>
         </div>
         <a
@@ -478,7 +478,7 @@ export function SettingsView({ onClose, embedded = false, onSongDeleted, onViewL
           rel="noopener noreferrer"
           className="w-full min-h-11 rounded-lg bg-cinnabar-accent hover:bg-cinnabar-accent/90 text-cinnabar-950 text-sm font-medium flex items-center justify-center gap-2 touch-manipulation transition-[background-color,transform] duration-150 ease-out active:scale-[0.98]"
         >
-          ♥ Support on Patreon
+          ♥ Support on Substack
         </a>
       </div>
 

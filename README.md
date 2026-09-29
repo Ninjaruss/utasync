@@ -7,7 +7,7 @@ Utasync is an offline-first PWA that turns YouTube links or your own audio files
 > **🎤 Try it now → [utasync.ninjaruss.net](https://utasync.ninjaruss.net)**  
 > The official hosted version is an installable PWA with one-click model downloads, automatic updates, and zero setup — free to use. The app shell is cached on install, so it opens with no connection; per-song assets (lyrics, readings, dictionary data, AI models) are cached the first time you use them and work offline from then on.
 
-*Utasync is built and maintained by a solo developer, and stays private, ad-free, and independent. If it helps your studies, you can [support development on Patreon](https://patreon.ninjaruss.net).*
+*Utasync is built and maintained by a solo developer, and stays private, ad-free, and independent. If it helps your studies, you can [support development on Substack](https://substack.com/@ninjaruss).*
 
 ## What you can do
 
@@ -140,7 +140,7 @@ Design specs and phase plans live under [`docs/superpowers/`](docs/superpowers/)
 
 ## Support the project
 
-Utasync is free to use. If it helps you learn a language, you can support ongoing development on **[Patreon](https://patreon.ninjaruss.net)** — it keeps the project private, ad-free, and independent.
+Utasync is free to use, and always will be — there is no paid tier. If it helps you learn a language, you can subscribe to the project's newsletter on **[Substack](https://substack.com/@ninjaruss)**, which is a separate publication and unlocks nothing in the app.
 
 ## License
 

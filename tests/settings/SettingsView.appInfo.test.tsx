@@ -4,7 +4,7 @@ import { render, screen } from '@testing-library/react'
 import { SettingsView } from '../../src/settings/SettingsView'
 import { db } from '../../src/core/db/schema'
 import { APP_REPO_URL, appBuildTime, formatAppBuildTime } from '../../src/core/appInfo'
-import { LEGAL_LAST_UPDATED } from '../../src/core/legal'
+import { LEGAL_LAST_UPDATED, SUPPORT_URL } from '../../src/core/legal'
 
 vi.mock('../../src/core/storage/quota', () => ({
   estimateStorageBreakdown: async () => ({
@@ -47,6 +47,30 @@ describe('SettingsView app information', () => {
     const rel = link.getAttribute('rel') ?? ''
     expect(rel).toContain('noopener')
     expect(rel).toContain('noreferrer')
+  })
+
+  it('links the optional support newsletter in a safe new tab', async () => {
+    render(<SettingsView onClose={() => {}} embedded />)
+    const link = await screen.findByRole('link', { name: /support on substack/i })
+    // The URL comes from the legal constant, so the link and the policy pages
+    // cannot point at different places.
+    expect(link).toHaveAttribute('href', SUPPORT_URL)
+    expect(link).toHaveAttribute('target', '_blank')
+    const rel = link.getAttribute('rel') ?? ''
+    expect(rel).toContain('noopener')
+    expect(rel).toContain('noreferrer')
+  })
+
+  // The app is free and has no paid tier; the newsletter is a separate
+  // publication. Copy that blurred the two would misdescribe the product.
+  it('describes support as separate from the app and unlocking nothing', async () => {
+    render(<SettingsView onClose={() => {}} embedded />)
+    const card = (await screen.findByText('Support Utasync')).closest('div')?.parentElement
+    expect(card?.textContent).toMatch(/free and runs entirely on your device/i)
+    expect(card?.textContent).toMatch(/unlocks nothing/i)
+    // No trace of the retired paid-tier story.
+    expect(card?.textContent).not.toMatch(/pro\b/i)
+    expect(card?.textContent).not.toMatch(/patreon/i)
   })
 
   it('keeps the legal card as its own section below the app information', async () => {
