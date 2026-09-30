@@ -1111,3 +1111,33 @@ word and disagreed on segment. It must not be reused for model selection on the 
 **What the data actually supports for this song is the configuration already shipped**: small +
 word + the automatic mode escalation. The coverage problem remains, and there is now no measured
 model-choice lever that improves it.
+
+### Round 10 — item 1 refuted; the plan re-orders
+
+I made the envelope offset screen item 1, called it "the single best lever", and justified the
+ranking on the grounds that it needs no Whisper and so would help devices with no AI at all.
+Validated on real singing before wiring, as this plan has insisted from the start, and it does
+not work: **20 of 20 planted offsets refused, 0 recovered**, because at the truth the score curve
+peaks 0.00s away on guitar-loneliness and **1.04s / 0.92s** away on veil. The statistic is
+unsound on real music; the gates were right to refuse.
+
+So it is not wired, and item 1 in its original form does not exist. This is the fourth claim of
+mine that measurement overturned, and by some distance the most expensive to have shipped: a
+screen loosened just enough to fire would have moved users' correct timings by up to a second.
+
+**The re-order that falls out of it:**
+
+1. **Prior-guided prompted windowed verification (was item 2, now primary).** It serves BOTH
+   cases: for an already-timed song it can detect a catalogue offset and fix it, and for an
+   untimed song it is the designed answer to the dominant error term (30 of 59 lines with no
+   evidence). `sliceTranscriber.transcribe(t0, t1, lang, promptText)` already exists and is
+   documented to bias Whisper toward the expected words, so a small window around a predicted
+   line position — told what to listen for — is a far cheaper question than a full-song pass.
+   It also reaches already-timed songs, which the app currently does nothing for.
+2. **Surface the calibrated verdict in the UI** (was item 3).
+3. **The quality defects** (items 4-7), unchanged.
+
+The honest note: the app's working offset estimator is `fitPriorTimeMap` against transcript
+evidence (the engine of the 8/8 result), and it costs a transcription. My cheap version was an
+attempt to avoid that cost and it failed, so "correct already-timed lyrics" is deliverable only
+through an evidence path — which is precisely what item 1 becomes.

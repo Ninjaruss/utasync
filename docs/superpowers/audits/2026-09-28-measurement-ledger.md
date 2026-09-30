@@ -287,6 +287,45 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
   are therefore specific: coverage work on the stranger/recollect configs (L13, gap
   recovery), placement work on veil.
 
+### L17 — the envelope-based offset screen does not work on real singing
+
+- **Instrument:** `scripts/offset-estimate-real.mjs` (planted offsets against real audio) and
+  the curve diagnostic that followed it.
+- **Status:** **SOURCEABLE, not reproducible from the repository** — real audio, uncommitted.
+  Recorded so nobody rebuilds this.
+- **Measured, planted offsets on real sung audio:** **20 of 20 recoverable cases REFUSED, 0
+  recovered.** No wrong answers and no false alarms on the 5 already-correct cases — safe, and
+  useless.
+- **WHY, and it is the statistic rather than my gates.** At the TRUE alignment, the score curve
+  should peak at shift 0. Measured:
+
+  | statistic at true alignment | peak | value at 0 | ratio |
+  |---|---|---|---|
+  | guitar mix, onset w=0.5 | **0.00 s** ✓ | 0.0229 | 1.00 |
+  | guitar mix, onset w=0.25 | 0.06 s | 0.0278 | 0.74 |
+  | veil mix, activity w=0.25 | **1.04 s** ✗ | 0.0221 | 0.48 |
+  | veil mix, onset w=0.15 | **0.92 s** ✗ | −0.0016 | −0.06 |
+
+  The premise — "a line start is where vocal energy rises" — holds on guitar-loneliness and
+  fails on veil, and the score magnitudes on real singing are 0.02–0.17 against 0.65–0.87 on the
+  synthetic Tier A carriers. So Tier A validated the *plumbing* (envelope, windows, search,
+  refusal logic) and could not have validated the *statistic*; that is exactly what Tier A's
+  header says it cannot do, and the first real-audio test confirmed it.
+- **REFUTATION.** I proposed this as "the single best lever" and the item that would reach the
+  C1 target of a <=100ms systematic offset, and I argued it was uniquely valuable because it
+  needs no Whisper and therefore works on the Manual tier. On real singing it does not work at
+  all. It is **not wired**, and it must not be: a no-op would be harmless (`shouldEscalate`
+  style refusal) but pointless, and any loosening of its gates to make it fire would move
+  correct timings on the strength of a statistic that peaks a second away from the truth.
+- **THE FRAMING THIS LEAVES.** The app already HAS a working offset estimator: `fitPriorTimeMap`
+  (lyrics/lrcPrior.ts), which fits an affine map against **matched transcript evidence** and is
+  the engine behind the 8/8 prior-reconciliation result (L12). My envelope version was an
+  attempt to get the same answer without paying for a transcription. That attempt failed. So
+  correcting already-timed lyrics is deliverable **only** via the evidence-based path, and its
+  cost is one transcription — which reframes plan item 1 and promotes prior-guided windowed
+  verification (item 2) to the primary lever, since that path can both DETECT an offset and fix
+  it at a fraction of a full transcription.
+
 ### L16 — whisper-medium is NOT uniformly better, and L13 was too narrow
 
 - **Instrument:** `scripts/align-ablation.mjs --axis=model`.
@@ -391,6 +430,7 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
 | date | entry | what happened |
 |---|---|---|
 | 2026-09-28 | L3 | The plan's first draft asserted the shipped word mode was catastrophic on the committed evidence. Measurement refuted it: on the mix fixtures word two-pass is the *best* of three (absP90 4.13 vs 6.50 vs 8.36). The stem measurement still stands. Corrected in the plan's §0 and recorded here. |
+| 2026-09-28 | offset screen | I called the envelope-based offset screen "the single best lever" and the one thing that would reach C1, explicitly because it needs no Whisper. Measured on real singing: 20/20 refusals, 0 recoveries, because the underlying statistic peaks ~1s from the truth on one of two songs. Not wired. The working equivalent already existed and costs a transcription (L12/L17). |
 | 2026-09-28 | L13 / promotion | I proposed promoting whisper-medium as the biggest user-visible lever, on the strength of L13's coverage finding. Measured first, as the plan requires: medium is *worse* on the shipped word-mode default (absP90 4.13 -> 12.35) and the truth-free verdict picks the wrong model on one of two pairs. Promotion not wired; L13 corrected to its narrow true form (L16). |
 | 2026-09-28 | L12 | The plan's D3 assumed the replacement for `alignmentPolicy.ts:42` was a cheap *screen* (L10). Measurement showed the bigger prize is prior *reconciliation* (L12): 8/8 pairs improved, mean absP90 5.47 → 1.44. The screen is still what makes auto-application safe, but the ordering of W1.2's layers changed — Layer 3 is the highest-value part, and its machinery was already wired and unreachable. |
 | 2026-09-28 | L11 | The plan's Phase-2 centrepiece (W1.1.1, transcript ramp repair) was designed around the "+24 s decaying to +2 s" ramp. Measuring it for the first time against committed fixtures found no meaningful drift anywhere. W1.1.1 is therefore blocked on real audio rather than queued, and the drift instrument became a deliverable instead of the repair. |
