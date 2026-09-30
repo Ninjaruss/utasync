@@ -1625,7 +1625,13 @@ disagreeing with the store.
 | run | scored | matched | DOM-vs-store | backward-jump violations | page errors |
 |---|---|---|---|---|---|
 | guitar, full song (229 s) at 1x | 524 | **524** | 0 | 0 | 0 |
+| akfg, first 250 s of a 393 s song | 394 | **394** | 0 | 0 | 0 |
 | guitar, backward seeks (phase B) | 7 | **7** | 0 | — | 0 |
+| akfg, backward seeks (phase B) | 10 | **10** | 0 | — | 0 |
+
+Two songs, not one, because the fixtures differ in span structure (guitar timed by text-matching
+`syncedLyrics`, akfg by `onsets` with six shared) and akfg walks **17 distinct rows** against
+guitar's 7. Across both, **918 of 918 scored samples highlighted the sounding line.**
 
 **Run 3's stuck highlight is refuted as an app defect** (L27). It appeared only after a *backward
 poke* of the stores (201.2 s → 91.4 s) with no playback running; real playback across a whole song

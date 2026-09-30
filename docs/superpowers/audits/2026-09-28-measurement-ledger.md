@@ -528,7 +528,8 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
   writing `setPosition`/`syncPosition` directly, plus `?untimed=1` for the no-timing state.
   Driven by Playwright headless Chromium (`/tmp/pwcheck/sync-check.mjs`, `--autoplay-policy=no-user-gesture-required`)
   against `npx vite --port 5199`. Reports to `/__e2e-status` → `node_modules/.e2e-status.log`.
-  Reproduce: `node sync-check.mjs guitar 232` (wall-clock ≈ 4 min: 232 s of audio at 1x).
+  Reproduce: `node sync-check.mjs guitar 232` and `node sync-check.mjs akfg 250` (wall-clock ≈ the
+  seconds argument, since playback is 1x).
 - **Status:** **SOURCED, reproducible, and now conclusive.**
 - **Method.** Real playback at 1x. Every 200 ms: read the playhead, the store's `activeLine`, and
   the index of the row carrying the glow (`data-line-index`, added to the row for this check). The
@@ -538,8 +539,15 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
 
 | run | mode | scored | matched | store-vs-DOM | backward jumps | page errors |
 |---|---|---|---|---|---|---|
-| guitar full song | timed | 524 | **524 (100%)** | 0 | 0 | 0 |
+| guitar (229 s), full song | timed | 524 | **524 (100%)** | 0 | 0 | 0 |
+| akfg (393 s), first 250 s | timed | 394 | **394 (100%)** | 0 | 0 | 0 |
 | guitar, 30 s | untimed | 86 | 86 | 0 | — | 0 |
+
+Two songs rather than one, deliberately: guitar is timed from `syncedLyrics` text-matching and
+akfg from `onsets` (six of them shared), so the two fixtures differ in span structure — and akfg
+visits **17 distinct rows** against guitar's 7. Across both, **918 of 918 scored samples highlighted
+the sounding line**. `storeActiveSeen` contains `-1` on both, i.e. the untimed gaps now claim
+nothing rather than an arbitrary row.
 
 - **L26's run 3 is REFUTED as an app defect.** The "highlight stuck on line 15" appeared whenever
   the check poked the playhead BACKWARD (201.2 s → 91.4 s) with no playback running; every
@@ -569,7 +577,9 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
   removed and pass with it; the fifth (start present, end missing → next-start fallback) passes in
   both states by design, because it guards against over-fixing.
 - **Serves:** item 7 (the mandatory browser sync check) — now a verdict rather than an open
-  question, and C1–C4's *render-side* half. The offsets C1 measures remain untested by ear (L9).
+  question, and C1–C4's *render-side* half. The offsets C1 measures remain untested by ear (L9),
+  and the verdict covers two songs, not the whole corpus: it is evidence about the render layer,
+  which is song-independent, rather than about any one song's timing.
 
 ### L26 — the sync check now RUNS in a real browser; its first results are not yet interpretable
 
