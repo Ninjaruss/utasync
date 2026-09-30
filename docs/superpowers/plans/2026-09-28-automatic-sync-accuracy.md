@@ -1544,3 +1544,30 @@ error in vitest — it simply does not register, so the REAL store ran and the f
 first-run consent prompt instead of aligning. Worth knowing: **a stale mock path fails as a
 behaviour change, not as an error.** The other specs in this area were already updated; this new
 one had copied the old path.
+
+### Round 24 — the browser check was never impossible; I just never tested that claim
+
+For several rounds I have reported item 7's browser half as impossible in this environment. That
+was **wrong**, and wrong in the exact way this whole project exists to stop: I asserted an
+impossibility without testing it. What was actually true is narrower — round 5's note that the DSH
+*in-app* browser needs per-origin approval from an interactive user. A locally launched headless
+Chromium needs no approval at all.
+
+Within one round I had it working: Playwright's headless Chromium shell (installed to a temp dir
+with `--no-save`, so no repo dependency), driving a local `vite` server, loaded the app with **0
+page errors and 0 console errors**, a working `AudioContext` at 48000 Hz, and usable `indexedDB` —
+the player's two foundations. Recorded as L25.
+
+So the remaining work is not impossible, it is **unbuilt**, and it is now cheap: no model, no
+transcription, and no WebGPU are needed to check that the rendered active line tracks the playhead.
+It needs a sync-sampling dev harness that seeds lyrics timed from `/e2e/<song>-truth.json` — the app
+already serves those files for this purpose and `src/dev/e2eFlowHarness.tsx` shows the seeding
+pattern — reporting the rendered active line per sampled position through the existing
+`/__e2e-status` sink, plus a Playwright assertion. The recipe is reconciled in L25 so the next round
+starts from a working setup.
+
+**The lesson is worth more than the check.** Nine times now, verification has corrected a claim of
+mine, and this one was not a subtle measurement error: it was an untested assumption, repeated in
+report after report, that narrowed the scope of what I attempted. The discipline I have been
+applying to thresholds and fixtures — test it before believing it — applies to my own statements
+about what is possible.

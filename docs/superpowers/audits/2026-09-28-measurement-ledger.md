@@ -521,6 +521,32 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
   under a whole-alignment one). The prompt shape drives the behaviour, so results from one shape do
   not transfer to the other — a caveat that applies to any future evaluation of either.
 
+### L25 — a real browser IS available here, and the app boots clean in it **(corrects my own claim)**
+
+- **Instrument:** Playwright 1.49.1 (`chromium_headless_shell`) installed to a temp dir with
+  `--no-save`, driving a local `vite` server. No repo dependency added; browsers cached under
+  `~/Library/Caches/ms-playwright`.
+- **Status:** **SOURCED and reproducible** on this machine.
+- **I had claimed for several rounds that item 7's browser check "cannot run here".** That was
+  wrong, and it was wrong in the specific way this ledger exists to catch: I asserted an
+  impossibility without testing it. What was true is narrower — the DSH *in-app* browser needs
+  per-origin approval from an interactive user (which is what round 5 recorded). A locally
+  launched headless Chromium needs no such approval.
+- **Measured:** the app loads at `http://localhost:5199/` with **0 page errors and 0 console
+  errors**, `#root` present, and:
+  - `AudioContext` constructs and runs: `sampleRate=48000, state=running`
+  - `indexedDB` usable
+  Both are the player's foundations, so a real sync check in a real engine is not merely possible
+  but cheap: no model, no transcription, no WebGPU is required to verify that the rendered active
+  line tracks the playhead.
+- **What remains for item 7 is therefore NOT "impossible" but "not yet built":** a sync-sampling
+  dev harness that seeds lyrics timed from `/e2e/<song>-truth.json` (the app already serves those
+  files for exactly this purpose, and `src/dev/e2eFlowHarness.tsx` shows the seeding pattern) and
+  reports the rendered active line per sampled playhead position through the existing
+  `/__e2e-status` sink, plus a Playwright assertion against it. Reconciled recipe:
+  `npx vite --port 5199 --strictPort`, then Playwright from a temp install, driving
+  `/?e2e=<song>&…`. Recorded so the next round starts from a working setup instead of a claim.
+
 ### L20 — the truth-free verdict cannot drive a SONG-level alert (item 3 refuted, half-redirected)
 
 - **Instrument:** `scripts/align-trust-calibration.mjs` (the ALERT THRESHOLD section).
