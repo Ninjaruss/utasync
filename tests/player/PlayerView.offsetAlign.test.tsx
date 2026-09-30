@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import 'fake-indexeddb/auto'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { db } from '../../src/core/db/schema'
 import { PlayerView } from '../../src/player/PlayerView'
 import { ALIGNMENT_PIPELINE_VERSION } from '../../src/lyrics/phraseAlignment'
 import { usePlayerStore } from '../../src/player/PlayerStore'
+import { useLyricsStore } from '../../src/lyrics/LyricsStore'
 import { ToastProvider } from '../../src/core/ui/Toast'
 
 vi.mock('../../src/core/opfs/audio', () => ({ getAudioFile: vi.fn(async () => new File([], 's.mp3')) }))
@@ -249,6 +250,62 @@ describe('approximate-timings banner leads with the automatic fix (item 6)', () 
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText(/Some line timings are approximate/)).toBeTruthy())
     expect(screen.queryByTestId('realign-approximate')).toBeNull()
+  })
+})
+
+/**
+ * The wiring, end to end: a line the LABELS vouch for must still become a drag target when the
+ * truth-free verdict says the transcript cannot corroborate it (item 3, ledger L20/L14).
+ *
+ * This is the gap flagged when the widening shipped: `selectAnchorTargets` was unit-tested and
+ * the `PlayerView` wiring was only type-checked, so nothing proved the two were actually
+ * connected. The control below is what makes the assertion mean something: strip the stored
+ * transcript and the verdict has nothing to say, so the strip must NOT appear — proving the
+ * target comes from the verdict's admission rather than from the labels.
+ */
+async function putVerdictOnlySong(withTranscript: boolean) {
+  await db.songs.put({
+    id: 'song1', title: 'T', artist: 'A',
+    audioStoredPath: 'songs/song1.mp3',
+    sources: [{ provider: 'upload', ref: 'song1', hasAudio: true }],
+    lyrics: {
+      lines: [
+        { startTime: 0, endTime: 2, original: 'alpha', translation: '' },
+        { startTime: 10, endTime: 12, original: 'bravo', translation: '' },
+      ],
+      sourceLanguage: 'ja', translationLanguage: 'en', alignmentMode: 'auto',
+      alignmentPipelineVersion: ALIGNMENT_PIPELINE_VERSION,
+      // EVERY line is labelled good: the old filter (`tier < 2`) admitted none of them, so no
+      // target could ever exist and the strip never appeared.
+      lineAlignmentQuality: ['good', 'good'],
+      ...(withTranscript
+        // A transcript that corroborates NEITHER line: the verdict must flag both.
+        ? { transcriptWords: [{ word: 'zulu', startTime: 100, endTime: 101 }] }
+        : {}),
+    },
+    syncState: 'synced', createdAt: new Date(),
+  } as never)
+}
+
+describe('the verdict widens the drag strip (wiring, not just the selector)', () => {
+  it('offers a target for a line the labels call good but the transcript cannot corroborate', async () => {
+    await putVerdictOnlySong(true)
+    render(<PlayerView songId="song1" onBack={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('alpha')).toBeTruthy())
+    // The play-mode strip keys on the ACTIVE line (`selectActiveAnchorTarget`), which comes
+    // from playback, so the song has to actually be playing on line 0 for a target to be
+    // offered — the same precondition the real app has.
+    act(() => useLyricsStore.setState({ activeLine: 0 }))
+    act(() => usePlayerStore.setState({ playbackState: 'playing', position: 0.5, duration: 240 }))
+    expect(await screen.findByTestId('drag-strip')).toBeTruthy()
+  })
+
+  it('CONTROL: with no stored transcript the verdict has nothing to say and no strip appears', async () => {
+    await putVerdictOnlySong(false)
+    render(<PlayerView songId="song1" onBack={vi.fn()} />)
+    // Let the player settle so a strip would have had a chance to render.
+    await waitFor(() => expect(screen.getByText('alpha')).toBeTruthy())
+    expect(screen.queryByTestId('drag-strip')).toBeNull()
   })
 })
 

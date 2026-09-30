@@ -1307,3 +1307,23 @@ here, and it needs a fixture whose labels say `good` while its transcript corrob
 
 **Remaining:** item 2 (verdict-driven line selection plus a route to already-timed songs),
 item 5 (the pre-flight refactor), and the browser half of item 7.
+
+### Round 16 — the wiring is now proven, and proven to bite
+
+Round 15 shipped the drag-strip widening with an explicit caveat: `selectAnchorTargets` was
+unit-tested and the `PlayerView` wiring was only type-checked. That gap is closed.
+
+The fixture had to make the app's real precondition explicit: every line labelled `good` (so the
+old filter admitted none of them) with a stored transcript that corroborates none of them, and
+the song actually *playing on line 0* — because the play-mode strip keys on the ACTIVE line via
+`selectActiveAnchorTarget`, which comes from playback rather than from the target list. My first
+attempt omitted that and the strip never rendered, which is the correct behaviour and not a bug.
+
+There is a **control** beside it: with the stored transcript removed, the verdict has nothing to
+say and no strip may appear. That control is what makes the assertion mean the admission came
+from the verdict rather than from the labels.
+
+**And the test was verified to bite**: temporarily passing `verdictFlagged: []` makes it fail
+(the strip never appears) and restoring it makes it pass. A test for a widening that cannot fail
+without the widening would have been worth nothing — the same discipline the corpus-coverage and
+provenance guards went through at the start of this work.
