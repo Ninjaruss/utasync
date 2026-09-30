@@ -1571,3 +1571,40 @@ mine, and this one was not a subtle measurement error: it was an untested assump
 report after report, that narrowed the scope of what I attempted. The discipline I have been
 applying to thresholds and fixtures — test it before believing it — applies to my own statements
 about what is possible.
+
+### Round 25 — the browser sync check exists and runs; its verdict is honestly pending
+
+`src/dev/e2eSyncHarness.tsx` now exists, reachable at `/?e2e=<song>&sync=1`, and reports through the
+same `/__e2e-status` sink as its siblings. It needs **no AI**: the lyrics are seeded already timed
+from the same LRC truth the offline instruments use, so there is no transcription, no model download
+and no WebGPU. What it exercises is the render layer — which line the app highlights — and that is
+the one thing this project has never checked, two months after round 5 planned it and did not run it.
+
+Driven by Playwright headless Chromium against a local vite server, it took 21 samples on
+guitar-loneliness with **0 page errors**.
+
+**Three runs, three results, and the two I could explain were both my own measurement's fault:**
+
+1. **0/21** — the check compared against raw `textContent`, which interleaves furigana
+   (`春はると秋あき` for `春と秋`), so every line carrying ruby failed. A defect in the check.
+2. **10/21** — the fixture seeded `endTime = start + 2` while sampling a fraction of the gap to the
+   *next* line, so at wide gaps the playhead sat outside the line I had created and the app
+   correctly highlighted nothing. A defect in the fixture.
+3. **7/21** — the active line is now stuck on one line for every later sample (18 through 38), and
+   the result **varies between runs**.
+
+**Run 3's cause is unexplained, so I am withholding the verdict.** The variation is the signature of
+a race in the sampling — a pending React commit or an animated scroll landing after the read —
+rather than a deterministic app behaviour, but I cannot yet tell the two apart. Reporting "7/21, so
+the app has a sync bug" would be precisely the unverified leap this whole series exists to prevent;
+reporting "the app is fine" would be the same mistake in the other direction.
+
+**The next step is specified rather than guessed:** stop poking the stores and observe the app
+instead — start real playback, let the engine drive `position`, and sample the rendered active line
+against the position as it actually advances, asserting a monotonic mapping rather than instantaneous
+agreement at a poked position. That removes the race and the poked-state assumption together, and it
+is what "the highlight lands with the vocal" actually means.
+
+So item 7's browser half has moved from *asserted impossible* (L25: that claim was wrong) to
+**built, running in a real engine, verdict pending** — with the measurements, the two self-inflicted
+defects and the next step all recorded.

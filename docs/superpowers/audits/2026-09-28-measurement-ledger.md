@@ -521,6 +521,39 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
   under a whole-alignment one). The prompt shape drives the behaviour, so results from one shape do
   not transfer to the other — a caveat that applies to any future evaluation of either.
 
+### L26 — the sync check now RUNS in a real browser; its first results are not yet interpretable
+
+- **Instrument:** `src/dev/e2eSyncHarness.tsx`, reachable at `/?e2e=<song>&sync=1`, driven by
+  Playwright headless Chromium against a local vite server; reports through `/__e2e-status` and the
+  sink file `node_modules/.e2e-status.log`.
+- **Status:** **RUNS and is reproducible**; its verdict is **not yet established**.
+- **What it does.** Seeds lyrics ALREADY TIMED from `/e2e/<song>-truth.json` (so no model, no
+  transcription, no WebGPU — the check is about the RENDER layer), samples the playhead inside each
+  line, and reads back the highlighted line's text as rendered. 21 samples on guitar-loneliness,
+  **0 page errors**.
+- **Three runs, three different results, and two of the three were MY measurement's fault:**
+
+  | run | passed | failure mode | cause |
+  |---|---|---|---|
+  | 1 | 0/21 | `rendered` had interleaved furigana (`春はると秋あき`) | **check defect**: `textContent` includes `<rt>` readings, so containment failed on every line with ruby. Fixed by cloning and stripping `rt`. |
+  | 2 | 10/21 | 11 samples found NO active element | **fixture defect**: lines were seeded `endTime = start + 2`, but sampling targets a fraction of the gap to the NEXT line, so on wide gaps the playhead sat outside the line I had created. The app correctly highlighted nothing. Fixed by ending each line at the next line's start. |
+  | 3 | 7/21 | active line **stuck** on one line (15) for every later sample, 18 through 38 | **UNEXPLAINED** — and it varies between runs, which is the signature of a race in the sampling rather than a deterministic app behaviour |
+
+- **CONCLUSION — deliberately withheld.** Run 3 cannot yet distinguish a real render-layer defect
+  (the highlight stops following the playhead) from a sampling race (a pending React commit or an
+  animated scroll landing after the read). The pass count moving 0 -> 10 -> 7 with *different*
+  failure modes is itself evidence that the method is not yet deterministic. **Reporting "7/21
+  therefore the app has a sync bug" would be exactly the unverified leap this ledger exists to
+  prevent**, and so would reporting "the app is fine".
+- **THE NEXT STEP, specified.** Stop poking the stores and observe the app's own behaviour instead:
+  start real playback, let the engine drive `position`, and sample the rendered active line against
+  `position` as it actually advances, asserting a monotonic mapping rather than instantaneous
+  agreement at a poked position. That removes both the race and the poked-state assumption in one
+  move, and it is what "the highlight lands with the vocal" actually means.
+- **What IS established:** the check exists, runs in a real browser engine with clean page health,
+  and needs no AI, no model and no WebGPU. Item 7's browser half has gone from "asserted impossible"
+  (L25: wrong) to "built, running, verdict pending".
+
 ### L25 — a real browser IS available here, and the app boots clean in it **(corrects my own claim)**
 
 - **Instrument:** Playwright 1.49.1 (`chromium_headless_shell`) installed to a temp dir with

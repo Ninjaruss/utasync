@@ -20,7 +20,40 @@ if (import.meta.env.DEV && /^[a-z0-9-]+$/.test(e2eParams.get('e2e') ?? '')) {
   // `&flow=1` renders the REAL AutoAlignFlow on a seeded song and asserts on what
   // it renders (see e2eFlowHarness) — the only way to verify a button in a browser
   // no automation can drive. Without it, the headless mirror harness runs.
-  if (e2eParams.get('flow') === '1') {
+  if (e2eParams.get('sync') === '1') {
+    // `&sync=1` seeds ALREADY-TIMED lyrics and checks what the app HIGHLIGHTS in a real browser —
+    // no AI, no model. The check round 5 planned and never ran (see e2eSyncHarness).
+    void import('./dev/e2eSyncHarness').then(({ runSyncHarness }) =>
+      runSyncHarness({
+        root: document.getElementById('root')!,
+        songName: e2eParams.get('e2e')!,
+        say: (msg) => {
+          console.log(`[e2e-sync] ${msg}`)
+          void fetch('/__e2e-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ browser: 'sync-harness', status: msg }),
+            keepalive: true,
+          }).catch(() => {})
+        },
+        beacon: (payload: unknown) => {
+          void fetch('/__e2e-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            keepalive: true,
+          }).catch(() => {})
+        },
+      }).catch((err) => {
+        void fetch('/__e2e-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ browser: 'sync-harness', final: true, error: String(err?.message ?? err) }),
+          keepalive: true,
+        }).catch(() => {})
+      }),
+    )
+  } else if (e2eParams.get('flow') === '1') {
     void import('./dev/e2eFlowHarness').then(({ runFlowHarness }) =>
       runFlowHarness({
         root: document.getElementById('root')!,
