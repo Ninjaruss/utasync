@@ -1354,3 +1354,35 @@ way was corrected, and now records why the ETA prompt is the harder one.
 `onLongEstimate`, whose contract is a **blocking promise** — separation PAUSES until the user
 answers. Making it non-blocking means changing that contract in `demucsSeparator`, not just the
 UI. That is the next slice, and it is a deliberate change rather than a patch.
+
+### Round 18 — item 5 complete: neither prompt interrupts any more
+
+The ETA prompt was the harder half because its contract looked blocking, and the first thing I
+did was read the mechanism rather than edit it — which corrected my own premise. `onLongEstimate`
+is **fire-and-forget**: `demucsSeparator` calls it with `void ...then(...)` and keeps working, so
+separation was never paused. The interruption was purely the MODAL: a `ConfirmDialog` that took
+over the screen and demanded an answer about a process already running.
+
+So the fix was both smaller and better than the plan I had written for it. It is now an
+**in-flow notice carrying the same two choices**, and nothing blocks:
+
+- "Keep waiting" still raises the run's time cap for an accepted wait.
+- "Stop isolating" still abandons separation and aligns on the mix — the same `'skip'` decision
+  the abandoned-separation specs already cover.
+- **Leaving it unanswered is safe**, which it was not before: the default cap and the stall
+  watchdog still bound the run, and the post-transcription stem-quality guard falls back to the
+  mix if the stem turns out useless.
+
+The round-12 note in this plan said removing the ETA prompt "means changing `onLongEstimate`'s
+blocking contract in `demucsSeparator`, not just the UI". **That was wrong**, and reading the
+code is what showed it. Seventh claim of mine that measurement or inspection has corrected.
+
+Two spec lessons, both worth keeping. First, `queryByRole('dialog')` proves nothing inside this
+component: the flow renders *inside* the Overlay's dialog container, so that role is always
+present — the assertion had to name the modal's own title and labels instead. Second, I wrote a
+spec whose mock threw immediately, so the notice cleared before it could be observed; the
+default mock in that file asks and then dies, which is why the existing spec asserts a flag
+rather than the DOM. I dropped the second new spec instead of fighting it, because its path is
+already covered by the `'skipped'` abandon case.
+
+**Item 5 is done.** Items 2 and 7's browser half remain.

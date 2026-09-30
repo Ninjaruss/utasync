@@ -16,6 +16,7 @@ import { db } from '../core/db/schema'
 import { computeSyncState } from '../core/db/migrations'
 import { ProcessProgress } from '../core/ui/ProcessProgress'
 import { ConfirmDialog } from '../core/ui/ConfirmDialog'
+import { Banner } from '../core/ui/Banner'
 import { Overlay } from '../core/ui/Overlay'
 import { alignSteps, alignStepIndex, type AlignStage } from './alignProgress'
 import { preferredWhisperTimestampMode } from './alignTimestampMode'
@@ -1126,33 +1127,42 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
           />
         )}
 
-        {/* Only one dialog may own the overlay: the cancel confirmation wins,
-            and its "Keep running" brings the pending question back.
+        {/* An in-flow NOTICE, not a modal. `onLongEstimate` is fire-and-forget by
+            contract (`void options.onLongEstimate(projected).then(...)` in
+            demucsSeparator), so separation is already running while this is on screen —
+            a modal therefore interrupted a run in progress to ask about a process that
+            had not paused. Both choices are kept, because the answer still matters:
+            "Keep waiting" raises the run's time cap for an accepted wait, and "Stop
+            isolating" abandons separation and aligns on the mix.
 
-            "Keep going" on confirm and "Skip it" on cancel reads backwards next
-            to the cancel dialog above, and is deliberate: useModalDialog maps
-            Escape to onCancel, so this is what makes Escape mean "back out of
-            the expensive thing". Committing to a multi-minute separation is the
-            costly, hard-to-undo choice, so it belongs on confirm, and skipping
-            (which still yields aligned lyrics, just from the raw mix) is the safe
-            default Escape lands on.
-
-            NOTE — this is the only prompt of its kind left, and item 5 of the
-            accuracy plan wants it gone too: it fires from `onLongEstimate`, whose
-            contract is a BLOCKING promise, so separation PAUSES until the user
-            answers. Making it non-blocking means changing that contract, which is
-            why the no-WebGPU prompt was converted first (it needed no mechanism
-            change at all). */}
-
+            Leaving it unanswered is also safe: the default cap and the stall watchdog
+            still bound the run, and the post-transcription stem-quality guard falls back
+            to the mix if the stem turns out useless. */}
         {!confirmCancel && etaPrompt && (
-          <ConfirmDialog
-            title="This will take a while"
-            message={`Isolating vocals will take ${formatEta(etaPrompt.projectedMs)} on this device. You can skip it and align on the original mix — slightly less accurate, but much faster.`}
-            confirmLabel="Keep going"
-            cancelLabel="Skip it"
-            onConfirm={() => etaPrompt.decide('continue')}
-            onCancel={() => etaPrompt.decide('skip')}
-          />
+          <Banner severity="info">
+            <span className="flex items-center gap-3 flex-wrap">
+              <span>
+                Isolating vocals will take {formatEta(etaPrompt.projectedMs)} on this device.
+                You can keep waiting, or stop and align on the original mix.
+              </span>
+              <button
+                type="button"
+                data-testid="eta-keep-waiting"
+                onClick={() => etaPrompt.decide('continue')}
+                className="shrink-0 px-3 py-1.5 rounded-lg bg-cinnabar-800 border border-cinnabar-700 text-white text-xs min-h-11 hover:bg-cinnabar-700 transition-colors"
+              >
+                Keep waiting
+              </button>
+              <button
+                type="button"
+                data-testid="eta-stop-isolating"
+                onClick={() => etaPrompt.decide('skip')}
+                className="shrink-0 px-3 py-1.5 rounded-lg bg-cinnabar-950 border border-cinnabar-800 text-white/85 text-xs min-h-11 hover:bg-cinnabar-800 transition-colors"
+              >
+                Stop isolating
+              </button>
+            </span>
+          </Banner>
         )}
         <h2 className="text-white font-semibold text-lg">Auto-Align Lyrics</h2>
         <p className="text-white/50 text-sm">{tierNote}</p>

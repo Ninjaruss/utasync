@@ -4,7 +4,7 @@ import { render, screen, waitFor, fireEvent, cleanup } from '@testing-library/re
 import { AutoAlignFlow } from '../../src/ai-pipeline/AutoAlignFlow'
 import type { Song } from '../../src/core/types'
 import { db } from '../../src/core/db/schema'
-import { SeparationAbandonedError } from '../../src/ai-pipeline/demucsSeparator'
+import { SeparationAbandonedError, separateVocals } from '../../src/ai-pipeline/demucsSeparator'
 
 /**
  * Three flow-control defects, all reachable from the align dialog itself:
@@ -135,8 +135,43 @@ describe('AutoAlignFlow abandoned separation', () => {
 
     await waitFor(() => expect(onComplete).toHaveBeenCalled(), { timeout: 15_000 })
     expect(etaPromptSeen).toBe(true)
-    // The prompt's decision no longer exists — the run already fell back to the mix
-    // and finished — so it must not be sitting over the done screen.
-    expect(screen.queryByText('This will take a while')).toBeNull()
+    // The decision no longer exists — the run already fell back to the mix and finished —
+    // so the notice must not be left sitting over the done screen.
+    expect(screen.queryByTestId('eta-keep-waiting')).toBeNull()
+    expect(screen.queryByTestId('eta-stop-isolating')).toBeNull()
   })
+})
+
+describe('AutoAlignFlow long-separation notice', () => {
+  // A long projection used to raise a MODAL: the flow stopped looking interactive and
+  // demanded an answer about a process that had not paused — `onLongEstimate` is
+  // fire-and-forget by contract, so separation keeps running while the question is up.
+  // It is now an in-flow notice carrying both choices, and nothing is blocked. The
+  // choices still matter: "Keep waiting" raises the run's time cap, "Stop isolating"
+  // abandons separation and aligns on the mix.
+  it('shows a non-blocking notice with both choices when the projection is long', { timeout: 20_000 }, async () => {
+    // The default mock throws straight after asking, which clears the notice before it can
+    // be observed. This one ASKS AND KEEPS RUNNING (separation unresolved), which is what the
+    // real contract does — the question does not pause anything.
+    vi.mocked(separateVocals).mockImplementationOnce((async (_audio: Float32Array, opts?: {
+      onLongEstimate?: (projectedMs: number) => Promise<'skip' | 'continue'>
+    }) => {
+      void opts?.onLongEstimate?.(45 * 60_000)
+      return new Promise<never>(() => {})
+    }) as never)
+
+    const onComplete = vi.fn()
+    render(<AutoAlignFlow song={song} autoStart onComplete={onComplete} onClose={vi.fn()} />)
+
+    expect(await screen.findByTestId('eta-keep-waiting')).toBeTruthy()
+    expect(screen.getByTestId('eta-stop-isolating')).toBeTruthy()
+    expect(screen.getByText(/Isolating vocals will take/i)).toBeTruthy()
+    // NOT the old modal. (A role="dialog" query would prove nothing here: the flow itself
+    // renders inside the Overlay's dialog container, so that role is always present.) The
+    // modal's title and its confirm/cancel labels are what must be gone.
+    expect(screen.queryByText('This will take a while')).toBeNull()
+    expect(screen.queryByText('Keep going')).toBeNull()
+    expect(screen.queryByText('Skip it')).toBeNull()
+  })
+
 })
