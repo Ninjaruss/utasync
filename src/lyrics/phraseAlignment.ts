@@ -305,21 +305,6 @@ function rebalanceEntwinedRunPair(
   return { entwinedEnd, runStart, runEnd }
 }
 
-export function enforceLineMonotonicity(out: TimedLine[]): void {
-  for (let i = 1; i < out.length; i++) {
-    if (out[i].startTime < out[i - 1].startTime) out[i].startTime = out[i - 1].startTime
-  }
-  for (let i = 0; i < out.length - 1; i++) {
-    if (out[i].endTime > out[i + 1].startTime) out[i].endTime = out[i + 1].startTime
-    const ownEnd = Math.max(out[i].endTime, out[i].startTime)
-    out[i].endTime = Math.min(ownEnd, out[i + 1].startTime)
-  }
-  for (let i = 0; i < out.length; i++) {
-    if (out[i].endTime <= out[i].startTime) {
-      out[i].endTime = out[i].startTime + 0.3
-    }
-  }
-}
 
 const KANJI_RE = /[一-龯]/
 /** Fold katakana onto hiragana so a katakana lyric (ローリング) matches a hiragana
@@ -1372,6 +1357,11 @@ function detectedAlignmentLanguage(lyrics: LyricsData): AlignmentLanguage {
  * single-pass re-refine can neither reconstruct the two-pass merge nor safely
  * re-time a good round-5 alignment — they need a fresh Auto-align instead
  * (see `needsMixedRealign`). */
+import { enforceLineMonotonicity } from './lineMonotonicity'
+import { refitAroundAnchors } from './anchorRefit'
+
+export { enforceLineMonotonicity }
+
 export function shouldRefineStoredAlignment(lyrics: LyricsData): boolean {
   if (!lyrics.lines.length) return false
   if (lyrics.alignmentMode !== 'auto') return false
@@ -1404,9 +1394,29 @@ export function transcriptWordsToAlignInput(
 
 /** Merge a refine pass into persisted lyrics (timings, phrases, pipeline version). */
 export function applyRefinedAlignment(lyrics: LyricsData, refined: RefinedAlignment): LyricsData {
+  // RE-APPLY THE USER'S ANCHORS. `src/core/types/index.ts` has always documented
+  // `timingAnchors` as pins that "survive re-align", and nothing implemented it: this
+  // function carries the array forward via the spread below while replacing `lines`
+  // wholesale, so every refine pass silently discarded the correction the user had made by
+  // hand. Three callers funnel through here — AutoAlignFlow's fresh align, PlayerView's
+  // version-gated re-refine on every song open, and gap recovery on open — so a single tap
+  // on the drag strip could be undone by simply reopening the song.
+  //
+  // Anchors are ground truth for the lines they name, so they are re-applied last, after the
+  // pass has finished. Out-of-range indices mean the sheet changed under them (rows added,
+  // removed or replaced), and a stale pin is worse than none: apply none in that case.
+  const anchors = lyrics.timingAnchors
+  const anchorsUsable =
+    !!anchors?.length
+    && anchors.every((a) => Number.isInteger(a.lineIndex) && a.lineIndex >= 0 && a.lineIndex < refined.lines.length)
+  const lines = anchorsUsable
+    ? refitAroundAnchors(refined.lines, anchors, lyrics.sourceLanguage, {
+        quality: refined.lineAlignmentQuality,
+      })
+    : refined.lines
   return {
     ...lyrics,
-    lines: refined.lines,
+    lines,
     phrases: refined.phrases,
     phraseLayout: refined.phraseLayout,
     sheetLinesSnapshot:
