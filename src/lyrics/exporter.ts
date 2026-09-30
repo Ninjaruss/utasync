@@ -1,4 +1,5 @@
 import type { TimedLine } from '../core/types'
+import { lineHasTiming } from './lineTiming'
 
 function pad(n: number, len: number): string {
   return n.toString().padStart(len, '0')
@@ -30,16 +31,11 @@ function toHHMMSSMS(seconds: number): string {
 }
 
 /**
- * Whether a line carries real timing. Deliberately the same test the rest of
- * the app uses to answer "does this song have timing?" (SettingsView's
- * songHasTiming, EditMode.tsx, bilingual.ts, replaceLyricsLoss.ts): an untimed
- * line is exactly { startTime: 0, endTime: 0 } — what TapSyncEditor stores for
- * every line the user did not tap. A genuinely timed first line still counts,
- * because its endTime is > 0.
+ * Whether a line carries real timing — re-exported from `lineTiming`, where the playhead rules now
+ * use the same predicate. It is defined there rather than here so the timing leaf does not have to
+ * import an exporter to answer a question about timing.
  */
-export function lineHasTiming(line: TimedLine): boolean {
-  return line.startTime > 0 || line.endTime > 0
-}
+export { lineHasTiming }
 
 export function exportLRC(lines: TimedLine[], field: 'original' | 'translation' = 'original'): string {
   // Untimed lines are OMITTED, never stamped at [00:00.00]. TapSyncEditor

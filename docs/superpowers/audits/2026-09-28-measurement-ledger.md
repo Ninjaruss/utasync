@@ -521,6 +521,56 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
   under a whole-alignment one). The prompt shape drives the behaviour, so results from one shape do
   not transfer to the other — a caveat that applies to any future evaluation of either.
 
+### L27 — the render layer is CORRECT at 1x playback; L26's "stuck highlight" was the check's fault, and the check found a real defect instead
+
+- **Instrument:** `src/dev/e2eSyncHarness.tsx` rewritten to drive the app's OWN transport
+  (`button[aria-label="Start playback"]`, `button[aria-label="Rewind 5 seconds"]`) instead of
+  writing `setPosition`/`syncPosition` directly, plus `?untimed=1` for the no-timing state.
+  Driven by Playwright headless Chromium (`/tmp/pwcheck/sync-check.mjs`, `--autoplay-policy=no-user-gesture-required`)
+  against `npx vite --port 5199`. Reports to `/__e2e-status` → `node_modules/.e2e-status.log`.
+  Reproduce: `node sync-check.mjs guitar 232` (wall-clock ≈ 4 min: 232 s of audio at 1x).
+- **Status:** **SOURCED, reproducible, and now conclusive.**
+- **Method.** Real playback at 1x. Every 200 ms: read the playhead, the store's `activeLine`, and
+  the index of the row carrying the glow (`data-line-index`, added to the row for this check). The
+  expected line comes from LRC truth with the app's own `VOCAL_ONSET_LEAD_S` imported (not copied),
+  scored only ≥0.4 s inside a truth span so a boundary cannot be scored as a defect. A sample is
+  discarded if the 100 ms engine tick lands mid-read.
+
+| run | mode | scored | matched | store-vs-DOM | backward jumps | page errors |
+|---|---|---|---|---|---|---|
+| guitar full song | timed | 524 | **524 (100%)** | 0 | 0 | 0 |
+| guitar, 30 s | untimed | 86 | 86 | 0 | — | 0 |
+
+- **L26's run 3 is REFUTED as an app defect.** The "highlight stuck on line 15" appeared whenever
+  the check poked the playhead BACKWARD (201.2 s → 91.4 s) with no playback running; every
+  subsequent sample reported the stale line. Driving the app's real transport, a full song plus 12
+  backward seeks through the app's own rewind control produce **0 backward-jump violations and 0
+  DOM-vs-store disagreements**. The observation was an artifact of the *measurement*, exactly as
+  L26's own conclusion suspected but could not establish. The residual "7/21" number should not be
+  quoted as evidence about the app.
+- **What the check DID find — a real defect, fixed.** In `?untimed=1` (every line `{startTime: 0,
+  endTime: 0}`, which is what `songBuilder` leaves after a fresh lyrics import and `TapSyncEditor`
+  stores for every line the user did not tap), playback highlighted the LAST line for the whole song:
+
+  | | glow samples | rows seen | verdict |
+  |---|---|---|---|
+  | before fix | **86 / 86** | `[46]` | the last of 47 lines glowed from 0 s onward |
+  | after fix | **0 / 86** | `[-1]` | nothing is claimed, which is what "untimed" means |
+
+  Cause: `lineEffectiveEnd` gave a line with no timing a span from `startTime` (0) to the next
+  line's start, and for the last such line `Infinity`. The same rule also made a partially
+  tap-synced song highlight an untimed line for the length of each gap — visible in the timed run
+  above as `storeActive = 46` from 187.25 s to the end of the song and `storeActive = 3` from 0 s to
+  14.83 s. Fix: `lineHasTiming` moved to the `lineTiming` leaf and `lineEffectiveEnd` returns the
+  line's own start when it has no timing, i.e. an empty span. `linesVisited` on the timed run fell
+  9 → 7: the two phantom rows are gone, and the 524 scored samples are unchanged, so the fix is
+  **regression-clean on timed lines**.
+- **Bite test.** Four of the five new specs in `tests/lyrics/lineTiming.test.ts` FAIL with the fix
+  removed and pass with it; the fifth (start present, end missing → next-start fallback) passes in
+  both states by design, because it guards against over-fixing.
+- **Serves:** item 7 (the mandatory browser sync check) — now a verdict rather than an open
+  question, and C1–C4's *render-side* half. The offsets C1 measures remain untested by ear (L9).
+
 ### L26 — the sync check now RUNS in a real browser; its first results are not yet interpretable
 
 - **Instrument:** `src/dev/e2eSyncHarness.tsx`, reachable at `/?e2e=<song>&sync=1`, driven by
@@ -774,3 +824,5 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
 | 2026-09-28 | L11 | The plan's Phase-2 centrepiece (W1.1.1, transcript ramp repair) was designed around the "+24 s decaying to +2 s" ramp. Measuring it for the first time against committed fixtures found no meaningful drift anywhere. W1.1.1 is therefore blocked on real audio rather than queued, and the drift instrument became a deliverable instead of the repair. |
 | 2026-09-28 | L10 | The first `MAX_SHIFT_SEC` (3.5 s) produced a confidently wrong answer on a masked carrier and could not distinguish a true −0.48 s shift from a spurious −1.84 s one. Both were measured, and the range plus the magnitude gate were set from those numbers. |
 | 2026-09-28 | `bnd_measured` | Emitted as a *string* so it was exempt from the numeric guards, which let a corpus row be committed with **0** measurable boundary lines and eight vacuous `0 ≤ 0` assertions. Made numeric with a higher-is-better guard in `scripts/audit-corpus.mjs`, a coverage floor in `tests/ai-pipeline/corpus-scorecard.test.ts`, and an explicit `ZERO_COVERAGE_BY_DESIGN` set naming the one row allowed to score nothing. Both guards were verified to FAIL when coverage collapses (baseline raised above actual) and to pass when restored. |
+| 2026-09-30 | L26 run 3 | "The highlight sticks on line 15 and 18 of 21 samples fail" was reported as an unexplained possible render-layer defect, with the honest caveat that a sampling race would look identical. Both halves resolved by L27: it was the check's own out-of-order store pokes, and real playback over a full song shows 524/524 correct with zero DOM-vs-store disagreements. The old pass counts (0/21, 10/21, 7/21) are measurement artifacts and are not evidence about the app. |
+| 2026-09-30 | untimed highlight | Found BY the browser check rather than by reasoning: a song with no timing highlighted the last lyric line for its entire length (86/86 samples), because `lineEffectiveEnd` invented a `[0, ∞)` span for a line that has none. Fixed in `lineTiming.ts`, verified 86/86 → 0/86 in the browser, 4 new specs fail without the fix. |

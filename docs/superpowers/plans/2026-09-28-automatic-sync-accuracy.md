@@ -1608,3 +1608,49 @@ is what "the highlight lands with the vocal" actually means.
 So item 7's browser half has moved from *asserted impossible* (L25: that claim was wrong) to
 **built, running in a real engine, verdict pending** — with the measurements, the two self-inflicted
 defects and the next step all recorded.
+
+### Round 26 — the check observes the app instead of poking it, and the verdict arrives (item 7, browser half CLOSED)
+
+Round 25 ended with the next step *specified rather than guessed*: stop writing `setPosition` /
+`syncPosition` and drive the app's own transport. That is now done, and it closed the question in
+both directions.
+
+**The harness now clicks and reads, never writes.** Phase A clicks `Start playback` and samples as
+the engine's 100 ms ticker advances `position`; phase B clicks `Rewind 5 seconds` twelve times,
+which is the case that produced run 3's stuck highlight. Each sample records three things — the
+playhead, the store's `activeLine`, and the `data-line-index` of the row actually carrying the glow
+— so a failure says *which* layer is wrong: the app pointing at the wrong line, or the DOM
+disagreeing with the store.
+
+| run | scored | matched | DOM-vs-store | backward-jump violations | page errors |
+|---|---|---|---|---|---|
+| guitar, full song (229 s) at 1x | 524 | **524** | 0 | 0 | 0 |
+| guitar, backward seeks (phase B) | 7 | **7** | 0 | — | 0 |
+
+**Run 3's stuck highlight is refuted as an app defect** (L27). It appeared only after a *backward
+poke* of the stores (201.2 s → 91.4 s) with no playback running; real playback across a whole song
+plus twelve backward seeks through the app's own rewind control show zero violations. The 0/21,
+10/21 and 7/21 pass counts were all the measurement, not the app — which is what round 25's own
+conclusion suspected but could not establish.
+
+**And the check earned its keep by finding a real defect — one no amount of deterministic
+reasoning had surfaced.** With `?untimed=1` (every line `{startTime: 0, endTime: 0}`, exactly what
+`songBuilder` leaves after a fresh import and `TapSyncEditor` leaves for every line the user did
+not tap) the app highlighted the **last lyric line for the entire song**: 86 of 86 samples in real
+playback, row 46 of 47. The same rule lit an untimed row across every gap in a partially
+tap-synced song (`storeActive = 46` from 187.25 s to the end; `storeActive = 3` from 0 s to
+14.83 s).
+
+Cause: `lineEffectiveEnd` invented a span for a line that has none — from `startTime` (0) to the
+next line's start, and `Infinity` for the last such line. Fix: `lineHasTiming` (the app's own
+definition, already used by the exporter and the editor) moved into the `lineTiming` leaf, and
+`lineEffectiveEnd` returns the line's own start for a line with no timing, i.e. an empty span.
+
+Verified at the layer the claim lives on: **86/86 → 0/86** highlighted in the browser, and the
+timed full-song run is unchanged at **524/524** with `linesVisited` falling 9 → 7 — the two
+phantom rows are gone and nothing else moved. Four of the five new `lineTiming` specs fail with the
+fix removed; the fifth is the unchanged-behaviour guard for a line that has a start but no end.
+
+Item 7 is now closed on both halves: the docs phase (round 12, extended with the working recipe)
+and a browser verdict. What is still not checked is the part no automation can check — whether the
+timing is right **by ear**, which is the same gap L9 records for the perceptual contract.

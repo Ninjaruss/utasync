@@ -23,10 +23,13 @@ if (import.meta.env.DEV && /^[a-z0-9-]+$/.test(e2eParams.get('e2e') ?? '')) {
   if (e2eParams.get('sync') === '1') {
     // `&sync=1` seeds ALREADY-TIMED lyrics and checks what the app HIGHLIGHTS in a real browser —
     // no AI, no model. The check round 5 planned and never ran (see e2eSyncHarness).
+    // `&untimed=1` seeds the OPPOSITE state — every line `{0, 0}`, exactly what songBuilder leaves
+    // after a fresh lyrics import — and asserts that nothing is highlighted.
     void import('./dev/e2eSyncHarness').then(({ runSyncHarness }) =>
       runSyncHarness({
         root: document.getElementById('root')!,
         songName: e2eParams.get('e2e')!,
+        untimed: e2eParams.get('untimed') === '1',
         say: (msg) => {
           console.log(`[e2e-sync] ${msg}`)
           void fetch('/__e2e-status', {

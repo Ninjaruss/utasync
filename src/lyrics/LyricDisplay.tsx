@@ -449,6 +449,10 @@ function Line({ line, lineIndex, isActive, loopHighlight, onLineClick, lineRef, 
   return (
     <div
       ref={lineRef}
+      /* Stable hook for the dev sync harness: it has to be able to say WHICH row
+       * is glowing, not just which text, to tell a stale highlight from a glow
+       * that leaked onto the wrong row. */
+      data-line-index={lineIndex}
       onClick={() => onLineClick(line)}
       role={rowIsControl ? 'button' : undefined}
       tabIndex={rowIsControl ? 0 : undefined}

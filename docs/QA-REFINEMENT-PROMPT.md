@@ -122,12 +122,32 @@ Record, per configuration, from `npx tsx scripts/audit-vs-lrc.mjs`:
 5. **Any new threshold names its instrument and its reproducibility** in
    `docs/superpowers/audits/2026-09-28-measurement-ledger.md`, and any bound set to an
    observation says so out loud.
-6. **Run one real-browser sync check** and say whether you did. Start the dev server, play one
-   Japanese and one mixed-language song, and confirm the highlight lands with the vocal, that
-   ruby matches the sung reading, and that the off-timing affordances point at lines that are
-   actually off. If no browser is available, **say so explicitly in the report** — the round-5
-   audit planned this check, did not run it, and recorded that only at the very end, after
-   everything else had been declared verified.
+6. **Run the real-browser sync check** and report its numbers. A browser IS available here, and a
+   working recipe exists (ledger L25/L27) — "no browser available" is no longer an acceptable
+   reason to skip it:
+
+   ```bash
+   npx vite --port 5199 --strictPort &                 # dev server
+   # Playwright in a temp dir, NOT a repo dependency:
+   cd /tmp/pwcheck && npm install --silent playwright@1.49.1
+   node sync-check.mjs <song> <seconds>                # timed lyrics, real 1x playback
+   node untimed-check.mjs <song> <seconds>             # every line {0,0}: must highlight NOTHING
+   ```
+
+   The harness (`src/dev/e2eSyncHarness.tsx`, `/?e2e=<song>&sync=1[&untimed=1][&syncSecs=N]`)
+   drives the app's **own transport** — it clicks "Start playback" and "Rewind 5 seconds" and
+   never writes `setPosition`/`syncPosition` itself. Poking the stores out of order is what made
+   the first three rounds of this check report 0/21, 10/21 and 7/21, none of which were the app's
+   fault (L26/L27). It reports through `/__e2e-status` → `node_modules/.e2e-status.log` and prints
+   a final JSON line: scored samples, matched, DOM-vs-store disagreements, backward-jump
+   violations, and `inconclusive` when playback did not really happen.
+
+   **A pass with `inconclusive: true`, `advanced: 0`, or fewer than 5 scored samples proves
+   nothing.** Say so instead of reporting green. When a sample fails, report which of the two it
+   was: the store pointing at the wrong line (an app bug) or the DOM disagreeing with the store
+   (a render bug) — the harness distinguishes them. Then confirm by ear that the highlight lands
+   with the vocal, ruby matches the sung reading, and the off-timing affordances point at lines
+   that are actually off.
 
 **Gate:** do not proceed to Phase 1 while anything here is unmeasured, regressed against the
 recorded baselines, or claimed without an instrument. A UI fix that regresses sync accuracy is
@@ -387,6 +407,9 @@ If the user wants a narrower pass, append one of these:
 
 ---
 
-*Last updated: 2026-09-28 — adds the mandatory Phase 0.5 Sync accuracy phase, a timing
-dimension to the severity rubric, and an accuracy-aware quick-start. Prompt previously last
-updated 2026-06-21; every QA round between those dates measured the app and not its sync.*
+*Last updated: 2026-09-30 — Phase 0.5 rule 6 now carries the working real-browser recipe (the check
+has been run: ledger L27) and the conditions under which its numbers mean anything. It previously
+said to state whether a browser was available; there is one. Earlier, 2026-09-28 — the mandatory
+Phase 0.5 Sync accuracy phase, a timing dimension to the severity rubric, and an accuracy-aware
+quick-start. Before that, 2026-06-21 — every QA round between those dates measured the app and not
+its sync.*
