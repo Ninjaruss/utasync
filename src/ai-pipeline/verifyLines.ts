@@ -2,9 +2,13 @@ import type { AlignmentLanguage, TimedLine } from '../core/types'
 import type { TranscriptWord } from './aligner'
 import type { RefinedAlignment } from '../lyrics/phraseAlignment'
 import { spliceGapAlignment, lineText } from '../lyrics/gapRealign'
+import { computeLineMatchedSpans } from './contentAligner'
+import { sanitizeTranscript } from './aligner'
+import { assessAlignmentTrust, isBetterAlignment, type AlignmentTrust } from './alignmentTrust'
+import type { VocalActivitySignal } from './vocalActivity'
 
 /**
- * STATUS — MEASURED HARMFUL ON REAL AUDIO. DO NOT WIRE WITHOUT FIXING IT.
+ * STATUS — SAFE BUT DEMONSTRABLY NOT WORTH SHIPPING. DO NOT WIRE WITHOUT NEW EVIDENCE.
  *
  * Built for plan item 2 on a measured justification (the verdict reaches 50% of its repair
  * targets OUTSIDE any structural hole — ledger L21), then measured end to end on a real song
@@ -26,10 +30,19 @@ import { spliceGapAlignment, lineText } from '../lyrics/gapRealign'
  *     dissolved the corroboration of ADJACENT lines — no-evidence rose from 4 to 9. A per-line
  *     operation with per-line acceptance can therefore degrade lines it never examined.
  *
- * A plausible fix is to require an ACOUSTIC corroboration before accepting a verified line
- * (`alignmentTrust`'s `no-acoustic-onset` term), since the failure mode is "text the prompt
- * supplied, with no independent evidence it sounds there". That is a hypothesis, not a finding,
- * and it needs its own measurement before anything is wired.
+ * THE FIX WAS TRIED AND IT WORKS, AND IT REMOVED THE POINT. Acceptance is now additionally gated
+ * on the WHOLE-alignment verdict (`isBetterAlignment`), which sees adjacent damage and acoustically
+ * unsupported lines that the local gate cannot. Re-measured on both songs: the harm is GONE (no
+ * 13.16s catastrophe, no-evidence no longer rises) — and so is any benefit. Eight Whisper calls per
+ * song produced two accepted verifications and ZERO measurable movement in p50, p90, worst line,
+ * within-250ms share, or no-evidence count (ledger L23).
+ *
+ * So this pass is not harmful, it is simply not worth its cost. It stays unwired and unused.
+ *
+ * OPEN LEAD, about a SHIPPED path: `reanalyzeGaps` uses only the LOCAL gate — the same one that
+ * accepted globally harmful splices here — and it runs on every fresh align and once per song on
+ * open. Whether it is equally permissive there is UNMEASURED, and it should be measured on real
+ * audio before anyone changes it.
  *
  * The pass and its specs are kept because the specs document the invariants any replacement must
  * hold, and because the measurement above is the reason to be careful. Nothing calls it.
@@ -84,6 +97,12 @@ export interface VerifyLinesArgs {
   /** Audio length, so a window never runs off the end. */
   durationSec?: number
   onProgress?: (done: number, total: number) => void
+  /**
+   * Audio-derived vocal-activity envelope, when the caller has one. Supplying it lets the
+   * whole-alignment check below see acoustically unsupported lines, which is the term that ranks
+   * first in `isBetterAlignment`.
+   */
+  sig?: VocalActivitySignal
 }
 
 export interface VerifyLinesResult {
@@ -115,6 +134,20 @@ export async function verifyWeakLines(args: VerifyLinesArgs): Promise<VerifyLine
 
   let refined = args.refined
   let transcriptWords = args.transcriptWords
+
+  /** The truth-free verdict over the WHOLE alignment, which is the layer the harm was at. */
+  const trustOf = (r: RefinedAlignment, words: TranscriptWord[]): AlignmentTrust => {
+    const texts = r.lines.map((l) => l.original || l.translation)
+    const clean = sanitizeTranscript([...words])
+    return assessAlignmentTrust({
+      lines: r.lines,
+      spans: computeLineMatchedSpans(texts, clean),
+      words: clean,
+      quality: r.lineAlignmentQuality,
+      sig: args.sig,
+      durationSec: args.durationSec,
+    })
+  }
   const accepted: number[] = []
   const rejected: number[] = []
   const skipped: number[] = []
@@ -174,9 +207,26 @@ export async function verifyWeakLines(args: VerifyLinesArgs): Promise<VerifyLine
       sliceT1: t1,
     })
     if (spliced.accepted) {
-      refined = spliced.refined
-      transcriptWords = spliced.transcriptWords
-      accepted.push(i)
+      // THE WHOLE-ALIGNMENT CHECK, and it is the fix for this pass's measured harm (L22).
+      //
+      // The splice gate is LOCAL: it asks whether this line's text is now better corroborated.
+      // Measured on real audio, that let 15 of 16 slices through while making sync worse, because
+      // splicing a single-line window REPLACES the transcript words across that window and
+      // dissolved ADJACENT lines' corroboration (no-evidence 4 -> 9), and because coverage of the
+      // line's own text is exactly what a prompt echo maximises.
+      //
+      // So a verification is kept only if the verdict for the WHOLE alignment improves —
+      // `isBetterAlignment` ranks acoustically unsupported lines first, then no-evidence lines,
+      // then the verified share, so it sees precisely the damage the local gate cannot.
+      const before = trustOf(refined, transcriptWords)
+      const after = trustOf(spliced.refined, spliced.transcriptWords)
+      if (isBetterAlignment(after, before)) {
+        refined = spliced.refined
+        transcriptWords = spliced.transcriptWords
+        accepted.push(i)
+      } else {
+        rejected.push(i)
+      }
     } else {
       rejected.push(i)
     }

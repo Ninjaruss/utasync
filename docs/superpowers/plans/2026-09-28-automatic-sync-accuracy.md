@@ -1462,3 +1462,30 @@ single-song artefact.
 to have wired.** Had it shipped, a user's correct opening line would have moved 1.8s out, five more
 lines would have silently lost their evidence, and on another song a correct line would have moved
 thirteen seconds out.
+
+### Round 21 — item 2 closed: the fix works and removes the point
+
+L22 showed the pass was harmful because it accepted LOCAL improvements that were globally negative.
+So the fix followed from the diagnosis rather than from a guess: gate acceptance on the
+**whole-alignment** verdict (`isBetterAlignment`), which ranks acoustically unsupported lines first,
+then no-evidence lines, then the verified share — precisely the damage the local splice gate cannot
+see. The mix envelope was supplied too, so acoustic support counts.
+
+**The harm is gone.** Re-measured on both songs with the same 8-call budget: the 13.16s catastrophe
+no longer occurs and no-evidence no longer rises. That also confirms the diagnosis exactly — the
+damage came *entirely* from locally-good, globally-bad accepts.
+
+**And there is no benefit to weigh against the cost.** Eight Whisper calls per song produced two
+accepted verifications and **zero** measurable movement in p50, p90, worst line, within-250ms share,
+or no-evidence count, on either song. `0 better, 0 worse` — every accept was a no-op.
+
+So item 2 is closed as **not worth shipping**, not as harmful. `verifyLines.ts` stays in the tree,
+unwired, with both measurements in its header, because its specs document the invariants a
+replacement must hold and because the numbers are the reason not to wire it. The module's header now
+reads "safe but demonstrably not worth shipping. Do not wire without new evidence."
+
+**The measurement raised a lead about a SHIPPED path, which is more interesting than item 2 itself.**
+`reanalyzeGaps` uses only the LOCAL gate — the same one that accepted globally harmful splices here —
+and gap re-transcription runs on every fresh align *and* automatically once per song on open. If the
+local gate is equally permissive there, a shipped path may be moving lines for the worse. That is
+**unmeasured**, it is the next measurement to run, and nothing should change until it is.

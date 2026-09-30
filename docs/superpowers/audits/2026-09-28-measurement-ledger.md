@@ -381,6 +381,38 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
   the prompt. A one-line comment fix is included here; the behaviour change is deliberately
   left as the next deliberate step rather than made in the same breath as the measurement.
 
+### L23 — with the harm fixed, windowed verification has NO measurable benefit (item 2 closed)
+
+- **Instrument:** the same real-audio harness as L22 (real `whisper-small`, LRC truth), after
+  gating acceptance on the WHOLE-alignment verdict (`isBetterAlignment`) rather than only the
+  local splice gate, and supplying the mix envelope so acoustically unsupported lines count too.
+- **Status:** sourceable, developer-run.
+- **Measured, same two songs, same 8-call budget:**
+
+  | metric | guitar before | guitar after | veil before | veil after |
+  |---|---|---|---|---|
+  | absolute p50 | 0.39s | 0.39s | 0.26s | 0.26s |
+  | absolute p90 | 2.29s | 2.29s | 0.98s | 0.98s |
+  | worst line | 5.83s | 5.83s | 1.91s | 1.91s |
+  | lines within 250ms | 39% | 39% | 50% | 50% |
+  | lines with NO evidence | 4 | 4 | 12 | 12 |
+  | accepted / rejected | 2 / 6 | | 2 / 6 | |
+
+  `0 better, 0 worse` — every accepted verification left the metrics untouched.
+- **So the whole-alignment gate is the correct acceptance rule, and it eliminates the L22 harm
+  completely** (the 13.16s catastrophe is gone, no-evidence no longer rises). It also shows that
+  the harm was **entirely** caused by accepting local improvements that were globally negative,
+  which is exactly what the gate now refuses.
+- **BUT there is no benefit to weigh against the cost.** Eight Whisper calls per song produced two
+  accepted verifications and **zero** measurable movement in any metric on either song. Item 2 is
+  therefore closed as **not worth shipping**, rather than as harmful.
+- **A LEAD THIS RAISES, and it is about a SHIPPED path.** The gap pass (`reanalyzeGaps` ->
+  `spliceGapAlignment`) uses only the LOCAL gate — the same one L22 showed accepts globally harmful
+  splices for single-line verification. Gap re-transcription runs on every fresh align AND
+  automatically once per song on open, so if the local gate is equally permissive there, a shipped
+  path may be moving lines for the worse. **Unmeasured**, and it needs the same real-audio treatment
+  before anyone touches it. Recorded as the next measurement rather than acted on.
+
 ### L22 — verdict-driven windowed verification makes real sync WORSE (item 2 refuted)
 
 - **Instrument:** real `whisper-small` from Node driving `verifyWeakLines` with a node-backed
