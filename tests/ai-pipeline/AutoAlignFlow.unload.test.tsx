@@ -18,7 +18,7 @@ vi.mock('../../src/ai-pipeline/capability', () => ({
   canUseVocalSeparation: () => false,
 }))
 
-vi.mock('../../src/payment/SettingsStore', () => ({
+vi.mock('../../src/settings/SettingsStore', () => ({
   useSettingsStore: (selector: (s: {
     vocalSeparationEnabled: boolean
     modelDownloadConsented: boolean

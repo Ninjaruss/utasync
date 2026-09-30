@@ -54,6 +54,24 @@ const baseline = JSON.parse(readFileSync(join(FIXTURES, 'corpus-baseline.json'),
   Record<string, number | string>
 >
 
+/**
+ * Rows whose boundary metric can score ZERO lines by design, so the eight
+ * boundary cells on them are intentionally vacuous.
+ *
+ * `stranger-than-heaven-segment-autolang` replays Whisper's per-chunk language
+ * flapping on a nominally single-language song, which collapses content matching to
+ * the proportional fallback; with no per-line evidence there is nothing for the
+ * boundary metric to measure. The row exists to regression-test that graceful
+ * degradation (its proportional-ness is asserted via `mode` and the
+ * `align_needs_review`/`align_compressed` cells), not to measure boundaries.
+ *
+ * Every OTHER row must score at least one line, and at least its baseline coverage.
+ * Zero coverage used to be invisible here because `bnd_measured` was emitted as a
+ * string and so skipped the numeric guards — see
+ * docs/superpowers/plans/2026-09-28-automatic-sync-accuracy.md, W0.7.
+ */
+const ZERO_COVERAGE_BY_DESIGN = new Set(['stranger-than-heaven-segment-autolang'])
+
 // Documented measurement artifacts: cells allowed to exceed the baseline
 // because the flagged line is verifiably at its ground-truth placement and the
 // boundary metric misfires on ambiguous span attribution. Each entry needs a
@@ -168,6 +186,29 @@ describe('audit corpus — alignment non-regression', () => {
           )
           expect(val, `${song.name} ${key} regressed: ${val} > ${cap}`).toBeLessThanOrEqual(cap)
         }
+      }
+
+      // Coverage floor for the boundary cells just asserted. Without it they are
+      // vacuous at zero coverage: every `val` would be 0 and every check would read
+      // `0 <= 0`. bnd_measured used to be emitted as a STRING precisely so it was
+      // exempt from the numeric guards, which is how one corpus row came to be
+      // committed with 0 measurable lines and eight assertions that could not fail
+      // (see docs/superpowers/plans/2026-09-28-automatic-sync-accuracy.md, W0.7).
+      // A change that genuinely reduces measurable coverage needs an explicit
+      // ALLOWED_MEASUREMENT_ARTIFACTS entry with a findings-doc reference.
+      const measuredFloor = Math.max(
+        base.bnd_measured as number,
+        ALLOWED_MEASUREMENT_ARTIFACTS[song.name]?.bnd_measured ?? 0,
+      )
+      expect(
+        bnd2.measured,
+        `${song.name} boundary coverage collapsed: ${bnd2.measured} < ${measuredFloor} measurable lines`,
+      ).toBeGreaterThanOrEqual(measuredFloor)
+      if (!ZERO_COVERAGE_BY_DESIGN.has(song.name)) {
+        expect(
+          bnd2.measured,
+          `${song.name} scored no boundary lines at all — its 8 boundary assertions are vacuous`,
+        ).toBeGreaterThan(0)
       }
     })
   }

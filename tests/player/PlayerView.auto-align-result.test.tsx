@@ -22,6 +22,8 @@ vi.mock('../../src/ai-pipeline/capability', () => ({
   getDeviceTier: () => 'full',
   canUseVocalSeparation: () => true,
   hasWebGPU: () => true,
+  // Needed by the LRCLIB banner's automatic re-align button (ledger L12).
+  canAutoAlign: () => true,
 }))
 
 // Stands in for the real flow: it reports a finished alignment the way

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLyricsStore } from './LyricsStore'
-import { useSettingsStore } from '../payment/SettingsStore'
+import { useSettingsStore } from '../settings/SettingsStore'
 import type { TimedLine, FuriganaMode, ReadingMode, Token, GrammarAnnotation, ClozeDifficulty } from '../core/types'
 import { ClozeOverlay } from '../cloze/ClozeOverlay'
 import { hasClozeBlanks } from '../cloze/ClozeEngine'

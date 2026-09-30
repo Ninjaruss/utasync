@@ -26,7 +26,6 @@ vi.mock('../../src/player/AudioEngine', () => ({
     onTimeUpdate() {} onEnd() {}
   },
 }))
-vi.mock('../../src/payment/trial', () => ({ canUsePro: () => true }))
 
 beforeEach(async () => {
   seek.mockClear()
@@ -38,7 +37,7 @@ beforeEach(async () => {
     lyrics: { lines: [{ startTime: 1, endTime: 3, original: 'hello', translation: 'hi' }], sourceLanguage: 'en', translationLanguage: 'en', alignmentMode: 'manual' },
     syncState: 'synced', createdAt: new Date(),
   } as never)
-  usePlayerStore.setState({ armingAB: null, abLoop: { a: null, b: null, preRoll: 2, loopCount: 3, crossfadeDuration: 0.3 } })
+  usePlayerStore.setState({ armingAB: null, abLoop: { a: null, b: null } })
 })
 
 function expandLabeledSection(label: string) {
@@ -156,7 +155,7 @@ describe('PlayerView A/B loop', () => {
 
   it('warns when B is not after A', async () => {
     usePlayerStore.setState({
-      abLoop: { a: 8, b: 3, preRoll: 2, loopCount: 3, crossfadeDuration: 0.3 },
+      abLoop: { a: 8, b: 3 },
     })
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
@@ -165,7 +164,7 @@ describe('PlayerView A/B loop', () => {
 
   it('shows a looping indicator when A-B pair is valid', async () => {
     usePlayerStore.setState({
-      abLoop: { a: 1, b: 3, preRoll: 2, loopCount: 3, crossfadeDuration: 0.3 },
+      abLoop: { a: 1, b: 3 },
     })
     render(<PlayerView songId="song1" onBack={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())

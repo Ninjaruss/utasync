@@ -6,7 +6,7 @@ describe('ABLoopController', () => {
     const seek = vi.fn()
     const controller = new ABLoopController(
       seek,
-      () => ({ a: 10, b: 20, preRoll: 0, loopCount: 0, crossfadeDuration: 0 }),
+      () => ({ a: 10, b: 20 }),
       () => 20,
     )
     controller.tick()
@@ -17,7 +17,7 @@ describe('ABLoopController', () => {
     const seek = vi.fn()
     const controller = new ABLoopController(
       seek,
-      () => ({ a: 10, b: null, preRoll: 0, loopCount: 0, crossfadeDuration: 0 }),
+      () => ({ a: 10, b: null }),
       () => 20,
     )
     controller.tick()
@@ -28,7 +28,7 @@ describe('ABLoopController', () => {
     const seek = vi.fn()
     const controller = new ABLoopController(
       seek,
-      () => ({ a: 10, b: 20, preRoll: 0, loopCount: 0, crossfadeDuration: 0 }),
+      () => ({ a: 10, b: 20 }),
       () => 15,
     )
     controller.tick()
@@ -40,7 +40,7 @@ describe('ABLoopController', () => {
     const onLoopCycle = vi.fn()
     const controller = new ABLoopController(
       seek,
-      () => ({ a: 10, b: 20, preRoll: 0, loopCount: 0, crossfadeDuration: 0 }),
+      () => ({ a: 10, b: 20 }),
       () => 20,
       onLoopCycle,
     )
@@ -53,7 +53,7 @@ describe('ABLoopController', () => {
     const seek = vi.fn()
     const controller = new ABLoopController(
       seek,
-      () => ({ a: 10, b: 20, preRoll: 0, loopCount: 0, crossfadeDuration: 0 }),
+      () => ({ a: 10, b: 20 }),
       () => 25,
     )
     controller.tick()

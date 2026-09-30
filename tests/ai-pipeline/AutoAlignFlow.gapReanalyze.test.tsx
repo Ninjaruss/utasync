@@ -21,7 +21,7 @@ vi.mock('../../src/ai-pipeline/capability', () => ({
   canUseVocalSeparation: () => false,
 }))
 
-vi.mock('../../src/payment/SettingsStore', () => ({
+vi.mock('../../src/settings/SettingsStore', () => ({
   useSettingsStore: (selector: (s: {
     vocalSeparationEnabled: boolean
     modelDownloadConsented: boolean
@@ -136,7 +136,11 @@ describe('AutoAlignFlow gap re-transcription wiring', () => {
     render(<AutoAlignFlow song={song} autoStart onComplete={onComplete} onClose={vi.fn()} />)
 
     await waitFor(() => expect(onComplete).toHaveBeenCalled())
-    expect(reanalyzeGaps).toHaveBeenCalledTimes(1)
+    // At LEAST once: the standalone pass still runs, and the convergence loop may add
+    // rounds when the truth-free verdict reports repairable lines (previously this was
+    // pinned to exactly 1, which encoded the old fixed-budget behaviour). The wiring
+    // itself is what this spec is about, and it is asserted through `args` below.
+    expect(reanalyzeGaps.mock.calls.length).toBeGreaterThanOrEqual(1)
     const args = reanalyzeArgs.current!
     expect(args.alignmentLanguage).toBe('en')
     expect(args.sheetRows.length).toBe(1)

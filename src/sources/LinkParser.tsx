@@ -27,7 +27,7 @@ import {
   linkSaveStepIndex,
   type LinkSavePhase,
 } from './addSongProgress'
-import { getDefaultSongLanguage } from '../payment/SettingsStore'
+import { getDefaultSongLanguage } from '../settings/SettingsStore'
 
 type ManualLyricSource = 'paste' | 'subtitle'
 

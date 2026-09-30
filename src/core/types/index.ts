@@ -167,9 +167,13 @@ export interface LyricsData {
   unplacedTranslations?: { text: string; afterLineIndex: number }[]
   /** Where the LINE TIMINGS came from, which is what decides whether they might
    * be offset from this particular audio file.
-   *   'lrclib'      — fetched from an external catalogue. Same master, but
-   *                   typically about a second out (measured median 0.24-0.73s
-   *                   after one constant shift), so an adjustment is likely.
+   *   'lrclib'      — fetched from an external catalogue. Same master by
+   *                   construction (version-aware sourcing matches on duration),
+   *                   so a constant offset is the likely error mode — but its
+   *                   typical SIZE is not known: the "0.24-0.73s" figure that used
+   *                   to be quoted here has no source and is logged as UNSOURCED
+   *                   (L1) in docs/superpowers/audits/2026-09-28-measurement-ledger.md.
+   *                   Verify before relying on it; do not cite it.
    *   'subtitle-file'— a .lrc/.srt/.vtt the user supplied alongside their own
    *                   audio, so very likely already exact.
    *   'aligned'/'tapped' — produced against THIS audio, exact by construction.
@@ -261,12 +265,14 @@ export interface UserSettings {
   modelDownloadConsented: boolean
 }
 
+/** The A–B loop endpoints. Only these two fields are read anywhere: `preRoll`,
+ * `loopCount` and `crossfadeDuration` used to live here, were never read by any
+ * module, and were carried by ~10 test fixtures — crossfade and pre-roll were
+ * never implemented (the AudioWorklet that would have done it was never
+ * registered). Repeat counts are a PLAYLIST setting, not an A/B-loop one. */
 export interface ABLoop {
   a: number | null
   b: number | null
-  preRoll: number
-  loopCount: number
-  crossfadeDuration: number
 }
 
 /** Saved A–B segment for loop playlists (per song). */

@@ -40,9 +40,9 @@ Utasync is an offline-first PWA that turns YouTube links or your own audio files
 
 ### Practice harder sections
 
-- **A/B loop** — set loop points by line tap or controls; crossfade at boundaries; configurable repeat count.
+- **A/B loop** — set loop points by line tap or controls; configurable repeat count.
 - **Loop playlists** — save multiple A/B segments per song and cycle through them with per-loop repeat presets.
-- **Speed control** — pitch-preserving slowdown via SoundTouch (local audio; YouTube speed may be limited by the embed).
+- **Speed control** — pitch-preserving slowdown of local audio, using the browser's native playback-rate handling (YouTube speed may be limited by the embed).
 - **Cloze mode** — hide content words on the active line at easy / medium / hard difficulty.
 - **A/B export** — download the loop region as audio, with optional SRT sidecar (local audio + timed lyrics).
 
@@ -61,7 +61,7 @@ Utasync is an offline-first PWA that turns YouTube links or your own audio files
 | AI auto-align | ✓ (after upload) | After attaching a local audio file |
 | A/B clip export | ✓ | After attaching a local audio file |
 | Tap-to-sync & manual edit | ✓ | ✓ |
-| Speed control | Full (SoundTouch) | Subject to YouTube embed limits |
+| Speed control | Full | Subject to YouTube embed limits |
 
 Upload is the recommended path for serious study; YouTube is a quick way to start when you only have a video URL.
 
@@ -113,7 +113,7 @@ Full prerequisites, optional Demucs model setup, build/deploy notes, browser sup
 | UI | React 19, Vite 8, Tailwind CSS 3 |
 | State | Zustand (persisted settings) |
 | Storage | Dexie (IndexedDB), OPFS (audio), Cache Storage (models) |
-| Audio | Howler.js, Web Audio API, SoundTouchJS, AudioWorklet crossfade |
+| Audio | Howler.js (HTML5 audio), Web Audio API (decode, waveform) |
 | AI | @huggingface/transformers v3 (Whisper, WebGPU), ONNX Runtime Web (Demucs), embedding workers |
 | Japanese NLP | kuromoji, kuroshiro, wanakana |
 | English NLP | compromise, CMUdict subset |

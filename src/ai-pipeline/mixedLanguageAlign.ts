@@ -13,6 +13,7 @@ import {
   type RefinedAlignment,
 } from '../lyrics/phraseAlignment'
 import { applyLabelHonesty } from '../lyrics/labelHonesty'
+import { placementConfidence } from './qualityScore'
 
 const JA_SCRIPT_RE = /[぀-ヿ㐀-鿿]/
 
@@ -54,18 +55,11 @@ export function scopedConfidenceThreshold(scriptFraction: number): number {
   return Math.max(MIN_SCOPED_THRESHOLD, CONTENT_CONFIDENCE_THRESHOLD * scriptFraction)
 }
 
-/** How much of the song actually anchored, as a 0–1 score: fully-anchored
- * ('good') lines count 1, roughly-placed ('approximate') 0.5, unplaced
- * ('needs_review') 0. Unlike content confidence (matched chars — blind to WHERE
- * a line landed), this collapses when a song is mostly mis-placed, so a merged
- * alignment can no longer report a falsely-perfect confidence over two passes
- * that each matched their own script's chars but landed in the wrong places. */
-export function placementConfidence(quality: readonly LineAlignmentQuality[]): number {
-  if (!quality.length) return 0
-  let score = 0
-  for (const q of quality) score += q === 'good' ? 1 : q === 'approximate' ? 0.5 : 0
-  return score / quality.length
-}
+/** How much of the song actually anchored, as a 0–1 score. Defined in
+ * `qualityScore.ts` (a leaf module) because `alignModeChoice` selects the Whisper
+ * timestamp mode with the same measure and the two must not diverge; re-exported
+ * here so the merge's existing callers and tests are unchanged. */
+export { placementConfidence }
 
 const QUALITY_RANK: Record<LineAlignmentQuality, number> = {
   good: 2,

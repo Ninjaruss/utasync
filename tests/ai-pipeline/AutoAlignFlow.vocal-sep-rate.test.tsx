@@ -21,7 +21,7 @@ vi.mock('../../src/ai-pipeline/capability', () => ({
   probeWebGPUAdapter: async () => true,
 }))
 
-vi.mock('../../src/payment/SettingsStore', () => ({
+vi.mock('../../src/settings/SettingsStore', () => ({
   useSettingsStore: (selector: (s: {
     vocalSeparationEnabled: boolean | null
     modelDownloadConsented: boolean

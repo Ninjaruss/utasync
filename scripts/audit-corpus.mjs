@@ -234,15 +234,16 @@ async function main() {
       align_long_dur: longDur,
       align_pileup: pileup,
       align_compressed: compressed,
-      // Interjection/vocalization lines are un-scoreable by design (no phonetic
-      // content for the JA model) — informational string, exempt from the
-      // numeric regression guard like bnd_measured.
+      // checkBaseline() flags any NUMERIC INCREASE as a regression, and a numeric
+      // DECREASE for the HIGHER_IS_BETTER keys below. Defect counts are therefore
+      // numeric so they are guarded; bnd_measured is numeric too, because it is the
+      // COVERAGE of the boundary metric — emitting it as a string exempted it, which
+      // meant the number of lines the 8 boundary cells can even score could collapse
+      // to zero (taking every one of those assertions to a vacuous `0 <= 0`) without
+      // failing anything. Only the gap percentiles stay strings: they are an
+      // informational distribution, not a count.
+      bnd_measured: bnd2.measured,
       unscoreable: String(lineTexts.filter((t) => isInterjectionLyricLine(t)).length),
-      // checkBaseline() flags any NUMERIC increase as a regression. Defect
-      // counts below are numeric so they're guarded; bnd_measured (higher is
-      // better) and the gap percentiles (informational distribution, not a
-      // defect count) are emitted as strings so they're exempt.
-      bnd_measured: String(bnd2.measured),
       bnd_early_p1: bnd1.earlyEnd,
       bnd_early_p2: bnd2.earlyEnd,
       bnd_latestart_p1: bnd1.lateStart,
@@ -391,6 +392,11 @@ function printScorecard(scorecard) {
   }
 }
 
+/** Cells where a DECREASE is the regression. `bnd_measured` is the coverage of the
+ * boundary metric: if it drops, the boundary defect counts become vacuous, so it has
+ * to be guarded in the opposite direction to every other numeric cell. */
+const HIGHER_IS_BETTER = new Set(['bnd_measured'])
+
 function checkBaseline(scorecard) {
   if (!existsSync(BASELINE)) {
     console.error(`\nNo baseline at ${BASELINE} — run with --write-baseline first.`)
@@ -405,7 +411,12 @@ function checkBaseline(scorecard) {
     for (const [k, v] of Object.entries(row)) {
       const cur = numeric(v)
       const prev = numeric(b[k])
-      if (cur != null && prev != null && cur > prev) regressions.push(`${name}.${k}: ${prev} -> ${cur}`)
+      if (cur == null || prev == null) continue
+      if (HIGHER_IS_BETTER.has(k)) {
+        if (cur < prev) regressions.push(`${name}.${k}: ${prev} -> ${cur} (coverage dropped)`)
+      } else if (cur > prev) {
+        regressions.push(`${name}.${k}: ${prev} -> ${cur}`)
+      }
     }
   }
   if (regressions.length) {

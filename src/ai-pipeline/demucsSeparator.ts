@@ -16,13 +16,49 @@ const NEGATIVE_CACHE_MS = 15_000
 let modelAvailable: boolean | null = null
 let lastCheckedMs = 0
 
-/** HEAD-check whether the Demucs ONNX model is reachable (local file or the
- * configured remote host; the host must allow a CORS HEAD request). */
+/**
+ * Whether the browser already holds the model, asked via the Cache API rather
+ * than over the network — so it answers correctly OFFLINE.
+ *
+ * This exists because the HEAD probe below cannot work offline. The service
+ * worker's model routes are GET-only (workbox-routing's Route constructor
+ * defaults `method` to "GET", and `findMatchingRoute` looks routes up by
+ * `request.method`), so a HEAD request matches no route, bypasses the cache
+ * entirely and goes to the network. Offline that rejects, and the app told a
+ * user who had already paid for the 66.8 MB download that vocal isolation
+ * "isn't available right now" — then silently fell back to transcribing the raw
+ * mix, which is a quality loss with no visible cause. Checking the cache first
+ * makes a device that owns the weights able to use them, network or not.
+ *
+ * A cache hit is trusted: the alternative is re-downloading 66 MB to confirm
+ * what the browser is already holding. A genuinely truncated entry is the one
+ * case this gets wrong, and `purgeCorruptModelCaches()` already exists to clear
+ * those when a model load fails.
+ */
+async function isModelInCache(): Promise<boolean> {
+  try {
+    if (typeof caches === 'undefined') return false
+    return (await caches.match(DEMUCS_MODEL_URL)) !== undefined
+  } catch {
+    // CacheStorage can throw on a non-secure origin or when blocked by policy.
+    return false
+  }
+}
+
+/** Probe whether the Demucs ONNX model is usable: held in the cache, or
+ * reachable over the network (local file or the configured remote host, which
+ * must allow a CORS HEAD request). */
 export async function isDemucsModelAvailable(force = false): Promise<boolean> {
   const now = Date.now()
   if (!force && modelAvailable === true) return true
   if (!force && modelAvailable === false && now - lastCheckedMs < NEGATIVE_CACHE_MS) {
     return false
+  }
+
+  if (await isModelInCache()) {
+    modelAvailable = true
+    lastCheckedMs = now
+    return true
   }
 
   try {

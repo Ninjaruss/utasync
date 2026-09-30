@@ -3,7 +3,7 @@ import 'fake-indexeddb/auto'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { SettingsView } from '../../src/settings/SettingsView'
 import { db } from '../../src/core/db/schema'
-import { useSettingsStore } from '../../src/payment/SettingsStore'
+import { useSettingsStore } from '../../src/settings/SettingsStore'
 
 vi.mock('../../src/core/storage/quota', () => ({
   estimateStorageBreakdown: async () => ({

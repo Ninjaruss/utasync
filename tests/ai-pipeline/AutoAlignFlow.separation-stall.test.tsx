@@ -22,7 +22,7 @@ vi.mock('../../src/ai-pipeline/capability', () => ({
   resetWebGPUAdapterProbe: vi.fn(),
 }))
 
-vi.mock('../../src/payment/SettingsStore', () => ({
+vi.mock('../../src/settings/SettingsStore', () => ({
   useSettingsStore: (selector: (s: {
     vocalSeparationEnabled: boolean | null
     modelDownloadConsented: boolean

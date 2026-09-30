@@ -30,7 +30,7 @@ vi.mock('../../src/ai-pipeline/demucsSeparator', async (importOriginal) => {
   }
 })
 
-vi.mock('../../src/payment/SettingsStore', () => ({
+vi.mock('../../src/settings/SettingsStore', () => ({
   useSettingsStore: (selector: (s: {
     vocalSeparationEnabled: boolean | null
     modelDownloadConsented: boolean

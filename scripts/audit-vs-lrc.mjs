@@ -6,13 +6,13 @@
  * is blind to transcription-time skew), this measures what the listener
  * actually perceives: line-start error vs human-timed truth.
  *
- * For each configuration it reports BOTH:
- *  - transcript error: distance from truth to the line's matched transcript
- *    evidence (Whisper's fault),
- *  - alignment error: distance from truth to our final line start
- *    (end-to-end; the aligner's fault only where it exceeds transcript error).
- * A robust median version-offset is removed first (LRC versions can carry a
- * constant intro-length difference) and reported.
+ * Reports each configuration in TWO frames (see scripts/lib/lrcTruth.mjs):
+ *  - ABSOLUTE error vs truth — what the listener hears, including any constant
+ *    whole-song lag. This is the number that decides.
+ *  - RESIDUAL error after removing a robust median version offset — a
+ *    diagnostic that separates "we inherited a constant offset" from "our
+ *    relative structure is wrong". It is never the deciding number.
+ * The offset itself is printed and is assertable in the CI gate.
  *
  * Run: npx tsx scripts/audit-vs-lrc.mjs
  */
@@ -28,7 +28,9 @@ const { refineAlignmentWithPhrases } = await import(pathToFileURL(join(root, 'sr
 const { refineMixedLanguageAlignment } = await import(pathToFileURL(join(root, 'src/ai-pipeline/mixedLanguageAlign.ts')).href)
 const { sanitizeTranscript } = await import(pathToFileURL(join(root, 'src/ai-pipeline/aligner.ts')).href)
 const { computeLineMatchedSpans } = await import(pathToFileURL(join(root, 'src/ai-pipeline/contentAligner.ts')).href)
-const { parseLrc, matchSheetToLrc } = await import(pathToFileURL(join(root, 'scripts/lib/lrcTruth.mjs')).href)
+const { parseLrc, matchSheetToLrc, scoreAgainstTruth } = await import(
+  pathToFileURL(join(root, 'scripts/lib/lrcTruth.mjs')).href
+)
 
 function loadWords(path) {
   const raw = JSON.parse(readFileSync(path, 'utf8'))
@@ -39,48 +41,29 @@ function loadWords(path) {
 }
 const readLines = (p) => readFileSync(p, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean)
 
-const median = (xs) => {
-  if (!xs.length) return null
-  const s = [...xs].sort((a, b) => a - b)
-  return s[Math.floor(s.length / 2)]
-}
-const pct = (xs, p) => {
-  if (!xs.length) return null
-  const s = [...xs].sort((a, b) => a - b)
-  return s[Math.min(s.length - 1, Math.floor(p * s.length))]
-}
+const f = (x, w = 5) => (x == null ? ' n/a'.padStart(w) : x.toFixed(2).padStart(w))
+const pc = (x, w = 4) => (x == null ? ' n/a'.padStart(w) : `${Math.round(x * 100)}%`.padStart(w))
 
 function score(name, lines, spans, truthTime, lineTexts) {
-  // Version offset: median of (our anchored evidence − truth) over lines with
-  // BOTH truth and transcript evidence — evidence is version-independent-ish.
-  const diffs = []
-  for (let i = 0; i < lines.length; i++) {
-    if (truthTime[i] == null) continue
-    if (spans[i]?.firstTime != null && spans[i].matchedChars / Math.max(1, spans[i].totalChars) >= 0.5) {
-      diffs.push(spans[i].firstTime - truthTime[i])
-    }
-  }
-  const offset = median(diffs) ?? 0
-
-  const transcriptErr = []
-  const alignErr = []
-  const worst = []
-  for (let i = 0; i < lines.length; i++) {
-    if (truthTime[i] == null) continue
-    const t = truthTime[i] + offset
-    if (spans[i]?.firstTime != null && spans[i].matchedChars / Math.max(1, spans[i].totalChars) >= 0.5) {
-      transcriptErr.push(Math.abs(spans[i].firstTime - t))
-    }
-    const e = Math.abs(lines[i].startTime - t)
-    alignErr.push(e)
-    worst.push({ i, e: +e.toFixed(1), text: lineTexts[i].slice(0, 22) })
-  }
-  worst.sort((a, b) => b.e - a.e)
-  const fmt = (x) => (x == null ? ' n/a' : x.toFixed(2).padStart(5))
+  const m = scoreAgainstTruth(lines, spans, truthTime, { lineTexts })
+  console.log(`${name.padEnd(34)} | offset=${f(m.offset, 6)}s (n=${String(m.nOffsetPairs).padStart(2)})`)
   console.log(
-    `${name.padEnd(34)} offset=${offset.toFixed(2).padStart(6)}s | transcript p50=${fmt(median(transcriptErr))} p90=${fmt(pct(transcriptErr, 0.9))} (n=${transcriptErr.length}) | align p50=${fmt(median(alignErr))} p90=${fmt(pct(alignErr, 0.9))} >1s=${alignErr.filter((e) => e > 1).length}/${alignErr.length} | worst: ${worst.slice(0, 3).map((w) => `#${w.i} ${w.e}s`).join(', ')}`,
+    `  ABSOLUTE (gate)      p50=${f(m.absP50)} p90=${f(m.absP90)} worst=${f(m.absWorst)}` +
+      ` | <=250ms=${pc(m.fracWithin250)} <=500ms=${pc(m.fracWithin500)} <=1s=${pc(m.fracWithin1000)}` +
+      ` | signed mean=${f(m.signedMean, 6)}s (${m.signedMean > 0 ? 'late' : 'early'})`,
   )
-  return { offset, alignErr }
+  console.log(
+    `  residual (diagnostic) p50=${f(m.resP50)} p90=${f(m.resP90)} >1s=${m.resOver1s}/${m.n}` +
+      ` | n=${m.n} worst: ${m.worst.map((w) => `#${w.index} ${w.error}s`).join(', ')}`,
+  )
+  console.log(
+    `  transcript evidence   p50=${f(m.transcriptP50)} p90=${f(m.transcriptP90)} (n=${m.nTranscript})`,
+  )
+  console.log(
+    `  evidence-backed only  p50=${f(m.evP50)} p90=${f(m.evP90)} worst=${f(m.evWorst)} (n=${m.nEvidence})` +
+      ` | NO evidence: ${m.nNoEvidence} lines, worst ${f(m.noEvidenceWorst)}s`,
+  )
+  return m
 }
 
 const SONGS = [
@@ -100,6 +83,8 @@ const SONGS = [
     truth: 'lrc-truth/stranger-than-heaven.json',
     lang: 'mixed',
     configs: [
+      // The app's shipped default (see src/ai-pipeline/alignTimestampMode.ts):
+      // word mode on every transcribing tier.
       { label: 'word ja-only', transcript: 'stranger-than-heaven/transcript.word.json' },
       { label: 'segment ja-only', transcript: 'stranger-than-heaven/transcript.segment.json' },
       // The app's EN-forced pass always transcribes at segment granularity, so word mode pairs a word JA transcript with the segment EN one.
@@ -108,7 +93,33 @@ const SONGS = [
       { label: 'segment medium ja-only', transcript: 'stranger-than-heaven/transcript.segment.medium.json' },
     ],
   },
+  // veil and recollect are gated by tests/ai-pipeline/lrc-truth.test.ts but were
+  // missing from this instrument, so their numbers could not be reproduced by
+  // hand. Kept in the same order as the gate.
+  {
+    name: 'veil',
+    lyrics: 'veil/lyrics.ja.txt',
+    truth: 'lrc-truth/veil.json',
+    lang: 'ja',
+    configs: [{ label: 'word ja-only', transcript: 'veil/transcript.words.json' }],
+  },
+  {
+    name: 'recollect',
+    lyrics: 'recollect/lyrics.txt',
+    truth: 'lrc-truth/recollect.json',
+    lang: 'mixed',
+    configs: [
+      {
+        label: 'segment mixed 2-pass',
+        transcript: 'recollect/transcript.segment.json',
+        transcriptEn: 'recollect/transcript.segment.forced-en.json',
+      },
+    ],
+  },
 ]
+
+console.log('ABSOLUTE error is what the listener hears and is the gate.')
+console.log('residual removes a median version offset and is a diagnostic only.\n')
 
 for (const song of SONGS) {
   const lineTexts = readLines(join(FIXTURES, song.lyrics))

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Token } from '../core/types'
 import { lookupWord, jishoSearchUrl, type WordLookupResult } from '../language/japanese/wordLookup'
-import { useSettingsStore } from '../payment/SettingsStore'
+import { useSettingsStore } from '../settings/SettingsStore'
 import { Overlay } from '../core/ui/Overlay'
 
 interface Props {

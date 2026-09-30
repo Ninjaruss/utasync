@@ -41,10 +41,9 @@ Read `README.md` before auditing. Utasync lets users:
 | AI pipeline | `src/ai-pipeline/` | Whisper/Demucs workers, aligners, auto-align UI |
 | Language | `src/language/` | JP/EN tokenizers, phonetics, grammar, word colors |
 | Cloze | `src/cloze/` | Cloze engine and overlay |
-| Payment | `src/payment/` | License, trial slots, upgrade modal |
-| Settings | `src/settings/` | Settings sheet, storage dashboard |
+| Settings | `src/settings/` | Settings sheet, storage dashboard, settings store |
 
-**Stack:** React 19, Vite 8, Tailwind 3, Zustand, Dexie, OPFS, Howler, SoundTouch, transformers.js, Vitest.
+**Stack:** React 19, Vite 8, Tailwind 3, Zustand, Dexie, OPFS, Howler, transformers.js, Vitest.
 
 **Design specs:** `docs/superpowers/specs/` and `docs/superpowers/plans/`.
 
@@ -161,7 +160,7 @@ Walk each workflow end-to-end. For each, note: **steps, expected behavior, actua
 - [ ] Playlist: play all, stop, compact player during playback, repeat presets
 - [ ] Saved loops list: pagination, rename/move/remove, no scroll traps on mobile
 - [ ] Practice panel: clear open/close affordance; collapsed by default on mobile
-- [ ] Speed presets, slider, double-tap reset; SoundTouch on local audio
+- [ ] Speed presets, slider, double-tap reset; pitch-preserving on local audio, YouTube limited by the embed
 - [ ] Export A/B and playlist export; optional SRT sidecar
 
 #### E. Settings & storage

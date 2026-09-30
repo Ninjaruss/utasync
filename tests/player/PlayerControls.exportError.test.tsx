@@ -22,7 +22,7 @@ const baseProps = {
   volumePct: 75,
   onSpeedChange: () => {},
   onVolumeChange: () => {},
-  abLoop: { a: 10, b: 20, preRoll: 2, loopCount: 3, crossfadeDuration: 0.3 },
+  abLoop: { a: 10, b: 20 },
   armingAB: null,
   abLoopError: null,
   onTogglePlay: () => {},

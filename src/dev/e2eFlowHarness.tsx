@@ -16,7 +16,7 @@ import type { Root } from 'react-dom/client'
 import type { Song } from '../core/types'
 import { db } from '../core/db/schema'
 import { audioStoragePath, deleteAudio, saveAudio } from '../core/opfs/audio'
-import { useSettingsStore } from '../payment/SettingsStore'
+import { useSettingsStore } from '../settings/SettingsStore'
 import { AutoAlignFlow } from '../ai-pipeline/AutoAlignFlow'
 import { computeLineMatchedSpans } from '../ai-pipeline/contentAligner'
 

@@ -1,0 +1,52 @@
+# Static checks only, deliberately — see the note at the bottom before extending this.
+#
+# `tsc -b` and `eslint` both pass as of the commit that adds this file, so the gate
+# is useful from its very first run rather than starting out red.
+#
+# Two things are deliberately NOT here yet:
+#
+#   * `vitest run`. The alignment corpus ratchets are CPU-bound and time out under
+#     load: measured 7 failures while other work shared the CPU, with the same three
+#     files passing 50/50 in isolation, and ~300s for those three files alone. Wired
+#     in today they would make this pipeline fail spuriously, which teaches people to
+#     ignore it. De-flake the ratchet timeouts first, then add the suite here.
+#   * `npm run build`. Its `prebuild` step downloads a ~64 MB model, making it slow
+#     and network-dependent. Add it once that download is cached.
+#
+# `tsc -b` also does NOT typecheck `tests/`: that directory is outside every tsconfig
+# project (`tsconfig.app.json` includes only `src/`), and 81 real type errors live
+# there. Adding `tests/` to the typecheck project is the follow-up that would let
+# this gate catch contract drift in test code — the class of bug that let a shipped
+# loader defect (`alt` senses dropped in src/ai-pipeline/jmdictGloss.ts) and a
+# trust-loop self-comparison go unnoticed.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  static-checks:
+    name: Typecheck and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the development version, so a local pass means a CI pass.
+          node-version: 24
+          cache: npm
+
+      # The `prepare` script runs on install; its ensure-*/copy-* steps are no-ops
+      # because the generated dictionaries and glosses are committed to the repo.
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc -b
+
+      - name: Lint
+        run: npm run lint

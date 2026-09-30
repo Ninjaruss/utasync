@@ -1,0 +1,364 @@
+# Measurement ledger
+
+**Created:** 2026-09-28 (plan item W0.8,
+`docs/superpowers/plans/2026-09-28-automatic-sync-accuracy.md`)
+
+Every number that a threshold, a policy decision, or a piece of user-facing copy rests
+on gets an entry here: **what was measured, by what instrument, whether it is
+reproducible from the repository, and what requirement it serves.** Refutations are
+appended, never silently replaced — because this project's own history is that
+*"every prior round that shipped a threshold on judgement had it later refuted by
+measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`).
+
+## Rules
+
+1. A threshold set to an *observation* is not a requirement. Label which it is. When a
+   bound is set to the current measurement, say so and say what the real target is.
+2. An entry marked **UNSOURCED** is a claim without a measurement. It may not be cited to
+   justify refusing to change behaviour. Either reproduce it, or withdraw it.
+3. An entry marked **CONTRADICTED** means a later measurement disagrees. Keep both, with
+   the conditions under which each holds — do not delete the loser.
+4. Instruments that assert nothing (print-only scripts) do not qualify as sources.
+   `scripts/audit-vs-lrc.mjs` was print-only until 2026-09-28; it now also drives
+   `tests/ai-pipeline/lrc-truth.test.ts`.
+
+---
+
+## Entries
+
+### L1 — "LRCLIB timings are typically about a second out (median 0.24–0.73 s after one constant shift)"
+
+- **Cited at:** `src/core/types/index.ts:170-177` (`timingSource` doc) and
+  `src/player/alignmentPolicy.ts:29-43`, where it is the stated basis for refusing to
+  auto-align already-timed lyrics.
+- **Instrument:** none found. `grep -rn '0.24\|constant shift' docs/` returns nothing; no
+  audit, plan, spec, or test records it; `git log -S` finds no commit introducing the
+  estimators it also refers to.
+- **Status:** **UNSOURCED.** Reproducible from the repository: no.
+- **Why it matters:** this single unverified number suppresses the automatic path for the
+  most common real case (a song whose lyrics came back from LRCLIB already timed), which
+  is the capability the plan exists to build (see plan §0 and W1.2).
+- **Action:** reproduce it against `scripts/align-mode-choice.mjs`-style instrumentation
+  plus a timed fixture, **or** withdraw it and revisit `alignmentPolicy.ts:42`. Until then
+  it must not be the reason no verification runs on timed lyrics.
+
+### L2 — "Two Whisper-free estimators were measured and both missed by ~0.8 s"
+
+- **Cited at:** `src/player/alignmentPolicy.ts:33-35`, immediately after L1, as the second
+  support for the same policy.
+- **Instrument:** none found; the estimators themselves are not in the tree.
+- **Status:** **UNSOURCED.** Reproducible: no.
+- **Note:** the plan's W1.2 Layer 1 does not depend on this being wrong. It depends on the
+  estimator being *corroborated* by per-line onset structure and escalating when it cannot
+  be — which is a different design from the two bare estimators this entry refers to.
+
+### L3 — word timestamps: mean |err| 5.61 s / p90 16.90 s / 29 lines >3 s; segment: 0.74 s / 1.71 s / 1 line
+
+- **Cited at:** `src/ai-pipeline/alignTimestampMode.ts:9-29`, justifying the shipped
+  constant `'word'` on every transcribing tier.
+- **Instrument:** unnamed in the comment; described as "the isolated vocal stem of
+  tests/e2e stranger-than-heaven (same audio, same lyrics, same whisper-small — mode is the
+  only difference)".
+- **Status:** **SOURCEABLE but not reproducible from the repository** — the stem
+  (`public/e2e/*.f32`) and the e2e audio are gitignored, and the script that would produce
+  the numbers (`scripts/e2e-align-stem.mjs`) prints and asserts nothing.
+- **CONTRADICTED on a different audio source, 2026-09-28** by
+  `scripts/align-mode-choice.mjs` on the committed **mix** fixtures:
+
+  | stranger-than-heaven config (mix) | verdict | absP90 | absWorst | no-evidence lines |
+  |---|---|---|---|---|
+  | word two-pass (the app path for this mixed sheet) | 0.729 | **4.13** | 9.16 | 30 |
+  | segment two-pass | 0.729 | 6.50 | 12.35 | 27 |
+  | segment medium | 0.729 | 8.36 | 12.35 | 21 |
+  | word ja-only (not an app path) | — | **34.72** | 36.80 | 34 |
+
+- **Reconciliation:** both are real and they are not in conflict — mode quality depends on
+  the audio source. Word mode loses badly on the stem and wins on the mix; the reverse
+  holds for recollect (verdict 0.453 word vs 0.736 segment; truth absP90 13.50 vs 6.04).
+  A constant therefore cannot be right for every song, whichever value it picks.
+- **Serves:** plan W1.1. Implemented as one automatic escalation under accept-if-better
+  (`src/ai-pipeline/alignModeChoice.ts`), not as a changed constant — the constant remains
+  the first rung.
+
+### L4 — tap latency is "roughly 250–400 ms, and always in the same direction, late"; tapping ~4 flagged spots left 0.30 s mean start error, worst 0.82 s
+
+- **Cited at:** `src/player/DragRetimeStrip.tsx:45-58`, justifying drag-to-retime over
+  tap-to-commit.
+- **Instrument:** "measured on a real song" — not named, not in the tree.
+- **Status:** **SOURCEABLE but not reproducible from the repository.**
+- **Serves:** the plan's perceptual contract C2. The 0.82 s worst line is the tightest
+  product-side accuracy figure in the codebase, which is why C4 (worst line ≤1.0 s) is
+  anchored near it rather than invented.
+
+### L5 — labels catch 22 of the 41 'good' lines that start >1.5 s from truth
+
+- **Cited at:** `src/lyrics/labelHonesty.ts:19-22`.
+- **Instrument:** "Ground truth (LRC + caption onsets over the audit corpus)" — i.e.
+  `tests/ai-pipeline/fixtures/lrc-truth/*` plus the AKFG caption onsets.
+- **Status:** **SOURCED** (in-code), reproducible in kind.
+- **Serves:** plan S7/W2.2. It is recorded here because it is a 54 %-recall detector being
+  described in-code as a success; the recall number is the requirement to improve, and W2
+  asks for it to be measured and asserted rather than restated.
+
+### L6 — vocal isolation cost 15.4 s mean error against 2.8 s on the mix; 0 of 30 rows verified against 21
+
+- **Cited at:** `src/ai-pipeline/stemQuality.ts:80-88` and
+  `AutoAlignFlow.tsx`'s post-transcription stem guard.
+- **Instrument:** live run on AKFG "Rock'n'Roll, Morning Light Falls on You" (THE FIRST
+  TAKE).
+- **Status:** **SOURCEABLE but not reproducible from the repository** (copyrighted audio,
+  untracked).
+- **Serves:** the existing stem-fallback guard, and plan W1.5 (per-song isolation
+  decision). It is the reason "isolation is on by default" is safe, and the reason a
+  per-song decision is worth building.
+
+### L7 — absolute truth error, 2026-09-28 baseline (the plan's Phase 1 numbers)
+
+- **Instrument:** `npx tsx scripts/audit-vs-lrc.mjs`, asserting via
+  `tests/ai-pipeline/lrc-truth.test.ts` (9 configs). Formula in
+  `scripts/lib/lrcTruth.mjs` (`scoreAgainstTruth`).
+- **Status:** **SOURCED and reproducible.**
+- **Serves:** the gate. Measured: guitar word absP50 0.29 / p90 1.93 / worst 2.55, offset
+  +0.31 s (version-exact, so this offset is ours); guitar segment 0.39 / 2.29 / 5.83,
+  offset +0.36; veil 0.26 / 0.98 / 1.91, offset −0.02; recollect 1.77 / 6.04 / 8.30,
+  offset +0.15; stranger configs 1.20–2.15 / 4.13–34.72, offset +1.20…+1.40 (its LRC is a
+  237 s edit of our 233.57 s audio, so much of that offset is a version difference).
+  Only 44 % of guitar-loneliness word lines land within 250 ms.
+- **Note:** the thresholds in `lrc-truth.test.ts` are these values plus ~10 % — they are
+  ratchets, **not** requirements. The requirements are C1–C4.
+
+### L8 — mode-selection thresholds (`alignModeChoice.ts`)
+
+- **Instrument:** `scripts/align-mode-choice.mjs` (verdict vs truth, per mode, per song).
+- **Status:** **SOURCED and reproducible.**
+- **Serves:** plan W1.1. `MODE_ESCALATION_MIN_UNVERIFIED_SHARE = 0.2` is calibrated
+  between the "already fine" case (guitar-loneliness: 7 of 47 = 15 %, and word mode IS the
+  better mode there) and the doubtful ones (stranger 47 %, recollect 81 %).
+  `MODE_ESCALATION_MIN_GAIN = 0.02` exists so a tie or a marginal gain keeps the run
+  already in hand.
+
+### L10 — global-offset estimator gates (`offsetEstimate.ts`)
+
+- **Instrument:** `tests/ai-pipeline/tierA.audio.test.ts` (real committed audio, Tier A)
+  plus `tests/ai-pipeline/offsetEstimate.test.ts` (constructed signals).
+- **Status:** **SOURCED and reproducible.** The Tier A clips are generated from this
+  repo's own code by `scripts/make-tier-a.mjs`, so they can be committed and re-derived.
+- **Measured:** with a known 0.48 s lag planted in the claimed starts, the estimator
+  recovers it to within **0.030–0.050 s** on all five unmasked clips — inside the
+  perceptual contract's C1 (100 ms). On the clip whose carrier is masked inside the
+  vocal band it returns **no estimate** (correct refusal). The gates are set from those
+  measurements, not chosen:
+  - `MIN_MEDIAN_RISE = 0.15` — measured 0.65–0.87 for carriers audible in the band,
+    **0.023** for a masked one. Two orders of magnitude, so the margin is not delicate.
+  - `MAX_SHIFT_SEC = 0.75` — identifiability, not cost. Onsets are ~1.4 s apart, so a
+    1.4 s shift lands claimed starts on the *next* onset and scores equally: measured, a
+    true −0.48 s and a spurious −1.84 s both scored a 0.857 median rise at a 1.00 onset
+    share. Restricting the range to below half a line's spacing removes the ambiguity;
+    anything larger is a version mismatch the caller must escalate.
+  - `ALREADY_CONSISTENT_SEC = 0.08` — inside this, the estimator refuses, because
+    shifting timings that already fit the audio is damage for no gain.
+- **Serves:** plan W1.2 Layer 1, and the D3 decision to replace the unsourced policy at
+  `alignmentPolicy.ts:42` with a cheap acoustic screen.
+- **CAVEAT, and it is the important part:** this validates the estimator on *synthesized*
+  carriers, which have onsets but no words. It says nothing about how the estimator
+  behaves on real singing under real instrumentation. That requires the user's own
+  recordings (Tier A `pendingUserRecordings`, plan W0.5) and is NOT claimed here.
+
+### L11 — "a late ramp from line #31 onward (+24 s decaying to +2 s)" (the word-mode claim)
+
+- **Cited at:** `src/ai-pipeline/alignTimestampMode.ts:9-29`, as the explanation for the
+  word-mode failure and the reason segment mode is the recovery.
+- **Instrument:** claimed to be the isolated vocal stem of the e2e fixture. That stem is
+  **not in the repository** (`public/e2e/` is gitignored), and the script that would
+  produce the number (`scripts/e2e-align-stem.mjs`) prints and asserts nothing — so the
+  claim was unverifiable by anyone else.
+- **Status:** **NOT REPRODUCIBLE from the repository**, and **REFUTED for committed
+  data.** `scripts/align-drift-profile.mjs` (built for this, and now the gate for plan
+  W1.1.1) fits a robust Theil-Sen drift on evidence-backed lines only:
+  guitar word −0.007 s/line (−0.31 s across 45 lines), guitar segment +0.005, stranger
+  word ja-only −0.010 (−0.55 s across 55), stranger word two-pass (the app path) −0.008,
+  stranger segment two-pass 0.000, veil +0.001. **Nothing reaches the 1 s-across-the-song
+  threshold where drift would be worth acting on.**
+- **What the first version of the instrument got wrong, recorded because it is the
+  pattern this ledger exists to catch:** least-squares on the same data reported
+  −0.209 s/line for stranger word ja-only and −0.092 for recollect. Both were artefacts —
+  the first driven by a single −36.8 s line, the second fitted to 10 points. A robust
+  estimator plus a minimum-n floor and a total-magnitude threshold replaced it, and
+  recollect now reports NOT FITTED instead of a number.
+- **The real mechanism at stranger #31–#50:** those lines' signed error swings to −1…−3 s
+  while their matched-span coverage is BELOW the evidence floor. They are interpolated
+  across the alternate-take evidence desert (L3/L5's fixture problem), not carried by a
+  drifting transcript clock.
+- **Consequence for the plan:** **W1.1.1 (transcript ramp repair) is blocked, not
+  pending.** A repair for a drift that cannot be demonstrated in any fixture has no
+  instrument that could verify it, which is precisely the failure mode the accuracy plan
+  exists to break. Do not implement it until committed audio (W0.5) makes the ramp
+  measurable — or shows it is not there at all.
+
+### L14 — the truth-free trust verdict: what it can and cannot certify
+
+- **Instrument:** `scripts/align-trust-calibration.mjs` (against LRC truth) and
+  `tests/ai-pipeline/alignmentTrust.test.ts` (contract). Module:
+  `src/ai-pipeline/alignmentTrust.ts`.
+- **Why it exists:** the product intent is "when there are no timed lyrics, the aligner
+  does its best and is then AUTO-CORRECTED until the sync is accurate". A correction loop
+  needs an acceptance test that works at runtime, where there is no answer key. The shipped
+  per-line labels are not it — they are demotions tuned for zero collateral, catching 22 of
+  41 known >1.5 s errors (L5).
+- **Status:** **SOURCED.** The text half is reproducible from committed fixtures; the
+  acoustic half needs `public/e2e/` audio (copyrighted, uncommitted) and is therefore
+  **developer-run only**, like L3/L4/L6.
+- **Measured, pooled over 8 configs, per tier, against truth:**
+
+  | tier | n | p50 | p90 | worst | within 0.5 s |
+  |---|---|---|---|---|---|
+  | verified | 11 | 0.31 | **1.91** | **2.55** | **55%** |
+  | weak | 258 | 0.94 | 2.88 | 12.35 | 35% |
+  | unverified | 122 | 2.10 | **8.74** | 20.60 | 13% |
+
+  Verified p90 is **4.6x** better than unverified, so the tiers genuinely rank true accuracy.
+
+- **FINDING 1 — a text-only verdict cannot certify anything.** Built on transcript evidence
+  alone it put **145** lines in `verified`, whose worst member sat **12.35 s** from truth,
+  at 40% within 0.5 s. The line sat exactly on its own matched evidence; the *evidence* was
+  12 s wrong. This is blindspot S2 reappearing inside the very module meant to detect
+  misalignment, and it is the same root cause as the labels' 54% recall: text evidence
+  validates an alignment against the **transcript**, never against the **recording**.
+- **FINDING 2 — acoustic corroboration is what fixes it, and it is not optional.** Adding a
+  single check — does vocal energy RISE across the line's start (the same statistic
+  `offsetEstimate` uses, so the two modules agree on what an onset is) — moves the top tier
+  to **11 lines, worst 2.55 s, 55% within 0.5 s**. The 12.35 s line is correctly demoted.
+  The gate is strict: on guitar-loneliness it cuts 26 verified to 5, and on four configs to
+  zero. Part of that strictness is the **mix** envelope, which the code itself calls the
+  weaker source; a stem envelope would be a fairer test and is the next measurement.
+- **FINDING 3 — no config converges, and that is a statement about the pipeline, not the
+  threshold.** `converged` fired **0/8**, including veil, which is the *good* case (p90
+  0.98 s, zero lines over 2 s). The threshold was deliberately left where it is: loosening
+  it until it says yes is the threshold-laundering this ledger exists to catch. Consequence
+  for the product intent: a correction loop **cannot terminate on quality today**. It must
+  iterate while the verdict IMPROVES (`isBetterAlignment`) and report the residual
+  honestly. The levers that would make convergence reachable are measured, not guessed:
+  L12 (prior reconciliation, 8/8), L13 (medium's coverage: −7 no-evidence lines), the
+  mode escalation already shipped, and a stem-quality envelope.
+- **PRODUCT IMPLICATION, and it matters for copy.** "A line called verified is within 0.5 s
+  55% of the time" is the reliability figure any UI would be claiming if it labelled rows
+  `verified`. **55% is not good enough to show a user as an assurance.** The tiers are fit
+  for *targeting repairs* and for *internal* accept-if-better decisions; they must not be
+  surfaced as a per-line promise until the top tier is materially tighter.
+
+### L15 — the stem envelope, and the two gates that cap convergence
+
+- **Instrument:** `scripts/align-trust-calibration.mjs` (mix and stem sections).
+- **Status:** **SOURCEABLE but not reproducible from the repository** — the stems
+  (`public/e2e/*.vocals44k.f32`) are copyrighted and uncommitted. Numbers recorded, audio
+  untouched, same rule as L3/L4/L6/L14.
+- **Measured, same 4 configs (stranger x3 + veil), so the sources are comparable:**
+
+  | acoustic source | verified n | p50 | p90 | worst | within 0.5 s |
+  |---|---|---|---|---|---|
+  | mix envelope | 6 | 0.75 | 1.91 | 1.91 | 33% |
+  | **stem envelope** | **33** | 0.64 | 1.91 | 2.65 | **45%** |
+
+  My hypothesis was that a stem would *tighten* the top tier. It does not — it **widens
+  recall 5.5x at equal p90**. Both figures matter and the honest reading is the second one:
+  a convergence signal needs lines it can actually verify, so the stem is the better source
+  for a correction loop even though it is marginally noisier at the tail. (An earlier
+  version of this table compared 4 stem configs against 8 mix configs, which was not a
+  comparison at all; corrected before recording.)
+- **FINDING — convergence is capped by TWO independent gates, and blending them hid the
+  difference.** A line the transcript never reached can never be verified, however good the
+  audio is, so measuring the verified share over all lines made convergence unreachable on
+  any song with transcript holes — while holes are this corpus's dominant error term.
+  Measured against a 70% share / 25% no-evidence requirement:
+
+  | config | verifiedShare | noEvidenceShare | binding gate |
+  |---|---|---|---|
+  | veil word | 14% | 17% | **placement** (coverage is fine) |
+  | stranger word two-pass | 3% | 41% | both |
+  | stranger segment two-pass | 0% | 41% | both |
+  | stranger segment-medium | 0% | 27% | both |
+
+  So `verifiedShare` is now measured over ELIGIBLE lines with `noEvidenceShare` reported and
+  bounded separately. That is not moving the goalposts: it separates "the transcript never
+  reached this line" — a coverage problem that gap re-transcription or a better model
+  addresses (L13) — from "the placement is not supported", a placement problem. Blended,
+  no amount of placement work could move the number.
+- **Still 0/8 converged**, for named reasons rather than one opaque shortfall. The levers
+  are therefore specific: coverage work on the stranger/recollect configs (L13, gap
+  recovery), placement work on veil.
+
+### L12 — reconciling against an already-timed prior beats aligning from scratch (8/8)
+
+- **Instrument:** `scripts/align-ablation.mjs --axis=prior`; gated in
+  `tests/ai-pipeline/lrc-truth.test.ts` ("a correctly-shaped prior never loses to aligning
+  from scratch", 6 assertions over 3 pairs × 2 prior error sizes).
+- **Status:** **SOURCED and reproducible.**
+- **Measured** across 8 song-mode pairs, with the prior perturbed by a constant offset:
+
+  | prior error | mean absP90 | better | tie | worse |
+  |---|---|---|---|---|
+  | +0.0 s (already exact) | 1.52 | 8 | 0 | 0 |
+  | +0.3 s | 1.44 | 8 | 0 | 0 |
+  | +0.7 s | 1.44 | 8 | 0 | 0 |
+  | +1.4 s | 1.44 | 8 | 0 | 0 |
+  | +2.5 s | 1.89 | 8 | 0 | 0 |
+
+  Scratch mean absP90 across the same pairs: **5.47**. Individual examples: recollect
+  segment two-pass p50 1.77 → **0.07** and within-250 ms 21% → **83%**; stranger word
+  two-pass absP90 4.13 → **1.79**. Nothing got worse, at any error size. The jump at
+  +2.5 s is `fitPriorTimeMap`'s own 2.5 s inlier tolerance, i.e. a tunable, not a cliff.
+- **What it settles:** the policy at `src/player/alignmentPolicy.ts:42` — refuse to align
+  lyrics that already carry timings — is not merely unsourced (L1/L2), it is **actively
+  costly**. Reconciling against a prior is the single largest measured win in this ledger.
+- **THE CAVEAT THAT KEEPS THIS HONEST:** the prior constructed here has **truth's relative
+  structure** and only a constant offset. That is what a duration-matched catalogue entry
+  *should* be; it is not proven to be. This entry says "reconciliation cannot lose to
+  scratch when the prior's shape is right". It does **not** say real LRCLIB entries have
+  the right shape, and must not be cited for that. Settling it needs a handful of real
+  songs with a duration-matched catalogue entry — which does **not** require the user's
+  singing.
+- **Why it is not auto-applied yet:** running alignment costs a full transcription
+  (minutes), and auto-applying a *shift* from `offsetEstimate` would mutate a user's
+  timings on evidence from synthesized carriers only (L10). Both are gated on real-audio
+  validation. Note the machinery already exists and is wired: `applyLrcPrior` runs inside
+  AutoAlignFlow for any song with outside timing, so the prior-aware path is reachable
+  today — the gap is discoverability, not capability.
+
+### L13 — whisper-medium's benefit is ANCHORING, not finer timestamps
+
+- **Instrument:** `scripts/align-ablation.mjs --axis=mode`.
+- **Status:** **SOURCED and reproducible.**
+- **Measured** on stranger-than-heaven, same lyrics, ja-only:
+
+  | mode | absP50 | absP90 | no-evidence lines | evP90 |
+  |---|---|---|---|---|
+  | segment (small) | 2.15 | 32.39 | **33** | 4.46 |
+  | segment-medium | **1.20** | **8.14** | **26** | **1.79** |
+
+  Medium removes 7 lines' worth of evidence absence and cuts the evidence-backed p90 by
+  60%. The dominant error term in this corpus is *lines the transcript never reaches at
+  all* (34 of 59 on the worst config), not the precision of the lines it does reach — and
+  the bigger model's real contribution is reaching more of them.
+- **Serves:** the deferred D9 (escalation cost) and W1.5. It reframes the "high accuracy"
+  option from a timestamp-fineness upgrade to a **coverage** upgrade, which is what a
+  cost/benefit decision needs to know.
+
+### L9 — perceptual contract C1–C4 (plan §3)
+
+- **Instrument:** none yet. Proposed from L4 (the tightest product-side figure) and karaoke
+  usability practice.
+- **Status:** **UNRATIFIED.** Deliberately not presented as measured.
+- **Serves:** plan decision item 1. Until ratified by ear on real songs, C1–C4 are a
+  proposed requirement, and the ratchets in L7 are what CI can actually enforce.
+
+---
+
+## Refutation log
+
+| date | entry | what happened |
+|---|---|---|
+| 2026-09-28 | L3 | The plan's first draft asserted the shipped word mode was catastrophic on the committed evidence. Measurement refuted it: on the mix fixtures word two-pass is the *best* of three (absP90 4.13 vs 6.50 vs 8.36). The stem measurement still stands. Corrected in the plan's §0 and recorded here. |
+| 2026-09-28 | L12 | The plan's D3 assumed the replacement for `alignmentPolicy.ts:42` was a cheap *screen* (L10). Measurement showed the bigger prize is prior *reconciliation* (L12): 8/8 pairs improved, mean absP90 5.47 → 1.44. The screen is still what makes auto-application safe, but the ordering of W1.2's layers changed — Layer 3 is the highest-value part, and its machinery was already wired and unreachable. |
+| 2026-09-28 | L11 | The plan's Phase-2 centrepiece (W1.1.1, transcript ramp repair) was designed around the "+24 s decaying to +2 s" ramp. Measuring it for the first time against committed fixtures found no meaningful drift anywhere. W1.1.1 is therefore blocked on real audio rather than queued, and the drift instrument became a deliverable instead of the repair. |
+| 2026-09-28 | L10 | The first `MAX_SHIFT_SEC` (3.5 s) produced a confidently wrong answer on a masked carrier and could not distinguish a true −0.48 s shift from a spurious −1.84 s one. Both were measured, and the range plus the magnitude gate were set from those numbers. |
+| 2026-09-28 | `bnd_measured` | Emitted as a *string* so it was exempt from the numeric guards, which let a corpus row be committed with **0** measurable boundary lines and eight vacuous `0 ≤ 0` assertions. Made numeric with a higher-is-better guard in `scripts/audit-corpus.mjs`, a coverage floor in `tests/ai-pipeline/corpus-scorecard.test.ts`, and an explicit `ZERO_COVERAGE_BY_DESIGN` set naming the one row allowed to score nothing. Both guards were verified to FAIL when coverage collapses (baseline raised above actual) and to pass when restored. |

@@ -12,7 +12,6 @@ vi.mock('../../src/player/AudioEngine', () => ({
     onTimeUpdate() {} onEnd() {}
   },
 }))
-vi.mock('../../src/payment/trial', () => ({ canUsePro: () => true }))
 
 beforeEach(async () => {
   await db.songs.clear()

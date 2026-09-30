@@ -1,0 +1,85 @@
+{
+  "_comment": "Provenance for every Whisper transcript fixture the audit corpus aligns against. Guarded by tests/ai-pipeline/fixtureProvenance.guard.test.ts. A fixture either records the config that produced it (config, compared against the live config's fingerprint) or declares itself unverified with a reason. The unverified set is COUNTED and asserted, so it cannot grow silently: adding a fixture, or changing the transcription configuration, fails the guard until someone records what happened. See docs/superpowers/plans/2026-09-28-automatic-sync-accuracy.md (W0.3) and docs/superpowers/audits/2026-09-28-measurement-ledger.md.",
+  "_unverifiedBaseline": {
+    "count": 19,
+    "why": "19 of the registry entries predate provenance: the 18 transcripts the corpus aligns against, plus stranger-than-heaven/transcript.word.forced-en.json, which is retained unreferenced as evidence that word-granularity forced-EN is a no-op for the merge. All predate this registry. They were produced by hand on one developer machine (scripts/transcribe-file.mjs) before any provenance was recorded, from audio that is deliberately not committed (.gitignore excludes public/e2e/ and .cache/ because it is copyrighted). Their model, timestamp mode, language forcing and transformers.js version are therefore UNKNOWABLE — not merely unrecorded. This is the honest state: the corpus cannot be re-derived by anyone else, which is why every number computed from it inherits the caveat. Do not lower this count by inventing values; lower it by re-deriving fixtures against committed audio (plan W0.5)."
+  },
+  "fixtures": {
+    "veil/transcript.words.json": {
+      "unverified": true,
+      "note": "Word-granularity (name says 'words'). Progenitor unknown; the .cache/auto-align-audit run is the only description."
+    },
+    "akfg/transcript.word.json": {
+      "unverified": true,
+      "note": "Word granularity, AKFG THE FIRST TAKE."
+    },
+    "akfg/transcript.segment.json": {
+      "unverified": true,
+      "note": "Segment granularity, AKFG THE FIRST TAKE."
+    },
+    "akfg/transcript.word.garbled.json": {
+      "unverified": true,
+      "note": "Not a Whisper run at all: synthesized from transcript.word.json by scripts/make-garbled-fixture.mjs (deterministic chunk deletion + one injected fake chunk). The generator is in the repo, so this one IS reproducible — but from a transcript whose own provenance is unknown."
+    },
+    "akfg/transcript.word.instrumental.json": {
+      "unverified": true,
+      "note": "Synthesized from transcript.word.json by scripts/make-instrumental-fixture.mjs (deterministic deletion + injected noise morae). Reproducible generator, unknown base transcript."
+    },
+    "my-eyes-only.transcript.json": {
+      "unverified": true,
+      "note": "The mp3 is no longer on disk, so this fixture is not reproducible even locally. Also the basis of the transcript-derived 'truth' array that tests/ai-pipeline/alignment-benchmark.test.ts used to call ground truth."
+    },
+    "stranger-than-heaven/transcript.word.json": {
+      "unverified": true,
+      "note": "Word granularity on the raw mix (not a stem)."
+    },
+    "stranger-than-heaven/transcript.segment.json": {
+      "unverified": true,
+      "note": "Segment granularity on the raw mix."
+    },
+    "stranger-than-heaven/transcript.word.autolang.json": {
+      "unverified": true,
+      "note": "Auto-language-detect run; replays Whisper's per-chunk language flapping by design (a robustness fixture, not a quality fixture)."
+    },
+    "stranger-than-heaven/transcript.segment.autolang.json": {
+      "unverified": true,
+      "note": "Auto-language-detect segment run. Scores ZERO boundary lines by design — see ZERO_COVERAGE_BY_DESIGN in tests/ai-pipeline/corpus-scorecard.test.ts."
+    },
+    "stranger-than-heaven/transcript.word.medium.json": {
+      "unverified": true,
+      "note": "whisper-medium, word granularity (high-accuracy opt-in path)."
+    },
+    "stranger-than-heaven/transcript.segment.medium.json": {
+      "unverified": true,
+      "note": "whisper-medium, segment granularity."
+    },
+    "stranger-than-heaven/transcript.segment.forced-en.json": {
+      "unverified": true,
+      "note": "Forced-English pass. Referenced as transcriptEn by the mixed rows; the app always transcribes this pass at segment granularity."
+    },
+    "stranger-than-heaven/transcript.word.forced-en.json": {
+      "unverified": true,
+      "note": "Forced-English WORD pass, retained unreferenced as evidence that word-granularity forced-EN is a no-op for the merge (round-5 finding A1: confidence ceiling 0.380 against a 0.443 gate). Not used by the corpus."
+    },
+    "recollect/transcript.word.json": {
+      "unverified": true,
+      "note": "Word granularity, dense JA/EN code-switching, non-isolated."
+    },
+    "recollect/transcript.segment.json": {
+      "unverified": true,
+      "note": "Segment granularity, dense JA/EN code-switching, non-isolated."
+    },
+    "recollect/transcript.segment.forced-en.json": {
+      "unverified": true,
+      "note": "Forced-English segment pass for the mixed rows."
+    },
+    "guitar-loneliness/transcript.word.json": {
+      "unverified": true,
+      "note": "Word granularity. Heavily garbled on this recording (see round-5 finding A3), which is why the acoustic onset backfill matters here."
+    },
+    "guitar-loneliness/transcript.segment.json": {
+      "unverified": true,
+      "note": "Segment granularity."
+    }
+  }
+}

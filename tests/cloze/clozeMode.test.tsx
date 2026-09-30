@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { LyricDisplay } from '../../src/lyrics/LyricDisplay'
 import { useLyricsStore } from '../../src/lyrics/LyricsStore'
-import { useSettingsStore } from '../../src/payment/SettingsStore'
+import { useSettingsStore } from '../../src/settings/SettingsStore'
 import type { TimedLine } from '../../src/core/types'
 
 vi.mock('../../src/language/japanese/wordLookup', async (importOriginal) => {

@@ -28,9 +28,6 @@ export const DEFAULT_VOLUME = 0.75
 const DEFAULT_AB_LOOP: ABLoop = {
   a: null,
   b: null,
-  preRoll: 0,
-  loopCount: 3,
-  crossfadeDuration: 0.3,
 }
 
 export const usePlayerStore = create<PlayerState>()(
@@ -71,8 +68,7 @@ export const usePlayerStore = create<PlayerState>()(
         speed: s.speed,
         volume: s.volume,
         // `abLoop` (a/b) is intentionally NOT persisted: the endpoints are
-        // song-relative and transient, and the other fields (preRoll/loopCount/
-        // crossfadeDuration) are unused. Persisting them only rehydrated stale
+        // song-relative and transient, so persisting them only rehydrated stale
         // timestamps onto whatever song opened next.
       }),
       storage: createJSONStorage(() => safeLocalStorage),

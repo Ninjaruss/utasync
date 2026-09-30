@@ -1,0 +1,139 @@
+{
+  "_comment": "Tier A committed audio (plan W0.5). Synthesized by scripts/make-tier-a.mjs — deterministic, so re-running reproduces these bytes and a hash mismatch is a real error. These clips exercise the AUDIO-FEATURE path (vocal-activity envelope, onset detection, global-offset estimation) against ground truth known by construction. They contain NO WORDS and must never be used to claim lyric-alignment accuracy; see pendingUserRecordings.",
+  "generator": "scripts/make-tier-a.mjs",
+  "sampleRate": 16000,
+  "clips": [
+    {
+      "file": "onsets-clean.wav",
+      "sampleRate": 16000,
+      "durationSec": 14,
+      "sha256": "a4b6121613c8e42f0ee222cb4a8038c93050bd08cc7459b722a2ac67e524d369",
+      "purpose": "dsp-plumbing",
+      "claimsLyrics": false,
+      "condition": "clean carrier: unambiguous onsets, nothing masking",
+      "expect": "offsets recoverable",
+      "trueOnsets": [
+        1,
+        2.4,
+        3.8,
+        5.1,
+        6.6,
+        8,
+        9.3,
+        10.7,
+        12.1
+      ]
+    },
+    {
+      "file": "onsets-over-bass-bed.wav",
+      "sampleRate": 16000,
+      "durationSec": 14,
+      "sha256": "999f20dbcb003e6b35fbf7e1ea3a0226336d419a0e635dd3b4312a995d94c2d2",
+      "purpose": "dsp-plumbing",
+      "claimsLyrics": false,
+      "condition": "same onsets under a loud BED OUTSIDE the vocal band (busy mix, bass/drums)",
+      "expect": "offsets recoverable",
+      "trueOnsets": [
+        1.2,
+        2.6,
+        4,
+        5.3,
+        6.8,
+        8.2
+      ]
+    },
+    {
+      "file": "silent-intro.wav",
+      "sampleRate": 16000,
+      "durationSec": 14,
+      "sha256": "0a60f6e827e12ab0240813096c0ae8f489a09b3af62c8aa838ff9a5e32e5ed4e",
+      "purpose": "dsp-plumbing",
+      "claimsLyrics": false,
+      "condition": "long intro with NO carrier before the first onset",
+      "expect": "first onset located after the intro, not at t=0",
+      "trueOnsets": [
+        7,
+        8.4,
+        9.9,
+        11.3,
+        12.6
+      ],
+      "introSec": 7
+    },
+    {
+      "file": "instrumental-break.wav",
+      "sampleRate": 16000,
+      "durationSec": 16,
+      "sha256": "6a77ce2e8cfcf116e0dc35b5e975ab3a25068b715870e3e3ad26ff1b43cea9b3",
+      "purpose": "dsp-plumbing",
+      "claimsLyrics": false,
+      "condition": "carrier, then a vocal-free break, then carrier again",
+      "expect": "the break reads as unvoiced, not as a smeared onset",
+      "trueOnsets": [
+        1,
+        2.3,
+        3.6,
+        4.9,
+        12,
+        13.3,
+        14.6
+      ],
+      "breakSec": [
+        6,
+        11.5
+      ]
+    },
+    {
+      "file": "level-change.wav",
+      "sampleRate": 16000,
+      "durationSec": 14,
+      "sha256": "1c5ce303b49d18e22d215242c5594e76bdea44bc71a3dd24bc789a7bdc0677d7",
+      "purpose": "dsp-plumbing",
+      "claimsLyrics": false,
+      "condition": "quiet carrier (-14 dB) then loud carrier — the quiet-verse case",
+      "expect": "onsets found in BOTH halves despite a 14 dB level change",
+      "trueOnsets": [
+        1,
+        2.4,
+        3.8,
+        5.2,
+        7,
+        8.4,
+        9.8,
+        11.2,
+        12.6
+      ],
+      "quietSec": [
+        0,
+        6.5
+      ]
+    },
+    {
+      "file": "masked-carrier.wav",
+      "sampleRate": 16000,
+      "durationSec": 14,
+      "sha256": "cbad29de4d4bc43658e6aba7853e390787cf19858b224dc330911917b6e7859a",
+      "purpose": "dsp-plumbing",
+      "claimsLyrics": false,
+      "condition": "carrier buried under a bed INSIDE the same 150-4000 Hz band",
+      "expect": "estimator must REFUSE (inconclusive), not guess",
+      "trueOnsets": [
+        1,
+        2.4,
+        3.8,
+        5.2,
+        6.6,
+        8,
+        9.4,
+        10.8,
+        12.2
+      ],
+      "masked": true
+    }
+  ],
+  "pendingUserRecordings": {
+    "why": "Absolute lyric accuracy cannot be validated without real singing. Synthesizing a voice and calling the result a lyric-accuracy measurement is the one thing this corpus must not do.",
+    "what": "Record 8-10 clips of your own singing, 55-75s each, into tests/ai-pipeline/fixtures/tier-a/source/ (any WAV/MP3), with the sung lyrics beside them as <name>.lyrics.txt. Cover: sung Japanese, sung English, mixed JA/EN, fast delivery, a repeated chorus, spoken intro, ad-libs over the lead, and one deliberately mismatched lyrics sheet.",
+    "then": "Run scripts/make-tier-a.mjs --from-source to emit deterministic, degraded variants (reverb, tempo/pitch shift, level changes) plus their manifests, and wire them into the accuracy gate. See plan W0.5 and W4.3."
+  }
+}

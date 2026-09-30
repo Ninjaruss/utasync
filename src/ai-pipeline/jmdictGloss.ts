@@ -83,6 +83,11 @@ export function loadJmdictGloss(): Promise<JmdictGlossData | null> {
         romaji: parsed.romaji ?? {},
         kanji: parsed.kanji ?? {},
         kanjiGloss: parsed.kanjiGloss ?? {},
+        // `alt` MUST be carried through: the build script ships it (24k entries) and
+        // getJmdictAltGlosses reads it, so dropping it here silently disabled
+        // secondary-sense pairing while the build artifact and the injected-payload
+        // tests both still looked correct.
+        alt: parsed.alt ?? {},
       }
       lastLoadFailureAt = 0
       return data

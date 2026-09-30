@@ -32,7 +32,7 @@ import {
   type UploadSavePhase,
 } from './addSongProgress'
 import { resolveCoverArt } from './coverArt'
-import { getDefaultSongLanguage } from '../payment/SettingsStore'
+import { getDefaultSongLanguage } from '../settings/SettingsStore'
 import { inferPreferredLyricsLanguage } from './lyricsMatch'
 
 type ManualLyricSource = 'paste' | 'subtitle'

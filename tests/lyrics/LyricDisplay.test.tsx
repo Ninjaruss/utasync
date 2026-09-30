@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { LyricDisplay } from '../../src/lyrics/LyricDisplay'
 import { useLyricsStore } from '../../src/lyrics/LyricsStore'
-import { useSettingsStore } from '../../src/payment/SettingsStore'
+import { useSettingsStore } from '../../src/settings/SettingsStore'
 import type { TimedLine } from '../../src/core/types'
 
 vi.mock('../../src/language/japanese/wordLookup', async (importOriginal) => {
@@ -335,7 +335,7 @@ describe('A-B loop region highlight', () => {
     const { container } = render(
       <LyricDisplay
         onLineClick={vi.fn()}
-        abLoop={{ a: 0, b: 2.5, preRoll: 2, loopCount: 3, crossfadeDuration: 0.3 }}
+        abLoop={{ a: 0, b: 2.5 }}
       />,
     )
     const inLoop = container.querySelector('[class*="border-l-2"]')
@@ -353,7 +353,7 @@ describe('A-B loop region highlight', () => {
     const { container } = render(
       <LyricDisplay
         onLineClick={vi.fn()}
-        abLoop={{ a: 0, b: 2.5, preRoll: 0, loopCount: 3, crossfadeDuration: 0.3 }}
+        abLoop={{ a: 0, b: 2.5 }}
         playlistActive
         playlistIndex={0}
         playlistEntries={[

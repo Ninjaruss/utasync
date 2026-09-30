@@ -64,7 +64,7 @@ Whisper (`Xenova/whisper-small`) and embedding models download from Hugging Face
 
 Utasync does not use `.env` files for runtime configuration. The app reads `import.meta.env.DEV` for development-only UI.
 
-Utasync ships with no licensing, account or payment code — `src/payment/` contains only the settings store. There is no licence key to configure.
+Utasync ships with no licensing, account or payment code, and no serverless functions. There is no licence key to configure.
 
 ## Run locally
 

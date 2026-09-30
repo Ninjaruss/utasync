@@ -15,7 +15,7 @@ const baseProps = {
   volumePct: 75,
   onSpeedChange: () => {},
   onVolumeChange: () => {},
-  abLoop: { a: null, b: null, preRoll: 2, loopCount: 3, crossfadeDuration: 0.3 },
+  abLoop: { a: null, b: null },
   armingAB: null,
   abLoopError: null,
   onTogglePlay: () => {},
@@ -32,7 +32,7 @@ const baseProps = {
 describe('SavedLoopsPanelSection toggle', () => {
   it('shows Open when collapsed and Close when expanded', () => {
     usePlayerStore.setState({
-      abLoop: { a: null, b: null, preRoll: 2, loopCount: 3, crossfadeDuration: 0.3 },
+      abLoop: { a: null, b: null },
     })
     render(<PlayerControls {...baseProps} />)
 

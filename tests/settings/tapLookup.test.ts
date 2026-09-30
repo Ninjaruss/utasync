@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { useSettingsStore } from '../../src/payment/SettingsStore'
+import { useSettingsStore } from '../../src/settings/SettingsStore'
 
 describe('tapLookupEnabled setting', () => {
   it('defaults to on', () => {

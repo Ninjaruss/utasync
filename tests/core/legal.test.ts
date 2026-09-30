@@ -17,7 +17,8 @@ const TERMS = read('public/terms/index.html')
  * These assertions used to demand the opposite: they required `Payhip` to appear
  * in both policies, which froze in place a Pro tier, licence keys, and a
  * licence-verification endpoint the app has never had (`grep -i licen src` → no
- * hits; `src/payment/` holds only the settings store). A test that asserts policy
+ * hits; the store that lived under `src/payment/` is now `src/settings/SettingsStore.ts`
+ * and no payment code remains). A test that asserts policy
  * prose the code does not implement can only fail for the wrong reason, so it now
  * checks the claims that are true — and that the unshipped ones are gone.
  */

@@ -8,7 +8,7 @@ describe('PlayerStore volume', () => {
 })
 
 describe('PlayerStore A/B arming', () => {
-  beforeEach(() => usePlayerStore.setState({ armingAB: null, abLoop: { a: null, b: null, preRoll: 2, loopCount: 3, crossfadeDuration: 0.3 } }))
+  beforeEach(() => usePlayerStore.setState({ armingAB: null, abLoop: { a: null, b: null } }))
 
   it('arms an endpoint', () => {
     usePlayerStore.getState().armAB('a')
@@ -24,7 +24,7 @@ describe('PlayerStore A/B arming', () => {
 })
 
 describe('PlayerStore song switching', () => {
-  beforeEach(() => usePlayerStore.setState({ currentSongId: 'song-1', armingAB: null, abLoop: { a: null, b: null, preRoll: 2, loopCount: 3, crossfadeDuration: 0.3 } }))
+  beforeEach(() => usePlayerStore.setState({ currentSongId: 'song-1', armingAB: null, abLoop: { a: null, b: null } }))
 
   // A/B endpoints are timestamps in one song's audio. Carrying them to a
   // different song would seek the wrong moments (and they used to persist to

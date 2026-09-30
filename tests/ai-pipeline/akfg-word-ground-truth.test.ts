@@ -5,6 +5,27 @@ import { fileURLToPath } from 'node:url'
 import { sanitizeTranscript } from '../../src/ai-pipeline/aligner'
 import { refineAlignmentWithPhrases } from '../../src/lyrics/phraseAlignment'
 
+/**
+ * AKFG word-level checks. TWO DIFFERENT KINDS OF REFERENCE LIVE IN THIS FILE, and
+ * they must not be conflated (plan item W0.2,
+ * docs/superpowers/plans/2026-09-28-automatic-sync-accuracy.md):
+ *
+ *  - GT below is EXTERNAL — official YouTube caption onsets, ±2s coarse, with
+ *    five `shared` lines excluded because a caption's second half only lower-
+ *    bounds its true onset. Loose, but not circular.
+ *  - TRUE_SPAN is WHISPER-DERIVED — "read glyph-by-glyph from the word-level
+ *    transcript", i.e. the app's own output. It cannot detect a Whisper timing
+ *    error and penalises the aligner for correcting one. It is retained only as
+ *    an evidence-coverage invariant ("do not clip audio your own evidence says is
+ *    sounding"), and is named accordingly at its use site.
+ *
+ * The whole block skips unless `.cache/auto-align-audit/AKFG_FirstTake_word.json`
+ * exists. `.cache/` is gitignored, so on a clean checkout these assertions never
+ * run — see plan item W0.5 for getting committed audio into the tree.
+ *
+ * The real accuracy gate is tests/ai-pipeline/lrc-truth.test.ts (absolute error
+ * vs human-synced LRC, including the systematic offset).
+ */
 const here = dirname(fileURLToPath(import.meta.url))
 const WORD_CACHE = join(here, '../../.cache/auto-align-audit/AKFG_FirstTake_word.json')
 const LYRICS = join(here, 'fixtures/akfg-user-ja.txt')
@@ -28,7 +49,7 @@ const GT: { idx: number; onset: number; shared?: boolean; tol?: number }[] = [
   { idx: 29, onset: 312, tol: 2.5 },
 ]
 
-describe.skipIf(!existsSync(WORD_CACHE))('AKFG word-level ground truth', () => {
+describe.skipIf(!existsSync(WORD_CACHE))('AKFG word-level checks (caption onsets + evidence coverage)', () => {
   const lineTexts = readFileSync(LYRICS, 'utf8').trim().split('\n')
   const words = sanitizeTranscript(
     JSON.parse(readFileSync(WORD_CACHE, 'utf8')).chunks.flatMap(
@@ -63,11 +84,14 @@ describe.skipIf(!existsSync(WORD_CACHE))('AKFG word-level ground truth', () => {
     }
   })
 
-  // The actual sung span of each line, read glyph-by-glyph from the word-level
-  // transcript. Every line's timestamp must COVER this span (start no later than
-  // the vocal onset, end no earlier than the vocal offset) so a loop plays the
-  // whole line — the core "usable for looping" requirement.
-  const TRUE_SPAN: [number, number][] = [
+  // The sung span of each line as recorded in the WORD-LEVEL TRANSCRIPT — i.e.
+  // Whisper's own glyph timings, NOT an independent measurement (see the file
+  // header). Every line's timestamp must COVER this span (start no later than the
+  // transcript's first glyph, end no earlier than its last) so a loop plays the
+  // whole line. That invariant is worth keeping: it catches the aligner clipping
+  // audio its own evidence proves is sounding. It does NOT prove the timing is
+  // right, because the reference moves with the transcript.
+  const EVIDENCE_SPAN: [number, number][] = [
     [97.6, 103.5], [104.8, 110.3], [111.6, 116.7], [118.2, 122.2], [122.7, 130.8],
     [131.6, 136.9], [138.2, 140.5], [141.3, 146.6], [146.6, 148.3], [148.3, 153.5],
     [155.0, 158.0], [158.4, 161.6], [161.6, 166.6], [174.9, 182.3], [182.9, 189.5],
@@ -76,14 +100,14 @@ describe.skipIf(!existsSync(WORD_CACHE))('AKFG word-level ground truth', () => {
     [298.1, 299.2], [299.2, 304.0], [306.0, 309.0], [309.4, 312.7], [312.8, 317.6],
   ]
 
-  it('covers the whole sung span of every line (no late start, no early cutoff)', () => {
+  it('covers the whole evidence span of every line (no clipped audio)', () => {
     const lines = align()
     const TOL = 0.6
     for (let i = 0; i < lines.length; i++) {
-      const [onset, offset] = TRUE_SPAN[i]
+      const [onset, offset] = EVIDENCE_SPAN[i]
       const l = lines[i]
-      expect(l.startTime, `line ${i} "${lineTexts[i].slice(0, 12)}" starts late (onset ${onset})`).toBeLessThanOrEqual(onset + TOL)
-      expect(l.endTime, `line ${i} "${lineTexts[i].slice(0, 12)}" ends early (offset ${offset})`).toBeGreaterThanOrEqual(offset - TOL)
+      expect(l.startTime, `line ${i} "${lineTexts[i].slice(0, 12)}" starts late (evidence onset ${onset})`).toBeLessThanOrEqual(onset + TOL)
+      expect(l.endTime, `line ${i} "${lineTexts[i].slice(0, 12)}" ends early (evidence offset ${offset})`).toBeGreaterThanOrEqual(offset - TOL)
     }
   })
 

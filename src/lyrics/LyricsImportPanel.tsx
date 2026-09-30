@@ -6,7 +6,7 @@ import { parseSubtitle } from './subtitle-parser'
 import { resolveLyricsForSong, lyricsSourceLabel, type LyricsResolveSource } from '../sources/lyricsResolver'
 import { LyricsFoundConfirm, lyricsFoundReadyToApply } from './LyricsFoundConfirm'
 import type { LyricsLookupMatch } from '../sources/lrclib'
-import { getDefaultSongLanguage } from '../payment/SettingsStore'
+import { getDefaultSongLanguage } from '../settings/SettingsStore'
 
 type ManualLyricSource = 'paste' | 'subtitle'
 

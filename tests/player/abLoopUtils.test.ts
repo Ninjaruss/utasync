@@ -55,7 +55,7 @@ describe('lyricLoopHighlight', () => {
     line(2, 5, 'two'),
     line(5, 8, 'three'),
   ]
-  const abLoop = { a: 0, b: 2.5, preRoll: 0, loopCount: 3, crossfadeDuration: 0.3 }
+  const abLoop = { a: 0, b: 2.5 }
 
   it('highlights manual A/B regions when playlist is off', () => {
     expect(lyricLoopHighlight(lines[0], 0, lines, abLoop, true, false, [], 0)).toBe('ab')

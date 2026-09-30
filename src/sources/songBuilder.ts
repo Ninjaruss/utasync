@@ -1,7 +1,7 @@
 // src/sources/songBuilder.ts
 import { v4 as uuidv4 } from 'uuid'
 import type { Song, TimedLine, AlignmentMode, Language, LyricsData } from '../core/types'
-import { getDefaultSongLanguage } from '../payment/SettingsStore'
+import { getDefaultSongLanguage } from '../settings/SettingsStore'
 import { cleanPastedLyrics, stripInlineFurigana } from '../lyrics/lyricCleanup'
 import { hasLrcTimestamps, parseLRC } from '../lyrics/lrc-parser'
 import { deriveSources, computeSyncState } from '../core/db/migrations'

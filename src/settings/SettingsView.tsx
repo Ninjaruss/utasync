@@ -7,7 +7,7 @@ import { deleteOrphanedAudio, findOrphanedAudioIds } from '../core/storage/clean
 import { clearAiModelCache } from '../core/storage/modelCache'
 import { sanitizeFilenamePart } from '../player/abLoopExport'
 import { exportLRC, downloadFile } from '../lyrics/exporter'
-import { useSettingsStore } from '../payment/SettingsStore'
+import { useSettingsStore } from './SettingsStore'
 import { useAbLoopPlaylistStore } from '../player/abLoopPlaylistStore'
 import { LegalLinks } from '../core/ui/LegalLinks'
 import { InlineError } from '../core/ui/InlineError'

@@ -43,7 +43,7 @@ import { sentenceToIPA } from '../language/english/phonetics'
 import { detectEnglishGrammar } from '../language/english/grammar'
 import { TapSyncEditor } from './TapSyncEditor'
 import { getDeviceTier, canUseVocalSeparation, canAutoAlign } from '../ai-pipeline/capability'
-import { useSettingsStore } from '../payment/SettingsStore'
+import { useSettingsStore } from '../settings/SettingsStore'
 import { detectSheetLanguage } from '../ai-pipeline/whisperLanguage'
 import { accurateRealignReason } from '../ai-pipeline/alignTimestampMode'
 import { linesAreTimed, chooseAutoAlignment, type AlignMode } from './alignmentPolicy'
@@ -1809,6 +1809,26 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
         <Banner severity="info">
           <span className="flex items-center gap-3 flex-wrap">
             <span>Lyrics not lining up? These timings came from a lyrics database.</span>
+            {/* The AUTOMATIC route leads. Catalogue timings are exactly the case the LRC
+                prior exists for: `AutoAlignFlow` already reconciles against them via
+                `applyLrcPrior`, and measured over 8 song-mode pairs that beat aligning
+                from scratch on all 8 at every prior error size, cutting mean p90 error
+                from 5.47s to 1.44s (docs/superpowers/audits/2026-09-28-measurement-ledger.md,
+                L12). What was missing was not the capability but the way IN: this banner
+                used to offer only the manual offset drag, which is two taps away from the
+                path it should be leading to. The manual drag stays as the fallback for
+                timings that are merely offset. */}
+            {canAutoAlign() && hasStoredAudio && (
+              <button
+                type="button"
+                data-testid="realign-from-timings"
+                onClick={() => beginAlignment('auto')}
+                title="Transcribes the song once and re-times every line using these timings as a guide"
+                className="shrink-0 px-3 py-1.5 rounded-lg bg-cinnabar-800 border border-cinnabar-700 text-white text-xs min-h-11 hover:bg-cinnabar-700 transition-colors"
+              >
+                Re-align from these
+              </button>
+            )}
             <button
               type="button"
               data-testid="lineup-lyrics"

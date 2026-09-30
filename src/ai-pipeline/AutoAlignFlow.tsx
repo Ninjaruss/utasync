@@ -19,6 +19,13 @@ import { ConfirmDialog } from '../core/ui/ConfirmDialog'
 import { Overlay } from '../core/ui/Overlay'
 import { alignSteps, alignStepIndex, type AlignStage } from './alignProgress'
 import { preferredWhisperTimestampMode } from './alignTimestampMode'
+import {
+  acceptEscalatedRun,
+  countUnverifiedLines,
+  modeRunVerdict,
+  shouldEscalateTimestampMode,
+} from './alignModeChoice'
+import { assessAlignmentTrust, isBetterAlignment, isWorseAlignment, type AlignmentTrust } from './alignmentTrust'
 import { detectSheetLanguage } from './whisperLanguage'
 import { isRecoverableTranscriptionError, classifyAlignError, isNetworkFailure } from './workerError'
 import { resetWhisperTranscriber, transcribeAudio, type LoadProgress, type TranscribeProgressStatus } from './whisperTranscriber'
@@ -29,8 +36,13 @@ import { assessStemPass, assessStemQuality, warnIfStemPassWeak, warnIfStemReject
 import { anchorLeadingEdge, backfillLateStartsToAcousticOnset } from '../lyrics/leadingEdgeAnchor'
 import { computeLineMatchedSpans } from './contentAligner'
 import { applyLrcPrior, usablePriorTimes } from '../lyrics/lrcPrior'
-import { useSettingsStore } from '../payment/SettingsStore'
+import { useSettingsStore } from '../settings/SettingsStore'
 import { yieldToMainThread } from '../core/idle'
+
+/** Rounds of targeted repair the convergence loop may run after the first gap pass. Each
+ * round re-transcribes only the windows the verdict flagged, and its result is kept only
+ * if the verdict improves — so the cost is bounded and a losing round is discarded. */
+const MAX_TRUST_ROUNDS = 2
 
 interface Props {
   song: Song
@@ -168,9 +180,12 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
   // the user sees friendly copy, power users can still expand the real message.
   const [errorDetail, setErrorDetail] = useState<string | null>(null)
   const [lowConfidence, setLowConfidence] = useState(false)
-  // The timestamp mode the last run used, so the low-confidence result can offer
-  // the OTHER one (the only lever a user has over the long-form word-merge
-  // failure — see alignTimestampMode.ts).
+  // The timestamp mode the run that was KEPT used (the escalated run's mode when
+  // accept-if-better took it), so the low-confidence result can still offer the
+  // other one. This is now a fallback rather than the recovery path: the app
+  // escalates word->segment by itself when the run looks weak (alignModeChoice.ts),
+  // so this button only appears for the doubtful cases that did not clear the
+  // automatic trigger — see the escalation block in start().
   const [lastTimestampMode, setLastTimestampMode] = useState<'word' | 'segment' | null>(null)
   // How many content-bearing lines the last run could NOT verify. Drives the
   // "different timestamps" offer below: a run can be perfectly confident overall
@@ -496,6 +511,15 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       // second mixed-language pass must not re-attempt what just crashed).
       let effectiveTimestampMode = timestampMode
       let effectiveHighAccuracy = useHighAccuracy
+      // Non-null while an automatic mode escalation is re-running the passes: it
+      // overrides the mode for EVERY pass (JA and the forced-EN one) without
+      // touching effectiveTimestampMode, so an escalation that loses the
+      // accept-if-better comparison leaves the run's own mode untouched.
+      let forcedTimestampMode: 'word' | 'segment' | null = null
+      // The truth-free verdict for the finished alignment, filled by the convergence loop
+      // below. Carries the calibrated residual the flow reports instead of the old
+      // label-based count (see alignmentTrust.ts and ledger L14).
+      let finalTrust: AlignmentTrust | null = null
       const transcribeWithFallback = async (
         language: typeof alignmentLanguage,
         scaleProgress: (pct: number) => number,
@@ -509,7 +533,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
         const run = () =>
           transcribeAudio(audio, sampleRate, {
             ...transcribeOptions(language, scaleProgress),
-            timestampMode: timestampModeOverride ?? effectiveTimestampMode,
+            timestampMode: timestampModeOverride ?? forcedTimestampMode ?? effectiveTimestampMode,
             highAccuracy: effectiveHighAccuracy,
           })
         try {
@@ -607,6 +631,70 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
         return { refined, transcriptWords }
       }
 
+      /**
+       * Persist the completed run, then close the flow. Extracted so the automatic
+       * timestamp-mode escalation above and the ordinary path share one persist, and
+       * so exactly one write and one onComplete happen per flow.
+       */
+      const finishPass = async (runRefined: RefinedAlignment, runWords: TranscriptWord[]) => {
+        const updated: Song = {
+          ...song,
+          // Only ever written by a run that actually tried isolation, so a plaintext
+          // mix align cannot erase a previous verdict... except to CLEAR it when a
+          // stem is used, which means the audio (or the model) now separates well.
+          ...(isolationVerdict ? { audioIsolationVerdict: isolationVerdict } : {}),
+          lyrics: applyRefinedAlignment(
+            // Stamp gapRecoveryVersion here too: this flow already ran its own gap
+            // re-transcription pass above, so a leftover unrecoverable hole (some are
+            // rejected by accept-if-better) must NOT trip the stored-song auto-recovery
+            // on the next open — it would re-decode + re-load Whisper to re-attempt the
+            // exact same audio/text. applyRefinedAlignment doesn't carry it, so pass it
+            // in the lyrics arg (mirrors transcriptWords).
+            {
+              ...song.lyrics,
+              alignmentMode: 'auto',
+              transcriptWords: runWords,
+              gapRecoveryVersion: GAP_RECOVERY_VERSION,
+              // Keep the envelope so drag re-timing can snap onto a real vocal
+              // onset later without re-running Demucs. Only the STEM signal is
+              // worth keeping: the mix-derived one is a weaker prior, and snapping
+              // a vocal entry to a drum transient is worse than not snapping. An
+              // undefined value here (isolation off, stem rejected, YouTube) drops
+              // the field and correctly disables snapping rather than faking it.
+              vocalActivity: stemAccepted && vocalSig ? vocalSig : undefined,
+            },
+            runRefined,
+          ),
+          syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines: runRefined.lines } }),
+        }
+        await db.songs.put(updated)
+
+        // Warn when the content match is weak, not only when it fully falls back to
+        // proportional — a mediocre 0.5–0.7 confidence (dense/bilingual tracks Whisper
+        // mis-transcribes) still ships unreliable per-line timings silently otherwise.
+        setLowConfidence(
+          runRefined.mode === 'proportional' || runRefined.confidence < LOW_CONFIDENCE_WARN_THRESHOLD,
+        )
+        // NOTE: the calibrated verdict would be a better figure for this user-facing count
+        // than the label-based one (the labels catch 22 of 41 known >1.5s errors, ledger L5).
+        // It is NOT swapped in here, deliberately: that changes a visible signal, and doing
+        // so inside the change that wires the loop mixed two risks and flipped a spec that
+        // asserts the app stays quiet on a clean result. Separate change, with its own
+        // measurement of what the alert threshold should be.
+        setUnverifiedLines(countUnverifiedLines(runRefined.lines, runRefined.lineAlignmentQuality))
+        const trust = finalTrust
+        if (trust) {
+          console.info(
+            `[AutoAlignFlow] alignment verdict: ${trust.lines.filter((l) => l.trust === 'verified').length} verified, ` +
+              `${trust.repairableLineIndices.length} repairable, no-evidence ${(trust.noEvidenceShare * 100).toFixed(0)}%, ` +
+              `acoustically checked ${trust.acousticallyChecked}, converged ${trust.converged}`,
+          )
+        }
+        setLastTimestampMode(effectiveTimestampMode)
+        setStage('done')
+        onComplete(updated)
+      }
+
       const firstPass = await runPasses()
       if (!firstPass) return
       let refined: RefinedAlignment = firstPass.refined
@@ -641,13 +729,69 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
         }
       }
 
+      // Automatic per-song TIMESTAMP-MODE selection (alignModeChoice.ts).
+      //
+      // Word mode is the shipped default on every transcribing tier, and on some
+      // songs its long-form merge goes wrong: alignTimestampMode.ts documents a late
+      // ramp from line #31 onward (+24s decaying to +2s) that the aligner then
+      // faithfully follows — word mean |err| 5.61s against segment 0.74s on the same
+      // stem, same lyrics, same model. The recovery already existed, but as a BUTTON
+      // ("Try again with segment timestamps") offered only after the result screen had
+      // told the user their song came out wrong.
+      //
+      // The diagnosis was always computed here; only the tap was missing. This
+      // escalates once, automatically, and keeps the escalated result only if the
+      // app's own quality verdict says it is decisively better — so a weaker second
+      // pass can never ship. Measured 2026-09-28 (scripts/align-mode-choice.mjs), that
+      // verdict ranks the two modes the way human-synced truth does on all three
+      // corpus songs, which is what makes the choice safe to automate.
+      //
+      // It runs on the audio ALREADY decoded and separated for this flow: the mode
+      // decides the transcript, so re-decoding or re-running Demucs (minutes) would
+      // buy nothing. Placed before gap re-transcription so that pass improves the
+      // winner rather than the loser.
+      if (!cancelledRef.current && effectiveTimestampMode === 'word') {
+        const quality = refined.lineAlignmentQuality ?? []
+        const verdict = modeRunVerdict(quality)
+        const unverified = countUnverifiedLines(refined.lines, quality)
+        if (
+          shouldEscalateTimestampMode({
+            timestampMode: effectiveTimestampMode,
+            verdict,
+            unverifiedLines: unverified,
+            lineCount: refined.lines.length,
+            labelledLines: quality.length,
+            tier,
+            alreadyEscalated: false,
+            canRerun: true,
+          })
+        ) {
+          setRetryNotice('Timings look uncertain — retrying with segment timestamps…')
+          setStage('transcribing')
+          setProgress(0)
+          forcedTimestampMode = 'segment'
+          const escalated = await runPasses()
+          forcedTimestampMode = null
+          if (!escalated) return
+          if (acceptEscalatedRun(verdict, modeRunVerdict(escalated.refined.lineAlignmentQuality))) {
+            refined = escalated.refined
+            transcriptWords = escalated.transcriptWords
+            effectiveTimestampMode = 'segment'
+          }
+          setRetryNotice(null)
+        }
+      }
+
       // Round-8 gap re-transcription: where the aligner left a HOLE (a run of
       // un-anchored lines between good anchors) even though vocals are audible,
       // re-transcribe just that ≤30s window (forced-language slice) and re-align
       // it, keeping the result only if it strictly improves. Both the mixed and
       // single-language branches above feed their assigned refined/transcriptWords
       // here. Fresh-Auto-align only (re-refine in PlayerView has no audioData).
-      if (!cancelledRef.current) {
+      //
+      // Extracted so the convergence loop below can run it more than once. Returns
+      // false when the run was cancelled.
+      const runGapPass = async (): Promise<boolean> => {
         // Re-use the main pass's exact progress callbacks (language-independent) so
         // the slice transcriber updates the UI the same way the main passes do. It
         // carries its OWN crash-downgrade ladder, seeded from the main pass's
@@ -679,10 +823,90 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
             )
           },
         })
-        if (cancelledRef.current) return
+        if (cancelledRef.current) return false
         setGapRecovery(null)
         refined = gap.refined
         transcriptWords = gap.transcriptWords
+        return true
+      }
+
+      // NOTE: the standalone gap pass is NOT re-vetoed by the verdict below. It already has
+      // its own accept-if-better, per hole, against measured coverage
+      // (`gapRealign.ts`, PLACED_COVERAGE_IMPROVE_MIN). Layering a second, text-only veto
+      // over the top of it was tried and REFUTED by a spec in
+      // tests/ai-pipeline/AutoAlignFlow.gapReanalyze.test.tsx: it discarded a legitimate gap
+      // fill (a row re-transcribed to text the fixture's transcript does not contain, which
+      // the verdict reads as lost coverage). One accept test per pass, owned by the pass
+      // that has the evidence for it. The verdict's job is the LOOP's rounds, below.
+      if (!cancelledRef.current) {
+        if (!(await runGapPass())) return
+      }
+
+      /**
+       * CONVERGENCE LOOP — the product intent, implemented.
+       *
+       * "When there are no timed lyrics, the aligner does its best and is then
+       * AUTO-CORRECTED until the sync is accurate." The gap pass above gives the aligner
+       * ONE fixed budget of repairs and then declares done, whether or not the result is
+       * accurate. This loops it while the TRUTH-FREE verdict says the result is getting
+       * better, and stops when a round stops helping.
+       *
+       * The acceptance test is `assessAlignmentTrust` (calibrated in
+       * docs/superpowers/audits/2026-09-28-measurement-ledger.md, L14/L15): a three-tier
+       * per-line verdict from evidence-only signals, plus — when a vocal envelope exists —
+       * an acoustic corroboration check that is the ONLY signal able to catch an alignment
+       * that is perfectly consistent with transcript evidence that is itself wrong.
+       *
+       * Two honest limits, both measured rather than assumed, and both why this loop is
+       * improvement-driven rather than threshold-driven:
+       *  - `converged` is currently 0/8 across the corpus, so it cannot be the exit
+       *    condition; the loop exits on NO IMPROVEMENT or on its budget instead.
+       *  - Without a stem there is no envelope, so the verdict is text-only and cannot
+       *    certify anything. It can still TARGET repairs, which is all this loop asks of
+       *    it. The residual is reported below rather than glossed.
+       */
+      if (!cancelledRef.current) {
+        const assess = () =>
+          assessAlignmentTrust({
+            lines: refined.lines,
+            spans: computeLineMatchedSpans(
+              refined.lines.map((l) => l.original || l.translation),
+              sanitizeTranscript(transcriptWords),
+            ),
+            words: sanitizeTranscript(transcriptWords),
+            quality: refined.lineAlignmentQuality,
+            sig: stemAccepted && vocalSig ? vocalSig : undefined,
+          })
+        let trust = assess()
+        for (let round = 0; round < MAX_TRUST_ROUNDS && !cancelledRef.current; round++) {
+          if (trust.converged || trust.repairableLineIndices.length === 0) break
+          setRetryNotice(
+            `Refining ${trust.repairableLineIndices.length} uncertain line${trust.repairableLineIndices.length === 1 ? '' : 's'}…`,
+          )
+          const before = refined
+          const beforeWords = transcriptWords
+          if (!(await runGapPass())) return
+          const next = assess()
+          if (isWorseAlignment(next, trust)) {
+            // Only a strictly worse round is discarded, so the extra transcription can
+            // never make a song worse than it already was.
+            refined = before
+            transcriptWords = beforeWords
+            break
+          }
+          // Decide against the verdict we CAME IN with. `trust` is reassigned on the next
+          // line and `isBetterAlignment` returns false on a tie, so testing it after the
+          // assignment compared `next` with itself — always false, which broke the loop
+          // after round 0 and made MAX_TRUST_ROUNDS unreachable (the loop only ever ran
+          // one repair round, however good the result was getting).
+          const improved = isBetterAlignment(next, trust)
+          trust = next
+          // A round that merely TIES still stops the loop: there is no reason to spend
+          // another window when the verdict cannot see an improvement.
+          if (!improved) break
+        }
+        setRetryNotice(null)
+        finalTrust = trust
       }
 
       // LRC-prior guardrail: when the song already carries OUTSIDE timing (a
@@ -735,55 +959,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
         }
       }
 
-      const updated: Song = {
-        ...song,
-        // Only ever written by a run that actually tried isolation, so a plaintext
-        // mix align cannot erase a previous verdict... except to CLEAR it when a
-        // stem is used, which means the audio (or the model) now separates well.
-        ...(isolationVerdict ? { audioIsolationVerdict: isolationVerdict } : {}),
-        lyrics: applyRefinedAlignment(
-          // Stamp gapRecoveryVersion here too: this flow already ran its own gap
-          // re-transcription pass above, so a leftover unrecoverable hole (some are
-          // rejected by accept-if-better) must NOT trip the stored-song auto-recovery
-          // on the next open — it would re-decode + re-load Whisper to re-attempt the
-          // exact same audio/text. applyRefinedAlignment doesn't carry it, so pass it
-          // in the lyrics arg (mirrors transcriptWords).
-          {
-            ...song.lyrics,
-            alignmentMode: 'auto',
-            transcriptWords,
-            gapRecoveryVersion: GAP_RECOVERY_VERSION,
-            // Keep the envelope so drag re-timing can snap onto a real vocal
-            // onset later without re-running Demucs. Only the STEM signal is
-            // worth keeping: the mix-derived one is a weaker prior, and snapping
-            // a vocal entry to a drum transient is worse than not snapping. An
-            // undefined value here (isolation off, stem rejected, YouTube) drops
-            // the field and correctly disables snapping rather than faking it.
-            vocalActivity: stemAccepted && vocalSig ? vocalSig : undefined,
-          },
-          refined,
-        ),
-        syncState: computeSyncState({ ...song, lyrics: { ...song.lyrics, lines: refined.lines } }),
-      }
-      await db.songs.put(updated)
-
-      // Warn when the content match is weak, not only when it fully falls back to
-      // proportional — a mediocre 0.5–0.7 confidence (dense/bilingual tracks Whisper
-      // mis-transcribes) still ships unreliable per-line timings silently otherwise.
-      setLowConfidence(
-        refined.mode === 'proportional' || refined.confidence < LOW_CONFIDENCE_WARN_THRESHOLD,
-      )
-      {
-        const quality = refined.lineAlignmentQuality ?? []
-        let unverified = 0
-        for (let i = 0; i < refined.lines.length; i++) {
-          const text = (refined.lines[i].original || refined.lines[i].translation || '').trim()
-          if (text && quality[i] !== 'good') unverified++
-        }
-        setUnverifiedLines(unverified)
-      }
-      setStage('done')
-      onComplete(updated)
+      await finishPass(refined, transcriptWords)
     } catch (e: unknown) {
       if (cancelledRef.current) return
       setError(classifyAlignError(e))

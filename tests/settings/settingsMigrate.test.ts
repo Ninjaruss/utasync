@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { migrateSettings } from '../../src/payment/SettingsStore'
+import { migrateSettings } from '../../src/settings/SettingsStore'
 
 /**
  * The v0→v1 migration underpins default-on vocal isolation for RETURNING users:

@@ -1,6 +1,8 @@
 import type { ABLoopPlaylistEntry } from '../core/types'
 
-/** Default matches legacy abLoop.loopCount (3) before playlist had its own setting. */
+/** Default kept from the loop's original repeat count (3) before playlists had
+ * their own setting. The `abLoop.loopCount` field that number used to live on was
+ * never read and has been removed; this constant is the one that is actually used. */
 export const DEFAULT_PLAYLIST_REPEAT_COUNT = 3
 
 /** Preset repeat counts; 0 means repeat indefinitely (no auto-advance). */

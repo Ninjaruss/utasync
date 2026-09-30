@@ -14,8 +14,14 @@ vi.mock('../../src/player/AudioEngine', () => ({
     onTimeUpdate() {} onEnd() {}
   },
 }))
+const autoAlignSupported = vi.hoisted(() => ({ current: true }))
+
 vi.mock('../../src/ai-pipeline/capability', () => ({
   getDeviceTier: () => 'full', canUseVocalSeparation: () => true, hasWebGPU: () => true,
+  // Needed by the LRCLIB banner's automatic re-align button (ledger L12). A hoisted flag
+  // rather than a literal, so a spec can actually exercise the unavailable case instead of
+  // asserting something that cannot fail.
+  canAutoAlign: () => autoAlignSupported.current,
 }))
 // If this renders, the app decided to transcribe — which is the thing the
 // offset path exists to avoid for an already-timed song.
@@ -60,6 +66,7 @@ async function putSong(timingSource?: string) {
 beforeEach(async () => {
   usePlayerStore.setState({ currentSongId: null, playbackState: 'idle', position: 0, duration: 0 })
   await db.songs.clear()
+  autoAlignSupported.current = true
 })
 
 describe('a song that arrives with synced lyrics', () => {
@@ -75,6 +82,38 @@ describe('a song that arrives with synced lyrics', () => {
     await putSong('lrclib')
     render(<PlayerView songId="song1" onBack={vi.fn()} autoAlignOnOpen />)
     expect(await screen.findByTestId('lineup-lyrics')).toBeTruthy()
+  })
+
+  it('leads with the AUTOMATIC re-align, not the manual drag', async () => {
+    // Ledger L12: reconciling against the timings a song already carries beat aligning
+    // from scratch on 8/8 song-mode pairs at every prior error size (mean p90 5.47s ->
+    // 1.44s). The capability already existed and was already wired; what was missing was
+    // a way IN. This banner used to offer only the manual offset drag, which is two taps
+    // from the path it should lead to.
+    await putSong('lrclib')
+    render(<PlayerView songId="song1" onBack={vi.fn()} autoAlignOnOpen />)
+    const auto = await screen.findByTestId('realign-from-timings')
+    expect(auto).toBeTruthy()
+    // The manual drag stays as the fallback for timings that are merely offset.
+    expect(screen.getByTestId('lineup-lyrics')).toBeTruthy()
+    // Nothing transcribes until the user asks: the automatic path is one tap, not zero.
+    expect(screen.queryByTestId('auto-align-flow')).toBeNull()
+  })
+
+  it('the automatic re-align opens the alignment flow on one tap', async () => {
+    await putSong('lrclib')
+    render(<PlayerView songId="song1" onBack={vi.fn()} autoAlignOnOpen />)
+    fireEvent.click(await screen.findByTestId('realign-from-timings'))
+    await waitFor(() => expect(screen.getByTestId('auto-align-flow')).toBeTruthy())
+  })
+
+  it('does not offer the automatic re-align where AI alignment is unavailable', async () => {
+    // The manual nudge needs no model, so it must survive on a device that cannot align.
+    autoAlignSupported.current = false
+    await putSong('lrclib')
+    render(<PlayerView songId="song1" onBack={vi.fn()} autoAlignOnOpen />)
+    expect(await screen.findByTestId('lineup-lyrics')).toBeTruthy()
+    expect(screen.queryByTestId('realign-from-timings')).toBeNull()
   })
 
   it('stays quiet for a subtitle file the user supplied themselves', async () => {

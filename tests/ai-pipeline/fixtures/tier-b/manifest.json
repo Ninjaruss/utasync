@@ -1,0 +1,150 @@
+{
+  "_comment": "Tier B: the DEVELOPER-RUN audio corpus. These recordings are copyrighted, so the files are NOT in the repository (`.gitignore` excludes public/e2e/) and this manifest is the record instead. It exists so that (a) every number computed from this audio is reproducible by anyone holding the same bytes — the hashes are the contract — and (b) a clone WITHOUT the files can see exactly what it cannot measure, rather than silently measuring less. Guarded by tests/ai-pipeline/tierB.manifest.test.ts. Tier A (fixtures/tier-a/) is the committed, CI-runnable half and is honestly limited to speech-like, word-less material.",
+  "verifiedWith": "scripts/tier-b-audio.mjs",
+  "audioDir": "public/e2e",
+  "committable": false,
+  "runMeasuresWith": [
+    "npx tsx scripts/tier-b-audio.mjs --check",
+    "npx tsx scripts/audit-vs-lrc.mjs",
+    "npx tsx scripts/align-ablation.mjs",
+    "npx tsx scripts/align-drift-profile.mjs",
+    "npx tsx scripts/align-trust-calibration.mjs"
+  ],
+  "files": [
+    {
+      "key": "guitar-loneliness",
+      "file": "guitar.mp3",
+      "kind": "mix",
+      "covers": [
+        "sung Japanese",
+        "garbled transcript (the acoustic-onset case)",
+        "version-EXACT LRCLIB truth"
+      ],
+      "lyrics": "guitar-loneliness/lyrics.ja.txt",
+      "truth": "lrc-truth/guitar-loneliness.json",
+      "truthQuality": "version-exact — 229.0s LRC against 228.98s audio, so its offset is OURS",
+      "available": true,
+      "bytes": 3663980,
+      "sha256": "1157d216d8379f1207aa64caeedefbd86f683d74f7f10784a849f29678f06fac",
+      "sampleRate": 48000,
+      "durationSec": 228.96
+    },
+    {
+      "key": "veil",
+      "file": "veil.mp3",
+      "kind": "mix",
+      "covers": [
+        "pure Japanese",
+        "the clean case: best offset in the corpus (-0.02s)"
+      ],
+      "lyrics": "veil/lyrics.ja.txt",
+      "truth": "lrc-truth/veil.json",
+      "truthQuality": "version-matched (203s entry against 218.77s audio is an edit difference the median-offset fit absorbs; its residual offset is -0.02s, the best in the corpus)",
+      "available": true,
+      "bytes": 3501164,
+      "sha256": "1adc52caf62f2e75603cbda725397b5b886aca497070c844a902266df38b87d2",
+      "sampleRate": 48000,
+      "durationSec": 218.773
+    },
+    {
+      "key": "stranger-than-heaven",
+      "file": "stranger.mp3",
+      "kind": "mix",
+      "covers": [
+        "mixed JA/EN",
+        "the ALTERNATE-TAKE case: ~30 lines with no evidence anywhere"
+      ],
+      "lyrics": "stranger-than-heaven/lyrics.txt",
+      "truth": "lrc-truth/stranger-than-heaven.json",
+      "truthQuality": "ONE-SIDED — a 237s edit against 233.57s audio, so its offset is partly a version difference and cannot be attributed to us",
+      "available": true,
+      "bytes": 3737324,
+      "sha256": "69dd8cb05f087897d405ac61372734beff7058f75b2111703056fada8071bf86",
+      "sampleRate": 48000,
+      "durationSec": 233.535
+    },
+    {
+      "key": "recollect",
+      "file": "recollect.mp3",
+      "kind": "mix",
+      "covers": [
+        "dense within-line JA/EN code-switching",
+        "non-isolated transcript, transcription-bound"
+      ],
+      "lyrics": "recollect/lyrics.txt",
+      "truth": "lrc-truth/recollect.json",
+      "truthQuality": "version-matched, but only 16 of 47 lines carry enough matched evidence for the offset fit — the rest are transcription-bound",
+      "available": true,
+      "bytes": 3056876,
+      "sha256": "42aecf9c311785517fa6314390693b98d6d0d0cce243f5171b51214b85336974",
+      "sampleRate": 48000,
+      "durationSec": 190.996
+    },
+    {
+      "key": "akfg-first-take",
+      "file": "akfg.mp3",
+      "kind": "mix",
+      "covers": [
+        "Japanese, THE FIRST TAKE live arrangement",
+        "98s spoken/quiet intro",
+        "stem path that measurably HURTS (15.4s vs 2.8s mix)"
+      ],
+      "lyrics": "akfg/lyrics.ja.txt",
+      "truth": null,
+      "truthQuality": "no LRCLIB entry exists for the First Take arrangement; truth is YouTube caption onsets (±2s), in tests/ai-pipeline/akfg-ground-truth.test.ts",
+      "available": true,
+      "bytes": 6292460,
+      "sha256": "753eba02bbbcc46c85619209ccf67c248a3621a1f02b138f1776d1151043cbb2",
+      "sampleRate": 48000,
+      "durationSec": 393.23
+    },
+    {
+      "key": "going-my-way",
+      "file": "going-my-way.mp3",
+      "kind": "mix",
+      "covers": [
+        "sung Japanese, but NOT used by any committed test",
+        "a song with NO committed transcript, so its evidence must be produced locally",
+        "an ORPHANED truth fixture: no test in the suite consumes it"
+      ],
+      "lyrics": "going-my-way/lyrics.txt",
+      "truth": "lrc-truth/going-my-way.json",
+      "truthQuality": "matched, but scored by NO test, and its lyric sheet was derived from this very LRC (31 of 31 lines byte-identical with the timestamps stripped), so the text is circular — see the ledger on orphaned fixtures",
+      "available": true,
+      "bytes": 3719276,
+      "sha256": "0b3e469cbabb9f5a4a6ce54d845725a9b01d7518a137d4524e8fcbe45a443bf9",
+      "sampleRate": 48000,
+      "durationSec": 232.409
+    },
+    {
+      "key": "stranger-than-heaven.vocals",
+      "file": "stranger.mp3.vocals44k.f32",
+      "kind": "stem",
+      "sampleRate": 44100,
+      "float32": true,
+      "covers": [
+        "the isolated vocal of the hardest song — the only place the documented word-mode RAMP was ever measured"
+      ],
+      "pairsWith": "stranger-than-heaven",
+      "available": true,
+      "bytes": 41195524,
+      "sha256": "ed4ceba8b145fa323b25591a4336f367ecaa61dbbf156f487d6cb743471fee6c",
+      "durationSec": 233.535
+    },
+    {
+      "key": "veil.vocals",
+      "file": "veil.mp3.vocals44k.f32",
+      "kind": "stem",
+      "sampleRate": 44100,
+      "float32": true,
+      "covers": [
+        "a clean stem, for the acoustic-verdict calibration (ledger L15: stem verifies 5.5x more lines than the mix at equal p90)"
+      ],
+      "pairsWith": "veil",
+      "available": true,
+      "bytes": 38591616,
+      "sha256": "565ad9ac2a97687c9a66b196c1d70fec8009889f49f5ae320dee98b3fa969c9d",
+      "durationSec": 218.773
+    }
+  ]
+}
