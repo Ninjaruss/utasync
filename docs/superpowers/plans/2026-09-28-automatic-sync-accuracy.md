@@ -1489,3 +1489,32 @@ reads "safe but demonstrably not worth shipping. Do not wire without new evidenc
 and gap re-transcription runs on every fresh align *and* automatically once per song on open. If the
 local gate is equally permissive there, a shipped path may be moving lines for the worse. That is
 **unmeasured**, it is the next measurement to run, and nothing should change until it is.
+
+### Round 22 — the gap-pass lead, answered: safe, and nearly inert
+
+L23 raised a concern about a SHIPPED path: `reanalyzeGaps` uses the same LOCAL gate that accepted
+globally harmful splices for single-line verification, and it runs on every fresh align *and*
+automatically once per song on open. So I drove `reanalyzeGaps` itself with a real node-backed slice
+transcriber, on three songs, scored against LRC truth.
+
+**The concern is refuted.** Across three songs and four attempted holes the local gate accepted
+**zero** splices: absolute metrics were identical before and after on all three (guitar 0.39/2.29,
+veil 0.26/0.98, stranger 1.50/6.50), as were the within-250ms shares and worst lines. The always-on
+pass is not moving lines for the worse. Nothing needs changing.
+
+**And the second half is a finding in its own right.** Guitar attempted *no* holes at all; veil
+attempted 1 of 6; stranger attempted 3 of 9. Four Whisper calls (3-12s each) produced **zero**
+retimed lines. So the user-facing "Recover N sections" affordance, and the automatic gap recovery
+that runs once per song on open, currently change nothing on real material. Its claimed value —
+recovering unaligned sections — is not realised on this corpus, which is worth knowing before
+investing further in it.
+
+**A shape asymmetry, recorded because it explains the last three rounds.** Hole-shaped windows
+(multi-line prompt over a bounded hole) are accepted by this gate essentially never, while
+single-line windows produced accepts — harmful under a local gate (L22), neutral under a
+whole-alignment one (L23). The prompt shape drives the outcome, so evidence from one shape does not
+transfer to the other, and any future evaluation must say which shape it measured.
+
+This rounds out the pattern across the whole series: of the seven original items, three were
+delivered, one was delivered in part, and three were refuted before shipping — and of the four
+refutations, two were refutations of my own design rather than of the existing code.

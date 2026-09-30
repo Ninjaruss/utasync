@@ -487,6 +487,40 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
   rejected the prompt echo in L19; inventing a second, coverage-based rule here would make the echo
   self-fulfilling.
 
+### L24 — the shipped gap pass is SAFE but effectively inert on real audio
+
+- **Instrument:** real `whisper-small` driving `reanalyzeGaps` itself with a node-backed slice
+  transcriber, scored against LRC truth. Developer-run.
+- **Status:** sourceable, developer-run (real audio + real model, uncommitted).
+- **Why it was measured.** L22 showed `spliceGapAlignment`'s LOCAL gate accepting globally harmful
+  splices for single-line verification. `reanalyzeGaps` uses that same gate, and it runs on every
+  fresh auto-align AND automatically once per song on open — so the question was whether an
+  always-on shipped path was moving lines for the worse.
+- **Measured on three songs:**
+
+  | song | holes detected | holes attempted | Whisper calls | lines retimed | verdict |
+  |---|---|---|---|---|---|
+  | guitar-loneliness | 3 | **0** | 0 | 0 | no measurable effect |
+  | veil | 6 | 1 | 1 | 0 | no measurable effect |
+  | stranger-than-heaven | 9 | 3 | 3 | 0 | no measurable effect |
+
+  Absolute metrics were **identical before and after** on all three (guitar 0.39/2.29, veil
+  0.26/0.98, stranger 1.50/6.50), as were the within-250ms shares and worst lines. Veil's
+  no-evidence count moved 12 -> 11 and nothing else did.
+- **CONCLUSION — the concern is refuted.** Across three songs and four attempted holes the local
+  gate accepted **zero** splices. The always-on gap pass is not moving lines for the worse; it is
+  barely moving anything at all. Nothing needs changing.
+- **BUT the second half is a finding in its own right: gap recovery does almost nothing on this
+  corpus.** Four Whisper calls (3-12s each) produced **zero** retimed lines, which means the
+  user-facing "Recover N sections" affordance and the automatic once-per-song gap recovery
+  currently change nothing on real material. The prompt's value claim — recovering unaligned
+  sections — is not realised here, and that is worth knowing before investing further in it.
+- **A shape asymmetry worth noting, because it explains the L22/L23 results.** Hole-shaped windows
+  (multi-line prompt over a bounded hole) are accepted by this gate essentially never, while
+  single-line windows on already-placed lines produced accepts (harmful under a local gate, neutral
+  under a whole-alignment one). The prompt shape drives the behaviour, so results from one shape do
+  not transfer to the other — a caveat that applies to any future evaluation of either.
+
 ### L20 — the truth-free verdict cannot drive a SONG-level alert (item 3 refuted, half-redirected)
 
 - **Instrument:** `scripts/align-trust-calibration.mjs` (the ALERT THRESHOLD section).
