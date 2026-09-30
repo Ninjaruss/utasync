@@ -1181,3 +1181,37 @@ catches it. The corpus scorecard already counts pileups as a defect, so the gap 
 acceptance test simply does not consult the metric the project already trusts. Recorded as L19;
 not fixed, because it is outside the objective's list and its severity needs its own
 measurement first.
+
+### Round 12 — the accuracy phase is in the QA prompt (item 7, docs half)
+
+`docs/QA-REFINEMENT-PROMPT.md` had not been updated since **2026-06-21** and contained no
+accuracy phase at all. That is the structural reason two months of QA rounds measured the app
+and never its sync: a prompt organised by UI phases cannot skip UI, and it can skip accuracy
+entirely, which it did. It now carries:
+
+- **Phase 0.5 — Sync accuracy (MANDATORY)**, ahead of every UI phase, naming the exact commands
+  (`npm run audit:audio`, `npm run audit:accuracy`, the truth gate) and the four figures that
+  matter: **absolute** p50/p90/worst, the systematic offset, the within-250 ms share, and the
+  evidence partition. It states plainly why the residual frame and the evidence split are not
+  interchangeable.
+- **Six rules** drawn from what actually went wrong here: a threshold that cannot move guards
+  nothing; never score against a self-referential truth; never remove a systematic offset
+  before reporting error; **measure at the layer where the claim lives** (three of the five
+  refutations in the ledger are that same mistake); every new threshold names its instrument;
+  and run one real-browser sync check **or say explicitly that you did not**.
+- A **timing dimension in the severity rubric**: a line more than 1s off is a P0, and a line
+  labelled good while more than 1.5s from the vocal is a P1.
+- The quick-start one-liner updated so the documented entry point cannot omit the phase.
+
+**The browser check is NOT done, and this is the honest record of it.** No browser is available
+in this environment, so the Phase 0.5 item that requires one — play a Japanese and a
+mixed-language song and confirm the highlight lands with the vocal — remains unrun, exactly as
+it did in round 5. It is now a standing requirement in the prompt rather than something a round
+can quietly skip, but that is not the same as it having been performed.
+
+**Remaining from the objective:** item 2 (now viable and cheaper, needs verdict-driven line
+selection plus a route to already-timed songs), item 3 (needs its alert threshold measured
+first, or it is a guess), item 5 (both prompts are pre-payment decisions rather than genuine
+interruptions — the no-WebGPU probe needs moving to pre-flight, and the ETA prompt needs a
+non-blocking form, which means changing `onLongEstimate`'s blocking contract), item 6, and the
+pileup acceptance defect found in round 11 (L19).

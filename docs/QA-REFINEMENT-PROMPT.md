@@ -78,6 +78,61 @@ npm run build
 
 Note any failures. Do not start feature work until you understand the baseline.
 
+### Phase 0.5 — Sync accuracy (MANDATORY, do not skip)
+
+**This phase exists because it was missing.** The last two QA rounds before it was added
+followed this document and measured everything *except* whether lyrics land on the vocal:
+overlay migrations, display menus, PWA, storage, accessibility, a 52 KB UI inventory. All real
+improvements, on a different axis, while the sync instruments were never run. A prompt
+structured by UI phases cannot skip UI; it can skip accuracy entirely, and did.
+
+Sync accuracy is the product. Do not begin Phase 1 until this phase has run and its numbers
+are written down.
+
+```bash
+npm run audit:audio      # Tier B corpus integrity (may report files absent — expected on a
+                         # clean checkout, and it tells you what cannot be measured here)
+npm run audit:accuracy   # verify + the truth instrument + the ablation/calibration instruments
+npx vitest run tests/ai-pipeline/lrc-truth.test.ts
+```
+
+Record, per configuration, from `npx tsx scripts/audit-vs-lrc.mjs`:
+
+| metric | why it is the one that matters |
+|---|---|
+| **ABSOLUTE p50 / p90 / worst** | what a listener hears. Not the offset-removed residual. |
+| **systematic offset** | a constant lag is the defect users describe as "the lyrics feel behind", and it is trivially fixable — a change that couples it must be caught |
+| **share within 250 ms** | the perceptual contract (C2). Currently 44% on the best song; the target is 85%. |
+| **evidence-backed p90 and no-evidence count** | separates "the transcript never reached this line" (a coverage problem) from "the placement is wrong" (a placement problem). These need different fixes; a blended number hides which one you have. |
+
+**Rules for this phase:**
+
+1. **A threshold that cannot move guards nothing.** If a bound sits at its own measured value
+   and has not changed in rounds, say so and either give it a target or delete it. A metric
+   whose coverage can silently collapse to zero is worse than no metric — see the
+   `bnd_measured` history in `docs/superpowers/audits/2026-09-28-measurement-ledger.md`.
+2. **Never score against a self-referential truth.** Whisper's own timeline is not ground
+   truth; the app's previous output is not ground truth. If the reference was produced by the
+   thing under test, the measurement cannot fail and therefore says nothing.
+3. **Never remove a systematic offset before reporting error**, or you have deleted the
+   loudest defect and called the remainder accuracy.
+4. **Measure at the layer where the claim lives.** A transcription-level finding does not
+   license a conclusion about the acceptance test downstream of it. Three of the five
+   refutations in the ledger are exactly that mistake.
+5. **Any new threshold names its instrument and its reproducibility** in
+   `docs/superpowers/audits/2026-09-28-measurement-ledger.md`, and any bound set to an
+   observation says so out loud.
+6. **Run one real-browser sync check** and say whether you did. Start the dev server, play one
+   Japanese and one mixed-language song, and confirm the highlight lands with the vocal, that
+   ruby matches the sung reading, and that the off-timing affordances point at lines that are
+   actually off. If no browser is available, **say so explicitly in the report** — the round-5
+   audit planned this check, did not run it, and recorded that only at the very end, after
+   everything else had been declared verified.
+
+**Gate:** do not proceed to Phase 1 while anything here is unmeasured, regressed against the
+recorded baselines, or claimed without an instrument. A UI fix that regresses sync accuracy is
+a P0, not a trade-off.
+
 ### Phase 1 — Static audit (read-only)
 
 Systematically read code for:
@@ -232,8 +287,8 @@ Tag every finding:
 
 | Level | Definition | Action |
 |-------|------------|--------|
-| **P0 — Blocker** | Data loss, crash, wrong seek/loop timing, payment bypass | Fix immediately |
-| **P1 — Major** | Core workflow broken or misleading on common device | Fix in this pass |
+| **P0 — Blocker** | Data loss, crash, wrong seek/loop timing, payment bypass, **a line more than 1s off on a common device, or a systematic offset worse than 250ms** | Fix immediately |
+| **P1 — Major** | Core workflow broken or misleading on common device, **or lyrics labelled as good while more than 1.5s from the vocal** | Fix in this pass |
 | **P2 — Minor** | Friction, visual glitch, inconsistent copy | Fix if low effort |
 | **P3 — Polish** | Nice-to-have aesthetic or micro-copy | Document only unless trivial |
 
@@ -328,8 +383,10 @@ If the user wants a narrower pass, append one of these:
 
 ## Quick-start one-liner
 
-> Perform full-application QA on Utasync using `docs/QA-REFINEMENT-PROMPT.md`. Start with Phase 0 baseline, audit mobile player layout and practice menus first (lyrics visibility is the top priority), fix P0/P1 issues with minimal diffs, run vitest + build, and deliver the required output format.
+> Perform full-application QA on Utasync using `docs/QA-REFINEMENT-PROMPT.md`. Start with Phase 0 baseline, then **Phase 0.5 Sync accuracy (mandatory — run the instruments and record absolute error, the systematic offset, the within-250ms share and the evidence partition before touching anything else)**, then audit mobile player layout and practice menus (lyrics visibility is the top priority), fix P0/P1 issues with minimal diffs, run vitest + build, and deliver the required output format. State plainly whether a real-browser sync check was run.
 
 ---
 
-*Last updated: 2026-06-21 — aligns with README feature set and current `src/` layout.*
+*Last updated: 2026-09-28 — adds the mandatory Phase 0.5 Sync accuracy phase, a timing
+dimension to the severity rubric, and an accuracy-aware quick-start. Prompt previously last
+updated 2026-06-21; every QA round between those dates measured the app and not its sync.*
