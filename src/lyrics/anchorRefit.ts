@@ -94,17 +94,44 @@ export function refitAroundAnchors(
 export function selectAnchorTargets(
   lines: TimedLine[],
   quality: (LineAlignmentQuality | undefined)[] | undefined,
-  opts?: { max?: number; alreadyAnchored?: Iterable<number>; sectionEntry?: Iterable<number> },
+  opts?: {
+    max?: number
+    alreadyAnchored?: Iterable<number>
+    sectionEntry?: Iterable<number>
+    /**
+     * Line indices the truth-free verdict (`alignmentTrust`) reports as repairable,
+     * worst-evidence-first. Supplying them closes a recall gap that has been invisible
+     * to the user: the filter below admits only lines the per-line LABELS already
+     * distrust (`t < 2`), and those labels catch 22 of 41 known >1.5s errors — so a line
+     * the labels confidently call 'good' while sitting seconds from the vocal could
+     * never be offered for re-timing at all. Measured, the verdict separates cleanly at
+     * this layer (verified p90 1.91s against unverified 8.74s; ledger L14) even though it
+     * is saturated at song level and must NOT drive the song-level banner (L20).
+     *
+     * Ordering is preserved rather than replaced: labelled lines still come first, so the
+     * app's existing behaviour is unchanged, and verdict-flagged lines fill the remaining
+     * slots. Omitting this option is byte-identical to the previous behaviour.
+     */
+    verdictFlagged?: Iterable<number>
+  },
 ): number[] {
   if (!quality?.length) return []
   const max = opts?.max ?? 4
   const anchored = new Set(opts?.alreadyAnchored ?? [])
   const entries = new Set(opts?.sectionEntry ?? [])
+  const flagged = new Set(opts?.verdictFlagged ?? [])
   const tier = (q: LineAlignmentQuality | undefined) => (q === 'needs_review' ? 0 : q === 'approximate' ? 1 : 2)
   const cand = lines
-    .map((l, i) => ({ i, t: tier(quality[i]), text: (l.original || l.translation).trim() }))
-    .filter((c) => c.text.length > 0 && c.t < 2 && !anchored.has(c.i))
-    .sort((a, b) => a.t - b.t || (entries.has(b.i) ? 1 : 0) - (entries.has(a.i) ? 1 : 0) || a.i - b.i)
+    .map((l, i) => ({
+      i,
+      t: tier(quality[i]),
+      // A line admitted only by the verdict ranks after every labelled one (3), so the
+      // existing ordering is untouched and these only appear when slots remain.
+      rank: tier(quality[i]) === 2 && flagged.has(i) ? 3 : tier(quality[i]),
+      text: (l.original || l.translation).trim(),
+    }))
+    .filter((c) => c.text.length > 0 && (c.t < 2 || flagged.has(c.i)) && !anchored.has(c.i))
+    .sort((a, b) => a.rank - b.rank || (entries.has(b.i) ? 1 : 0) - (entries.has(a.i) ? 1 : 0) || a.i - b.i)
   return cand.slice(0, max).map((c) => c.i).sort((a, b) => a - b)
 }
 

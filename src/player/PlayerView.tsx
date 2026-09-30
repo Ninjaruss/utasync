@@ -18,6 +18,9 @@ import { retimeLoopFor, retimeLoopForEnd, needsWrap, type RetimeLoop } from './r
 import { computePeaks, type Peaks } from './waveformPeaks'
 import { Banner } from '../core/ui/Banner'
 import { refitAroundAnchors, selectAnchorTargets, selectActiveAnchorTarget, type TimingAnchor } from '../lyrics/anchorRefit'
+import { assessAlignmentTrust } from '../ai-pipeline/alignmentTrust'
+import { computeLineMatchedSpans } from '../ai-pipeline/contentAligner'
+import { sanitizeTranscript } from '../ai-pipeline/aligner'
 import { enrichPhraseTokens } from '../lyrics/phraseEnrichment'
 import { projectPhraseTokensToLines } from '../lyrics/phraseProjection'
 import { repairPhraseTranslationOrder, remapPhraseTranslations } from '../lyrics/phraseNormalize'
@@ -725,9 +728,31 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
   // the active line in Play mode, offer a one-tap pin — the tap becomes ground
   // truth for that line and refitAroundAnchors re-fits LOCALLY around it (confident
   // lines outside the pinned span are never shifted).
+  // The truth-free verdict, computed from the STORED transcript — no re-transcription, no
+  // model, no audio. Used only to widen the drag strip's candidate set (see below): it is
+  // saturated at song level and must not drive a song-level alert, which is measured in
+  // ledger L20, but at line level it separates cleanly (verified p90 1.91s vs unverified
+  // 8.74s, L14) and it catches lines the per-line labels vouch for wrongly.
+  const verdictFlaggedLines = useMemo(() => {
+    const words = song?.lyrics.transcriptWords
+    const lines = song?.lyrics.lines
+    if (!words?.length || !lines?.length) return []
+    const text = lines.map((l) => l.original || l.translation)
+    const trust = assessAlignmentTrust({
+      lines,
+      spans: computeLineMatchedSpans(text, sanitizeTranscript([...words])),
+      words: sanitizeTranscript([...words]),
+      quality: song?.lyrics.lineAlignmentQuality,
+    })
+    return trust.repairableLineIndices
+  }, [song])
+
   const anchorTargets =
     song?.lyrics.alignmentMode === 'auto'
       ? selectAnchorTargets(song.lyrics.lines, song.lyrics.lineAlignmentQuality, {
+          // Lines the verdict distrusts are admitted even when the labels call them 'good',
+          // ranked after every labelled line so the existing order is unchanged.
+          verdictFlagged: verdictFlaggedLines,
           // An anchor normally retires a line. Not when the user was clamped by
           // the edge of the drag window: that commit deliberately left the line
           // flagged, and suppressing it here would strand it one anchor short of

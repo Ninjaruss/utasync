@@ -1278,3 +1278,32 @@ So item 3 splits, and only one half survives:
 This is the sixth claim of mine that measurement has stopped or reshaped. The pattern from round
 11 holds: the fix is always to measure at the layer where the claim lives, and here that meant
 measuring the aggregate instead of reusing a per-line result.
+
+### Round 15 — item 3's surviving half: the verdict now widens the drag strip
+
+Last round established that the calibrated verdict cannot drive a song-level alert (L20:
+saturated, 85-100% of lines repairable on every song including the good ones) but separates
+cleanly at line level. So it was wired where it separates — the drag strip.
+
+Reading `selectAnchorTargets` turned up the concrete user cost of the label recall problem, and
+it is worse than "the count is low": the filter is `tier < 2`, so **lines labelled `good` were
+excluded from the candidate set entirely**. A line the labels confidently call good while sitting
+seconds from the vocal could never be offered for re-timing — the app never invited the user to
+fix its most confident mistakes. That is the 46% miss rate showing up as an outright blind spot
+rather than an under-count.
+
+`selectAnchorTargets` gained an optional `verdictFlagged` input, supplied from the STORED
+transcript in `PlayerView` (no re-transcription, no model, no audio — the transcript is already
+persisted). Labelled lines still rank first, so the existing order is unchanged and an omitted
+argument is byte-identical to the old behaviour; verdict-flagged lines fill the remaining slots.
+Five unit specs cover it, including the byte-identical case, the new admission, the ordering
+guarantee, and that the cap still holds.
+
+**Verification gap, stated rather than glossed:** the selection logic is unit-tested and the
+`PlayerView` wiring is type-checked and smoke-tested (it runs on every player spec that renders a
+song with a stored transcript), but no spec drives the wiring end-to-end to observe a
+label-good-but-distrusted line becoming an actual drag target. That is the next test to write
+here, and it needs a fixture whose labels say `good` while its transcript corroborates nothing.
+
+**Remaining:** item 2 (verdict-driven line selection plus a route to already-timed songs),
+item 5 (the pre-flight refactor), and the browser half of item 7.

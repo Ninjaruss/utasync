@@ -105,3 +105,61 @@ describe('selectAnchorTargets', () => {
     expect(selectAnchorTargets(L(3), undefined)).toEqual([])
   })
 })
+
+/**
+ * The recall gap in the drag strip's candidate set.
+ *
+ * The filter admitted only lines the per-line LABELS already distrust (`tier < 2`), and those
+ * labels catch 22 of 41 known >1.5s errors (ledger L5). So a line the labels confidently call
+ * 'good' while it sits seconds from the vocal was never offered for re-timing — the user was
+ * never invited to fix the app's most confident mistakes. The truth-free verdict closes that,
+ * and it separates cleanly at this layer (verified p90 1.91s vs unverified 8.74s, L14) even
+ * though it is saturated at song level and must not drive the song-level banner (L20).
+ */
+describe('selectAnchorTargets with a verdict', () => {
+  const lines = [
+    { original: 'a', translation: '', startTime: 0, endTime: 2 },
+    { original: 'b', translation: '', startTime: 2, endTime: 4 },
+    { original: 'c', translation: '', startTime: 4, endTime: 6 },
+  ]
+
+  it('is byte-identical to the old behaviour when no verdict is supplied', () => {
+    const quality = ['good', 'approximate', 'good'] as const
+    expect([...selectAnchorTargets([...lines], [...quality] as never)]).toEqual([1])
+    expect([...selectAnchorTargets([...lines], [...quality] as never, {})]).toEqual([1])
+  })
+
+  it('admits a line the labels call good but the verdict distrusts', () => {
+    // Every line is 'good' to the labels, so the old filter yields nothing at all.
+    const quality = ['good', 'good', 'good'] as const
+    expect([...selectAnchorTargets([...lines], [...quality] as never)]).toEqual([])
+    // With the verdict flagging line 2, it becomes a target.
+    expect([...selectAnchorTargets([...lines], [...quality] as never, { verdictFlagged: [2] })]).toEqual([2])
+  })
+
+  it('ranks labelled lines ahead of verdict-only ones, so the existing order is unchanged', () => {
+    const quality = ['good', 'needs_review', 'good'] as const
+    // Line 1 is labelled, lines 0 and 2 are verdict-only: the labelled one leads.
+    expect([...selectAnchorTargets([...lines], [...quality] as never, { verdictFlagged: [0, 2] })]).toEqual([0, 1, 2])
+    // ...and with only one slot, the labelled line takes it.
+    expect([...selectAnchorTargets([...lines], [...quality] as never, { verdictFlagged: [0, 2], max: 1 })]).toEqual([1])
+  })
+
+  it('still retires an anchored line and still skips blank rows', () => {
+    const blank = [
+      { original: '', translation: '', startTime: 0, endTime: 2 },
+      { original: 'b', translation: '', startTime: 2, endTime: 4 },
+    ]
+    const quality = ['good', 'good'] as const
+    expect([...selectAnchorTargets([...blank], [...quality] as never, { verdictFlagged: [0, 1] })]).toEqual([1])
+    expect([...selectAnchorTargets([...lines], ['good', 'good', 'good'] as never, { verdictFlagged: [2], alreadyAnchored: [2] })]).toEqual([])
+  })
+
+  it('never returns more than the cap, verdict or not', () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({ original: `l${i}`, translation: '', startTime: i, endTime: i + 1 }))
+    const quality = many.map(() => 'good')
+    const out = selectAnchorTargets([...many], [...quality] as never, { verdictFlagged: many.map((_, i) => i) })
+    expect(out.length).toBe(4)
+  })
+})
+

@@ -418,7 +418,13 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
     given a one-tap action;
   - the calibrated verdict belongs on the **drag strip**, ordering which lines to offer — that
     is where "which line is wrong" is the question being asked.
-- **Not wired.** No alert trigger was changed, on the evidence above.
+- **Not wired as an alert trigger.** No alert trigger was changed, on the evidence above.
+  **The drag-strip half was implemented in round 15** (`selectAnchorTargets` gained an optional
+  `verdictFlagged`, supplied from the stored transcript in `PlayerView`), because that is the
+  layer where the verdict separates. It closes a recall gap that was invisible to the user: the
+  drag strip's filter admitted only lines the LABELS already distrusted, and those labels catch
+  22 of 41 known >1.5s errors — so a line confidently called `good` while sitting seconds from
+  the vocal could never be offered for re-timing at all.
 
 ### L17 — the envelope-based offset screen does not work on real singing
 
