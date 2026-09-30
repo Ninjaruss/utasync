@@ -1518,3 +1518,29 @@ transfer to the other, and any future evaluation must say which shape it measure
 This rounds out the pattern across the whole series: of the seven original items, three were
 delivered, one was delivered in part, and three were refuted before shipping — and of the four
 refutations, two were refutations of my own design rather than of the existing code.
+
+### Round 23 — the biggest number in the ledger now has a test on its wiring
+
+Item 1 was refuted in its original form (the envelope offset screen does not work on real singing,
+L17). Its INTENT — correct already-timed lyrics with minimal input — is served by a different
+mechanism, and that mechanism was asserted rather than verified: `applyLrcPrior` and its gate
+`usablePriorTimes` are unit-tested, but nothing proved that `AutoAlignFlow` actually PASSES the
+prior. That is the seam where the largest measured win in the project (mean absolute p90 5.47s ->
+1.44s, 8/8 pairs, L12) could silently be a no-op.
+
+Now tested, with both halves of the gate:
+
+- a song whose timings came from OUTSIDE (a catalogue entry, `alignmentMode !== 'auto'`) has them
+  used as a prior: the persisted lines land on the prior, **not** on the from-scratch placements;
+- a song this pipeline already aligned (`alignmentMode: 'auto'`) is **refused** as a prior, because
+  anchoring a re-run to its own output would pin the alignment to the timings it exists to improve.
+
+**And the test was verified to bite**: disabling the prior call makes the first spec fail while the
+second still passes — a shape that also confirms the two halves are genuinely independent.
+
+One small process note: the spec first failed because its `SettingsStore` mock still pointed at
+`src/payment/`, which a concurrent refactor moved to `src/settings/`. A non-resolving mock is not an
+error in vitest — it simply does not register, so the REAL store ran and the flow showed the
+first-run consent prompt instead of aligning. Worth knowing: **a stale mock path fails as a
+behaviour change, not as an error.** The other specs in this area were already updated; this new
+one had copied the old path.
