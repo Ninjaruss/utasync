@@ -287,6 +287,37 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
   are therefore specific: coverage work on the stranger/recollect configs (L13, gap
   recovery), placement work on veil.
 
+### L19 — end-to-end: the echo is REJECTED by the shipped splice (L18's inference refuted)
+
+- **Instrument:** `spliceGapAlignment` itself, called with a real prompted transcription —
+  not a hand-rolled window. Real `whisper-small` via `scripts/lib/nodeWhisper.mjs`.
+- **Status:** sourceable, developer-run (real audio + real model, both uncommitted).
+- **Measured.** stranger-than-heaven, the largest detected hole `[39..44]` (a 25.0s slice,
+  six-line prompt, all six lines at 0.00-0.58 evidence coverage before):
+
+  | candidate | result |
+  |---|---|
+  | **prompted** (echo) | **accepted = false** — the echo returned DEGENERATE character-level chunks (`a`,`h`,`h`,`o`,`o`… with no usable timing), so `placementRealizesCoverage` rejected it |
+  | unprompted | accepted = true |
+
+- **So L18's inference was wrong and is withdrawn.** The backstop is
+  `placementRealizesCoverage` in `gapRealign.ts` — the comment in `gapReanalyze.ts` claiming an
+  echo "is still caught by accept-if-better below" is **accurate**, and the edit I made on the
+  strength of L18 has been reverted to a correct statement. Fifth claim of my own that
+  measurement overturned, and the second in two rounds.
+- **What L18 still establishes:** the echo is real *at the transcription level* — verbatim,
+  coverage 0.00 -> 1.00, including on a window Whisper itself labels non-vocal. The backstop is
+  therefore a load-bearing check against a demonstrated failure, not a theoretical one, and it
+  must not be weakened or replaced with anything that measures coverage of the prompt text.
+  Why it held here (k character-level tokens rather than repeated whole lines) is not fully
+  understood, and a different slice length or prompt shape could produce an echo whose timing
+  is *not* degenerate. That is an open risk, not a closed one.
+- **A separate defect the same run exposed, and it is in the OTHER direction:** the *unprompted*
+  splice was ACCEPTED while placing **five of six lines on the identical start time 157.30s**
+  with coverage 0.00-0.17 — acceptance gated on a fall in `needs_review` even though the
+  placement is a pileup and corroborates nothing. `enforceLineMonotonicity` permits equal starts,
+  so nothing downstream catches it. Worth its own investigation; recorded, not yet fixed.
+
 ### L18 — lyric-prompt biasing FABRICATES, and the acceptance test cannot tell
 
 - **Instrument:** real `Xenova/whisper-small` from Node via `scripts/lib/nodeWhisper.mjs`,
@@ -307,7 +338,12 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
   The prompt produces a **verbatim echo of itself**, and it does so even on a window Whisper
   independently labelled non-vocal. Coverage goes to exactly 1.00 in every case, fabricated
   ones included.
-- **THIS MAKES A SHIPPED COMMENT FALSE, and that is the finding.**
+- **CLAIM WITHDRAWN — see L19.** I first concluded from this that the shipped comment was
+  false and that accept-if-better could not catch an echo. Reproduced through the shipped
+  `spliceGapAlignment` (L19), it can and did. The transcription-level echo below is real; the
+  inference I drew from it about the acceptance test was not. The comment was corrected twice:
+  once wrongly, then back to an accurate statement that the backstop held on the measured case.
+- (Original, now-superseded reasoning follows.) **THIS MAKES A SHIPPED COMMENT FALSE:**
   `src/ai-pipeline/gapReanalyze.ts:204` prompts the slice with the sheet lyrics and its comment
   asserts *"A hallucinated echo is still caught by accept-if-better below."* It is not:
   `spliceGapAlignment` accepts on **coverage improvement** (`PLACED_COVERAGE_IMPROVE_MIN 0.1`),

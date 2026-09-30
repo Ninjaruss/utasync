@@ -201,13 +201,16 @@ export async function reanalyzeGaps(args: ReanalyzeGapsArgs): Promise<ReanalyzeG
       // CURRENT transcript does not corroborate instead (those are the
       // candidates for the un-heard span).
       //
-      // WARNING — a hallucinated echo is NOT caught by accept-if-better, which is what
-      // this comment used to claim. Measured with the real model (ledger L18): prompting
-      // makes Whisper ECHO the prompt verbatim, including on a window it independently
-      // labelled non-vocal (`(♪~)` -> the sheet line, coverage 0.00 -> 1.00). accept-if-
-      // better accepts on coverage improvement, which an echo maximises, so it is the one
-      // check an echo defeats. Prompted splices therefore need corroboration from
-      // something OTHER than coverage of the text used as the prompt.
+      // The prompt DOES make Whisper echo it verbatim at the transcription level —
+      // measured with the real model, including on a window Whisper independently labelled
+      // non-vocal (`(♪~)` -> the sheet line, text coverage 0.00 -> 1.00; ledger L18/L19).
+      // What stops that reaching a stored timing is `placementRealizesCoverage` in
+      // spliceGapAlignment, which is what "accept-if-better below" refers to: in the one
+      // end-to-end reproduction available (a 25s hole on an alternate take, six-line
+      // prompt), the echo returned DEGENERATE character-level timing and was REJECTED. So
+      // the backstop holds on the evidence we have — but it is now a load-bearing check
+      // against a demonstrated echo, not a theoretical one. Do not weaken it, and do not
+      // replace it with coverage-of-the-prompt-text, which an echo maximises.
       const promptText = aimed
         ? holeTexts
             .filter((_, k) => {

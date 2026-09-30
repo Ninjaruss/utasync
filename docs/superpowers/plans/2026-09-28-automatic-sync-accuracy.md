@@ -1141,3 +1141,43 @@ The honest note: the app's working offset estimator is `fitPriorTimeMap` against
 evidence (the engine of the 8/8 result), and it costs a transcription. My cheap version was an
 attempt to avoid that cost and it failed, so "correct already-timed lyrics" is deliverable only
 through an evidence path — which is precisely what item 1 becomes.
+
+### Round 11 — L18's inference withdrawn; the existing backstop works
+
+Round 10's finding was that prompting makes Whisper echo the sheet verbatim, and I concluded
+from that the shipped `accept-if-better` could not catch it — going as far as editing the code
+comment to say so. Before changing behaviour I reproduced it through the shipped path rather
+than my own hand-rolled window, and **the inference was wrong**:
+
+| stranger hole [39..44], 25s slice | shipped `spliceGapAlignment` verdict |
+|---|---|
+| **prompted** (the echo) | **rejected** — the echo returned degenerate character-level timing, so `placementRealizesCoverage` refused it |
+| unprompted | accepted |
+
+So the comment in `gapReanalyze.ts` — "a hallucinated echo is still caught by accept-if-better
+below" — is accurate, and my edit has been reverted to a correct statement. **Fifth claim of my
+own that measurement overturned, and the second in two rounds.** The pattern is consistent enough
+to name: I keep inferring a downstream consequence from an upstream measurement instead of
+measuring the consequence.
+
+What L18 still establishes, and it matters: the echo is real at the transcription level (verbatim,
+coverage 0.00 -> 1.00, including on a window Whisper itself labels non-vocal). The backstop is
+therefore load-bearing against a demonstrated failure rather than a theoretical one, and must not
+be weakened or replaced with anything that measures coverage of the prompt text. Why it held here
+(character-level tokens rather than repeated whole lines) is not fully understood, so this is an
+open risk rather than a closed one.
+
+**Item 2 is therefore viable after all**, and cheaper than I specified: `spliceGapAlignment`'s
+`placementRealizesCoverage` already rejects prompt echoes, so prompted windowed verification can
+reuse the existing acceptance test. What item 2 genuinely still needs is (a) verdict-driven line
+selection rather than structural hole detection, so weak lines outside a recognised hole are
+verified too, and (b) reaching already-timed songs, which never run auto-align at all.
+
+**A new defect the same run exposed, in the opposite direction:** the *unprompted* splice was
+ACCEPTED while placing five of six lines on the identical start time (157.30s) with coverage
+0.00-0.17 — acceptance gated on a fall in `needs_review` even though the placement is a pileup
+corroborating nothing, and `enforceLineMonotonicity` permits equal starts so nothing downstream
+catches it. The corpus scorecard already counts pileups as a defect, so the gap splice's
+acceptance test simply does not consult the metric the project already trusts. Recorded as L19;
+not fixed, because it is outside the objective's list and its severity needs its own
+measurement first.
