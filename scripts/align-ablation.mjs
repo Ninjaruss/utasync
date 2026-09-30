@@ -41,6 +41,7 @@ const { refineMixedLanguageAlignment } = await import(pathToFileURL(join(root, '
 const { sanitizeTranscript } = await import(pathToFileURL(join(root, 'src/ai-pipeline/aligner.ts')).href)
 const { computeLineMatchedSpans } = await import(pathToFileURL(join(root, 'src/ai-pipeline/contentAligner.ts')).href)
 const { applyLrcPrior } = await import(pathToFileURL(join(root, 'src/lyrics/lrcPrior.ts')).href)
+const { assessAlignmentTrust } = await import(pathToFileURL(join(root, 'src/ai-pipeline/alignmentTrust.ts')).href)
 const { parseLrc, matchSheetToLrc, scoreAgainstTruth } = await import(
   pathToFileURL(join(root, 'scripts/lib/lrcTruth.mjs')).href
 )
@@ -224,4 +225,96 @@ if (!argAxis || argAxis === 'labels') {
       )
     }
   }
+}
+
+/**
+ * MODEL axis. `whisper-medium` is the "High accuracy" opt-in, and this asks whether it should
+ * be PROMOTED rather than left behind a toggle the auto-start flow never even shows.
+ *
+ * The measured case FOR it (ledger L13) is coverage: on stranger-than-heaven ja-only it removes
+ * 7 lines' worth of evidence absence and cuts the evidence-backed p90 by 60%. The case AGAINST
+ * it sits in the same table and is the reason this is measured before anything is promoted:
+ *
+ *   segment two-pass   small:  noEv 27  evP90 3.30  absP90 6.50
+ *   segment-medium     medium: noEv 21  evP90 3.30  absP90 8.36   <- fewer holes, WORSE tail
+ *
+ * Fewer unverifiable lines and a worse 90th-percentile line at the same time. So "promote
+ * medium" is not self-evidently right, and the only thing that could justify making it
+ * automatic is the truth-free verdict ranking MODELS the way it demonstrably ranks timestamp
+ * modes (3/3 songs). This axis measures whether it does — and its answer decides whether any
+ * promotion gets wired at all.
+ */
+const MEDIUM_FIXTURES = {
+  'stranger-than-heaven': {
+    small: {
+      word: 'stranger-than-heaven/transcript.word.json',
+      segment: 'stranger-than-heaven/transcript.segment.json',
+    },
+    medium: {
+      word: 'stranger-than-heaven/transcript.word.medium.json',
+      segment: 'stranger-than-heaven/transcript.segment.medium.json',
+    },
+    transcriptEn: 'stranger-than-heaven/transcript.segment.forced-en.json',
+  },
+}
+
+if (argAxis === 'model') {
+  console.log('=== Axis 4: whisper-small vs whisper-medium, and does the VERDICT rank them right?\n')
+  let agreeCount = 0
+  let compared = 0
+  for (const [name, cfg] of Object.entries(MEDIUM_FIXTURES)) {
+    const song = SONGS.find((s) => s.name === name)
+    if (!song) continue
+    const lineTexts = readLines(join(FIXTURES, song.lyrics))
+    const lrc = JSON.parse(readFileSync(join(FIXTURES, song.truth), 'utf8'))
+    const truthTime = matchSheetToLrc(lineTexts, parseLrc(lrc.syncedLyrics))
+    const rows = lineTexts.map((original) => ({ original, translation: '', startTime: 0, endTime: 0 }))
+    const results = []
+    for (const size of ['small', 'medium']) {
+      for (const mode of ['word', 'segment']) {
+        const tPath = cfg[size][mode]
+        if (!existsSync(join(FIXTURES, tPath))) continue
+        const ja = loadWords(join(FIXTURES, tPath))
+        const en = cfg.transcriptEn ? loadWords(join(FIXTURES, cfg.transcriptEn)) : null
+        let refined
+        let scored = ja
+        if (en) {
+          const m = refineMixedLanguageAlignment(rows, ja, en)
+          refined = m.refined
+          scored = m.transcriptWords
+        } else {
+          refined = refineAlignmentWithPhrases(rows, ja, song.lang)
+        }
+        const sanitized = sanitizeTranscript(scored)
+        const spans = computeLineMatchedSpans(lineTexts, sanitized)
+        const m = scoreAgainstTruth(refined.lines, spans, truthTime, { lineTexts })
+        const trust = assessAlignmentTrust({
+          lines: refined.lines, spans, words: sanitized, quality: refined.lineAlignmentQuality,
+        })
+        results.push({ size, mode, m, trust })
+        console.log(
+          `  ${name} ${size.padEnd(6)} ${mode.padEnd(7)} ${en ? '2-pass ' : 'ja-only'}` +
+            ` absP50=${f(m.absP50)} absP90=${f(m.absP90)} worst=${f(m.absWorst)} <=250ms=${pc(m.fracWithin250)}` +
+            ` | evP90=${f(m.evP90)} noEv=${String(m.nNoEvidence).padStart(2)}` +
+            ` | verdict verifiedShare=${(trust.verifiedShare * 100).toFixed(0)}% noEvidenceShare=${(trust.noEvidenceShare * 100).toFixed(0)}%`,
+        )
+      }
+    }
+    for (const mode of ['word', 'segment']) {
+      const pair = results.filter((r) => r.mode === mode)
+      if (pair.length < 2) continue
+      const byVerdict = [...pair].sort((a, b) => b.trust.verifiedShare - a.trust.verifiedShare)[0]
+      const byTruth = [...pair].sort((a, b) => a.m.absP90 - b.m.absP90)[0]
+      const agree = byVerdict.size === byTruth.size
+      compared++
+      if (agree) agreeCount++
+      console.log(
+        `  ${name} ${mode}: verdict picks ${byVerdict.size.padEnd(6)} (verifiedShare ${(byVerdict.trust.verifiedShare * 100).toFixed(0)}%)` +
+          ` | truth picks ${byTruth.size.padEnd(6)} (absP90 ${f(byTruth.m.absP90)})  ${agree ? 'AGREE' : 'DISAGREE — do not automate this'}`,
+      )
+    }
+    console.log()
+  }
+  console.log(`  ${agreeCount}/${compared} comparisons agree. A disagreement means the verdict must NOT`)
+  console.log('  be used to choose the model, whatever the coverage argument for medium looks like.')
 }

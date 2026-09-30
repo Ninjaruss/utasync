@@ -287,6 +287,39 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
   are therefore specific: coverage work on the stranger/recollect configs (L13, gap
   recovery), placement work on veil.
 
+### L16 — whisper-medium is NOT uniformly better, and L13 was too narrow
+
+- **Instrument:** `scripts/align-ablation.mjs --axis=model`.
+- **Status:** **SOURCED and reproducible** (committed fixtures).
+- **Measured, stranger-than-heaven on the app's two-pass path:**
+
+  | config | absP50 | absP90 | worst | evP90 | no-evidence |
+  |---|---|---|---|---|---|
+  | **small + word** (shipped default) | 1.46 | **4.13** | 9.16 | 3.30 | 30 |
+  | medium + word | 1.58 | **12.35** | 14.82 | **12.45** | 26 |
+  | small + segment | 1.50 | 6.50 | 12.35 | 3.30 | 27 |
+  | medium + segment | 1.34 | 8.36 | 12.35 | 3.30 | 21 |
+
+- **REFUTATION of L13.** L13 concluded from `segment ja-only` that "whisper-medium's benefit is
+  anchoring, not timestamp precision" (no-evidence 33 -> 26, evP90 4.46 -> 1.79). That is true
+  for a **ja-only segment** run and it is not true of the path the app actually takes. On the
+  two-pass path medium leaves evP90 unchanged (3.30) while making absP90 *worse* (6.50 -> 8.36),
+  and with **word** timestamps it is dramatically worse (absP90 4.13 -> **12.35**, evP90
+  3.30 -> **12.45**). The narrow true statement is: medium improves coverage on a ja-only
+  segment run. The general claim was wrong.
+- **CONSEQUENCE — the promotion I proposed is refuted before it was built.** I offered
+  promoting medium as the biggest user-visible lever, on the strength of L13. Measured, it
+  would make the hardest song notably worse on the shipped word-mode default. So it was NOT
+  wired. This is the third claim of my own that measurement overturned, which is the ledger
+  working as intended rather than a defence of it.
+- **A LIMITATION OF THE VERDICT, found by this measurement.** The truth-free comparator ranks
+  no-evidence above the error tail, so on the segment pair it picks **medium** (lower
+  no-evidence share) while truth picks **small** (better absP90) — it agrees on word, disagrees
+  on segment. That ordering is *correct* for what the correction loop uses it for: a repair
+  round that loses coverage IS a regression. It is **not** fit for choosing between two
+  transcripts or two models, where a coverage gain can come with a much worse tail. Recorded so
+  nobody reuses the verdict for model selection on the strength of the 3/3 mode result.
+
 ### L12 — reconciling against an already-timed prior beats aligning from scratch (8/8)
 
 - **Instrument:** `scripts/align-ablation.mjs --axis=prior`; gated in
@@ -358,6 +391,7 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
 | date | entry | what happened |
 |---|---|---|
 | 2026-09-28 | L3 | The plan's first draft asserted the shipped word mode was catastrophic on the committed evidence. Measurement refuted it: on the mix fixtures word two-pass is the *best* of three (absP90 4.13 vs 6.50 vs 8.36). The stem measurement still stands. Corrected in the plan's §0 and recorded here. |
+| 2026-09-28 | L13 / promotion | I proposed promoting whisper-medium as the biggest user-visible lever, on the strength of L13's coverage finding. Measured first, as the plan requires: medium is *worse* on the shipped word-mode default (absP90 4.13 -> 12.35) and the truth-free verdict picks the wrong model on one of two pairs. Promotion not wired; L13 corrected to its narrow true form (L16). |
 | 2026-09-28 | L12 | The plan's D3 assumed the replacement for `alignmentPolicy.ts:42` was a cheap *screen* (L10). Measurement showed the bigger prize is prior *reconciliation* (L12): 8/8 pairs improved, mean absP90 5.47 → 1.44. The screen is still what makes auto-application safe, but the ordering of W1.2's layers changed — Layer 3 is the highest-value part, and its machinery was already wired and unreachable. |
 | 2026-09-28 | L11 | The plan's Phase-2 centrepiece (W1.1.1, transcript ramp repair) was designed around the "+24 s decaying to +2 s" ramp. Measuring it for the first time against committed fixtures found no meaningful drift anywhere. W1.1.1 is therefore blocked on real audio rather than queued, and the drift instrument became a deliverable instead of the repair. |
 | 2026-09-28 | L10 | The first `MAX_SHIFT_SEC` (3.5 s) produced a confidently wrong answer on a masked carrier and could not distinguish a true −0.48 s shift from a spurious −1.84 s one. Both were measured, and the range plus the magnitude gate were set from those numbers. |

@@ -1083,3 +1083,31 @@ checked"; on a clean clone it means they were not, and says so.
 Two of my own assertions failed on first run because my manifest metadata was too thin to be
 informative (a cover note of `'Japanese'`, a `truthQuality` of `'matched'`). The fix was to
 write real metadata, not to loosen the assertions — which is what they are for.
+
+### Round 9 — the medium promotion is refuted, not shipped
+
+I offered promoting `whisper-medium` as the biggest remaining user-visible lever, on the strength
+of L13 (medium removed 7 lines' worth of evidence absence and cut the evidence-backed p90 by 60%).
+You said yes. I measured first, as the plan requires, and **the promotion is wrong**:
+
+- medium + **word** on the app's two-pass path: absP90 **12.35** against small's **4.13**, and
+  evP90 12.45 against 3.30. Since word is the shipped default, this is the configuration a
+  promotion would have shipped.
+- medium + segment: absP90 8.36 against small's 6.50 — better coverage, worse tail.
+- L13's evidence came from a **ja-only segment** run, which is not the path the app takes.
+  Corrected in L16 to its narrow true form.
+
+So nothing was wired. This is the third claim of mine that measurement overturned on contact, and
+it is the clearest argument for the measurement layer this whole round-series built: the proposal
+was plausible, cited a real measurement, and was still wrong.
+
+**One limitation found on the way, recorded because it is load-bearing for future reuse.** The
+truth-free verdict ranks no-evidence above the error tail. That is right for the correction loop
+(a repair round that loses coverage is a regression) and wrong for choosing between two
+transcripts or models (a coverage gain can come with a much worse tail): it agreed with truth on
+word and disagreed on segment. It must not be reused for model selection on the strength of its
+3/3 record on timestamp modes.
+
+**What the data actually supports for this song is the configuration already shipped**: small +
+word + the automatic mode escalation. The coverage problem remains, and there is now no measured
+model-choice lever that improves it.
