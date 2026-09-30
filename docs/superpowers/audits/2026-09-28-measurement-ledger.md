@@ -381,6 +381,45 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
   the prompt. A one-line comment fix is included here; the behaviour change is deliberately
   left as the next deliberate step rather than made in the same breath as the measurement.
 
+### L20 — the truth-free verdict cannot drive a SONG-level alert (item 3 refuted, half-redirected)
+
+- **Instrument:** `scripts/align-trust-calibration.mjs` (the ALERT THRESHOLD section).
+- **Status:** **SOURCED and reproducible** from committed fixtures.
+- **Why it was measured.** Item 3 was "surface the calibrated verdict in the off-timing banner
+  instead of the 54%-recall labels". Swapping a number that drives a user-facing alert is a
+  behaviour change, so the threshold had to be measured rather than chosen — and swapping it
+  blind had already flipped a spec once.
+- **Measured, per config: the candidate signals beside absolute truth error.**
+
+  | config | repairable | noEv | verified | absP90 | truth says |
+  |---|---|---|---|---|---|
+  | guitar word | 85% | 6% | 18% | 1.93 | quiet |
+  | guitar segment | **100%** | 6% | 0% | 2.29 | alert |
+  | veil word | 90% | 17% | 14% | 0.98 | quiet |
+  | stranger word two-pass | 98% | 41% | 3% | 4.13 | alert |
+  | stranger segment two-pass | **100%** | 41% | 0% | 6.50 | alert |
+  | stranger segment-medium | **100%** | 27% | 0% | 8.36 | alert |
+  | recollect word two-pass | **100%** | 75% | 0% | 13.50 | alert |
+  | recollect segment two-pass | **100%** | 42% | 0% | 6.04 | alert |
+
+  No candidate threshold separates: `repairableShare >= 0.30` alerts on everything (85-100%
+  *including* the quiet songs), `noEvidenceShare >= 0.25` misses guitar segment (6% while
+  genuinely 2.29s out), and `verifiedShare <= 0.35` flags nothing useful because veil sits at
+  14% while being the best song in the corpus.
+- **The reason is saturation, and it is a statement about the pipeline.** The verdict marks
+  85-100% of lines repairable on EVERY song, because the pipeline leaves most lines without
+  full corroboration everywhere. A song-level aggregate with no dynamic range has nothing to
+  discriminate with — the same underlying fact as `converged` being 0/8 (L15).
+- **CONCLUSION — half of item 3 is refuted, the other half redirected.** The verdict is fit for
+  **per-line targeting within** a song (it separates cleanly there: verified p90 1.91s versus
+  unverified 8.74s, L14) and **not** for a song-level alert. So:
+  - the off-timing BANNER keeps its existing signals, which are already the discriminating ones
+    (`accurateRealignReason`'s weak-labels share and segment-blocks) and which item 6 has just
+    given a one-tap action;
+  - the calibrated verdict belongs on the **drag strip**, ordering which lines to offer — that
+    is where "which line is wrong" is the question being asked.
+- **Not wired.** No alert trigger was changed, on the evidence above.
+
 ### L17 — the envelope-based offset screen does not work on real singing
 
 - **Instrument:** `scripts/offset-estimate-real.mjs` (planted offsets against real audio) and

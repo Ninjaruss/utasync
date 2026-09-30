@@ -1247,3 +1247,34 @@ as not-a-defect with the reasoning, so it is not re-raised and not "fixed" by gu
 a route to already-timed songs), item 3 (needs its alert threshold measured first), item 5 (the
 pre-flight refactor specified in round 12 — the `willSeparate` computation has to move out of
 `start()`), and the browser half of item 7, which cannot run here.
+
+### Round 14 — item 3's precondition measured; half of it refuted
+
+Item 3 was to surface the calibrated verdict in the off-timing banner in place of the 54%-recall
+labels. I had made that conditional on measuring the alert threshold first, and the measurement
+says no:
+
+  repairable share   85%  100%  90%  98%  100%  100%  100%  100%     <- all eight configs
+  absolute p90       1.93 2.29  0.98 4.13 6.50  8.36  13.50 6.04
+  truth verdict      quiet alert quiet alert alert alert alert alert
+
+No candidate threshold separates. `repairableShare >= 0.30` alerts on **everything**, including
+the two quiet songs, because the verdict marks 85-100% of lines repairable on every song; the
+`noEvidenceShare` and `verifiedShare` variants each miss at least one genuinely-bad config.
+
+**The cause is saturation, and it is a statement about the pipeline, not the metric.** The
+verdict has no dynamic range at song level because the pipeline leaves most lines without full
+corroboration *everywhere* — the same underlying fact as `converged` being 0/8.
+
+So item 3 splits, and only one half survives:
+
+- **The banner keeps its existing signals**, which the measurement shows are the discriminating
+  ones, and which item 6 has just given a one-tap action. Not changed.
+- **The calibrated verdict belongs on the drag strip**, where the question is "which line is
+  wrong" rather than "is this song wrong" — and it separates cleanly at that layer (verified p90
+  1.91s against unverified 8.74s). That is the remaining half, and it is now specified rather
+  than assumed.
+
+This is the sixth claim of mine that measurement has stopped or reshaped. The pattern from round
+11 holds: the fix is always to measure at the layer where the claim lives, and here that meant
+measuring the aggregate instead of reusing a per-line result.

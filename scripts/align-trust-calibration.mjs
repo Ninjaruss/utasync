@@ -218,7 +218,10 @@ for (const c of CONFIGS) {
     if (t == null) continue
     allAcoustic[v.trust].push(Math.abs(refined.lines[v.lineIndex].startTime - t))
   }
-  perConfig.push({ name: c.name, trust, byTier, p90: pct(errs, 0.9), worst: Math.max(...errs), badLines, badTotal, badCaught })
+  perConfig.push({
+    name: c.name, trust, byTier, p90: pct(errs, 0.9), worst: Math.max(...errs), badLines, badTotal, badCaught,
+    frac250: errs.length ? errs.filter((e) => e <= 0.25).length / errs.length : 0,
+  })
   console.log(`  acoustic: ${trust.acousticallyChecked}/${refined.lines.length} lines judged from the mix; text-only 'verified' n=${textVerified.length} p90=${f(pct(textVerified, 0.9))}  →  with-audio 'verified' n=${acoVerified.length} p90=${f(pct(acoVerified, 0.9))}`)
   convergedClaimed.push({ name: c.name, converged: trust.converged, verifiedShare: trust.verifiedShare, p90: pct(errs, 0.9), worst: Math.max(...errs), badLines, n: errs.length })
 
@@ -298,6 +301,58 @@ if (allStem.verified.length || stemConfigs.length) {
     )
   }
 }
+
+/**
+ * ALERT THRESHOLD — what should the off-timing banner key on?
+ *
+ * Plan item 3 is to surface this verdict in the UI instead of the shipped per-line labels,
+ * which catch 22 of 41 known >1.5s errors (54% recall). Swapping the number that drives a
+ * user-facing alert is a behaviour change, so the threshold has to be MEASURED rather than
+ * chosen. This prints the candidate signals next to truth so a separation can be seen, and
+ * reports whether any single threshold both flags every bad song and stays quiet on the good
+ * one.
+ */
+console.log('\n=== ALERT THRESHOLD: which truth-free signal separates "worth alerting" from "fine"?')
+console.log('  (truth columns are absolute error vs LRC; the signals are all computable at runtime)')
+console.log('  config                        repairable  repairable%  noEv%  verified%  absP90  <=250ms  verdict')
+const rows = []
+for (const c of perConfig) {
+  const n = c.trust.lines.length
+  const repairable = c.trust.repairableLineIndices.length
+  const repairableShare = n ? repairable / n : 0
+  const absP90 = c.p90
+  const within = all.verified.length ? null : null // computed per config below
+  // A song is "worth alerting about" when a listener would notice: p90 beyond the
+  // perceptual contract's C4 (worst line <= 1.0s) is the strictest defensible line.
+  const bad = absP90 > 2.0
+  rows.push({ name: c.name, repairableShare, noEvidenceShare: c.trust.noEvidenceShare, verifiedShare: c.trust.verifiedShare, absP90, bad })
+  console.log(
+    `  ${c.name.padEnd(28)} ${String(repairable).padStart(3)}/${String(n).padEnd(3)}   ${(repairableShare * 100).toFixed(0).padStart(3)}%       ` +
+      `${(c.trust.noEvidenceShare * 100).toFixed(0).padStart(3)}%    ${(c.trust.verifiedShare * 100).toFixed(0).padStart(3)}%    ` +
+      `${f(absP90)}    ${String(Math.round(c.frac250 * 100)).padStart(4)}%   ${bad ? 'ALERT' : 'quiet'}`,
+  )
+}
+const candidates = [
+  ['repairableShare >= 0.30', (r) => r.repairableShare >= 0.3],
+  ['repairableShare >= 0.20', (r) => r.repairableShare >= 0.2],
+  ['noEvidenceShare >= 0.25', (r) => r.noEvidenceShare >= 0.25],
+  ['verifiedShare <= 0.50', (r) => r.verifiedShare <= 0.5],
+  ['verifiedShare <= 0.35', (r) => r.verifiedShare <= 0.35],
+]
+console.log('\n  threshold candidate          alerts bad  quiet on good  separation')
+let anyClean = false
+for (const [label, test] of candidates) {
+  const badFlagged = rows.filter((r) => r.bad).every(test)
+  const goodQuiet = rows.filter((r) => !r.bad).every((r) => !test(r))
+  const clean = badFlagged && goodQuiet
+  if (clean) anyClean = true
+  console.log(`  ${label.padEnd(28)} ${String(badFlagged).padEnd(11)} ${String(goodQuiet).padEnd(14)} ${clean ? 'CLEAN ✓' : 'does not separate'}`)
+}
+console.log(
+  `\n  ${anyClean ? 'At least one threshold separates cleanly on this corpus.' : 'NO single threshold separates cleanly on this corpus.'}`,
+)
+console.log('  A signal that cannot separate is not a usable alert trigger: item 3 must not be wired')
+console.log('  onto it without further work, and the shipped label-based count stays until then.')
 
 console.log('\n=== OPERATIONAL: is `converged` a safe stop signal?')
 const claimed = convergedClaimed.filter((c) => c.converged)
