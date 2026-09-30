@@ -201,7 +201,6 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
   const [etaPrompt, setEtaPrompt] = useState<
     { projectedMs: number; decide: (choice: 'skip' | 'continue') => void } | null
   >(null)
-  const [noGpuPrompt, setNoGpuPrompt] = useState<{ decide: (keepGoing: boolean) => void } | null>(null)
   const [remainingLabel, setRemainingLabel] = useState<string | null>(null)
   // Settles whichever prompt is open with its "give up" answer. Without it, a
   // cancel (or unmount) while a prompt is showing leaves start() awaiting a
@@ -241,7 +240,6 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
     cancelledRef.current = false
     abortRef.current = new AbortController()
     setEtaPrompt(null)
-    setNoGpuPrompt(null)
     setRemainingLabel(null)
     resolveOpenPromptRef.current = null
     setError('')
@@ -314,17 +312,20 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       // after. Uses the same prompt machinery as the post-chunk-1 estimate.
       let separationAccepted = true
       if (willSeparate && !(await probeWebGPUAdapter())) {
-        separationAccepted = await new Promise<boolean>((resolve) => {
-          const decide = (keepGoing: boolean) => {
-            resolveOpenPromptRef.current = null
-            setNoGpuPrompt(null)
-            resolve(keepGoing)
-          }
-          resolveOpenPromptRef.current = () => decide(false)
-          setNoGpuPrompt({ decide })
-        })
+        // A definitive "no WebGPU adapter" means separation would grind on WASM. This used
+        // to STOP the run and ask — a modal appearing after the flow had visibly begun, on a
+        // decision the user already made by letting alignment start. It is now decided cold:
+        // skip separation, say so, and carry on.
+        //
+        // Skipping is the measured-safe default, not merely the quiet one: on this project's
+        // own audio, a Demucs stem has produced 15.4s mean error against 2.8s on the raw mix
+        // (ledger L6), and the app separately catches a destroyed stem and falls back anyway.
+        // So the mix is never the worse choice by default, while a WASM separation is tens of
+        // minutes. A user who wants to force it still can: tick "Isolate vocals first" on the
+        // idle screen, or re-run from Edit, and the per-song verdict is remembered.
+        separationAccepted = false
         if (cancelledRef.current) return
-        if (!separationAccepted) {
+        {
           // The separation step never runs, so drop it from the progress steps
           // rather than showing a stage that will be skipped.
           setVocalSeparationRun(false)
@@ -419,7 +420,6 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
         // the run can no longer honour (a late answer is dropped by the host's own
         // `settled` guard). Clearing here also releases the pending promise.
         setEtaPrompt(null)
-        setNoGpuPrompt(null)
         resolveOpenPromptRef.current = null
       }
 
@@ -1129,13 +1129,21 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
         {/* Only one dialog may own the overlay: the cancel confirmation wins,
             and its "Keep running" brings the pending question back.
 
-            Both questions put "Keep going" on confirm and "Skip it" on cancel,
-            which reads backwards next to the cancel dialog above but is
-            deliberate: useModalDialog maps Escape to onCancel, so this is what
-            makes Escape mean "back out of the expensive thing". Committing to a
-            multi-minute CPU grind is the costly, hard-to-undo choice here — so
-            it belongs on confirm, and skipping (which still yields aligned
-            lyrics, just from the raw mix) is the safe default Escape lands on. */}
+            "Keep going" on confirm and "Skip it" on cancel reads backwards next
+            to the cancel dialog above, and is deliberate: useModalDialog maps
+            Escape to onCancel, so this is what makes Escape mean "back out of
+            the expensive thing". Committing to a multi-minute separation is the
+            costly, hard-to-undo choice, so it belongs on confirm, and skipping
+            (which still yields aligned lyrics, just from the raw mix) is the safe
+            default Escape lands on.
+
+            NOTE — this is the only prompt of its kind left, and item 5 of the
+            accuracy plan wants it gone too: it fires from `onLongEstimate`, whose
+            contract is a BLOCKING promise, so separation PAUSES until the user
+            answers. Making it non-blocking means changing that contract, which is
+            why the no-WebGPU prompt was converted first (it needed no mechanism
+            change at all). */}
+
         {!confirmCancel && etaPrompt && (
           <ConfirmDialog
             title="This will take a while"
@@ -1146,17 +1154,6 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
             onCancel={() => etaPrompt.decide('skip')}
           />
         )}
-        {!confirmCancel && noGpuPrompt && (
-          <ConfirmDialog
-            title="No GPU acceleration here"
-            message="This browser can't use your GPU for vocal isolation, so it would run on the CPU — usually far longer than the song itself. You can skip it and align on the original mix: slightly less accurate, but much faster."
-            confirmLabel="Keep going"
-            cancelLabel="Skip it"
-            onConfirm={() => noGpuPrompt.decide(true)}
-            onCancel={() => noGpuPrompt.decide(false)}
-          />
-        )}
-
         <h2 className="text-white font-semibold text-lg">Auto-Align Lyrics</h2>
         <p className="text-white/50 text-sm">{tierNote}</p>
 

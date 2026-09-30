@@ -1327,3 +1327,30 @@ from the verdict rather than from the labels.
 (the strip never appears) and restoring it makes it pass. A test for a widening that cannot fail
 without the widening would have been worth nothing — the same discipline the corpus-coverage and
 provenance guards went through at the start of this work.
+
+### Round 17 — item 5, first half: the no-WebGPU prompt is gone
+
+Both prompts that interrupted a consented run were pre-payment decisions rather than genuine
+mid-run questions, but they differ in how hard they are to remove.
+
+**The no-WebGPU prompt needed no mechanism change, so it went first.** It used to stop the flow
+after "Preparing audio" and ask whether to grind separation on the CPU. It is now decided
+**cold**: separation is skipped, the flow says so, and nothing blocks. Two reasons the skip is
+the right default rather than merely the quiet one:
+
+- It is **measured-safe**: on this project's own audio a Demucs stem has produced 15.4s mean
+  error against 2.8s on the raw mix (ledger L6), and the app separately catches a destroyed stem
+  and falls back anyway. So the mix is never the worse choice by default, while a WASM
+  separation is tens of minutes.
+- The user **keeps the choice** through the idle screen's "Isolate vocals first" toggle and the
+  Edit-mode re-run, and the per-song verdict is remembered.
+
+Two specs asserting the old modal (including its Escape binding) were replaced by one asserting
+there is no modal at all, that separation never runs, that the mix is what gets transcribed, and
+that the skip is said out loud. The stale comment claiming "both questions" were arranged that
+way was corrected, and now records why the ETA prompt is the harder one.
+
+**What remains of item 5 is the ETA prompt, and it is genuinely harder.** It fires from
+`onLongEstimate`, whose contract is a **blocking promise** — separation PAUSES until the user
+answers. Making it non-blocking means changing that contract in `demucsSeparator`, not just the
+UI. That is the next slice, and it is a deliberate change rather than a patch.

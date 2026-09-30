@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import 'fake-indexeddb/auto'
-import { render, waitFor, fireEvent, cleanup } from '@testing-library/react'
+import { render, waitFor, cleanup } from '@testing-library/react'
 import { AutoAlignFlow } from '../../src/ai-pipeline/AutoAlignFlow'
 import type { Song } from '../../src/core/types'
 import { db } from '../../src/core/db/schema'
@@ -132,49 +132,34 @@ describe('AutoAlignFlow — abandoned vocal separation', () => {
     expect(await findByText(copy)).toBeTruthy()
   })
 
-  // A definitive "no WebGPU adapter" means separation would grind on WASM. The
-  // user is asked before the model download, and declining skips separation
-  // entirely rather than merely bounding it.
-  it('asks before running on the CPU, and skips separation when declined', async () => {
+  // A definitive "no WebGPU adapter" means separation would grind on WASM for tens of
+  // minutes. This used to stop the run and ask, with a modal appearing after the flow had
+  // visibly begun — an interruption of a decision the user had already made by letting
+  // alignment start.
+  //
+  // It is now decided COLD: separation is skipped, the flow says so, and nothing blocks.
+  // Skipping is the measured-safe default rather than merely the quiet one — on this
+  // project's own audio a Demucs stem has produced 15.4s mean error against 2.8s on the raw
+  // mix (ledger L6) — and a user who wants to force separation still can, from the idle
+  // screen's toggle or by re-running from Edit.
+  it('skips separation on a no-WebGPU device without stopping to ask', async () => {
     vi.mocked(probeWebGPUAdapter).mockResolvedValue(false)
 
-    const { findByText, getByText } = render(
+    const { findByText, queryByText } = render(
       <AutoAlignFlow song={song} autoStart onClose={vi.fn()} onComplete={vi.fn()} />,
     )
 
-    expect(await findByText(/No GPU acceleration here/i)).toBeTruthy()
-    expect(separateVocals).not.toHaveBeenCalled()
-
-    fireEvent.click(getByText('Skip it'))
-
     await waitFor(() => expect(transcribeMock).toHaveBeenCalled())
+    // No modal, ever: nothing asks the user to unblock a run they already consented to.
+    expect(queryByText(/No GPU acceleration here/i)).toBeNull()
+    expect(queryByText('Keep going')).toBeNull()
+    // Separation is skipped, and the mix is what gets transcribed.
+    expect(separateVocals).not.toHaveBeenCalled()
     const [audioArg, rateArg] = transcribeMock.mock.calls[0]
     expect(audioArg).toBe(mixAudio)
     expect(rateArg).toBe(48000)
-    expect(separateVocals).not.toHaveBeenCalled()
-    expect(await findByText(/skipped vocal isolation/i)).toBeTruthy()
+    // ...and it is said out loud rather than done silently.
+    expect(await findByText(/[Ss]kipped vocal isolation/)).toBeTruthy()
   })
 
-  // Escape must back OUT of the expensive choice. useModalDialog maps Escape to
-  // onCancel, so these two prompts deliberately put "Skip it" there and "Keep
-  // going" on confirm — the inverse of the cancel dialog's arrangement. Get that
-  // backwards and Escape silently commits the user to a CPU grind, which is the
-  // very thing the original bug report was about.
-  it('skips separation when the CPU warning is dismissed with Escape', async () => {
-    vi.mocked(probeWebGPUAdapter).mockResolvedValue(false)
-
-    const { findByText } = render(
-      <AutoAlignFlow song={song} autoStart onClose={vi.fn()} onComplete={vi.fn()} />,
-    )
-
-    expect(await findByText(/No GPU acceleration here/i)).toBeTruthy()
-
-    // Fired on document (capture) because that is where useModalDialog binds —
-    // calling onCancel directly would prove nothing about the key binding.
-    fireEvent.keyDown(document, { key: 'Escape' })
-
-    await waitFor(() => expect(transcribeMock).toHaveBeenCalled())
-    expect(separateVocals).not.toHaveBeenCalled()
-    expect(await findByText(/skipped vocal isolation/i)).toBeTruthy()
-  })
 })
