@@ -1728,3 +1728,37 @@ end-to-end live on both paths against the same version-exact LRC, and it removes
 than a live transcription** of the same audio (p50 0.39 / p90 2.29 vs 0.85 / 10.73, same pipeline and
 truth), which is recorded as a discrepancy with a named test rather than a conclusion: re-derive the
 fixtures from reproducible audio. Until then the fixture-based baselines inherit that caveat.
+
+### Round 29 — the round's own premise was refuted before it was built, and the real lever turned out to be the tail
+
+The approved pick was to fix guitar's measured +0.30 s lateness with an offset correction gated by the
+new acoustic arbiter. Building it required knowing *what* the app's lag actually is at runtime, so the
+first step was to feed the same instrument a LIVE transcription of the same audio instead of the
+audit's stored fixture. That single substitution **refuted the premise**: the lag collapses from
++0.300 s (CI +0.04…+0.57) to +0.080 s (CI +0.02…+0.20), the app's p50 improves 0.488 → 0.137 s, its
+≤250 ms share 21% → 58%, and the verdict reverses to *the app is significantly closer to the singing
+than the human transcription*. The +0.30 s belonged to the audit corpus, not to the app.
+
+The lesson is recorded rather than quietly dropped (L30 carries its own correction): a two-arbiter
+agreement is only independent when the arbiters do not share an input. The version-exact LRC and the
+stem's word onsets agreed because both were measuring placements derived from the same stored
+transcript. That is the third time in this series that a conclusion survived one instrument and died
+at the next layer.
+
+What the live measurement leaves behind is a different failure mode, and a bigger one: the live app
+has a **tail**, not an offset — p90 14.6 s against 2.17 s for the fixture-fed placements, on the same
+lines. So the round pivoted to measuring the one lever that targets a tail, and it holds up across
+the corpus (L34):
+
+| song | mix → stem, live Whisper, same LRC truth | p90 | >3 s |
+|---|---|---|---|
+| guitar | 2.19 → **0.53** mean abs, p50 0.85 → **0.32** | 10.73 → **1.58** | 5 → **0** |
+| veil | 0.79 → **0.52** | 1.87 → **1.33** | 3 → **0** |
+| stranger | 1.74 → **1.30** | 5.65 → **2.86** | 8 → **5** |
+
+Isolation ON improves mean error and p90 on all three songs and cuts catastrophes over 3 s from 16 to
+5, while the median is a wash. The gap it would fill is exact: both one-tap re-align affordances in
+`PlayerView.tsx` (`realign-from-timings`, `realign-approximate`) re-run the flow on the SAME input and
+never request isolation — `isolateVocals` is only ever passed by the gap-recovery path. Whether that
+recovery should be offered at one tap or taken automatically is D9, the escalation-cost ceiling, and
+that is a user decision: separation took 1975 s for a 229 s track on the WASM path here.

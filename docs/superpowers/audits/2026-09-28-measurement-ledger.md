@@ -540,10 +540,16 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
 
 **The attribution the LRC could never give.** On veil the human-sourced LRC is the one that is
 reliably late (its own lag CI excludes zero) and the app is not; on guitar it is the other way
-round — the app is reliably **+0.30 s late against the singing**, and that number independently
-reproduces the +0.31 s the LRC audit measured. Two unrelated arbiters agreeing on the same 0.3 s is
-the strongest form this claim can take here, and it converts guitar's offset from "a disagreement
-with an LRC" into **an attributable defect of ours**.
+round — the app is reliably **+0.30 s late against the singing**, reproducing the +0.31 s the LRC
+audit measured. Two unrelated arbiters agreeing on the same 0.3 s is the strongest form this claim
+can take *for the placements this instrument was fed*.
+
+**CORRECTED the same day, by the follow-up this entry does not contain: that +0.30 s belongs to the
+AUDIT CORPUS, not to the app.** Both arbiters agreed because both were measuring the same stored
+fixture transcript. Feed the same instrument a LIVE transcription of the same audio and the
+lateness collapses to +0.08 s (L33). The correction is kept here rather than edited away, because the
+mistake is instructive: a two-arbiter agreement is only independent if the two arbiters do not share
+an input, and here they shared one.
 
 **What is NOT a defect.** The per-line scatter (~0.3 s p50) is shared: on guitar both columns sit
 0.47-0.49 s p50 from where the model hears the word start, and the paired per-line difference is
@@ -658,6 +664,59 @@ the sung audio is what would close it, at model cost — **and L30 is that instr
 Whisper's word timestamps on the isolated stem, aligned globally to the sheet. It can judge about
 half the sheet per song, and it attributes the disagreement per song rather than reporting an
 unattributable distance.
+
+### L33 — the +0.30s "defect" was the corpus: the app is LESS late against the singing than the LRC when fed a live transcript
+
+- **Instrument:** `scripts/align-stem-forced-truth.mjs` with a new variant that feeds the app a LIVE
+  transcription of the mix (`.cache/mix-words-guitar.json`, from `scripts/transcribe-stem.mjs`, which
+  now decodes the mix as well as raw stems). Same song, same arbiter, same code, same 24 judgeable
+  lines — the app's INPUT TRANSCRIPT is the only thing that changes.
+- **Status:** **SOURCED, reproducible**, and it **refutes the pick** this round was going to build:
+  a systematic-offset correction for guitar. There is no +0.3 s of the app's to correct.
+
+| guitar: the app's input transcript | app lag vs singing | app p50 | app p90 | app ≤250ms | verdict |
+|---|---|---|---|---|---|
+| stored FIXTURE (`transcript.segment.json`) | **+0.300 s** (CI +0.04…+0.57) | 0.488 | 2.165 | 21% | LRC closer |
+| **LIVE** mix transcription | **+0.080 s** (CI +0.02…+0.20) | **0.137** | 14.600 | **58%** | **app significantly closer** |
+
+So the live app is *better* than the human transcription on typical accuracy (p50 0.137 vs 0.470 s,
+≤250 ms 58% vs 29%) and **significantly closer to the singing**. What it does NOT have is a tail:
+with the live transcript p90 explodes to **14.6 s**, against 2.17 s for the fixture-fed placements.
+
+- **Why this matters beyond guitar.** It is the second, independent instance of L32's discrepancy,
+  and it reverses a conclusion rather than shading a number. Every "the app is late by X" claim in
+  this ledger that was computed from a stored fixture is now suspect in the same direction, and the
+  caveat in L32 ("may overstate what a user gets") is upgraded from hypothesis to measured, for
+  guitar, on both axes: the typical error is *better* live and the tail is *far worse*.
+- **Serves:** it kills the planned correction before it was built, and it names the real live failure
+  mode as a TAIL rather than an offset — which is what L34 then measures a fix for.
+
+### L34 — isolation ON removes the tail on all three songs (live, same truth)
+
+- **Instrument:** `scripts/e2e-align.mjs` (mix, live Whisper) vs `scripts/e2e-align-stem.mjs` (stem,
+  live Whisper) — the app's isolation-OFF and isolation-ON paths, scored against the same LRC truth.
+- **Status:** **SOURCED, one live run per cell**, 36/48/59 scored lines.
+
+| song | path | mean abs | p50 | p90 | >1 s | >3 s |
+|---|---|---|---|---|---|---|
+| guitar | mix → **stem** | 2.19 → **0.53** | 0.85 → **0.32** | 10.73 → **1.58** | 12 → **5** | 5 → **0** |
+| veil | mix → **stem** | 0.79 → **0.52** | 0.23 → 0.35 | 1.87 → **1.33** | 7 → 8 | 3 → **0** |
+| stranger | mix → **stem** | 1.74 → **1.30** | 0.54 → **0.39** | 5.65 → **2.86** | 18 → **15** | 8 → **5** |
+
+**The consistent effect is on the tail, not the median.** Mean absolute error and p90 improve in all
+three songs; catastrophes over 3 s fall 16 → 5 across the corpus (guitar 5→0, veil 3→0, stranger
+8→5); p50 is a wash (better on guitar and stranger, slightly worse on veil, where the mix alignment
+was already the best of the three). Since a line several seconds out is the failure a user actually
+notices — and the one the labels catch (22 of 41) — this is the user-visible lever the accuracy work
+has been looking for.
+
+- **Cost, which is why this is a decision and not a default:** separation is the slow half and runs
+  on the app's own ONNX worker. On this machine it took **1975 s (33 min)** for a 229 s track via the
+  WASM path — and `scripts/separate-vocals.mjs`'s own "~15 min" note is stale by more than 2×.
+- **Serves:** it makes "offer isolation as the recovery when a mix alignment comes out weak" an
+  evidence-backed recommendation, at one tap rather than automatically (D9 — the unanswered
+  escalation-cost ceiling). The gap it would fill is precise: both one-tap re-align banners in
+  `PlayerView.tsx` re-run the flow on the SAME input and never request isolation.
 
 ### L29 — two dead ends deleted, with the measurement that killed each
 
@@ -997,6 +1056,8 @@ nothing rather than an arbitrary row.
 | 2026-09-28 | `bnd_measured` | Emitted as a *string* so it was exempt from the numeric guards, which let a corpus row be committed with **0** measurable boundary lines and eight vacuous `0 ≤ 0` assertions. Made numeric with a higher-is-better guard in `scripts/audit-corpus.mjs`, a coverage floor in `tests/ai-pipeline/corpus-scorecard.test.ts`, and an explicit `ZERO_COVERAGE_BY_DESIGN` set naming the one row allowed to score nothing. Both guards were verified to FAIL when coverage collapses (baseline raised above actual) and to pass when restored. |
 | 2026-09-30 | L26 run 3 | "The highlight sticks on line 15 and 18 of 21 samples fail" was reported as an unexplained possible render-layer defect, with the honest caveat that a sampling race would look identical. Both halves resolved by L27: it was the check's own out-of-order store pokes, and real playback over a full song shows 524/524 correct with zero DOM-vs-store disagreements. The old pass counts (0/21, 10/21, 7/21) are measurement artifacts and are not evidence about the app. |
 | 2026-09-30 | acoustic arbiter | I built an instrument to settle "does it line up" against the vocal stem instead of the LRC, and its first output said `the app is CLOSER to the audio than the LRC` (p50 0.042 vs 0.063 on veil). Withdrawn before it reached any summary: the flux peaks are 0.17-0.19s apart, so `nearest peak within 1s` lands within 0.042s for a RANDOM time. Neither column beats the null, and the ordering flips between floors. The route is closed (L28); the LRC remains the only arbiter. |
+| 2026-09-30 | the +0.30s guitar defect | Reported to the user as "an attributable defect of ours, with a number to fix", on the strength of two arbiters agreeing (the version-exact LRC and the stem's word onsets). Both were fed the SAME stored fixture transcript, so the agreement was not independent. Feeding the app a live transcription of the same audio collapses the lag to +0.08s and reverses the verdict: the app is significantly CLOSER to the singing than the LRC. The correction is recorded in L30 and the measurement in L33; no correction was built. |
+| 2026-09-30 | fixture transcripts | L32 flagged that stored transcripts are more favourable than live ones and named the implication a hypothesis. L33 makes it measured on the axis that matters: with a live transcript the app's p50 improves 0.488 -> 0.137s and its p90 degrades 2.17 -> 14.6s. "The transcripts flatter the app" is right about p90 and wrong about p50. |
 | 2026-09-30 | whisper-medium as arbiter | Assumed a better recogniser would anchor MORE lines and tighten the interval. Measured: whisper-medium on the veil stem anchors FEWER lines than small (coverage 47% -> 31%), with hallucinated non-monotone word timestamps, and the quality gate refuses its verdict. The "bigger model = better instrument" assumption failed on the arbiter side exactly as it failed on the alignment side (L16). |
 | 2026-09-30 | audit baselines | The ledger's guitar baseline (fixture transcript, p50 0.39 / p90 2.29 in segment mode) is not what the app produces at runtime: the same pipeline fed LIVE whisper-small on the same audio gives p50 0.85 / p90 10.73. Measured, not inferred (L32). The implication for the headline numbers is flagged as a hypothesis with a named test rather than asserted. |
 | 2026-09-30 | untimed highlight | Found BY the browser check rather than by reasoning: a song with no timing highlighted the last lyric line for its entire length (86/86 samples), because `lineEffectiveEnd` invented a `[0, ∞)` span for a line that has none. Fixed in `lineTiming.ts`, verified 86/86 → 0/86 in the browser, 4 new specs fail without the fix. |

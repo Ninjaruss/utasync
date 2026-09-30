@@ -82,6 +82,23 @@ const CONFIGS = [
     note: 'LRC is a DIFFERENT TAKE (237s vs 233.6s) — its column is one-sided by construction',
   },
   {
+    /**
+     * THE DECISIVE VARIANT. The `guitar` config above feeds the app the STORED fixture transcript
+     * and reports the app as +0.30s late against the singing. But L32 found the stored transcripts
+     * differ from a live transcription of the same audio, and L31's live runs showed no such
+     * lateness. Same song, same arbiter, same code — only the app's input transcript is now the one
+     * transcribed live. If the lateness disappears here, it was a property of the corpus, not of
+     * the app, and no correction should be built for it.
+     */
+    name: 'guitar (LIVE mix transcript)',
+    lyrics: 'guitar-loneliness/lyrics.ja.txt',
+    truth: 'lrc-truth/guitar-loneliness.json',
+    lang: 'ja',
+    transcript: '.cache/mix-words-guitar.json',
+    stemWords: '.cache/stem-words-guitar.json',
+    note: 'same as guitar, but the app is fed a LIVE transcription of the mix instead of the stored fixture',
+  },
+  {
     name: 'guitar',
     lyrics: 'guitar-loneliness/lyrics.ja.txt',
     truth: 'lrc-truth/guitar-loneliness.json',
@@ -164,6 +181,12 @@ function alignChars(sheetChars, wordChars) {
 
 function loadWordsFixture(p) {
   const raw = JSON.parse(readFileSync(p, 'utf8'))
+  // `{words:[{word,start,end}]}` is what scripts/transcribe-stem.mjs writes for a LIVE run.
+  if (raw && Array.isArray(raw.words)) {
+    return raw.words
+      .map((w) => ({ word: (w.word ?? '').trim(), startTime: w.start, endTime: w.end }))
+      .filter((w) => w.word && Number.isFinite(w.startTime) && Number.isFinite(w.endTime))
+  }
   const arr = Array.isArray(raw)
     ? raw.map((w) => ({ word: (w.word ?? '').trim(), startTime: w.startTime, endTime: w.endTime }))
     : (raw.chunks ?? []).map((c) => ({ word: c.text?.trim(), startTime: c.timestamp?.[0], endTime: c.timestamp?.[1] }))
@@ -198,7 +221,10 @@ for (const c of CONFIGS) {
   const lrc = JSON.parse(readFileSync(join(FIXTURES, c.truth), 'utf8'))
   const truthTime = matchSheetToLrc(lineTexts, parseLrc(lrc.syncedLyrics))
   const rows = lineTexts.map((original) => ({ original, translation: '', startTime: 0, endTime: 0 }))
-  const ja = loadWordsFixture(join(FIXTURES, c.transcript))
+  // `.cache/...` paths are live transcriptions produced by this repo; fixture paths are committed.
+  const transcriptPath = c.transcript.startsWith('.cache/') ? join(root, c.transcript) : join(FIXTURES, c.transcript)
+  if (!existsSync(transcriptPath)) { console.log(`\n=== ${c.name}: no transcript at ${c.transcript} — transcribe it first ===`); continue }
+  const ja = loadWordsFixture(transcriptPath)
   const refined = c.en && existsSync(join(FIXTURES, c.en))
     ? refineMixedLanguageAlignment(rows, ja, loadWordsFixture(join(FIXTURES, c.en))).refined
     : refineAlignmentWithPhrases(rows, ja, c.lang)

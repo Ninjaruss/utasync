@@ -46,9 +46,24 @@ if (existsSync(outPath) && !process.argv.includes('--force')) {
 
 const { transcribeAudio } = await import(pathToFileURL(join(root, 'scripts/lib/nodeWhisper.mjs')).href)
 
-const SAMPLE_RATE = 44100
-const buf = readFileSync(stemPath)
-const data = new Float32Array(buf.buffer, buf.byteOffset, Math.floor(buf.byteLength / 4))
+/**
+ * Raw Float32LE mono (a separated stem) or any container the repo can decode. Supporting the mix
+ * as well as the stem is what makes the LIVE-vs-FIXTURE question answerable: the audit's stored
+ * transcripts and a transcription the app would actually produce can then be compared through the
+ * same instrument, which is how L32's discrepancy was found.
+ */
+let data
+let SAMPLE_RATE
+if (stemPath.endsWith('.f32') || stemPath.endsWith('.pcm')) {
+  SAMPLE_RATE = 44100
+  const buf = readFileSync(stemPath)
+  data = new Float32Array(buf.buffer, buf.byteOffset, Math.floor(buf.byteLength / 4))
+} else {
+  const { decodeMp3ToMono } = await import(pathToFileURL(join(root, 'scripts/lib/nodeAudio.mjs')).href)
+  const decoded = await decodeMp3ToMono(stemPath)
+  data = decoded.data
+  SAMPLE_RATE = decoded.sampleRate
+}
 const durationSec = data.length / SAMPLE_RATE
 const language = argValue('--language', 'japanese')
 const model = argValue('--model', undefined)
