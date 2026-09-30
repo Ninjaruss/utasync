@@ -16,7 +16,7 @@
     "preview": "vite preview",
     "generate:logo": "node scripts/generate-logo.mjs",
     "audit:audio": "npx tsx scripts/tier-b-audio.mjs --check",
-    "audit:accuracy": "npx tsx scripts/tier-b-audio.mjs --check && npx tsx scripts/audit-vs-lrc.mjs && npx tsx scripts/align-ablation.mjs && npx tsx scripts/align-trust-calibration.mjs && npx tsx scripts/align-drift-profile.mjs && npx tsx scripts/align-acoustic-onsets.mjs"
+    "audit:accuracy": "npx tsx scripts/tier-b-audio.mjs --check && npx tsx scripts/audit-vs-lrc.mjs && npx tsx scripts/align-ablation.mjs && npx tsx scripts/align-trust-calibration.mjs && npx tsx scripts/align-drift-profile.mjs && npx tsx scripts/align-acoustic-onsets.mjs && npx tsx scripts/align-stem-forced-truth.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",

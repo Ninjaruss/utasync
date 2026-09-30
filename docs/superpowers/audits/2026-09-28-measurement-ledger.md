@@ -521,6 +521,92 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
   under a whole-alignment one). The prompt shape drives the behaviour, so results from one shape do
   not transfer to the other — a caveat that applies to any future evaluation of either.
 
+### L30 — attribution, finally measured: the app is not the outlier, except on guitar where it is (the last gap)
+
+- **Instrument:** `scripts/align-stem-forced-truth.mjs` (+ `scripts/transcribe-stem.mjs` to cache the
+  model's word timestamps). A model-based forced alignment: the lyric sheet is aligned GLOBALLY
+  against the word stream Whisper produces from the **isolated vocal stem**, and each line's start
+  is scored against the stem word its own opening matched. Three columns on that one arbiter: the
+  app's starts, the sourced LRC's starts, and a bootstrap interval. Reproduce:
+  `npx tsx scripts/transcribe-stem.mjs public/e2e/<song>.mp3.vocals44k.f32 .cache/stem-words-<song>.json`
+  then `npx tsx scripts/align-stem-forced-truth.mjs`. Both are in `npm run audit:accuracy`.
+- **Status:** **SOURCED and reproducible**, with its own quality gate (below). This is the instrument
+  L28 said was needed, and it answers the question L28 could not.
+
+| song | judgeable lines | app lag vs singing | LRC lag vs singing | app p50 | LRC p50 | app ≤250ms | LRC ≤250ms |
+|---|---|---|---|---|---|---|---|
+| veil | 24 of 48 | **+0.04 s** (CI −0.02…+0.30) | **+0.31 s** (CI +0.04…+0.43, significant) | 0.30 | 0.36 | 46% | 29% |
+| guitar | 24 of 47 | **+0.30 s** (CI +0.04…+0.57, significant) | +0.10 s (CI −0.36…+0.36) | 0.49 | 0.47 | 21% | 29% |
+
+**The attribution the LRC could never give.** On veil the human-sourced LRC is the one that is
+reliably late (its own lag CI excludes zero) and the app is not; on guitar it is the other way
+round — the app is reliably **+0.30 s late against the singing**, and that number independently
+reproduces the +0.31 s the LRC audit measured. Two unrelated arbiters agreeing on the same 0.3 s is
+the strongest form this claim can take here, and it converts guitar's offset from "a disagreement
+with an LRC" into **an attributable defect of ours**.
+
+**What is NOT a defect.** The per-line scatter (~0.3 s p50) is shared: on guitar both columns sit
+0.47-0.49 s p50 from where the model hears the word start, and the paired per-line difference is
+insignificant on both songs (veil median 0.000 s CI −0.32…+0.10; guitar −0.04 s CI −0.16…+0.26).
+So the scatter is the resolution at which "where does this line begin" is defined by a human
+tapper, by our aligner, and by a third method — not a signature of our error.
+
+**Robustness.** The verdict does not depend on the anchor rule: at `--anchor-head=1,2,3,5` the app's
+p50 stays 0.24-0.39 against the LRC's 0.35-0.44, its ≤250 ms share is higher in all four settings,
+and every per-line CI spans zero. The arbiter's own quality is checked and reported: anchors land on
+the line's own opening (offset p50 0 of ≤2 allowed), implied sung intervals are physically possible
+(p50 3.5-4.3 s, **0 impossible anchors** on veil and guitar).
+
+**Two things this instrument refused to measure, which is the point of the gate.**
+`stranger` (coverage 25%, 1 impossible anchor) and a whisper-**medium** arbiter for veil (coverage
+31%, 2 impossible anchors, p50 28.9 s) both print **NO VERDICT** and must not be quoted. Medium is
+the more striking one: a better recogniser was expected to anchor MORE lines, and it anchored fewer
+because its word timestamps on this stem include hallucinated non-monotone entries (`♪@29.98`,
+`~@49.98`, a real word at `40.00`). Same lesson as L16, now on the arbiter side: bigger is not
+better, measure it.
+
+**Limits.** Whisper's word boundaries carry their own error of order 100-300 ms, applied to both
+columns by the same model, so the comparison and the intervals are sound while no single line is
+ground truth. Only ~half the sheet is judgeable — the model does not hear every line — which is why
+the per-song intervals are wide.
+
+### L31 — isolation ON is dramatically better than the mix on guitar (0.32 s vs 0.85 s p50, 1.58 s vs 10.73 s p90)
+
+- **Instrument:** `scripts/e2e-align-stem.mjs` vs `scripts/e2e-align.mjs` — the app's isolation-ON and
+  isolation-OFF paths respectively, both run end-to-end with REAL Whisper, both scored against the
+  same version-exact LRC, 36 lines each, differing ONLY in the audio they transcribe.
+- **Status:** **SOURCED, one live run each.** Determinism is assumed (no sampling) and not re-run.
+
+| guitar path | mean abs err | p50 | p90 | ≤100 ms | ≤250 ms | lines >1 s |
+|---|---|---|---|---|---|---|
+| **stem (isolation ON)** | **0.53 s** | **0.32** | **1.58** | **33%** | **43%** | **5** |
+| mix (isolation OFF) | 2.19 s | 0.85 | 10.73 | 13% | 33% | 12 |
+
+The isolation path also removes the late bias: its signed median error is −0.01 s against the mix's
+−0.05 s, and on the stem the isolation-ON pipeline's own acoustic anchors fire (it is the only path
+that applies them), which is what pulls the leading edges onto the vocal.
+
+### L32 — the audit's stored transcripts are more favourable than a live transcription, by a wide margin
+
+- **Instrument:** `scripts/align-ablation.mjs --axis=mode` (fixture transcripts) vs
+  `scripts/e2e-align.mjs` (LIVE whisper-small on the same audio), same pipeline, same LRC truth.
+- **Status:** **SOURCED, single run each side.** Flagged as a discrepancy with a named cause to test,
+  NOT as a conclusion about the app: the fixture's transcription config is UNKNOWABLE by its own
+  provenance record (`fixtures/transcript-provenance.json`).
+
+| guitar, segment mode | p50 | p90 | ≤250 ms |
+|---|---|---|---|
+| fixture transcript (the ledger's baseline) | 0.39 | 2.29 | 39% |
+| LIVE transcription of the same audio | **0.85** | **10.73** | 33% |
+
+Same nominal model and mode, same pipeline, same truth — so the difference is the transcript. The
+app at runtime does what `e2e-align.mjs` does, not what the fixtures do, which means the ledger's
+headline baselines (guitar p50 0.29 / ≤250 ms 44%, veil 0.26 / 50%) may **overstate what a user
+actually gets on the mix path.** That implication is a hypothesis with a specific test, not a
+finding: re-derive the fixtures from committed or reproducible audio and re-run the corpus. Until
+then every fixture-based number in this ledger inherits the caveat, and L31's isolation comparison —
+which is live on both sides — is the one that speaks to what a user hears.
+
 ### L28 — the AUDIO cannot arbitrate line starts at this scale; my first verdict said it could, and that verdict is withdrawn
 
 - **Instrument:** `scripts/align-acoustic-onsets.mjs` (new). The app's own trusted DSP —
@@ -568,8 +654,10 @@ the only arbiter available, and its numbers stand unchanged: veil systematic −
 app is fine. Ratifying C1–C4 still needs an ear, and now for a measured reason rather than an
 assumed one: the only non-opinion source available resolves onsets ~20× finer than the question
 being asked, and the coarser one is too rare to sample. A phoneme-level **forced alignment** against
-the sung audio is what would close it, at model cost; `scripts/forced-align-scorecard.mjs` is the
-existing starting point.
+the sung audio is what would close it, at model cost — **and L30 is that instrument, built and run**:
+Whisper's word timestamps on the isolated stem, aligned globally to the sheet. It can judge about
+half the sheet per song, and it attributes the disagreement per song rather than reporting an
+unattributable distance.
 
 ### L29 — two dead ends deleted, with the measurement that killed each
 
@@ -909,4 +997,6 @@ nothing rather than an arbitrary row.
 | 2026-09-28 | `bnd_measured` | Emitted as a *string* so it was exempt from the numeric guards, which let a corpus row be committed with **0** measurable boundary lines and eight vacuous `0 ≤ 0` assertions. Made numeric with a higher-is-better guard in `scripts/audit-corpus.mjs`, a coverage floor in `tests/ai-pipeline/corpus-scorecard.test.ts`, and an explicit `ZERO_COVERAGE_BY_DESIGN` set naming the one row allowed to score nothing. Both guards were verified to FAIL when coverage collapses (baseline raised above actual) and to pass when restored. |
 | 2026-09-30 | L26 run 3 | "The highlight sticks on line 15 and 18 of 21 samples fail" was reported as an unexplained possible render-layer defect, with the honest caveat that a sampling race would look identical. Both halves resolved by L27: it was the check's own out-of-order store pokes, and real playback over a full song shows 524/524 correct with zero DOM-vs-store disagreements. The old pass counts (0/21, 10/21, 7/21) are measurement artifacts and are not evidence about the app. |
 | 2026-09-30 | acoustic arbiter | I built an instrument to settle "does it line up" against the vocal stem instead of the LRC, and its first output said `the app is CLOSER to the audio than the LRC` (p50 0.042 vs 0.063 on veil). Withdrawn before it reached any summary: the flux peaks are 0.17-0.19s apart, so `nearest peak within 1s` lands within 0.042s for a RANDOM time. Neither column beats the null, and the ordering flips between floors. The route is closed (L28); the LRC remains the only arbiter. |
+| 2026-09-30 | whisper-medium as arbiter | Assumed a better recogniser would anchor MORE lines and tighten the interval. Measured: whisper-medium on the veil stem anchors FEWER lines than small (coverage 47% -> 31%), with hallucinated non-monotone word timestamps, and the quality gate refuses its verdict. The "bigger model = better instrument" assumption failed on the arbiter side exactly as it failed on the alignment side (L16). |
+| 2026-09-30 | audit baselines | The ledger's guitar baseline (fixture transcript, p50 0.39 / p90 2.29 in segment mode) is not what the app produces at runtime: the same pipeline fed LIVE whisper-small on the same audio gives p50 0.85 / p90 10.73. Measured, not inferred (L32). The implication for the headline numbers is flagged as a hypothesis with a named test rather than asserted. |
 | 2026-09-30 | untimed highlight | Found BY the browser check rather than by reasoning: a song with no timing highlighted the last lyric line for its entire length (86/86 samples), because `lineEffectiveEnd` invented a `[0, ∞)` span for a line that has none. Fixed in `lineTiming.ts`, verified 86/86 → 0/86 in the browser, 4 new specs fail without the fix. |

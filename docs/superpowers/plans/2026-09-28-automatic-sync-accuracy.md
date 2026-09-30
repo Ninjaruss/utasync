@@ -1695,3 +1695,36 @@ at model cost.
 
 `scripts/align-acoustic-onsets.mjs` stays in the tree as the record of the closed route, with the
 null model built in so the next person cannot repeat the mistake it nearly made.
+
+### Round 28 — the last gap, closed by a model rather than by an ear
+
+Round 27 ended with a measured statement of what was missing: the only non-opinion evidence available
+resolved onsets ~20× finer than the question, the coarser one was too rare to sample, and closing the
+gap needed **phoneme-level forced alignment against the sung audio**. That is now built and run —
+`scripts/transcribe-stem.mjs` (Whisper word timestamps on the isolated stem, cached) plus
+`scripts/align-stem-forced-truth.mjs` (the sheet aligned GLOBALLY to that word stream; each line's
+start scored against the word its own opening matched; bootstrap intervals; a quality gate that can
+refuse a verdict).
+
+**The attribution the LRC never could give.** On veil the *LRC* is the late one (+0.31 s, CI
+excluding zero) and the app is not (+0.04 s). On guitar it reverses: the app is reliably **+0.30 s
+late against the singing** (CI +0.04…+0.57), independently reproducing the +0.31 s the LRC audit
+measured. Two unrelated arbiters agreeing is the strongest form this claim can take here, and it
+converts guitar's offset from a disagreement into an attributable defect. Measured too, and not a
+defect: the ~0.3 s per-line scatter is *shared* with the human tapper (guitar: app 0.49 s vs LRC
+0.47 s p50, paired difference CI spanning zero on both songs). The scatter is the resolution at which
+"where does this line begin" is defined, not a signature of our error.
+
+Three things had to be refused on the way, which is what the gate is for. `stranger` (coverage 25%,
+one impossible anchor) and a whisper-**medium** arbiter for veil (31%, two impossible anchors,
+p50 28.9 s) print NO VERDICT and must not be quoted — medium was expected to anchor *more* lines and
+anchored fewer, because its word timestamps include hallucinated non-monotone entries. And the veil
+verdict was hardened before being reported: at `--anchor-head=1,2,3,5` every number holds.
+
+Two further measurements came out of the same material. **Isolation ON is dramatically better than
+the mix on guitar** — 0.32 s vs 0.85 s p50, 1.58 s vs 10.73 s p90, lines over 1 s: 5 vs 12 — measured
+end-to-end live on both paths against the same version-exact LRC, and it removes the late bias
+(signed median −0.01 s). And the **fixture transcripts the audit corpus rests on are more favourable
+than a live transcription** of the same audio (p50 0.39 / p90 2.29 vs 0.85 / 10.73, same pipeline and
+truth), which is recorded as a discrepancy with a named test rather than a conclusion: re-derive the
+fixtures from reproducible audio. Until then the fixture-based baselines inherit that caveat.
