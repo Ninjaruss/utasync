@@ -1762,3 +1762,14 @@ Isolation ON improves mean error and p90 on all three songs and cuts catastrophe
 never request isolation — `isolateVocals` is only ever passed by the gap-recovery path. Whether that
 recovery should be offered at one tap or taken automatically is D9, the escalation-cost ceiling, and
 that is a user decision: separation took 1975 s for a 229 s track on the WASM path here.
+
+**Round 29, addendum — the one-tap answer, checked per line (L35).** The round recommended offering
+the isolation recovery at one tap. Asked whether that helps the *entire* song, the per-line comparison
+says no, and the recommendation narrows: isolation is a **tail fix**. It improves 24 of 30 lines on
+guitar and 28 of 49 on stranger (fixing 8 of 12 and 8 of 14 broken lines, mean error on the improved
+lines down 1.6-2.6 s), but on veil — where the mix alignment is already the best of the three — it
+improves 9 lines and **worsens 18, including 11 of the 20 that were already inside 250 ms**, degrading
+p50 from 0.23 s to 0.35 s while still removing its three >3 s catastrophes. So the gate for offering
+it must be "this song has catastrophes", not "this song is weak", and the result must still pass the
+existing accept-if-better check. Both mechanisms are already in the app; only the request for isolation
+is missing.

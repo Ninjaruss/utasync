@@ -665,6 +665,35 @@ Whisper's word timestamps on the isolated stem, aligned globally to the sheet. I
 half the sheet per song, and it attributes the disagreement per song rather than reporting an
 unattributable distance.
 
+### L35 — isolation does NOT help the whole song: it is a TAIL fix, and on an already-decent song it makes most lines WORSE
+
+- **Instrument:** the same live `e2e-align.mjs` (mix) vs `e2e-align-stem.mjs` (stem) runs as L34, now
+  compared PER LINE rather than by summary. 30/38/49 lines scored in both runs of each song.
+- **Status:** **SOURCED, reproducible.** It **changes L34's recommendation**: an unconditional one-tap
+  "re-align with isolation" would be a net loss on a song whose mix alignment is already good.
+
+| song | lines | improved | worsened | unchanged | mean gain on improved | cost on worsened | already-good (<=0.25s) | of those worsened | >1s lines | fixed to <=1s |
+|---|---|---|---|---|---|---|---|---|---|---|
+| guitar | 30 | **24** | 5 | 1 | **-2.61 s** | +0.89 s | 10 | 2 | 12 | **8** |
+| veil | 38 | 9 | **18** | 11 | -0.38 s | +0.47 s | 20 | **11** | 4 | 1 |
+| stranger | 49 | **28** | 21 | 0 | **-1.56 s** | +0.69 s | 12 | 8 | 14 | **8** |
+
+**Read it per song, because that is the whole point.** On guitar and stranger — where the mix
+transcript is bad — isolation fixes 8 of the 12 and 8 of the 14 broken lines and the wins are large
+(-1.56 to -2.61 s of mean error on the lines it improves). On **veil**, where the mix alignment is
+already the best of the three (p50 0.23 s, only 4 bad lines against 20 good ones), isolation improves
+9 lines and **worsens 18**, including **11 of the 20 lines that were already within 250 ms**. Its p50
+degrades 0.23 → 0.35 s. What it still buys on veil is the tail: catastrophes over 3 s go 3 → 0.
+
+- **What this means for the design, measured rather than assumed.** The recovery must not be offered
+  on "a weak song" in general; it must be offered on a song with **catastrophes**, and the result must
+  still be accepted only if it is better (the `isBetterAlignment` pattern). Both pieces already exist
+  in the app — the trust verdict with `repairableLineIndices` (L14) and the accept-if-better gate —
+  and the verdict is truth-free, so the choice is available at runtime. The missing wire remains the
+  one L34 names: nothing asks for isolation.
+- **Limits:** one live run per path per song, paired by line index on the same sheet and truth;
+  a handful of lines per song are unscored (no LRC truth). No re-run for determinism.
+
 ### L33 — the +0.30s "defect" was the corpus: the app is LESS late against the singing than the LRC when fed a live transcript
 
 - **Instrument:** `scripts/align-stem-forced-truth.mjs` with a new variant that feeds the app a LIVE
@@ -713,10 +742,11 @@ has been looking for.
 - **Cost, which is why this is a decision and not a default:** separation is the slow half and runs
   on the app's own ONNX worker. On this machine it took **1975 s (33 min)** for a 229 s track via the
   WASM path — and `scripts/separate-vocals.mjs`'s own "~15 min" note is stale by more than 2×.
-- **Serves:** it makes "offer isolation as the recovery when a mix alignment comes out weak" an
-  evidence-backed recommendation, at one tap rather than automatically (D9 — the unanswered
-  escalation-cost ceiling). The gap it would fill is precise: both one-tap re-align banners in
-  `PlayerView.tsx` re-run the flow on the SAME input and never request isolation.
+- **Serves:** it makes isolation an evidence-backed recovery, at one tap rather than automatically
+  (D9 — the unanswered escalation-cost ceiling). The gap it would fill is precise: both one-tap
+  re-align banners in `PlayerView.tsx` re-run the flow on the SAME input and never request isolation.
+  **But see L35 before wiring it: the benefit is a TAIL fix, and the gate must be "many bad lines",
+  not "weak song" — on veil, isolation worsens 18 lines to improve 9.**
 
 ### L29 — two dead ends deleted, with the measurement that killed each
 
