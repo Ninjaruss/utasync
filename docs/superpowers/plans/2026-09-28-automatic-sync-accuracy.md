@@ -1660,3 +1660,38 @@ fix removed; the fifth is the unchanged-behaviour guard for a line that has a st
 Item 7 is now closed on both halves: the docs phase (round 12, extended with the working recipe)
 and a browser verdict. What is still not checked is the part no automation can check — whether the
 timing is right **by ear**, which is the same gap L9 records for the perceptual contract.
+
+### Round 27 — the dead ends are deleted, and the audio is asked the question instead of the LRC
+
+Two of the plan's own deliverables were dead weight: `offsetEstimate.ts` built, tested, green and
+never wired (L17: 20 of 20 recoverable planted offsets refused on real singing), and `verifyLines.ts`
+same (L22/L23: it made real sync worse). The user asked for both to go with the dead ends logged,
+and they are gone — 403 lines of module, 24 specs (18 in their own files, 6 in `tierA.audio.test.ts`,
+whose other 5 audio-feature specs stay), and the refuting instrument that only existed to drive one
+of them. Recoverable at `git show 54c6045:<path>`; the *measurements* stay in the ledger, which is
+the durable form a dead end should take. L29 records all of it.
+
+The interesting part of the round is the answer to "can't you verify it against the sourced LRC?" —
+**yes, and it is the only arbiter available, which is precisely the problem.** Scoring our starts
+against LRCLIB timestamps cannot separate "we are wrong" from "the two of us define where a line
+starts differently", and the ledger has carried that as the reason C1–C4 was never ratified. So I
+went at the one source that is not an opinion: the isolated vocal stem's own onset curve, the app's
+own `computeVocalActivity` DSP, scoring our starts and the LRC's starts through identical code.
+
+**It cannot answer the question, and the way it failed is worth keeping.** The first version printed
+*"the app is CLOSER to the audio than the LRC"* (p50 0.042 s vs 0.063 s on veil). That is a headline
+finding, and it was noise: a sung Japanese stem produces a flux peak every 0.17–0.19 s, so a
+**random timestamp** is within 0.042 s of one. Adding a chance-level null killed it — app 0.042 vs
+chance 0.043 — and the `--sensitivity` run shows the app-vs-LRC ordering *flipping* between peak
+floors, which is the signature of a saturated metric rather than of a result. The voiced-run metric
+that would have had the resolution is unsampleable: only 4 of 48 lines on veil, 1 of 59 on stranger
+and 0 of 36 on guitar begin a new sung stretch, because runs merge across the whole vocal.
+
+So the LRC numbers stand unchanged (veil −0.02 s systematic, guitar +0.31 s late, per-line p50
+0.26–0.29 s, ≤250 ms 44–50%) and the ear-ratification gap is now a *measured* one: the only
+non-opinion evidence available resolves onsets ~20× finer than the question, and the coarser one is
+too rare to sample. What would close it is phoneme-level forced alignment against the sung audio,
+at model cost.
+
+`scripts/align-acoustic-onsets.mjs` stays in the tree as the record of the closed route, with the
+null model built in so the next person cannot repeat the mistake it nearly made.

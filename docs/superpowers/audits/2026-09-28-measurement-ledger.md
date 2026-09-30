@@ -521,6 +521,77 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
   under a whole-alignment one). The prompt shape drives the behaviour, so results from one shape do
   not transfer to the other — a caveat that applies to any future evaluation of either.
 
+### L28 — the AUDIO cannot arbitrate line starts at this scale; my first verdict said it could, and that verdict is withdrawn
+
+- **Instrument:** `scripts/align-acoustic-onsets.mjs` (new). The app's own trusted DSP —
+  `computeVocalActivity`'s per-frame spectral-flux onset curve and voiced-run envelope — computed
+  from the isolated vocal stems, scoring **three columns on the same arbiter**: our line starts,
+  the sourced LRC's line starts, and a **chance-level null** of random times in the same track.
+  Written to break the definitional deadlock the LRC audit cannot break (a 250 ms disagreement with
+  a human tapper could be our error or a convention difference). Reproduce:
+  `npx tsx scripts/align-acoustic-onsets.mjs --sensitivity` (needs the uncommitted stems).
+- **Status:** **SOURCED and reproducible**, and its verdict is **that no verdict is available from
+  this signal.** The route is closed rather than left open.
+
+**What the first version of this instrument concluded, and why it was wrong.** It reported
+`app -> audio p50 0.042s` against `LRC -> audio p50 0.063s` on veil and printed *"the app is CLOSER
+to the audio than the LRC"* — a headline finding, and false. The metric was `nearest flux peak
+within 1s`, and a sung Japanese vocal stem yields a flux peak every **0.17–0.19 s** (1153 peaks in
+229 s on veil, 1399 in stranger). With peaks that dense, a **random time** lands within 0.042 s of
+one — which is exactly what the app scored. I added the null model before believing the number, and
+the null is what killed it:
+
+| song | arbiter | app p50 | LRC p50 | **CHANCE p50** | reading |
+|---|---|---|---|---|---|
+| veil | stem | 0.042 | 0.063 | **0.043** | app = chance |
+| stranger | stem | 0.054 | 0.034 | **0.042** | LRC ≈ chance |
+| guitar | mix (weak) | 0.052 | 0.051 | **0.048** | both = chance |
+
+Neither column beats a random timestamp, so **the metric measures the peak spacing and nothing
+else.** The `--sensitivity` run confirms it is not a threshold artifact: at floors of 10%, 20% and
+40% of the flux p90 the numbers stay at chance, and the app-vs-LRC ordering **flips** (veil favours
+the app, stranger and guitar favour the LRC). A metric whose verdict depends on an arbitrary floor
+and whose values sit on the null is not evidence in either direction.
+
+**The second metric, and why it is unsampleable.** Voiced-*run* boundaries do have the resolution
+the question needs (runs are seconds long). But the lines that could be judged by them are the ones
+that begin a new sung stretch, and there are almost none: **4 of 48 lines on veil, 1 of 59 on
+stranger, 0 of 36 on guitar** had a run start within 1 s. Runs merge across the whole vocal
+(p50 run length 9.6 s on stranger, 225.9 s on the guitar mix), so a line start almost never
+coincides with one. The one "app beats chance" line in stranger's output rests on **a single line**
+and is not a result.
+
+**What this means for the accuracy claims, stated without softening.** The LRC comparison remains
+the only arbiter available, and its numbers stand unchanged: veil systematic −0.02 s, guitar
++0.31 s late, per-line p50 0.26–0.29 s, ≤250 ms 44–50%. What this entry establishes is that the
+*disagreement* half of those numbers cannot be attributed by any DSP available here — not that the
+app is fine. Ratifying C1–C4 still needs an ear, and now for a measured reason rather than an
+assumed one: the only non-opinion source available resolves onsets ~20× finer than the question
+being asked, and the coarser one is too rare to sample. A phoneme-level **forced alignment** against
+the sung audio is what would close it, at model cost; `scripts/forced-align-scorecard.mjs` is the
+existing starting point.
+
+### L29 — two dead ends deleted, with the measurement that killed each
+
+- **Status:** **DELETED on 2026-09-30 at the user's request.** Both modules were built, tested and
+  green, and neither was wired into the app — which is the risk the deletion removes: a tested
+  module nothing imports is the easiest thing for a future change to wire up by mistake
+  (`verifyLines.ts` carried a do-not-wire warning in its header for exactly this reason). Recover
+  either with `git show 54c6045:<path>`.
+
+| module | specs removed | why it is dead |
+|---|---|---|
+| `src/ai-pipeline/offsetEstimate.ts` (166 lines) | 10 own + 6 in `tierA.audio.test.ts` | **Refused 20 of 20 recoverable planted offsets on real singing** (L17): the envelope statistic peaks ~1 s from the truth on one of two songs. Wiring it would have shipped a control that never fires and occasionally fires wrongly. |
+| `src/ai-pipeline/verifyLines.ts` (237 lines) | 8 | **Made real sync worse** (L22): verdict-driven windowed verification was harmful under a local gate and still had no measurable benefit once the gate was fixed to the whole alignment (L23). |
+
+- **What was deliberately NOT deleted:** the *measurements* (L17, L22, L23 remain), the Tier A audio
+  coverage that used the estimator as a workload — its 6 offset specs went with the module, the
+  file's remaining 5 audio-feature specs stay — and the plan's record of both dead ends. The ledger
+  is the durable form of a dead end; the code was not.
+- **Not reproducible any more:** L17's numbers can no longer be re-run, because its instrument
+  (`scripts/offset-estimate-real.mjs`) went with the module. That is recorded in L17 rather than
+  hidden, and the commit above holds the code.
+
 ### L27 — the render layer is CORRECT at 1x playback; L26's "stuck highlight" was the check's fault, and the check found a real defect instead
 
 - **Instrument:** `src/dev/e2eSyncHarness.tsx` rewritten to drive the app's OWN transport
@@ -688,9 +759,11 @@ nothing rather than an arbitrary row.
 ### L17 — the envelope-based offset screen does not work on real singing
 
 - **Instrument:** `scripts/offset-estimate-real.mjs` (planted offsets against real audio) and
-  the curve diagnostic that followed it.
-- **Status:** **SOURCEABLE, not reproducible from the repository** — real audio, uncommitted.
-  Recorded so nobody rebuilds this.
+  the curve diagnostic that followed it. **Both the instrument and the module it tested were
+  deleted on 2026-09-30** (see the dead-ends section below) — recover them with
+  `git show 54c6045:scripts/offset-estimate-real.mjs`.
+- **Status:** **SOURCEABLE, not reproducible from the repository** — real audio, uncommitted, and
+  the instrument no longer exists in the tree. Recorded so nobody rebuilds this.
 - **Measured, planted offsets on real sung audio:** **20 of 20 recoverable cases REFUSED, 0
   recovered.** No wrong answers and no false alarms on the 5 already-correct cases — safe, and
   useless.
@@ -835,4 +908,5 @@ nothing rather than an arbitrary row.
 | 2026-09-28 | L10 | The first `MAX_SHIFT_SEC` (3.5 s) produced a confidently wrong answer on a masked carrier and could not distinguish a true −0.48 s shift from a spurious −1.84 s one. Both were measured, and the range plus the magnitude gate were set from those numbers. |
 | 2026-09-28 | `bnd_measured` | Emitted as a *string* so it was exempt from the numeric guards, which let a corpus row be committed with **0** measurable boundary lines and eight vacuous `0 ≤ 0` assertions. Made numeric with a higher-is-better guard in `scripts/audit-corpus.mjs`, a coverage floor in `tests/ai-pipeline/corpus-scorecard.test.ts`, and an explicit `ZERO_COVERAGE_BY_DESIGN` set naming the one row allowed to score nothing. Both guards were verified to FAIL when coverage collapses (baseline raised above actual) and to pass when restored. |
 | 2026-09-30 | L26 run 3 | "The highlight sticks on line 15 and 18 of 21 samples fail" was reported as an unexplained possible render-layer defect, with the honest caveat that a sampling race would look identical. Both halves resolved by L27: it was the check's own out-of-order store pokes, and real playback over a full song shows 524/524 correct with zero DOM-vs-store disagreements. The old pass counts (0/21, 10/21, 7/21) are measurement artifacts and are not evidence about the app. |
+| 2026-09-30 | acoustic arbiter | I built an instrument to settle "does it line up" against the vocal stem instead of the LRC, and its first output said `the app is CLOSER to the audio than the LRC` (p50 0.042 vs 0.063 on veil). Withdrawn before it reached any summary: the flux peaks are 0.17-0.19s apart, so `nearest peak within 1s` lands within 0.042s for a RANDOM time. Neither column beats the null, and the ordering flips between floors. The route is closed (L28); the LRC remains the only arbiter. |
 | 2026-09-30 | untimed highlight | Found BY the browser check rather than by reasoning: a song with no timing highlighted the last lyric line for its entire length (86/86 samples), because `lineEffectiveEnd` invented a `[0, ∞)` span for a line that has none. Fixed in `lineTiming.ts`, verified 86/86 → 0/86 in the browser, 4 new specs fail without the fix. |
