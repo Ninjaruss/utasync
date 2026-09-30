@@ -4,6 +4,37 @@ import type { RefinedAlignment } from '../lyrics/phraseAlignment'
 import { spliceGapAlignment, lineText } from '../lyrics/gapRealign'
 
 /**
+ * STATUS — MEASURED HARMFUL ON REAL AUDIO. DO NOT WIRE WITHOUT FIXING IT.
+ *
+ * Built for plan item 2 on a measured justification (the verdict reaches 50% of its repair
+ * targets OUTSIDE any structural hole — ledger L21), then measured end to end on a real song
+ * with real whisper-small and real LRC truth, and it made sync WORSE:
+ *
+ *   guitar-loneliness, segment transcript    before        after
+ *     absolute p50                            0.39s        0.43s
+ *     lines within 250ms                        39%          33%
+ *     lines with NO evidence                     4            9
+ *   accepted = 8, rejected = 0, and of the 4 accepted lines that have truth:
+ *     0 better, 3 WORSE, 1 unchanged  (line #0 went 0.17s -> 1.83s off)
+ *
+ * Two causes, and the second is the serious one:
+ *
+ *  1. The acceptance gate measures CORROBORATION OF THE LINE'S OWN TEXT, which a prompt echo
+ *     maximises. L19's single case (where `placementRealizesCoverage` rejected an echo) is NOT
+ *     representative: in this configuration the gate accepted 8 slices and none of them helped.
+ *  2. Splicing a single-line window REPLACES the transcript words across that window, which
+ *     dissolved the corroboration of ADJACENT lines — no-evidence rose from 4 to 9. A per-line
+ *     operation with per-line acceptance can therefore degrade lines it never examined.
+ *
+ * A plausible fix is to require an ACOUSTIC corroboration before accepting a verified line
+ * (`alignmentTrust`'s `no-acoustic-onset` term), since the failure mode is "text the prompt
+ * supplied, with no independent evidence it sounds there". That is a hypothesis, not a finding,
+ * and it needs its own measurement before anything is wired.
+ *
+ * The pass and its specs are kept because the specs document the invariants any replacement must
+ * hold, and because the measurement above is the reason to be careful. Nothing calls it.
+ */
+/**
  * Verdict-driven windowed verification: re-transcribe the audio around ONE weak line and keep
  * the result only if it survives the same acceptance test the gap pass uses.
  *

@@ -381,6 +381,52 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
   the prompt. A one-line comment fix is included here; the behaviour change is deliberately
   left as the next deliberate step rather than made in the same breath as the measurement.
 
+### L22 — verdict-driven windowed verification makes real sync WORSE (item 2 refuted)
+
+- **Instrument:** real `whisper-small` from Node driving `verifyWeakLines` with a node-backed
+  slice transcriber, scored against LRC truth. Developer-run (real audio, real model).
+- **Status:** **SOURCEABLE, not reproducible from the repository** for the audio.
+- **Measured, guitar-loneliness, segment transcript, 8-line budget (~26s of Whisper):**
+
+  | metric | before | after |
+  |---|---|---|
+  | absolute p50 | 0.39s | 0.43s |
+  | absolute p90 | 2.29s | 2.29s |
+  | lines within 250ms | **39%** | **33%** |
+  | lines with NO evidence | **4** | **9** |
+  | evidence-backed p90 | 2.29s | 2.32s |
+
+  `accepted = 8, rejected = 0`. Of the accepted lines that have truth — **0 better, 3 WORSE,
+  1 unchanged**, and line #0 (previously 0.17s off) was moved to **1.83s** off.
+
+- **And it generalises, worse, on a second song.** veil, same procedure, 8-line budget:
+
+  | metric | before | after |
+  |---|---|---|
+  | absolute p90 | 0.98s | **1.91s** |
+  | **worst line** | 1.91s | **13.16s** |
+  | lines within 250ms | 50% | 50% |
+  | lines with NO evidence | 12 | 12 |
+
+  `accepted = 7, rejected = 1`; of the accepted lines with truth, **0 better, 1 worse (line #14:
+  0.76s -> 13.16s), 6 unchanged**. A line that was already right was moved thirteen seconds out.
+  Two songs, two independent failures, with the worst-case error moving by 7x on one of them.
+- **TWO CAUSES, and the second is the serious one.**
+  1. The acceptance gate measures **corroboration of the line's own text**, which a prompt echo
+     maximises. L19's single case — where `placementRealizesCoverage` rejected an echo — is
+     **not representative**: here the same gate accepted 8 slices and none of them helped. L19
+     narrowed L18's claim; L22 shows L18's concern was right in general and L19 was the lucky case.
+  2. **Splicing a single-line window replaces the transcript words across that window, which
+     dissolved the corroboration of ADJACENT lines** — no-evidence rose from 4 to 9. So a
+     per-line operation with per-line acceptance can degrade lines it never examined. That is a
+     structural hazard, not a tuning problem.
+- **CONSEQUENCE: item 2 is NOT wired, and `verifyLines.ts` carries this measurement in its header
+  as a do-not-wire warning.** Kept rather than deleted because its specs document the invariants a
+  replacement must hold, and because the numbers are the reason to be careful. Nothing calls it.
+- **What would have happened had it shipped:** a real user's previously-correct opening line moved
+  1.8s out, and 5 further lines silently lost their evidence. This is the eighth claim or build of
+  mine that measurement has stopped, and by a distance the most damaging one to have wired.
+
 ### L21 — gap re-transcription reaches only HALF of what the verdict distrusts
 
 - **Instrument:** `.cache/verdict-vs-holes.mjs` (scratch; the numbers are what matter and the

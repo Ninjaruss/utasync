@@ -1423,3 +1423,42 @@ carrying catalogue timings reach the prior-aware automatic path in one tap via t
 item-6 button, and that path runs the mode escalation and the convergence loop. What it does not
 yet do is run `verifyWeakLines`; wiring that needs the real slice transcriber and a measurement on
 real audio of whether the extra Whisper calls pay for themselves.
+
+### Round 20 — item 2 refuted on real audio, before wiring it
+
+Item 2's selector was built last round on a measured justification. The objective's own rule is to
+measure at the layer where the claim lives, so rather than wire it, I drove `verifyWeakLines` with a
+real node-backed slice transcriber — real whisper-small, real audio, real LRC truth — and scored it.
+
+**It makes sync worse.** On guitar-loneliness: lines within 250ms **39% -> 33%**, lines with no
+evidence **4 -> 9**, and of the accepted verifications that have truth, **0 better, 3 worse, 1
+unchanged** — the previously-correct opening line moved from 0.17s to **1.83s** off. All 8
+verifications were accepted; none helped.
+
+Two causes, and the second is structural rather than a tuning problem:
+
+1. The acceptance gate measures corroboration of **the line's own text**, which a prompt echo
+   maximises. L19's single case, where the gate rejected an echo, is not representative — and this
+   also corrects the shape of that finding: **L18's concern was right in general, and L19 was the
+   lucky case.** L19 narrowed L18; L22 un-narrows it, with better evidence.
+2. **Splicing a single-line window replaces the transcript words across that window**, which
+   destroyed adjacent lines' corroboration. A per-line operation with per-line acceptance can
+   therefore degrade lines it never examined.
+
+So item 2 is **not wired**, and `verifyLines.ts` now opens with this measurement as a do-not-wire
+warning. Kept rather than deleted: its specs document what a replacement must hold, and the numbers
+are the reason to be careful. Nothing calls it.
+
+A plausible fix — require acoustic corroboration (`alignmentTrust`'s `no-acoustic-onset` term)
+before accepting a verified line, since the failure is "text the prompt supplied with no independent
+evidence it sounds there" — is a hypothesis that needs its own measurement, not a conclusion.
+
+**Checked on a second song, and it is worse.** veil, same procedure: absolute p90 0.98s -> **1.91s**
+and the **worst line 1.91s -> 13.16s**, with one accepted line moved from 0.76s to 13.16s off. Two
+songs, two independent failures, one of them moving the worst case by 7x. The refutation is not a
+single-song artefact.
+
+**This is the eighth of my claims or builds that measurement has stopped, and the most damaging one
+to have wired.** Had it shipped, a user's correct opening line would have moved 1.8s out, five more
+lines would have silently lost their evidence, and on another song a correct line would have moved
+thirteen seconds out.
