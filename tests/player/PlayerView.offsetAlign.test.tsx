@@ -3,6 +3,7 @@ import 'fake-indexeddb/auto'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { db } from '../../src/core/db/schema'
 import { PlayerView } from '../../src/player/PlayerView'
+import { ALIGNMENT_PIPELINE_VERSION } from '../../src/lyrics/phraseAlignment'
 import { usePlayerStore } from '../../src/player/PlayerStore'
 import { ToastProvider } from '../../src/core/ui/Toast'
 
@@ -48,6 +49,39 @@ const LINES = [
   { startTime: 6.5, endTime: 9.1, original: 'one', translation: '' },
   { startTime: 9.4, endTime: 12.0, original: 'two', translation: '' },
 ]
+
+/**
+ * A song whose STORED transcript groups several lines into one long chunk, which is what
+ * `accurateRealignReason` reports as 'segment-blocks' and what makes the Play-mode
+ * "Some line timings are approximate" banner appear. Two such chunks are needed
+ * (MERGED_SEGMENT_SUGGEST_THRESHOLD = 2).
+ */
+async function putChunkedSong() {
+  await db.songs.put({
+    id: 'song1', title: 'T', artist: 'A',
+    audioStoredPath: 'songs/song1.mp3',
+    sources: [{ provider: 'upload', ref: 'song1', hasAudio: true }],
+    lyrics: {
+      lines: [
+        { startTime: 0, endTime: 2, original: 'a', translation: '' },
+        { startTime: 2, endTime: 4, original: 'b', translation: '' },
+        { startTime: 10, endTime: 12, original: 'c', translation: '' },
+        { startTime: 12, endTime: 14, original: 'd', translation: '' },
+      ],
+      sourceLanguage: 'ja', translationLanguage: 'en', alignmentMode: 'auto',
+      // Pin the pipeline version so the version-gated re-refine on open does NOT run: it
+      // would recompute lines and quality from the stored transcript and rewrite the exact
+      // state this fixture exists to create. (That behaviour is correct in the app; it just
+      // makes a hand-built fixture unreachable.)
+      alignmentPipelineVersion: ALIGNMENT_PIPELINE_VERSION,
+      transcriptWords: [
+        { word: 'a b', startTime: 0, endTime: 3 },
+        { word: 'c d', startTime: 10, endTime: 13 },
+      ],
+    },
+    syncState: 'synced', createdAt: new Date(),
+  } as never)
+}
 
 async function putSong(timingSource?: string) {
   await db.songs.put({
@@ -187,3 +221,34 @@ describe('a song that arrives with synced lyrics', () => {
     })
   })
 })
+
+describe('approximate-timings banner leads with the automatic fix (item 6)', () => {
+  it('offers a one-tap re-align instead of only manual work', async () => {
+    // The banner used to name only manual routes ("tap a line… or fine-tune in Edit") while
+    // the app already knew the automatic path was better here: 'segment-blocks' means the
+    // stored transcript grouped lines into shared chunks, which is precisely what a
+    // re-transcription fixes, and that path also reconciles against the existing timings
+    // (8/8 better than aligning from scratch; ledger L12) and picks its own timestamp mode.
+    await putChunkedSong()
+    render(<PlayerView songId="song1" onBack={vi.fn()} />)
+    expect(await screen.findByTestId('realign-approximate')).toBeTruthy()
+    // Nothing transcribes until asked: one tap, not zero.
+    expect(screen.queryByTestId('auto-align-flow')).toBeNull()
+  })
+
+  it('the one tap opens the alignment flow', async () => {
+    await putChunkedSong()
+    render(<PlayerView songId="song1" onBack={vi.fn()} />)
+    fireEvent.click(await screen.findByTestId('realign-approximate'))
+    await waitFor(() => expect(screen.getByTestId('auto-align-flow')).toBeTruthy())
+  })
+
+  it('does not offer it where AI alignment is unavailable, but still says why the timings are off', async () => {
+    autoAlignSupported.current = false
+    await putChunkedSong()
+    render(<PlayerView songId="song1" onBack={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText(/Some line timings are approximate/)).toBeTruthy())
+    expect(screen.queryByTestId('realign-approximate')).toBeNull()
+  })
+})
+

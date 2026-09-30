@@ -1215,3 +1215,35 @@ first, or it is a guess), item 5 (both prompts are pre-payment decisions rather 
 interruptions — the no-WebGPU probe needs moving to pre-flight, and the ETA prompt needs a
 non-blocking form, which means changing `onLongEstimate`'s blocking contract), item 6, and the
 pileup acceptance defect found in round 11 (L19).
+
+### Round 13 — item 6 shipped; L19 narrowed out of existence
+
+**Item 6 (one-tap re-align when the stored verdict is weak) — done.** The Play-mode banner
+said *"Some line timings are approximate — tap a line as it plays to fix it, or fine-tune in
+Edit."* — i.e. it named only manual labour while the app already knew better: the banner only
+appears when `accurateRealignReason` is `'segment-blocks'`, meaning the stored transcript
+grouped several lines into shared chunks, which is exactly what a re-transcription fixes. And
+that path also reconciles against the existing timings (8/8 better than aligning from scratch,
+mean absP90 5.47s -> 1.44s) and picks its own timestamp mode. So the banner now leads with a
+**one-tap Re-align** (gated on `canAutoAlign() && hasStoredAudio`, with a title stating the
+one-transcription cost) and keeps the manual advice behind it. Three specs cover it, including
+that the automatic route disappears where AI is unavailable while the banner still explains why
+the timings are off.
+
+Writing those specs turned up something worth remembering: the fixture must pin
+`ALIGNMENT_PIPELINE_VERSION`, because the version-gated re-refine on open otherwise recomputes
+lines and quality from the stored transcript and rewrites the exact state a hand-built fixture
+exists to create. Correct app behaviour; it just makes naive fixtures unreachable.
+
+**L19 is not a defect, and I narrowed it rather than fixing it.** Measuring at the layer where
+the claim lives: the pass's own `badAlignment()` fixture *is* a pileup and the suite asserts a
+clean splice over it, so "the candidate is a pileup" cannot be the rejection test; and
+corroboration across the affected lines went 1.02 -> 0.96, i.e. unchanged within noise. Whether
+the pileup is worse for a listener than the interpolated spread it replaced is unmeasured, so a
+pileup guard would be an unmeasured threshold — the thing this ledger exists to prevent. Recorded
+as not-a-defect with the reasoning, so it is not re-raised and not "fixed" by guess.
+
+**Remaining:** item 2 (viable, reuses the echo backstop; needs verdict-driven line selection and
+a route to already-timed songs), item 3 (needs its alert threshold measured first), item 5 (the
+pre-flight refactor specified in round 12 — the `willSeparate` computation has to move out of
+`start()`), and the browser half of item 7, which cannot run here.

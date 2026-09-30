@@ -312,11 +312,25 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
   Why it held here (k character-level tokens rather than repeated whole lines) is not fully
   understood, and a different slice length or prompt shape could produce an echo whose timing
   is *not* degenerate. That is an open risk, not a closed one.
-- **A separate defect the same run exposed, and it is in the OTHER direction:** the *unprompted*
-  splice was ACCEPTED while placing **five of six lines on the identical start time 157.30s**
-  with coverage 0.00-0.17 — acceptance gated on a fall in `needs_review` even though the
-  placement is a pileup and corroborates nothing. `enforceLineMonotonicity` permits equal starts,
-  so nothing downstream catches it. Worth its own investigation; recorded, not yet fixed.
+- **A separate suspicion the same run raised, INVESTIGATED AND NARROWED TO NOT-A-DEFECT.** The
+  *unprompted* splice was accepted while placing five of six lines on the identical start time
+  157.30s. I first recorded that as a defect ("gated on a fall in `needs_review` though the
+  placement corroborates nothing"). Checking it properly at the layer where the claim lives:
+
+  - The pass does **not** treat pileups as defects in general: `tests/lyrics/gapRealign.test.ts`'s
+    own `badAlignment()` fixture is a pileup (GAP1 at 14.0, GAP2 at 14.1) and the suite asserts a
+    clean re-transcript may be spliced over it. So "the candidate is a pileup" cannot be the
+    rejection test without rejecting the pass's existing legitimate cases.
+  - Corroboration across the six affected lines went **1.02 -> 0.96** — i.e. roughly unchanged,
+    inside noise.
+  - Net: the acceptance moved those lines to where their (weakly) matched words are. Whether that
+    is worse than the interpolated spread it replaced is **unmeasured**, and a pileup guard would
+    therefore be an unmeasured threshold of exactly the kind this ledger exists to prevent.
+
+  Status: **not a defect on the evidence available.** Do not add a pileup guard to the splice
+  acceptance without a measurement showing the pileup harms the listener more than what it
+  replaced. (Item 3's calibrated verdict is the more promising place to act on pileups, because
+  it grades lines rather than vetoing whole splices — and it already flags them as unverified.)
 
 ### L18 — lyric-prompt biasing FABRICATES, and the acceptance test cannot tell
 

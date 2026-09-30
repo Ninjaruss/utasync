@@ -1857,7 +1857,28 @@ export function PlayerView({ songId, onBack, onSettings, autoAlignOnOpen = false
           severity="info"
           onDismiss={() => setAccurateReadingsDismissed(true)}
         >
-          Some line timings are approximate — tap a line as it plays to fix it, or fine-tune in Edit.
+          {/* The banner used to name only manual work — tap a line, or go to Edit. The app
+              already knows the automatic path is better here: `realignReason` is
+              'segment-blocks', i.e. the stored transcript grouped several lines into shared
+              chunks, which is exactly what a re-transcription fixes, and that path also
+              reconciles against the existing timings (measured 8/8 better than aligning from
+              scratch, mean absP90 5.47s -> 1.44s; ledger L12) and picks its timestamp mode
+              itself. So the one-tap route leads and the manual advice follows. */}
+          <span className="flex items-center gap-3 flex-wrap">
+            <span>Some line timings are approximate.</span>
+            {canAutoAlign() && hasStoredAudio && (
+              <button
+                type="button"
+                data-testid="realign-approximate"
+                onClick={() => beginAlignment('auto')}
+                title="Transcribes the song once and re-times every line, using these timings as a guide"
+                className="shrink-0 px-3 py-1.5 rounded-lg bg-cinnabar-800 border border-cinnabar-700 text-white text-xs min-h-11 hover:bg-cinnabar-700 transition-colors"
+              >
+                Re-align
+              </button>
+            )}
+            <span className="text-xs text-white/60">or tap a line as it plays to fix it</span>
+          </span>
         </Banner>
       )}
 
