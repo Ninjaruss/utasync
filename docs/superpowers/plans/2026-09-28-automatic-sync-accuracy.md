@@ -1386,3 +1386,40 @@ rather than the DOM. I dropped the second new spec instead of fighting it, becau
 already covered by the `'skipped'` abandon case.
 
 **Item 5 is done.** Items 2 and 7's browser half remain.
+
+### Round 19 — item 2, part 1: the selector is justified and built
+
+**Measured first, and it justified the work.** Gap re-transcription only targets structural holes,
+so before writing any selector I measured whether the verdict reaches anything outside them. It
+reaches exactly half: of **170** repairable lines across five configs, **85 sit outside any hole**
+and are never re-transcribed (guitar segment 21 of 29, stranger segment two-pass 22 of 46,
+recollect 21 of 41). Recorded as L21.
+
+`src/ai-pipeline/verifyLines.ts` implements the pass: verdict-ordered targets, a Whisper-call
+budget (default 6), a ±2s window anchored on the line's CURRENT placement, and the line's own text
+supplied as the prompt — which is what makes the question local instead of whole-song.
+
+The important design decision is what it does NOT do: it invents no acceptance rule. It calls the
+same `spliceGapAlignment` the gap pass calls, because that gate is what rejected the prompt echo in
+the real end-to-end reproduction (L19). A second, coverage-based rule here would make the echo
+self-fulfilling — the failure mode L18 was about.
+
+`transcribeSlice` is injected, so all eight specs run without a model: acceptance, byte-identical
+rejection, the prompt actually being the line's text, the window actually being local, budget
+worst-first, cancellation, blank rows, and a failing slice being best-effort.
+
+**Two things went wrong in my own tests, both worth recording.** First, a real cancellation bug in
+the pass: checking `isCancelled` immediately after a slice recorded only the current line as
+skipped and silently dropped the remainder of the work list; the check now lives only at the top of
+each iteration. Second, I wrote a spec asserting that a "prompt-echo-shaped" transcript is rejected
+— and it was ACCEPTED, because my synthetic echo (a clean character sequence crammed into 0.26s) is
+not shape-equivalent to the real one (duplicated character chunks with degenerate timing across a
+25s window). Rather than bend the fixture until it agreed with the claim, I deleted the spec: that
+property is established by L19's real-audio reproduction, and a synthetic stand-in that cannot
+reproduce it should not pretend to.
+
+**Item 2's second half — a route to already-timed songs — is largely already delivered**: songs
+carrying catalogue timings reach the prior-aware automatic path in one tap via the banner and the
+item-6 button, and that path runs the mode escalation and the convergence loop. What it does not
+yet do is run `verifyWeakLines`; wiring that needs the real slice transcriber and a measurement on
+real audio of whether the extra Whisper calls pay for themselves.

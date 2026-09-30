@@ -381,6 +381,34 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
   the prompt. A one-line comment fix is included here; the behaviour change is deliberately
   left as the next deliberate step rather than made in the same breath as the measurement.
 
+### L21 — gap re-transcription reaches only HALF of what the verdict distrusts
+
+- **Instrument:** `.cache/verdict-vs-holes.mjs` (scratch; the numbers are what matter and the
+  computation is two committed primitives — `enumerateGapHoles` and
+  `AlignmentTrust.repairableLineIndices`).
+- **Status:** **SOURCED and reproducible** from committed fixtures.
+- **Why it was measured.** Plan item 2 was to add verdict-driven line selection to the existing
+  prompted windowed verification. Before building it, the question is whether the verdict reaches
+  anything structural hole detection misses — if not, the selector change would add nothing.
+
+  | config | holes | repairable | inside a hole | **outside** |
+  |---|---|---|---|---|
+  | guitar segment | 3 (8 lines) | 29 | 8 | **21** |
+  | veil word | 6 (10 lines) | 15 | 10 | **5** |
+  | stranger segment two-pass | 9 (25 lines) | 46 | 24 | **22** |
+  | stranger word two-pass | 9 (25 lines) | 39 | 23 | **16** |
+  | recollect segment two-pass | 6 (21 lines) | 41 | 20 | **21** |
+  | **total** | | **170** | **85 (50%)** | **85 (50%)** |
+
+  Exactly half of the lines the verdict distrusts are never re-transcribed by the gap pass,
+  because they sit outside any structural hole.
+- **Consequence:** item 2(a) — verdict-driven selection — is justified with a number rather than
+  an assumption, and `src/ai-pipeline/verifyLines.ts` implements it (budget-bounded, worst-evidence
+  first, `transcribeSlice` injected so it is testable without a model). It deliberately delegates
+  acceptance to the SAME `spliceGapAlignment` gate the gap pass uses, since that gate is what
+  rejected the prompt echo in L19; inventing a second, coverage-based rule here would make the echo
+  self-fulfilling.
+
 ### L20 — the truth-free verdict cannot drive a SONG-level alert (item 3 refuted, half-redirected)
 
 - **Instrument:** `scripts/align-trust-calibration.mjs` (the ALERT THRESHOLD section).
