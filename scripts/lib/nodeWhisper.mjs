@@ -4,6 +4,7 @@
  * from Node (no browser Worker available here).
  */
 import { pipeline, env } from '@huggingface/transformers'
+import { buildWhisperPrompt } from '../../src/ai-pipeline/whisperPrompt.ts'
 
 env.allowLocalModels = false
 env.useBrowserCache = false
@@ -56,5 +57,29 @@ export async function transcribeAudio(audioData, sampleRate, options = {}) {
   // treats an explicit `language: null` differently from an absent key in its
   // generation-config merge, which can break long-form chunk merging.
   if (lang !== 'auto') asrOpts.language = lang
+  // Lyric-prompt biasing, mirroring src/ai-pipeline/whisper.worker.ts exactly: when the
+  // caller supplies the KNOWN sheet lyrics for this slice, bias the decoder toward them via
+  // decoder_input_ids. Implemented here so that prompt-fabrication can be MEASURED against
+  // the same mechanism the app ships, rather than against an approximation of it. A null
+  // result means the prompt could not be built and the call runs unprompted, as in the app.
+  // The app passes the ISO code ('ja') to `buildWhisperPrompt` and the full name
+  // ('japanese') to the ASR (whisper.worker.ts + whisperLanguageFor). This loader used to
+  // have a single `language` field, which conflated the two and made a prompted call look
+  // like a gate failure rather than a wrong lookup: Whisper's `lang_to_id` keys are
+  // `<|ja|>`, so `<|japanese|>` misses and the prompt is silently dropped.
+  const LANG_CODE = { japanese: 'ja', english: 'en' }
+  const promptLang = options.promptLanguage ?? LANG_CODE[lang] ?? null
+  if (options.promptText && promptLang) {
+    // A supplied prompt forces segment timestamps in the app (sliceTranscriber.ts), because
+    // word-mode prompt-prefix trimming is broken in transformers.js 3.8.1.
+    const ids = buildWhisperPrompt(
+      asr,
+      options.promptText,
+      promptLang,
+      'transcribe',
+      'segment',
+    )
+    if (ids) asrOpts.decoder_input_ids = ids
+  }
   return asr(resampled, asrOpts)
 }

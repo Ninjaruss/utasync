@@ -199,8 +199,15 @@ export async function reanalyzeGaps(args: ReanalyzeGapsArgs): Promise<ReanalyzeG
       // placements are known-wrong (the lines' audio was never transcribed), so
       // placement filtering is meaningless — prompt with the hole lines the
       // CURRENT transcript does not corroborate instead (those are the
-      // candidates for the un-heard span). A hallucinated echo is still caught
-      // by accept-if-better below.
+      // candidates for the un-heard span).
+      //
+      // WARNING — a hallucinated echo is NOT caught by accept-if-better, which is what
+      // this comment used to claim. Measured with the real model (ledger L18): prompting
+      // makes Whisper ECHO the prompt verbatim, including on a window it independently
+      // labelled non-vocal (`(♪~)` -> the sheet line, coverage 0.00 -> 1.00). accept-if-
+      // better accepts on coverage improvement, which an echo maximises, so it is the one
+      // check an echo defeats. Prompted splices therefore need corroboration from
+      // something OTHER than coverage of the text used as the prompt.
       const promptText = aimed
         ? holeTexts
             .filter((_, k) => {

@@ -287,6 +287,50 @@ measurement"* (`docs/superpowers/audits/2026-08-18-version-aware-sourcing.md:12`
   are therefore specific: coverage work on the stranger/recollect configs (L13, gap
   recovery), placement work on veil.
 
+### L18 — lyric-prompt biasing FABRICATES, and the acceptance test cannot tell
+
+- **Instrument:** real `Xenova/whisper-small` from Node via `scripts/lib/nodeWhisper.mjs`,
+  extended to mirror the app's prompt path exactly (`decoder_input_ids` from
+  `buildWhisperPrompt`, ISO language code for the prompt and the full name for the ASR, both
+  as `whisper.worker.ts` does).
+- **Status:** **SOURCEABLE, not reproducible from the repository** for the audio (real songs,
+  uncommitted). Recorded because the conclusion concerns shipped code.
+- **Measured, transcribed twice per window — unprompted vs prompted with the sheet line:**
+
+  | song / line | unprompted | prompted | sheet coverage |
+  |---|---|---|---|
+  | stranger #43 | `(♪~)` — Whisper hears **nothing** | `(Hey) Oh, alright(お疲れ様でした)` | 0.00 -> **1.00** |
+  | stranger #41 | `(Oh yeah)×5` | `Oh, yeah (Hey)` repeated | 0.63 -> **1.00** |
+  | guitar #0 | `突然降る夜が散らかささもない…` (a garbled attempt) | `突然降る夕立 あぁ傘もないや嫌` repeated | 0.46 -> **1.00** |
+  | guitar #1 | `いやいや、それのご機嫌なか知らない…` | `空のご機嫌なんか知らない(音楽)` | 0.73 -> **1.00** |
+
+  The prompt produces a **verbatim echo of itself**, and it does so even on a window Whisper
+  independently labelled non-vocal. Coverage goes to exactly 1.00 in every case, fabricated
+  ones included.
+- **THIS MAKES A SHIPPED COMMENT FALSE, and that is the finding.**
+  `src/ai-pipeline/gapReanalyze.ts:204` prompts the slice with the sheet lyrics and its comment
+  asserts *"A hallucinated echo is still caught by accept-if-better below."* It is not:
+  `spliceGapAlignment` accepts on **coverage improvement** (`PLACED_COVERAGE_IMPROVE_MIN 0.1`),
+  and an echo drives coverage to the maximum. So the one mechanism that is supposed to catch
+  fabrication is the one it defeats.
+- **Blast radius.** Gap re-transcription is not an edge path: it runs in the fresh auto-align
+  and again automatically once per song on open (`shouldAutoRecoverGaps`). For a song whose
+  sheet matches the recording, the echo happens to be the right words and is probably
+  harmless — but it also inflates coverage, which is the primary signal in the truth-free
+  verdict, so the app would then report those lines as verified on the strength of text it
+  supplied itself. For a song whose sheet does NOT match (stranger's alternate take — the very
+  `30 of 59` lines with no evidence), it invents anchors on non-vocal audio.
+- **Consequence for plan item 2.** The design I had next — prior-guided prompted windowed
+  verification — rested on the prompt making lines anchorable. It does make them anchorable,
+  by echoing whatever it is told. Item 2 therefore needs an acceptance signal that is
+  **independent of the prompt text** (acoustic onset support, or corroboration by an
+  unprompted pass) before it can be built at all. As specified it would have manufactured the
+  evidence it was supposed to be verifying.
+- **Not yet changed.** The minimal correction is to the acceptance test, not to the prompt:
+  a prompted splice must be corroborated by something other than coverage of the text used as
+  the prompt. A one-line comment fix is included here; the behaviour change is deliberately
+  left as the next deliberate step rather than made in the same breath as the measurement.
+
 ### L17 — the envelope-based offset screen does not work on real singing
 
 - **Instrument:** `scripts/offset-estimate-real.mjs` (planted offsets against real audio) and
