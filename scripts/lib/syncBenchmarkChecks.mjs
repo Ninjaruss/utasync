@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { scoreRun, requireAccess } from './syncBenchmark.mjs'
+import { LYRIC_HASH_VERSION, hashLyricLine } from './lyricHash.mjs'
 const song = { id: 'test', split: 'development', audioSha256: 'a', lyricsSha256: 'b' }
 const run = { ...song, song: 'test', runId: 'test', workflow: 'AutoAlignFlow', status: 'completed', lines: [{ original: 'line', startTime: 10 }] }
 const annotation = { kind: 'human-onsets', status: 'adjudicated', reviewer: 'independent listener', predictionsShown: false, priorPredictionExposure: 'none', audioSha256: 'a', lyricsSha256: 'b', lines: [{ text: 'line', onset: 10, uncertainty: .2 }] }
@@ -39,3 +40,34 @@ test('worksheet ignores an older file hash resolving after the current selection
 })
 
 test('unknown prior prediction exposure cannot certify blind accuracy', () => assert.equal(score(run, { ...annotation, priorPredictionExposure: 'unknown' }).pass, null))
+
+test('hashed annotations score exactly like text ones', () => {
+  const hashed = { ...annotation, lineHashVersion: LYRIC_HASH_VERSION, lines: [{ textHash: hashLyricLine('line'), onset: 10, uncertainty: .2 }] }
+  assert.equal(score(run, hashed).pass, true)
+})
+
+test('repeated identical lines stay matched by index', () => {
+  const twoSong = { ...song }
+  const texts = ['same', 'same']
+  const twoRun = { ...run, lines: [{ original: 'same', startTime: 10 }, { original: 'same', startTime: 40 }] }
+  const h = hashLyricLine('same')
+  const a = { ...annotation, lineHashVersion: LYRIC_HASH_VERSION, lines: [{ textHash: h, onset: 10, uncertainty: .2 }, { textHash: h, onset: 40, uncertainty: .2 }] }
+  const s = scoreRun(twoSong, texts, twoRun, a)
+  assert.equal(s.scoredLines, 2)
+  assert.equal(s.worstAbsoluteError, 0)
+})
+
+test('a stale normalisation version is a loud failure, not a skip', () => {
+  const stale = { ...annotation, lineHashVersion: '0', lines: [{ textHash: 'x', onset: 10, uncertainty: .2 }] }
+  assert.throws(() => score(run, stale), /lineHashVersion/)
+})
+
+test('normalisation differences do not break matching', () => {
+  const a = { ...annotation, lineHashVersion: LYRIC_HASH_VERSION, lines: [{ textHash: hashLyricLine('line'), onset: 10, uncertainty: .2 }] }
+  assert.equal(scoreRun(song, ['  line、 '], run, a).scoredLines, 1)
+})
+
+test('mixing text and hash lines is rejected', () => {
+  const mixed = { ...annotation, lineHashVersion: LYRIC_HASH_VERSION, lines: [{ text: 'line', textHash: hashLyricLine('line'), onset: 10, uncertainty: .2 }] }
+  assert.throws(() => score(run, mixed))
+})
