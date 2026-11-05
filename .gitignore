@@ -88,11 +88,7 @@ tests/ai-pipeline/fixtures/veil/lyrics.en.txt
 tests/ai-pipeline/fixtures/veil/lyrics.ja.txt
 tests/ai-pipeline/fixtures/veil/transcript.words.json
 
-# Benchmark reference material containing song text: the lyric sheet the manifest
-# binds for will-death-poetry, and the annotation files, whose schema stores each
-# line's text for its integrity check (scripts/lib/syncBenchmark.mjs:18).
-# ADR-0004 wants hashes here instead; until the schema stores hashes, these stay
-# local like the other whole-song text (tests/privateFixtures.mjs).
+# Benchmark lyric sheet the manifest binds for will-death-poetry: whole-song text, stays
+# local (tests/privateFixtures.mjs). The annotations hold line hashes, not text, so they
+# are committed (ADR-0004).
 benchmarks/sync/will-death-lyrics.txt
-benchmarks/sync/annotations/akfg-first-take.json
-benchmarks/sync/annotations/will-death-poetry.json

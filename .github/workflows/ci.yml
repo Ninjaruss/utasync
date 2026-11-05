@@ -45,6 +45,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # The truth corpus is committed as line hashes; this keeps it well-formed and
+      # free of song text. It needs no audio or lyric sheet.
+      - name: Truth corpus guard
+        run: node scripts/corpus-ci.mjs
+
   unit-tests:
     name: Unit tests
     runs-on: ubuntu-latest

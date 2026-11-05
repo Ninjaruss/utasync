@@ -93,3 +93,19 @@ A line-start benchmark does not validate line ends or word/syllable karaoke timi
 6. Check real player playback, seeking and repeated choruses on target devices.
 
 No global alignment settings or production behavior are changed by this benchmark.
+
+## Truth corpus workflow
+
+Annotations are committed with per-line SHA-256 hashes (`textHash`, under
+`lineHashVersion`, see `scripts/lib/lyricHash.mjs`) instead of lyric text, so song text
+never enters git (ADR-0004). The scorer hashes the local lyric sheet and compares by index.
+If the normalizer changes, bump `LYRIC_HASH_VERSION` and regenerate; `scripts/corpus-ci.mjs`
+(run in CI, no audio needed) fails on any `text` field, stale `lineHashVersion`, missing
+input hashes, or Japanese/CJK characters anywhere in the annotations, manifest or this README (do not rely on `git grep -P '\p{Han}'`: it silently matches nothing in some git builds), or a manifest-referenced annotation that is absent (songs whose reference is
+still `unverified-lrc` have a planned path and are exempt until generated).
+
+Adding a song: stage the audio and lyric sheet locally (both stay uncommitted), run
+`node scripts/lrc-to-annotation.mjs` against your local LRC, and commit only the generated
+annotation file. The generator refuses to overwrite anything that is not already `lrc-derived`.
+
+`report` exits non-zero when it scores fewer songs than expected, so a short run cannot pass.
