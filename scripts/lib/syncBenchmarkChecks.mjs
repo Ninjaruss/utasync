@@ -31,11 +31,11 @@ test('worksheet ignores an older file hash resolving after the current selection
   let exported, finishOld
   const old = { name: 'old.mp3', arrayBuffer: () => new Promise(resolve => { finishOld = resolve }) }
   const current = { name: 'current.mp3', arrayBuffer: async () => Uint8Array.of(2).buffer }
-  runInNewContext(source, { document: { getElementById: node, createElement: () => ({ click() {} }) }, crypto: { subtle: { digest: async (_, data) => data } }, URL: { createObjectURL: () => 'blob:test', revokeObjectURL() {} }, Blob: class { constructor(parts) { exported = JSON.parse(parts[0]) } }, Uint8Array, setTimeout() {} })
+  runInNewContext(source, { document: { getElementById: node, createElement: () => ({ click() {} }) }, crypto: { subtle: { digest: async (_, data) => data } }, TextEncoder, URL: { createObjectURL: () => 'blob:test', revokeObjectURL() {} }, Blob: class { constructor(parts) { exported = JSON.parse(parts[0]) } }, Uint8Array, setTimeout() {} })
   node('file').files = [old]; const oldJob = node('file').onchange()
   node('file').files = [current]; await node('file').onchange()
   finishOld(Uint8Array.of(1).buffer); await oldJob
-  node('save').onclick()
+  await node('save').onclick()
   assert.equal(exported.audioSha256, '02'); assert.equal(exported.audio.filename, 'current.mp3')
 })
 
@@ -67,6 +67,13 @@ test('normalisation differences do not break matching', () => {
   assert.equal(scoreRun(song, ['  line、 '], run, a).scoredLines, 1)
 })
 
+test('run-side match stays exact even though the annotation side is normalised', () => {
+  const a = { ...annotation, lineHashVersion: LYRIC_HASH_VERSION, lines: [{ textHash: hashLyricLine('line'), onset: 10, uncertainty: .2 }] }
+  const s = scoreRun(song, ['  line、 '], run, a)
+  assert.equal(s.scoredLines, 1) // loose annotation match succeeded
+  assert.equal(s.missingPredictions, 1) // exact run match still fails: run echoed 'line', sheet was '  line、 '
+})
+
 test('mixing text and hash lines is rejected', () => {
   const mixed = { ...annotation, lineHashVersion: LYRIC_HASH_VERSION, lines: [{ text: 'line', textHash: hashLyricLine('line'), onset: 10, uncertainty: .2 }] }
   assert.throws(() => score(run, mixed))
@@ -87,3 +94,19 @@ test('lrc-derived truth can never certify accuracy', () => {
 
 test('an unverified reference is still refused outright', () =>
   assert.throws(() => score(run, { ...annotation, kind: 'unverified-lrc' })))
+
+test('worksheet exports textHash equal to hashLyricLine, with lineHashVersion and no text', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { runInNewContext } = await import('node:vm')
+  const sheet = ['  line、 ', '\uFF4C\uFF49\uFF4E\uFF45\uFF01 (x) [y]', 'a  b\u3000c']
+  const source = readFileSync(new URL('./syncBenchmarkReview.html', import.meta.url), 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1]
+    .replace('__LYRICS__', JSON.stringify(sheet)).replace('__HASH__', '"02"').replace('__LYRIC_HASH__', '"lyrics"')
+  const nodes = new Map(); const node = id => { if (!nodes.has(id)) nodes.set(id, { value: '.25', files: [], duration: 100, paused: true, replaceChildren() {} }); return nodes.get(id) }
+  let exported
+  runInNewContext(source, { document: { getElementById: node, createElement: () => ({ click() {} }) }, crypto: globalThis.crypto, TextEncoder, URL: { createObjectURL: () => 'blob:test', revokeObjectURL() {} }, Blob: class { constructor(parts) { exported = JSON.parse(parts[0]) } }, Uint8Array, setTimeout() {} })
+  node('file').files = [{ name: 'a.mp3', arrayBuffer: async () => Uint8Array.of(2).buffer }]; await node('file').onchange()
+  await node('save').onclick()
+  assert.equal(exported.lineHashVersion, LYRIC_HASH_VERSION)
+  assert.deepEqual(exported.lines.map(l => l.textHash), sheet.map(hashLyricLine))
+  assert.ok(exported.lines.every(l => !('text' in l)))
+})
