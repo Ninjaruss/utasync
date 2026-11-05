@@ -22,7 +22,10 @@ import { detectSheetLanguage } from '../ai-pipeline/whisperLanguage'
 const REPETITION_REF_MIN_SPAN_S = 1.4
 
 /** Bump when auto-align timing logic changes — triggers one-time re-refine from the
- * persisted Whisper transcript on song open (no re-transcription). 22: label-honesty
+ * persisted Whisper transcript on song open (no re-transcription). 23: reject
+ * single-glyph overstamps before segment clipping preserves their bad onset.
+ * Previously clipped stored tokens cannot recover their raw span without a
+ * fresh transcription. 22: label-honesty
  * demotion (applyLabelHonesty) — stored songs re-label 'good' lines whose timing
  * the evidence can't verify (shared segment chunks, clipped tails, contested
  * repeated-line occurrences, proportional mode). 21: round-7 placement fixes
@@ -30,7 +33,7 @@ const REPETITION_REF_MIN_SPAN_S = 1.4
  * over-long tails) reach round-6-aligned (v20) stored songs. Separate from
  * GAP_RECOVERY_VERSION (gapRecovery.ts), which gates the audio-re-transcription
  * recovery pass. */
-export const ALIGNMENT_PIPELINE_VERSION = 22
+export const ALIGNMENT_PIPELINE_VERSION = 23
 
 const ENTWINED_ROLLING_RE = /心絡まって.*ローリング/
 const RUN_LINE_RE = /凍てつく(?:世界|地面).*走り出した/

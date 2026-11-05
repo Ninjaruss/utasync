@@ -172,6 +172,16 @@ export function sanitizeTranscript(words: TranscriptWord[]): TranscriptWord[] {
     if (!normalizeForMatch(stripped.text)) continue
     let cleaned: TranscriptWord = { ...raw, word: stripped.text }
     if (stripped.leadingMarker) cleaned = clipMarkerLeadIn(cleaned)
+    // A single glyph has no internal timing to subdivide. Shortening its end
+    // would still preserve an unsupported onset (e.g. 赤 stamped 240–263 s).
+    // Apply the word-duration limit before segment clipping can hide that span.
+    // Explicit music lead-ins have already been confined to their sung tail.
+    if ([...normalizeForMatch(cleaned.word)].length === 1
+      && cleaned.endTime - cleaned.startTime > MAX_WORD_DURATION_S) {
+      runToken = ''
+      runCount = 0
+      continue
+    }
     const prevKeptEnd = kept.length ? kept[kept.length - 1].endTime : 0
     cleaned = expandCollapsedSegment(cleaned, prevKeptEnd)
     const nextRawStart = words[wi + 1]?.startTime
