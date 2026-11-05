@@ -20,3 +20,22 @@ test('a line-count mismatch is a counted skip, not a thrown report', () => {
   assert.equal(v.ok, false)
   assert.match(v.skipped[0].reason, /line count/)
 })
+
+import { songCoverage, safeSkipReason } from './corpusCoverage.mjs'
+
+test('an errored or UNSCORED attempt is not a scored song', () => {
+  const r = songCoverage([{ status: 'UNSCORED', scoredLines: 0 }, { status: 'timeout', scoredLines: 0 }])
+  assert.equal(r.scored, false)
+  assert.match(r.reason, /statuses: UNSCORED, timeout/)
+})
+test('a SCORED attempt with lines counts; SCORED with 0 lines does not', () => {
+  assert.equal(songCoverage([{ status: 'SCORED', scoredLines: 5 }]).scored, true)
+  assert.equal(songCoverage([{ status: 'SCORED', scoredLines: 0 }]).scored, false)
+})
+test('no attempts is a skip', () => assert.equal(songCoverage([]).scored, false))
+test('a JSON parse failure never leaks file contents', () => {
+  let err; try { JSON.parse('{"text":"SECRET LYRIC",}') } catch (e) { err = e }
+  assert.doesNotMatch(safeSkipReason(err), /SECRET|LYRIC/)
+})
+test('a count mismatch reason survives sanitising', () =>
+  assert.match(safeSkipReason(new Error('annotation line count 18 != sheet 19')), /line count/))

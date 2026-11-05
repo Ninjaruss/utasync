@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, symlinkSync, rmSync
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
-import { coverageVerdict } from './lib/corpusCoverage.mjs'
+import { coverageVerdict, songCoverage, safeSkipReason } from './lib/corpusCoverage.mjs'
 import { hash, lyricLines, requireAccess, scoreRun } from './lib/syncBenchmark.mjs'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const manifest = JSON.parse(readFileSync(resolve(root, 'benchmarks/sync/manifest.json')))
@@ -33,18 +33,20 @@ if (command === 'stage-pilot') {
   const scored = [], skipped = []
   const songs = manifest.songs.map(song => {
     const counted = song.split !== 'heldout'
-    const status = attempts => attempts.length ? 'attempted' : unfinished.some(r => r.song === song.id) ? 'INCOMPLETE' : 'NOT_RUN'
+    let attempts, failure = null
     try {
       const annotationPath = file(song.reference.annotationPath)
       const annotation = existsSync(annotationPath) ? JSON.parse(readFileSync(annotationPath)) : null
       const texts = lyricLines(readFileSync(file(song.lyrics), 'utf8'))
-      const attempts = runs.filter(r => r.song === song.id).map(run => ({ ...scoreRun(song, texts, run, annotation, manifest.target), isolation: run.isolation, elapsedSeconds: run.elapsedSeconds, error: run.error ?? null }))
-      if (counted) { if (attempts.length) scored.push(song.id); else skipped.push({ id: song.id, reason: `no scored run (${status(attempts)})` }) }
-      return { id: song.id, split: song.split, status: status(attempts), attempts }
-    } catch (e) {
-      if (counted) skipped.push({ id: song.id, reason: e.message })
-      return { id: song.id, split: song.split, status: 'SKIPPED', attempts: [], skipReason: e.message }
+      attempts = runs.filter(r => r.song === song.id).map(run => ({ ...scoreRun(song, texts, run, annotation, manifest.target), isolation: run.isolation, elapsedSeconds: run.elapsedSeconds, error: run.error ?? null }))
+    } catch (e) { failure = safeSkipReason(e) }
+    if (failure) {
+      if (counted) skipped.push({ id: song.id, reason: failure })
+      return { id: song.id, split: song.split, status: 'SKIPPED', attempts: [], skipReason: failure }
     }
+    const cov = songCoverage(attempts)
+    if (counted) { if (cov.scored) scored.push(song.id); else skipped.push({ id: song.id, reason: cov.reason }) }
+    return { id: song.id, split: song.split, status: attempts.length ? 'attempted' : unfinished.some(r => r.song === song.id) ? 'INCOMPLETE' : 'NOT_RUN', attempts }
   })
   const coverage = coverageVerdict({ expected: manifest.songs.filter(s => s.split !== 'heldout').length, scored, skipped })
   const report = { generatedAt: new Date().toISOString(), pilotSongs: songs.length, heldoutSongs: manifest.songs.filter(s => s.split === 'heldout').length, representativeClaim: false, coverage, songs }
