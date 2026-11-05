@@ -71,3 +71,19 @@ test('mixing text and hash lines is rejected', () => {
   const mixed = { ...annotation, lineHashVersion: LYRIC_HASH_VERSION, lines: [{ text: 'line', textHash: hashLyricLine('line'), onset: 10, uncertainty: .2 }] }
   assert.throws(() => score(run, mixed))
 })
+
+test('lrc-derived truth produces metrics', () => {
+  const s = score({ ...run, lines: [{ original: 'line', startTime: 10.4 }] }, { ...annotation, kind: 'lrc-derived' })
+  assert.equal(s.status, 'SCORED')
+  assert.equal(s.scoredLines, 1)
+  assert.ok(Math.abs(s.worstAbsoluteError - 0.4) < 1e-9)
+})
+
+test('lrc-derived truth can never certify accuracy', () => {
+  const s = score(run, { ...annotation, kind: 'lrc-derived' })
+  assert.equal(s.eligibleForAccuracyClaim, false)
+  assert.equal(s.pass, null)
+})
+
+test('an unverified reference is still refused outright', () =>
+  assert.throws(() => score(run, { ...annotation, kind: 'unverified-lrc' })))

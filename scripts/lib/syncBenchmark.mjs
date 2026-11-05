@@ -28,7 +28,7 @@ export function scoreRun(song, texts, run, annotation, target = { fractionWithin
   if (!inputVerified) throw new Error('Run input hash mismatch')
   if (!annotation) return { ...base, status: 'UNSCORED', eligibleForAccuracyClaim: false, scoredLines: 0, pass: null }
   if (annotation.audioSha256 !== song.audioSha256 || annotation.lyricsSha256 !== song.lyricsSha256) throw new Error('Annotation input hash mismatch')
-  if (!['human-onsets', 'coarse-captions'].includes(annotation.kind)) throw new Error('Unverified reference cannot score accuracy')
+  if (!['human-onsets', 'coarse-captions', 'lrc-derived'].includes(annotation.kind)) throw new Error('Unverified reference cannot score accuracy')
   assertAnnotationMatchesLyrics(annotation, texts)
   const details = []
   for (let i = 0; i < texts.length; i++) {
