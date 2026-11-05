@@ -21,7 +21,7 @@ export function describeWorkerError(err: unknown, fallback?: string): string {
  * timeouts qualify; a user cancellation must not restart work. */
 export function isRecoverableTranscriptionError(e: unknown): boolean {
   if (!(e instanceof Error)) return false
-  return !/cancel/i.test(e.message)
+  return !/cancel/i.test(e.message) && e.name !== 'TranscriptionBusyError'
 }
 
 /** Message substrings that mean "the model could not be fetched" rather than
@@ -55,6 +55,10 @@ export function isNetworkFailure(e: unknown): boolean {
   if (!(e instanceof Error)) return false
   const msg = e.message.toLowerCase()
   return NETWORK_HINTS.some((hint) => msg.includes(hint))
+}
+
+export function isTranscriptionTimeout(e: unknown): e is Error {
+  return e instanceof Error && /timed out|timeout/i.test(e.message)
 }
 
 /** Map an auto-align failure to a message a user can act on, instead of dumping

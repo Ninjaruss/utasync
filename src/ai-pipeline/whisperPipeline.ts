@@ -36,6 +36,7 @@ export function configureWhisperEnv(): void {
     wasm.proxy = false
     wasm.wasmPaths = onnxWasmBaseUrl()
     wasm.numThreads = preferredWasmThreadCount()
+    console.info(`[Whisper] runtime configuredThreads=${wasm.numThreads} crossOriginIsolated=${typeof self !== 'undefined' && self.crossOriginIsolated === true}`)
   }
 }
 

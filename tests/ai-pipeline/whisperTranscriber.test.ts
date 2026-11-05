@@ -10,19 +10,20 @@ vi.mock('../../src/ai-pipeline/capability', () => ({
 class MockWorker {
   static instances: MockWorker[] = []
   onmessage: ((e: MessageEvent) => void) | null = null
-  private listeners = new Set<(e: MessageEvent) => void>()
+  private listeners = new Map<string, Set<(e: MessageEvent) => void>>()
   loadPayloads: { model: string; device: string; dtype: string }[] = []
 
   constructor() {
     MockWorker.instances.push(this)
   }
 
-  addEventListener(_type: string, fn: (e: MessageEvent) => void) {
-    this.listeners.add(fn)
+  addEventListener(type: string, fn: (e: MessageEvent) => void) {
+    if (!this.listeners.has(type)) this.listeners.set(type, new Set())
+    this.listeners.get(type)!.add(fn)
   }
 
-  removeEventListener(_type: string, fn: (e: MessageEvent) => void) {
-    this.listeners.delete(fn)
+  removeEventListener(type: string, fn: (e: MessageEvent) => void) {
+    this.listeners.get(type)?.delete(fn)
   }
 
   postMessage(data: unknown) {
@@ -42,7 +43,7 @@ class MockWorker {
 
   emit(event: { type: string; payload?: unknown }) {
     const message = { data: event } as MessageEvent
-    this.listeners.forEach((fn) => fn(message))
+    this.listeners.get('message')?.forEach((fn) => fn(message))
     this.onmessage?.(message)
   }
 

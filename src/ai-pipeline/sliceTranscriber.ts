@@ -15,6 +15,7 @@ export interface SliceTranscriberDeps {
   highAccuracy: boolean
   /** Effective timestamp mode inherited from the caller's main pass (post-downgrade). */
   timestampMode: 'word' | 'segment'
+  signal?: AbortSignal
   onLoadProgress?: (p: LoadProgress) => void
   onTranscribeProgress?: (p: TranscribeProgress) => void
 }
@@ -75,6 +76,7 @@ export function createSliceTranscriber(deps: SliceTranscriberDeps): SliceTranscr
         promptText: prompt,
         onLoadProgress,
         onTranscribeProgress,
+        signal: deps.signal,
       })
 
     let transcript
