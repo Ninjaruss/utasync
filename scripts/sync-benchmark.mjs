@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, symlinkSync, rmSync
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
+import { coverageVerdict } from './lib/corpusCoverage.mjs'
 import { hash, lyricLines, requireAccess, scoreRun } from './lib/syncBenchmark.mjs'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const manifest = JSON.parse(readFileSync(resolve(root, 'benchmarks/sync/manifest.json')))
@@ -29,16 +30,31 @@ if (command === 'stage-pilot') {
   const runs = existsSync(runsDir) ? readdirSync(runsDir).filter(p => p.endsWith('.json')).map(p => JSON.parse(readFileSync(resolve(runsDir, p)))).sort((a, b) => a.startedAt.localeCompare(b.startedAt)) : []
   const unfinishedPath = file('.cache/sync-benchmark/unfinished.json')
   const unfinished = existsSync(unfinishedPath) ? JSON.parse(readFileSync(unfinishedPath)) : []
+  const scored = [], skipped = []
   const songs = manifest.songs.map(song => {
-    const annotationPath = file(song.reference.annotationPath)
-    const annotation = existsSync(annotationPath) ? JSON.parse(readFileSync(annotationPath)) : null
-    const texts = lyricLines(readFileSync(file(song.lyrics), 'utf8'))
-    const attempts = runs.filter(r => r.song === song.id).map(run => ({ ...scoreRun(song, texts, run, annotation, manifest.target), isolation: run.isolation, elapsedSeconds: run.elapsedSeconds, error: run.error ?? null }))
-    return { id: song.id, split: song.split, status: attempts.length ? 'attempted' : unfinished.some(r => r.song === song.id) ? 'INCOMPLETE' : 'NOT_RUN', attempts }
+    const counted = song.split !== 'heldout'
+    const status = attempts => attempts.length ? 'attempted' : unfinished.some(r => r.song === song.id) ? 'INCOMPLETE' : 'NOT_RUN'
+    try {
+      const annotationPath = file(song.reference.annotationPath)
+      const annotation = existsSync(annotationPath) ? JSON.parse(readFileSync(annotationPath)) : null
+      const texts = lyricLines(readFileSync(file(song.lyrics), 'utf8'))
+      const attempts = runs.filter(r => r.song === song.id).map(run => ({ ...scoreRun(song, texts, run, annotation, manifest.target), isolation: run.isolation, elapsedSeconds: run.elapsedSeconds, error: run.error ?? null }))
+      if (counted) { if (attempts.length) scored.push(song.id); else skipped.push({ id: song.id, reason: `no scored run (${status(attempts)})` }) }
+      return { id: song.id, split: song.split, status: status(attempts), attempts }
+    } catch (e) {
+      if (counted) skipped.push({ id: song.id, reason: e.message })
+      return { id: song.id, split: song.split, status: 'SKIPPED', attempts: [], skipReason: e.message }
+    }
   })
-  const report = { generatedAt: new Date().toISOString(), pilotSongs: songs.length, heldoutSongs: manifest.songs.filter(s => s.split === 'heldout').length, representativeClaim: false, songs }
+  const coverage = coverageVerdict({ expected: manifest.songs.filter(s => s.split !== 'heldout').length, scored, skipped })
+  const report = { generatedAt: new Date().toISOString(), pilotSongs: songs.length, heldoutSongs: manifest.songs.filter(s => s.split === 'heldout').length, representativeClaim: false, coverage, songs }
   save(file('.cache/sync-benchmark/report.json'), report)
   console.log(JSON.stringify(report, null, 2))
+  if (!coverage.ok) {
+    console.error(`COVERAGE FAILURE: scored ${coverage.scoredCount} of ${coverage.expected} expected songs (shortfall ${coverage.shortfall}). A run that measured nothing is not a pass.`)
+    for (const k of coverage.skipped) console.error(`  skipped ${k.id}: ${k.reason}`)
+    process.exitCode = 1
+  }
 } else if (command === 'collect') {
   const log = file('node_modules/.e2e-status.log')
   let count = 0

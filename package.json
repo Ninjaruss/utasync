@@ -18,7 +18,7 @@
     "audit:audio": "npx tsx scripts/tier-b-audio.mjs --check",
     "audit:accuracy": "npx tsx scripts/tier-b-audio.mjs --check && npx tsx scripts/audit-vs-lrc.mjs && npx tsx scripts/align-ablation.mjs && npx tsx scripts/align-trust-calibration.mjs && npx tsx scripts/align-drift-profile.mjs && npx tsx scripts/align-acoustic-onsets.mjs && npx tsx scripts/align-stem-forced-truth.mjs",
     "benchmark:sync": "node scripts/sync-benchmark.mjs",
-    "benchmark:test": "node --test scripts/lib/syncBenchmarkChecks.mjs scripts/lib/lyricHashChecks.mjs"
+    "benchmark:test": "node --test scripts/lib/syncBenchmarkChecks.mjs scripts/lib/lyricHashChecks.mjs scripts/lib/corpusCoverageChecks.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
