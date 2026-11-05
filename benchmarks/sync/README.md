@@ -116,7 +116,8 @@ annotation and downgrading its kind would become one silent change. Until you do
 generated song stays outside the floor.
 
 `report` exits non-zero when it scores fewer songs than expected, so a short run cannot pass.
-The coverage gate is red today (2 of 7 songs scored); that is the known state of the pilot,
+The coverage gate is red today (`report` prints `COVERAGE FAILURE: scored N of 7 expected songs`;
+run it to see N, which rises as annotations are added); that is the known state of the pilot,
 not a regression.
 
 ### Known unverified: `akfg-first-take` hashes (blocking follow-up)
