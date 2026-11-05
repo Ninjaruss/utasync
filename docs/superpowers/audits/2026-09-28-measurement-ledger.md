@@ -1156,3 +1156,17 @@ nothing rather than an arbitrary row.
   else energy onset on the solo recording) and a synthetic catalogue LRC as prior. Verified on a
   synthetic fixture (planted onsets recovered exactly). Not yet run on PJS: the corpus is only on
   Google Drive, which is blocked from the agent environment.
+
+### L39 — `uncertainty: 0.3` on generated lrc-derived annotations (chosen, not independently measured)
+
+- **What:** `scripts/lrc-to-annotation.mjs` writes `uncertainty: 0.3` (seconds) on every line it
+  generates from an LRC.
+- **Gates:** `withinReferenceTolerance` and `outsideInterval` in `scoreRun`
+  (`scripts/lib/syncBenchmark.mjs`), i.e. how far a prediction may sit from an LRC onset before
+  it counts as outside the reference's own error.
+- **Rests on:** the measured LRC-vs-singing offsets already in this ledger, +0.31 s (L30, veil,
+  version-exact LRC vs stem onsets) and -0.36 s (L36 arm D, veil). 0.3 s is chosen to bracket
+  that magnitude. It was NOT independently measured, and per-song LRC offsets differ (L36 table
+  spans -0.19 to +0.96 s). `lrc-derived` truth is a regression signal only and never certifies
+  accuracy; only blind human onsets can.
+- **Reproduce the evidence:** see L30 and L36; this entry adds no new measurement.

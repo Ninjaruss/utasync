@@ -48,7 +48,10 @@ const annotation = {
   lineHashVersion: LYRIC_HASH_VERSION,
   audioSha256: song.audioSha256,
   lyricsSha256: hash(readFileSync(resolve(root, song.lyrics))),
-  lines: sheet.map((line, i) => ({ textHash: hashLyricLine(line), onset: rows[i].timeSeconds, uncertainty: 0.3, excluded: false })),
+  // uncertainty 0.3 s gates withinReferenceTolerance/outsideInterval in scoreRun. It brackets the
+// measured LRC-vs-singing offsets of +0.31 s and -0.36 s (ledger L30 / L36 arm D); it is not
+// itself measured. See ledger L39.
+lines: sheet.map((line, i) => ({ textHash: hashLyricLine(line), onset: rows[i].timeSeconds, uncertainty: 0.3, excluded: false })),
 }
 mkdirSync(dirname(out), { recursive: true })
 writeFileSync(out, JSON.stringify(annotation, null, 2) + '\n')
