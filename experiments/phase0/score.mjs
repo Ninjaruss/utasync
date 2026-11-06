@@ -17,7 +17,7 @@
  * Never prints lyric text.
  */
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
-import { resolve, dirname } from 'node:path'
+import { resolve, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { canCertify } from '../../scripts/lib/truthKinds.mjs'
 import { lyricLines, assertAnnotationDescribesSheet } from '../../scripts/lib/syncBenchmark.mjs'
@@ -26,8 +26,22 @@ import { safeSkipReason } from '../../scripts/lib/corpusCoverage.mjs'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const argv = process.argv.slice(2)
 const runsDir = resolve(root, argv.includes('--runs') ? argv[argv.indexOf('--runs') + 1] : '.cache/phase0/runs')
-const manifestPath = argv.includes('--manifest') ? argv[argv.indexOf('--manifest') + 1] : 'benchmarks/sync/manifest.json'
-const manifest = JSON.parse(readFileSync(resolve(root, manifestPath), 'utf8'))
+// --manifest may be repeated, and each may be a comma-separated list, so one report can cover
+// both certifying kinds at once: the real-song corpus (benchmarks/sync) and the PJS medleys,
+// whose builder writes its own manifest to .cache/pjs/. The gate needs both to be able to pass.
+const manifestPaths = argv.flatMap((a, i) => (a === '--manifest' ? (argv[i + 1] ?? '').split(',').filter(Boolean) : []))
+if (!manifestPaths.length) manifestPaths.push('benchmarks/sync/manifest.json')
+// The report is a shareable artefact: it names repo-relative paths only, never a local one.
+const shownPath = (p) => { const abs = resolve(root, p); return abs.startsWith(`${root}/`) ? abs.slice(root.length + 1) : `${basename(abs)} (outside the repository)` }
+const manifestWarnings = []
+const manifest = { songs: [] }
+for (const p of manifestPaths) {
+  for (const song of JSON.parse(readFileSync(resolve(root, p), 'utf8')).songs ?? []) {
+    // One id must mean one song, or a song scored twice would count twice toward the gate.
+    if (manifest.songs.some((s) => s.id === song.id)) manifestWarnings.push(`${song.id}: duplicate song id in ${shownPath(p)}; the first manifest listing it wins`)
+    else manifest.songs.push(song)
+  }
+}
 const runs = existsSync(runsDir)
   ? readdirSync(runsDir).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(readFileSync(resolve(runsDir, f), 'utf8')))
   : []
@@ -144,16 +158,24 @@ if (skippedSongs.length) {
   out.push('\n**Skipped, not scored (annotation does not match its inputs):**\n')
   out.push(...skippedSongs.map((s) => `- ${s.id}: ${s.reason}`))
 }
+out.push(`\nManifests read: ${manifestPaths.map(shownPath).join(', ')}.`)
+if (manifestWarnings.length) {
+  out.push('\n**Manifest conflicts (reported, never silent):**\n')
+  out.push(...manifestWarnings.map((w) => `- ${w}`))
+}
 
 // ---------- 2. the gate ----------
 // Every clause is checked per certifying kind and never pooled across kinds: PJS medleys are
 // cheap and easy, real accompanied songs are the claim. A kind short of songs or lines is a
 // shortfall and NOT MET -- never a pass, and never silence (ADR-0006 rule 3).
 out.push('\n## 2. The gate (ADR-0003, evidence terms restated 2026-11-06)\n')
-out.push(`Only \`human-onsets\` (blind: \`predictionsShown: false\`, \`priorPredictionExposure: "none"\`; adjudicated, reviewer named) and \`corpus-onsets\` certify (ADR-0006). Each kind must meet every clause on its own. Arm D = the primary run (\`@lrc\` where a catalogue LRC exists, else \`@run\`); arm B = that run's LRC prior; arm A = the current pipeline's own output, read from the prior of the \`@run\` run or from a run whose arm starts with \`A\`. Thresholds ${GATE.withinSeconds} s / ${Math.round(100 * GATE.fractionWithin)}% / ${f(GATE.maxUnflaggedSeconds, 1)} s are judgements, not measurements: ledger L41.\n`)
+out.push(`Only \`human-onsets\` (blind: \`predictionsShown: false\`, \`priorPredictionExposure: "none"\`; adjudicated, reviewer named) and \`corpus-onsets\` certify (ADR-0006). Each kind must meet every clause on its own. Arm D = the primary run (\`@lrc\` where a catalogue LRC exists, else \`@run\`); arm B = that run's LRC prior; arm A = the current pipeline's own output, read from the prior of the \`@run\` run or from a run whose arm is named \`A-…\`/\`A@…\`. Thresholds ${GATE.withinSeconds} s / ${Math.round(100 * GATE.fractionWithin)}% / ${f(GATE.maxUnflaggedSeconds, 1)} s are judgements, not measurements: ledger L41.\n`)
 
 const primaryD = (g) => g.arms['D-whisper-knowntext@lrc'] ? 'D-whisper-knowntext@lrc' : g.arms['D-whisper-knowntext@run'] ? 'D-whisper-knowntext@run' : null
-const armA = (g) => g.arms['prior:D-whisper-knowntext@run'] ?? g.arms[Object.keys(g.arms).find((k) => k.startsWith('A')) ?? '']
+// Arm A is the current pipeline. Either it ran as its own arm (`A-...` / `A@...`) or it supplied
+// the @run prior, which IS its output. The prefix is anchored and delimited on purpose: a future
+// arm called e.g. `Aligner-v2` must not be read as a comparison that never happened.
+const armA = (g) => g.arms['prior:D-whisper-knowntext@run'] ?? g.arms[Object.keys(g.arms).find((k) => /^A[-@]/.test(k)) ?? '']
 const armB = (g) => g.arms['prior:D-whisper-knowntext@lrc']
 const unmet = [], shortOfEvidence = []
 for (const [kind, need] of Object.entries(GATE.perKind)) {
@@ -196,7 +218,11 @@ for (const [kind, need] of Object.entries(GATE.perKind)) {
   out.push(`### ${need.title} — **${miss.length ? 'NOT MET' : 'MET'}**\n`)
   out.push('| clause | required | observed |\n| --- | --- | --- |')
   out.push(`| certifying songs (eligible) | ≥ ${need.songs} | ${ok.length} |`)
-  if (need.accompanied) out.push(`| of those, accompanied | ≥ ${need.accompanied} | ${nAcc} |`)
+  // Always printed, so the report and ADR-0003's table stay in step. For real songs "all of them"
+  // is a selection decision no hash can see, so it is the owner's to honour and is marked as such.
+  out.push(need.accompanied
+    ? `| of those, accompanied | ≥ ${need.accompanied} | ${nAcc} |`
+    : `| of those, accompanied | all of them | ${nAcc} detected by id; not machine-checked, the owner's to honour |`)
   out.push(`| scored lines, pooled | ≥ ${need.lines} | ${lines} |`)
   if (need.linesPerSong) out.push(`| scored lines per song | ≥ ${need.linesPerSong} | ${scored.length ? scored.map((g) => g.arms[primaryD(g)].n).join(', ') : '—'} |`)
   out.push(`| arm D starts within ${GATE.withinSeconds} s | ≥ ${Math.round(100 * GATE.fractionWithin)}% | ${pct(within, lines)} |`)

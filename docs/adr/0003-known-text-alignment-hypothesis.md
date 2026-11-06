@@ -53,13 +53,20 @@ runs where no catalogue LRC exists, so LRC-covered songs flatter it.
 | songs scored | ≥ 10 | ≥ 2 |
 | of those, accompanied | ≥ 3 (built with `--bed`) | all of them |
 | scored lines, pooled | ≥ 60 | ≥ 50 |
+| scored lines per song | — | ≥ 20 |
 
 (10 medleys at the builder's default `--per 6` is 60 lines, which is where both PJS numbers
 come from; see L41.)
-| scored lines per song | — | ≥ 20 |
 
 The real songs must be ones with **no catalogue LRC**, which is the population the aligner
 actually serves; on them D runs from the app-run prior, as it would in production.
+
+**One report, two manifests.** The two kinds live in different manifests — `benchmarks/sync`
+for the real songs, `.cache/pjs/manifest.json` (local, never committed) for the medleys — so
+the gate is evaluated by passing both to the scorer at once:
+`node experiments/phase0/score.mjs --manifest benchmarks/sync/manifest.json --manifest .cache/pjs/manifest.json`.
+A report covering one manifest shows the other kind with zero songs and therefore cannot say
+MET; that is a shortfall in the invocation, and it reads as one.
 
 **Both columns must pass every clause below, separately — never pooled.** Pooling would let
 60-plus easy PJS lines drown 50 hard ones.
@@ -95,6 +102,19 @@ claim anything about the unsampled interior.
    song has no catalogue LRC, arm B does not exist and clause 3 reduces to beating arm A on
    it. **A comparison that did not run is "not evaluated", and the gate is not met**: silence
    is never a pass.
+
+**What arms A and B are on a PJS medley.** Arm B is the synthetic prior `buildCorpus.mjs`
+plants (a constant per-medley offset plus per-line jitter, in place of a catalogue LRC): a fair
+prior, but a stand-in for a catalogue artefact rather than one. Arm A is a run of the current
+PWA pipeline over the medley's own `.wav` and lyric sheet — nothing about a medley prevents it,
+since it is ordinary local audio with a matching sheet. **Two pieces of plumbing do not exist
+yet**, and until they do the `corpus-onsets` column cannot pass clause 3: `scripts/sync-benchmark.mjs`
+reads `benchmarks/sync/manifest.json` at a fixed path and so cannot see a medley, and
+`runAll.sh` has no PJS entries. The consequence, stated rather than left to be discovered:
+with only `--prior lrc` runs the report prints arm A as "not evaluated" for `corpus-onsets`,
+which is NOT MET. Closing it means teaching the benchmark harness a manifest path and adding
+the PJS songs to the batch; it is a change to the instrument, not to this gate, and it is not
+part of the restatement.
 
 250 ms and 1 s are **judgements, not measurements** — see ledger L41 for what each rests on
 and what it is bracketed against. Nothing in this repository measures how sharply a *sung*
@@ -151,9 +171,3 @@ a quotation of the original should expect the gate paragraph to differ.
 - *What did not change:* the hypothesis, the four arms, the decision rule, 250 ms, 85% and
   the 1 s unflagged limit. The numbers were not loosened — the evidence demanded was made
   affordable and its shape was made explicit.
-- *Known consequence:* an annotation carrying a stratified sample has `excluded` lines, so it
-  is deliberately not `precise` to `scripts/lib/syncBenchmark.mjs`'s whole-song predicate
-  (ADR-0006, Consequences).
-- *Still not run:* arm C. This ADR names MMS, which is CC-BY-NC-4.0 and cannot ship, and the
-  model was never fetchable from the agent environments. A licence-clean candidate would be a
-  spike with its own pre-written gate (rule 3), not a change to this one.

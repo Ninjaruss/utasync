@@ -153,21 +153,27 @@ test('score.mjs: an unrun arm comparison is "not evaluated", never a tick', () =
 // ---- the MET path and the clause arithmetic, on planted runs (--runs) ----
 // Covers the direction the shortfall tests cannot: that a report CAN say MET, and that each
 // clause flips it back when the numbers miss. Hashes: 'A'/'L', as report() writes them.
-function gateReport({ songs, runs, kind = 'human-onsets' }) {
+// One `groups` entry becomes one manifest, as in real use: benchmarks/sync holds the real songs
+// and .cache/pjs/manifest.json the medleys, and one report must be able to cover both.
+function gateReport({ songs, runs, kind = 'human-onsets', groups = [{ kind, songs }] }) {
   const dir = mkdtempSync(join(tmpdir(), 'phase0-gate-'))
   const runsDir = join(dir, 'runs')
   mkdirSync(runsDir)
-  const entries = songs.map((s) => {
-    const annPath = join(dir, `${s.id}.json`)
-    writeFileSync(annPath, JSON.stringify({ kind, audioSha256: 'A', lyricsSha256: 'L', ...s.annotation }))
-    const lyrics = join(dir, `${s.id}.txt`)
-    writeFileSync(lyrics, s.sheet)
-    return { id: s.id, audioSha256: 'A', lyricsSha256: 'L', lyrics, reference: { annotationPath: annPath } }
+  const args = []
+  groups.forEach((group, gi) => {
+    const entries = group.songs.map((s) => {
+      const annPath = join(dir, `${s.id}.json`)
+      writeFileSync(annPath, JSON.stringify({ kind: group.kind, audioSha256: 'A', lyricsSha256: 'L', ...s.annotation }))
+      const lyrics = join(dir, `${s.id}.txt`)
+      writeFileSync(lyrics, s.sheet)
+      return { id: s.id, audioSha256: 'A', lyricsSha256: 'L', lyrics, reference: { annotationPath: annPath } }
+    })
+    const manifest = join(dir, `manifest-${gi}.json`)
+    writeFileSync(manifest, JSON.stringify({ songs: entries }))
+    args.push('--manifest', manifest)
   })
   for (const r of runs) writeFileSync(join(runsDir, `${r.song}.${r.arm.replace(/\W+/g, '_')}.json`), JSON.stringify({ status: 'completed', audioSha256: 'A', lyricsSha256: 'L', ...r }))
-  const manifest = join(dir, 'manifest.json')
-  writeFileSync(manifest, JSON.stringify({ songs: entries }))
-  const out = spawnSync('node', [scorer, '--manifest', manifest, '--runs', runsDir], { encoding: 'utf8' })
+  const out = spawnSync('node', [scorer, ...args, '--runs', runsDir], { encoding: 'utf8' })
   assert.equal(out.status, 0, out.stderr)
   return out.stdout
 }
@@ -226,4 +232,79 @@ test('score.mjs: a kind below 85% within the threshold fails it', () => {
   const out = gateReport(passing(25, { dErr: (i) => (i % 2 ? 0.05 : 0.4) }))
   assert.match(out, /\| arm D starts within 0.25 s \| ≥ 85% \| 48% \|/)
   assert.match(out, /\*\*Shortfall:\*\*.*within 0.25 s is 48%, needs 85%/)
+})
+
+// ---- the overall MET verdict: the branch that proves the gate can be passed at all ----
+// Both kinds satisfied from one report over two manifests, as the owner would run it.
+const lines = (n, id, onset0 = 10) => {
+  const texts = Array.from({ length: n }, (_, i) => `${id}-l${i}`)
+  return { texts, onsets: texts.map((_, i) => onset0 + i) }
+}
+function bothKindsPassing() {
+  const songs = { corpus: [], human: [] }, runs = []
+  const ann = (texts, onsets, unc) => ({ status: 'adjudicated', predictionsShown: false, priorPredictionExposure: 'none', reviewer: 'R', lineHashVersion: LYRIC_HASH_VERSION, lines: texts.map((t, i) => ({ textHash: hashLyricLine(t), onset: onsets[i], uncertainty: unc })) })
+  // 10 PJS medleys at the builder's default 6 lines = 60 lines; 3 carry a backing track (-bed).
+  for (let i = 1; i <= 10; i++) {
+    const id = `pjs-medley-${String(i).padStart(2, '0')}${i <= 3 ? '-bed' : ''}`
+    const { texts, onsets } = lines(6, id)
+    songs.corpus.push({ id, sheet: texts.join('\n') + '\n', annotation: ann(texts, onsets, 0.02) })
+    // D from the synthetic LRC prior (so arm B exists), and arm A as its own run.
+    runs.push({ song: id, arm: 'D-whisper-knowntext@lrc', lines: texts.map((t, j) => ({ startTime: onsets[j] + 0.06, prior: onsets[j] + 0.7, priorKnown: true, pinned: false })) })
+    runs.push({ song: id, arm: 'A-pipeline-live', lines: texts.map((t, j) => ({ startTime: onsets[j] + 0.5 })) })
+  }
+  // 2 real songs, 25 sampled lines each = 50; no catalogue LRC, so D runs from the app-run prior
+  // and that prior IS arm A's output. Arm B does not exist for them.
+  for (const id of ['real-song-a', 'real-song-b']) {
+    const { texts, onsets } = lines(25, id)
+    songs.human.push({ id, sheet: texts.join('\n') + '\n', annotation: ann(texts, onsets, 0.1) })
+    runs.push({ song: id, arm: 'D-whisper-knowntext@run', lines: texts.map((t, j) => ({ startTime: onsets[j] + 0.08, prior: onsets[j] + 0.9, priorKnown: true, pinned: false })) })
+  }
+  return { groups: [{ kind: 'corpus-onsets', songs: songs.corpus }, { kind: 'human-onsets', songs: songs.human }], runs }
+}
+
+test('score.mjs: both kinds satisfied over two manifests prints Verdict: MET', () => {
+  const out = gateReport(bothKindsPassing())
+  const gate = out.slice(out.indexOf('## 2.'), out.indexOf('## 3.'))
+  assert.ok(out.includes('**Verdict: MET**'), gate)
+  assert.ok(!out.includes('Verdict: NOT MET'))
+  assert.ok(gate.includes('corpus-onsets (PJS medleys) — **MET**'))
+  assert.ok(gate.includes('human-onsets (real accompanied songs) — **MET**'))
+  assert.match(gate, /\| certifying songs \(eligible\) \| ≥ 10 \| 10 \|/)
+  assert.match(gate, /\| of those, accompanied \| ≥ 3 \| 3 \|/)
+  assert.match(gate, /\| scored lines, pooled \| ≥ 60 \| 60 \|/)
+  assert.match(gate, /\| scored lines, pooled \| ≥ 50 \| 50 \|/)
+  assert.match(gate, /\| D p90 below arm A, per song \| every song \| 10 of 10 song\(s\) \|/)
+  assert.match(gate, /\| D p90 below arm B, per song with an LRC \| every such song \| 10 of 10 song\(s\) \|/)
+  assert.match(gate, /\*\*Shortfall:\*\* none\./)
+})
+
+test('score.mjs: one medley short of 10 takes the MET verdict away again', () => {
+  const both = bothKindsPassing()
+  const dropped = both.groups[0].songs.pop().id
+  const out = gateReport({ ...both, runs: both.runs.filter((r) => r.song !== dropped) })
+  assert.ok(out.includes('corpus-onsets (PJS medleys) — **NOT MET**'))
+  assert.ok(out.includes('**Verdict: NOT MET.**'))
+  assert.ok(!out.includes('**Verdict: MET**'))
+})
+
+test('score.mjs: a future arm named like an A is not read as arm A', () => {
+  const both = bothKindsPassing()
+  const runs = both.runs.map((r) => (r.arm === 'A-pipeline-live' ? { ...r, arm: 'Aligner-v2' } : r))
+  const out = gateReport({ ...both, runs })
+  assert.match(out, /\| D p90 below arm A, per song \| every song \| not evaluated \(no arm A run on any of 10 scored song\(s\)\) \|/)
+  assert.ok(out.includes('corpus-onsets (PJS medleys) — **NOT MET**'))
+})
+
+test('score.mjs: a duplicate song id across manifests is reported, not double-counted', () => {
+  const both = bothKindsPassing()
+  const dup = both.groups[1].songs[0]
+  const out = gateReport({ ...both, groups: [...both.groups, { kind: 'human-onsets', songs: [dup] }] })
+  assert.match(out, new RegExp(`- ${dup.id}: duplicate song id in `))
+  assert.match(out, /\| scored lines, pooled \| ≥ 50 \| 50 \|/)
+  assert.ok(out.includes('**Verdict: MET**'))
+})
+
+test('score.mjs: the accompanied clause is printed for real songs too, marked not machine-checked', () => {
+  const out = gateReport(bothKindsPassing())
+  assert.match(out, /\| of those, accompanied \| all of them \| 0 detected by id; not machine-checked, the owner's to honour \|/)
 })

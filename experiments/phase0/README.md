@@ -47,8 +47,22 @@ ADR-0003 fixes in advance); each kind must separately reach ≥85% of starts wit
 no unflagged line over 1 s and beat arms A and B on p90, paired on the same lines. The two
 kinds are never pooled, so PJS volume alone cannot pass the gate.
 
-`node experiments/phase0/score.mjs` section 2 prints every clause, what was scored, the
-shortfall and the verdict; too few songs or lines is NOT MET, never a pass. Truth-free
+**Both kinds in one report.** The real songs and the medleys live in different manifests, and
+`--manifest` may be repeated (or given a comma-separated list), so one invocation covers both:
+
+```sh
+node experiments/phase0/score.mjs --manifest benchmarks/sync/manifest.json --manifest .cache/pjs/manifest.json
+```
+
+Scoring one manifest alone shows the other kind with zero songs, which can never be MET.
+Section 2 prints every clause, what was scored, the shortfall and the verdict; too few songs
+or lines is NOT MET, never a pass.
+
+**Arms A and B on a medley.** Arm B is the synthetic prior `buildCorpus.mjs` plants. Arm A is a
+run of the current PWA pipeline over the medley's own `.wav` and sheet — possible in principle,
+but `scripts/sync-benchmark.mjs` reads `benchmarks/sync/manifest.json` at a fixed path and
+`runAll.sh` has no PJS entries, so no arm A run exists for a medley today and the
+`corpus-onsets` column reports clause 3 as "not evaluated" (NOT MET). See ADR-0003. Truth-free
 diagnostics in section 3 show whether D is anchored to the audio; they cannot pass the gate.
 
 ## What is needed next

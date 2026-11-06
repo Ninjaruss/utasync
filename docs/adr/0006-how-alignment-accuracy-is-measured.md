@@ -90,6 +90,16 @@ is anchored to the audio. They cannot say it is anchored to the *right place*.
 - Rule 2 (hashes) is reversed if ADR-0004 is reversed, or if a licence-clean corpus of real
   accompanied singing with redistributable lyrics exists, in which case text may be committed
   for those songs and the hash becomes optional for them.
+- Rule 3 (too few songs fails) is reversed when the corpus is large enough that the count stops
+  carrying information — concretely, when every song a scorer can reach is scored on every run,
+  so a shortfall can only mean a missing *input* rather than a missing *judgement*. Then the
+  count becomes a warning and the failure moves to the inputs. It is **not** reversed because a
+  run was inconvenient, nor because the absent songs were believed to be representative.
 - Rule 4 is reversed per row by measurement: if a catalogue LRC's offset against the singing
   were measured on enough songs to be bounded well below the claimed tolerance, `lrc-derived`
   could certify at a correspondingly looser tolerance. L30 and L36 are the opposite result.
+- Rule 5 (diagnostics never pass a gate) is reversed for one diagnostic only by a measurement
+  that ties it to error against certifying truth — a correlation, on enough songs to be worth
+  trusting, between that diagnostic and absolute line error. Until such a measurement exists,
+  "the method is clearly anchored" is not a substitute for scoring it; L36 is exactly that
+  situation, recorded as a truth-free result and not as an accuracy claim.

@@ -61,6 +61,7 @@ when you make a decision another session would otherwise re-litigate. The long p
 | 0003 | Known-text alignment is the lead hypothesis, pending the Phase 0 gate |
 | 0004 | No copyrighted song text in the repository |
 | 0005 | Android v1 is local audio only (no YouTube) |
+| 0006 | How alignment accuracy is measured (offsets reported, truth as hashes, shortfall fails) |
 
 ## Measured facts worth knowing (see the ledger for sources)
 
