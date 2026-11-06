@@ -140,7 +140,7 @@
         "decoder syllable loops"
       ],
       "reference": {
-        "kind": "none",
+        "kind": "human-onsets",
         "annotationPath": "benchmarks/sync/annotations/will-death-poetry.json",
         "notes": "User confirmed 18-line sheet; no independently checked onsets."
       }

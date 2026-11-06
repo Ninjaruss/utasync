@@ -66,6 +66,22 @@ node experiments/phase0/knownTextAlign.mjs pjs-medley-01 --manifest .cache/pjs/m
 node experiments/phase0/score.mjs --manifest .cache/pjs/manifest.json
 ```
 
+What is committed and what is not:
+
+| Output | Where | Committed |
+| --- | --- | --- |
+| Hash-only truth annotation (`kind: corpus-onsets`, per-line `textHash`, no lyric text) | `experiments/phase0/pjs/annotations/<id>.json` | yes; validated by `node scripts/corpus-ci.mjs` |
+| Medley `.wav`, lyric sheet `.lyrics.txt`, synthetic prior `.lrc.json`, `manifest.json` | `.cache/pjs/` | never (audio and lyric sheets stay local; the manifest names local paths) |
+| The PJS archive itself | `.cache/pjs-src/` | never |
+
+PJS is CC BY-SA 4.0 (Koguchi & Takamichi, arXiv:2006.02959). The download is manual (a Google Drive
+link) and is not fetched by any script. The committed annotations hold onsets and hashes only, so
+no corpus audio or text is redistributed. The builder refuses to overwrite an annotation that is not
+already `corpus-onsets`. `uncertainty` per line (0.02 s from a phoneme label, 0.05 s from an energy
+onset) is explained in ledger L40. Medley audio is rebuilt locally; its hash depends on the local
+ffmpeg, so rebuild and re-score together rather than mixing audio from one machine with
+annotations from another unless `audioSha256` matches.
+
 Limits: each PJS song is one composed sentence sung solo, so medleys are clean, short-line
 material. They test whether the aligner places sung lines correctly; they do not replace marks on
 real mixed J-pop for the ADR-0003 gate.

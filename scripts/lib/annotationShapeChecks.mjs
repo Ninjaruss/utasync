@@ -34,3 +34,17 @@ test('shape violations are still reported alongside kind', () => {
   assert.match(v[0], /carries a text field/)
   assert.match(annotationViolations({ ...ok('human-onsets'), lines: [] })[0], /lines is empty/)
 })
+
+import { kindAgreementViolation } from './annotationShape.mjs'
+
+test('a manifest kind that matches the annotation kind is fine', () =>
+  assert.equal(kindAgreementViolation('human-onsets', { kind: 'human-onsets' }), null))
+
+test('a manifest kind that disagrees with the annotation is a violation naming both', () => {
+  const v = kindAgreementViolation('none', { kind: 'human-onsets' })
+  assert.match(v, /"none"/)
+  assert.match(v, /"human-onsets"/)
+})
+
+test('an annotation with no kind never agrees with a manifest kind', () =>
+  assert.match(kindAgreementViolation('human-onsets', {}), /disagrees/))

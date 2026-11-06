@@ -1170,3 +1170,25 @@ nothing rather than an arbitrary row.
   spans -0.19 to +0.96 s). `lrc-derived` truth is a regression signal only and never certifies
   accuracy; only blind human onsets can.
 - **Reproduce the evidence:** see L30 and L36; this entry adds no new measurement.
+
+### L40 — `uncertainty` 0.02 s / 0.05 s on PJS corpus-onsets annotations (carried over from the builder, not re-measured)
+
+- **What:** `experiments/phase0/pjs/annotation.mjs` (`UNCERTAINTY`) writes `uncertainty: 0.02` (seconds)
+  on a PJS line whose onset came from a phoneme label file and `0.05` on one taken from an energy
+  onset. These are the values `buildCorpus.mjs` already used; this entry only records what they rest on.
+- **Gates:** the same tolerance logic as L39 (`withinReferenceTolerance` / `outsideInterval` in
+  `scoreRun`): how far a prediction may sit from the onset before it counts as outside the
+  reference's own error.
+- **Rests on:** 0.02 s is the grain of the PJS HTS label files (onsets are read from `.lab`
+  times, so the truth is as exact as the labelling; 20 ms is two 10 ms analysis frames, a
+  conservative reading of that grain). 0.05 s is the energy-onset rule's own quantisation: first
+  10 ms frame whose RMS exceeds max(8 x noise floor, 5% of peak) for 5 consecutive frames (50 ms),
+  so the onset can sit up to one 50 ms sustain window from the true attack. Neither number was
+  checked against listened onsets; both are far below the 0.25 s gate tolerance, so they only
+  matter for how strictly a very tight score is read. Medley assembly adds no error: sentences are
+  placed by sample index.
+- **Reproduce:** download PJS (see `experiments/phase0/README.md`), run
+  `node experiments/phase0/pjs/buildCorpus.mjs .cache/pjs-src`, and read the `method` field per
+  line in `experiments/phase0/pjs/annotations/<id>.json` (`phoneme-label` vs `energy`); the
+  thresholds are in `energyOnset` and `labelOnset` of `buildCorpus.mjs`. To test the energy rule
+  against the label rule, run it on songs that have both and compare the two onsets: not done here.

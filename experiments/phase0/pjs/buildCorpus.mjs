@@ -9,7 +9,8 @@
  * For each group of --per songs it writes a "medley": the sentences concatenated with known
  * gaps, one lyric line per sentence. Outputs (all local, under .cache/pjs/):
  *   medley-NN.wav, lyrics-NN.txt
- *   truth-NN.json   annotation, kind "corpus-onsets" (benchmark format)
+ *   (the annotation is NOT here: it goes to experiments/phase0/pjs/annotations/<id>.json, hash-only
+ *   and committed; audio, lyric sheets and the manifest below stay local)
  *   lrc-NN.json     a synthetic catalogue LRC = truth + constant offset + jitter (seeded),
  *                   used only as the PRIOR for arm D, never as truth
  *   manifest.json   benchmarks/sync-style manifest for knownTextAlign.mjs / score.mjs --manifest
@@ -28,6 +29,7 @@ import { resolve, dirname, join, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { buildAnnotation, annotationFileToCheck } from './annotation.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const args = process.argv.slice(2)
@@ -37,6 +39,7 @@ const PER = Number(opt('--per', '6'))
 const BED = opt('--bed', '')
 const BED_DB = Number(opt('--bed-db', '-6'))
 const OUT = resolve(root, opt('--out', '.cache/pjs'))
+const ANN_DIR = join(root, 'experiments/phase0/pjs/annotations')
 if (!src || !existsSync(src)) { console.error('usage: buildCorpus.mjs <PJS folder> [--per 6] [--bed file.wav]'); process.exit(2) }
 
 const SR = 16000
@@ -132,6 +135,8 @@ for (let g = 0; g * PER < songs.length; g++) {
   if (peak > 0.99) for (let i = 0; i < mix.length; i++) mix[i] *= 0.99 / peak
 
   const id = `pjs-medley-${String(g + 1).padStart(2, '0')}${bed ? '-bed' : ''}`
+  const truthPath = join(ANN_DIR, `${id}.json`)
+  annotationFileToCheck(truthPath) // before any output: never replace truth that is not corpus-onsets
   const wavPath = join(OUT, `${id}.wav`)
   execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'f32le', '-ar', String(SR), '-ac', '1', '-i', '-', '-c:a', 'pcm_s16le', wavPath], { input: Buffer.from(mix.buffer) })
   const lyricsPath = join(OUT, `${id}.lyrics.txt`)
@@ -149,13 +154,8 @@ for (let g = 0; g * PER < songs.length; g++) {
   const lrcPath = join(OUT, `${id}.lrc.json`)
   writeFileSync(lrcPath, JSON.stringify({ syncedLyrics: lrc, plantedOffset: offset }, null, 2) + '\n')
 
-  const truthPath = join(OUT, `${id}.truth.json`)
-  writeFileSync(truthPath, JSON.stringify({
-    schemaVersion: 1, kind: 'corpus-onsets', status: 'adjudicated', reviewer: 'corpus', predictionsShown: false,
-    priorPredictionExposure: 'none', audioSha256, lyricsSha256,
-    convention: 'first sung onset of each concatenated PJS sentence; method per line',
-    lines,
-  }, null, 2) + '\n')
+  mkdirSync(ANN_DIR, { recursive: true })
+  writeFileSync(truthPath, JSON.stringify(buildAnnotation({ lines, audioSha256, lyricsSha256 }), null, 2) + '\n')
   const rel = (p) => p.slice(root.length + 1)
   manifest.songs.push({
     id, split: 'development', audio: rel(wavPath), lyrics: rel(lyricsPath), audioSha256, lyricsSha256,

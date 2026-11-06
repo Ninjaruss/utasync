@@ -18,3 +18,9 @@ export function annotationViolations(a) {
   if (noHash.length) bad(`missing or malformed textHash on ${noHash.length} line(s) (first: line ${noHash[0]})`)
   return out
 }
+
+// A manifest entry must not understate (or overstate) the truth its annotation file declares: gates count songs by kind.
+export function kindAgreementViolation(manifestKind, annotation) {
+  if (manifestKind === annotation?.kind) return null
+  return `manifest reference.kind ${JSON.stringify(manifestKind)} disagrees with the annotation's own kind ${JSON.stringify(annotation?.kind)}`
+}
