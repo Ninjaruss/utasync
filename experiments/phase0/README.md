@@ -76,10 +76,21 @@ cannot be one of the gate's two real songs.
 ledger L42) — which is why the report's row reads `D p90 below arm B, per song with an arm B prior`
 rather than "with an LRC". The gate's real songs must have no catalogue LRC, so arm B does not
 exist for any of them and the gate never compares D against a real catalogue artefact. Arm A is a
-run of the current PWA pipeline over the medley's own `.wav` and sheet — possible in principle,
-but `scripts/sync-benchmark.mjs` reads `benchmarks/sync/manifest.json` at a fixed path and
-`runAll.sh` has no PJS entries, so no arm A run exists for a medley today and the
-`corpus-onsets` column reports clause 3 as "not evaluated" (NOT MET). See ADR-0003. Truth-free
+run of the current PWA pipeline over the medley's own `.wav` and sheet. The plumbing for that now
+exists: `scripts/sync-benchmark.mjs` takes `--manifest` (repeatable, comma lists, as `score.mjs`
+does) and `runAll.sh` has a PJS section (`PJS_MANIFESTS` overrides its two default manifests).
+Arm A is still a real-browser run per medley, so the order is:
+
+```sh
+npm run benchmark:sync -- stage-pilot --manifest .cache/pjs/manifest.json   # then open /?benchmark=pilot
+npm run benchmark:sync -- collect
+bash experiments/phase0/runAll.sh      # per medley: D@lrc (arm B), and D@run from its newest completed run (arm A)
+```
+
+A medley with no completed browser run is skipped and logged; its arm A then reads "not evaluated"
+(NOT MET), never a guess. **Unexercised on a real medley**: this was built and tested on synthetic
+fixtures because the PJS archive was not available, so whether the pipeline aligns a medley sensibly
+is untested. See ADR-0003. Truth-free
 diagnostics in section 3 show whether D is anchored to the audio; they cannot pass the gate.
 
 ## What is needed next

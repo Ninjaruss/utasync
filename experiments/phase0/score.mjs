@@ -20,32 +20,22 @@
  * Never prints lyric text.
  */
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
-import { resolve, dirname, basename } from 'node:path'
+import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { canCertify } from '../../scripts/lib/truthKinds.mjs'
 import { lyricLines, assertAnnotationDescribesSheet } from '../../scripts/lib/syncBenchmark.mjs'
 import { safeSkipReason } from '../../scripts/lib/corpusCoverage.mjs'
 import { samplingRuleDisagreement } from './sampling.mjs'
+import { loadManifests, manifestPathsFrom, shownPath as shownPathOf } from '../../scripts/lib/manifestArgs.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const argv = process.argv.slice(2)
 const runsDir = resolve(root, argv.includes('--runs') ? argv[argv.indexOf('--runs') + 1] : '.cache/phase0/runs')
 // --manifest may be repeated, and each may be a comma-separated list, so one report can cover
-// both certifying kinds at once: the real-song corpus (benchmarks/sync) and the PJS medleys,
-// whose builder writes its own manifest to .cache/pjs/. The gate needs both to be able to pass.
-const manifestPaths = argv.flatMap((a, i) => (a === '--manifest' ? (argv[i + 1] ?? '').split(',').filter(Boolean) : []))
-if (!manifestPaths.length) manifestPaths.push('benchmarks/sync/manifest.json')
-// The report is a shareable artefact: it names repo-relative paths only, never a local one.
-const shownPath = (p) => { const abs = resolve(root, p); return abs.startsWith(`${root}/`) ? abs.slice(root.length + 1) : `${basename(abs)} (outside the repository)` }
-const manifestWarnings = []
-const manifest = { songs: [] }
-for (const p of manifestPaths) {
-  for (const song of JSON.parse(readFileSync(resolve(root, p), 'utf8')).songs ?? []) {
-    // One id must mean one song, or a song scored twice would count twice toward the gate.
-    if (manifest.songs.some((s) => s.id === song.id)) manifestWarnings.push(`${song.id}: duplicate song id in ${shownPath(p)}; the first manifest listing it wins`)
-    else manifest.songs.push(song)
-  }
-}
+// both certifying kinds at once: the real-corpus (benchmarks/sync) and the PJS medleys. The gate needs both to be able to pass.
+const manifestPaths = manifestPathsFrom(argv)
+const shownPath = (p) => shownPathOf(root, p)
+const { warnings: manifestWarnings, ...manifest } = loadManifests(root, manifestPaths)
 const runs = existsSync(runsDir)
   ? readdirSync(runsDir).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(readFileSync(resolve(runsDir, f), 'utf8')))
   : []
