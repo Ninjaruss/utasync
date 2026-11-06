@@ -24,7 +24,7 @@ test('repeated identical lines stay matched by index', () => {
 
 // ---- wiring: score.mjs must turn a mismatch into a visible skip line, never silence ----
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -442,10 +442,30 @@ test('score.mjs: a human-onsets song marked off the sampling rule is gate-inelig
   assert.match(out, /\| certifying songs \(eligible\) \| ≥ 2 \| 0 \|/)
 })
 
-test("score.mjs: the project's own marked song agrees with the rule as recomputed", () => {
-  const ann = JSON.parse(readFileSync(resolve(repoRoot, 'benchmarks/sync/annotations/will-death-poetry.json'), 'utf8'))
-  const sheet = readFileSync(resolve(repoRoot, 'benchmarks/sync/will-death-lyrics.txt'), 'utf8')
+// The lyric sheet is a private fixture (gitignored, ADR-0004): absent on a clean checkout, so skip.
+const ownSheetPath = resolve(repoRoot, 'benchmarks/sync/will-death-lyrics.txt')
+const ownAnnotationPath = resolve(repoRoot, 'benchmarks/sync/annotations/will-death-poetry.json')
+const ownFixture = existsSync(ownSheetPath) && existsSync(ownAnnotationPath)
+test("score.mjs: the project's own marked song agrees with the rule as recomputed", { skip: ownFixture ? false : 'private fixture absent' }, () => {
+  const ann = JSON.parse(readFileSync(ownAnnotationPath, 'utf8'))
+  const sheet = readFileSync(ownSheetPath, 'utf8')
   assert.equal(samplingRuleDisagreement(sheet, ann), null)
   // 18 lines is below the gate's own per-song minimum, which is why ADR-0003 now states it.
   assert.ok(sampledLineIndices(sheet).total < 20)
+})
+
+test('score.mjs: a corpus-onsets song with no arm B prior is "not evaluated" and a shortfall, never not-applicable', () => {
+  const both = bothKindsPassing()
+  // Scored from the app-run prior only: arm B (the synthetic LRC prior) is absent for every medley.
+  both.runs = both.runs.filter((r) => !(r.arm === 'D-whisper-knowntext@lrc'))
+  for (const s of both.groups[0].songs) {
+    both.runs.push({ song: s.id, arm: 'D-whisper-knowntext@run', lines: Array.from({ length: 6 }, (_, j) => ({ startTime: 10 + j + 0.06, prior: 10 + j + 0.7, priorKnown: true, pinned: false })) })
+  }
+  const out = gateReport(both)
+  const gate = out.slice(out.indexOf('## 2.'), out.indexOf('## 3.'))
+  const corpus = gate.slice(gate.indexOf('corpus-onsets (PJS medleys)'), gate.indexOf('human-onsets (real accompanied songs)'))
+  assert.match(corpus, /\| D p90 below arm B, per song with an arm B prior \| every such song \| not evaluated/)
+  assert.ok(!/not applicable/.test(corpus))
+  assert.match(corpus, /arm B comparison: not evaluated/)
+  assert.ok(!out.includes('**Verdict: MET**'))
 })

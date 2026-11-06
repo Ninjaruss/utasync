@@ -221,7 +221,8 @@ for (const [kind, need] of Object.entries(GATE.perKind)) {
   const thin = scored.filter((g) => g.arms[primaryD(g)].n < need.linesPerSong)
   // Clause 3, paired on the same song and the same line indices. `applies` is the set of songs
   // the clause is about; a song in it with no comparison run is NOT EVALUATED, which is a
-  // failure, never a tick. Where no song has a catalogue LRC the arm B clause is vacuous: ADR-0003.
+  // failure, never a tick. Where no song has a catalogue LRC the arm B clause is vacuous: ADR-0003. That holds for
+  // human-onsets only; a corpus-onsets medley always has an arm B prior, so there it is never vacuous.
   const cmp = (pick, label, applies) => {
     if (!scored.length) return { cell: 'not evaluated (no song has an arm D run)', bad: true, vacuous: true }
     if (!applies.length) return { cell: `not applicable (no gate song has a catalogue LRC, so arm ${label} does not exist)`, bad: false }
@@ -231,7 +232,7 @@ for (const [kind, need] of Object.entries(GATE.perKind)) {
     if (!have.length) return { cell: `not evaluated (no arm ${label} run on any of ${applies.length} scored song(s))`, bad: true }
     return { cell: `${beat.length} of ${applies.length} song(s)${absent ? `, ${absent} with no arm ${label} run` : ''}`, bad: beat.length < applies.length }
   }
-  const a = cmp(armA, 'A', scored), b = cmp(armB, 'B', scored.filter((g) => g.arms['D-whisper-knowntext@lrc']))
+  const a = cmp(armA, 'A', scored), b = cmp(armB, 'B', kind === 'corpus-onsets' ? scored : scored.filter((g) => g.arms['D-whisper-knowntext@lrc']))
   if (ok.length < need.songs) miss.push(`${need.songs - ok.length} more certifying song(s)`)
   if (nAcc < need.accompanied) miss.push(`${need.accompanied - nAcc} more accompanied song(s)`)
   if (lines < need.lines) miss.push(`${need.lines - lines} more scored line(s)`)
