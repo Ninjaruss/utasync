@@ -1237,3 +1237,44 @@ nothing rather than an arbitrary row.
   the shortfall and the verdict. The sampling rule that fixes "~25 lines a song" is written out in
   ADR-0003 and is computed from the lyric sheet alone. The bracketing figures above are L30, L36,
   L39 and L40 — this entry adds no new measurement.
+
+### L42 — the constants that decide which lines the ADR-0003 gate exempts, and the medley prior it compares against: `PIN_SEC` 0.1 s and the planted offset/jitter 0.3 / 0.2 / 0.15 s (judgements, not measurements)
+
+- **What:** three gate-bearing constants that had no entry until the gate was restated and began to
+  turn on them.
+  - `PIN_SEC = 0.1` (`experiments/phase0/score.mjs`): a line whose start sits within 0.1 s of its
+    own window start counts as `pinned`, which makes it `flagged`, which **exempts it from gate
+    clause 2 entirely** (no unflagged line over 1 s). It is a fallback only: a run that writes
+    `pinned` per line is believed, and this constant decides the flag for older runs that carry a
+    `window` but no `pinned` field.
+  - the synthetic prior in `experiments/phase0/pjs/buildCorpus.mjs`: per medley a constant offset of
+    `±0.3 s + 0.2 s · N(0,1)`, plus `0.15 s · N(0,1)` of per-line jitter. This is **arm B** for a PJS
+    medley, so these three numbers set the bar clause 3 asks arm D to beat on `corpus-onsets`.
+- **Gates:** the Phase 0 decision only (ADR-0003's pre-registered decision rule). No shipped code
+  reads any of them; `src/` and `android/` are unaffected.
+- **0.1 s — a judgement, not measured.** Nothing here measures how far a prior-following line
+  typically sits from its window edge. What it is bracketed against:
+  - **below:** 0 s is the literal reading of "the start sits on the window edge" (the README's own
+    description of the flag). A strict equality test would miss a line the decoder placed one or two
+    frames inside the edge, so the constant exists to tolerate frame quantisation: Whisper's
+    timestamp grain is 0.02 s, so 0.1 s is five frames.
+  - **above:** 0.25 s, the gate tolerance. A pin window at or above the tolerance would flag lines
+    that are *correct* at the threshold, which would quietly widen clause 2's exemption; 0.1 s is
+    comfortably below it.
+  - **what is actually known about the flag:** L37 measured the flag as a whole (pinned or unstable)
+    catching 8 of 10 planted failures with no false alarms, on one song. That is evidence the flag is
+    useful, **not** evidence that 0.1 s is the right boundary, and the 10 planted failures were not
+    re-run at other values of it.
+- **0.3 / 0.2 / 0.15 s — judgements standing in for a catalogue LRC, not measured.** They were chosen
+  to look like a hand-tapped LRC: a constant per-song offset of a few tenths of a second plus smaller
+  per-line noise. The repository's own measured catalogue-LRC offsets bracket them loosely —
+  +0.31 s (L30, veil, version-exact) and −0.36 s (L36) — and L39 puts an LRC's per-line uncertainty at
+  ±0.3 s, so the planted numbers are of the right order. No distribution was fitted to any of that, and
+  **arm B on a medley is therefore a stand-in, not a measurement of a real artefact** (ADR-0003 now
+  says so beside clause 3).
+- **Reproduce:** `PIN_SEC` and `isPinned` are at the top of `experiments/phase0/score.mjs`; the gate
+  section prints the flagged count per kind, so the size of clause 2's exemption is visible in every
+  report. The planted constants are the `offset` and `0.15 * gauss()` terms in `buildCorpus.mjs`, and
+  each medley's own offset is written to `.cache/pjs/<id>.lrc.json` as `plantedOffset`. To test the
+  pin boundary, re-score an existing run at other values of `PIN_SEC` and read the flagged count and
+  the clause-2 column: not done here.

@@ -2,7 +2,8 @@
 
 - Status: **proposed** — decided by the Phase 0 result, not by this document
 - Date: 2026-11-03
-- **Gate restated 2026-11-06** (evidence terms only; see "Revision history" at the end)
+- **Gate restated 2026-11-06, corrected 2026-11-07** (evidence terms only; see "Revision
+  history" at the end)
 
 ## Context
 
@@ -66,7 +67,10 @@ for the real songs, `.cache/pjs/manifest.json` (local, never committed) for the 
 the gate is evaluated by passing both to the scorer at once:
 `node experiments/phase0/score.mjs --manifest benchmarks/sync/manifest.json --manifest .cache/pjs/manifest.json`.
 A report covering one manifest shows the other kind with zero songs and therefore cannot say
-MET; that is a shortfall in the invocation, and it reads as one.
+MET; that is a shortfall in the invocation, and it reads as one. `--manifest` may be repeated
+more than twice, which the "≥ 3 accompanied" row requires: `--bed` is one global flag per
+builder run, so accompanied and unaccompanied medleys come from two runs into two `--out`
+directories with a manifest each. `experiments/phase0/README.md` has the exact commands.
 
 **Both columns must pass every clause below, separately — never pooled.** Pooling would let
 60-plus easy PJS lines drown 50 hard ones.
@@ -84,8 +88,23 @@ and from nothing else:
 5. if that yields fewer than 20 lines, add interior lines in sheet order until 20 are marked;
 6. every unmarked line gets `excluded: true` with `onset: null`.
 
+**A sheet with fewer than 20 lines cannot be a gate song.** Step 5 cannot reach 20 marks on a
+shorter sheet, so the rule marks every line and the per-song clause (≥ 20 scored lines) can
+never be satisfied however carefully the song is marked. The decision, stated rather than left
+to be discovered: a `human-onsets` gate song's sheet must read as **at least 20 non-blank
+lines**, and a shorter one is reported as a per-song shortfall and contributes nothing.
+Concretely, `benchmarks/sync/annotations/will-death-poetry.json` is an 18-line sheet, so the
+existing listening pass on it can never count toward this gate — the two real songs have to be
+others. (Marking a short song is not wasted work for `benchmarks/sync`, which asks a
+whole-song question; it is simply not evidence for *this* gate.)
+
 Nothing in the rule can be chosen after seeing a result: it reads line indices and blank
-lines, never audio, never a prediction, never an error. The cost is ~25 lines a song, two
+lines, never audio, never a prediction, never an error. Because of that, it is recomputed:
+`experiments/phase0/score.mjs` reads the raw sheet (blank lines intact — they are the block
+delimiters), derives the rule's selection, and makes a `human-onsets` song **gate-ineligible
+with a printed reason** when its scored lines are not that selection. One exemption, and only
+one: a song scored on *every* line of its sheet agrees, because that is the original whole-song
+gate — strictly more evidence, and impossible to cherry-pick. The cost is ~25 lines a song, two
 listening passes, two songs — roughly 100 careful judgements, against the 1,000-plus the
 previous gate's "≥10 songs, every line" demanded. **The gate therefore certifies the sampled
 lines only**, and deliberately over-weights block edges, where the errors are; it does not
@@ -97,11 +116,38 @@ claim anything about the unsampled interior.
 2. **No scored line over 1 s that the aligner did not flag** (`pinned` or `unstable`).
    Flagged lines over 1 s are a known cost, not a gate failure; unflagged ones are false
    confidence, which is the specific defect the hypothesis exists to fix.
+
+   **What this clause costs, stated plainly.** A flag exempts a line from this clause
+   *entirely* — not up to some larger error, but at any error. Clause 1 is what bounds the
+   exposure, and it bounds it at roughly 15% of scored lines: on a 25-line song, three lines
+   anywhere in the track may be as wrong as you like, provided the aligner flagged them and the
+   other 22 are within 250 ms. So **this gate certifies less than the hypothesis above claims.**
+   The hypothesis says known-text alignment *fixes* false confidence; what a MET verdict
+   certifies is that false confidence is **labelled** — that the aligner knows which of its
+   lines not to trust, and says so. A song can pass this gate and still be unusable to sing to
+   on ~15% of its lines. That is a deliberate trade (a flagged line can be re-aligned, hidden
+   or sent back to the user; a confidently wrong one cannot), and it is the reason
+   `experiments/phase0/score.mjs` prints the flagged count and the worst scored line in the
+   verdict section itself, as **reported rows, not clauses**: a reader must be able to tell a
+   kind that was right from one whose errors were all exempt. Whether to cap the flagged
+   fraction is a decision for this ADR, not for the scorer, and it is not capped today.
 3. **D's p90 absolute error below arm A's and arm B's**, computed on the *same songs and the
    same line indices* — paired, never arm A on one set of songs and D on another. Where a
    song has no catalogue LRC, arm B does not exist and clause 3 reduces to beating arm A on
    it. **A comparison that did not run is "not evaluated", and the gate is not met**: silence
    is never a pass.
+
+   **Arm B is never tested against a real catalogue artefact under this gate, and that is a
+   change.** The `human-onsets` songs are required to have *no* catalogue LRC (that is the
+   population the aligner serves), so arm B does not exist for a single one of them and clause 3
+   reduces to arm A on the whole `human-onsets` column. The only arm-B evidence this gate can
+   ever hold is on `corpus-onsets`, against the **synthetic prior the builder plants for itself**
+   (`experiments/phase0/pjs/buildCorpus.mjs`; its constants are ledger L42). So "beats the LRC
+   as-is" — half of the original hypothesis — is not tested by this gate at all. The report's row
+   is named `D p90 below arm B, per song with an arm B prior` rather than "with an LRC" for that
+   reason. Reinstating the real comparison means a third set of songs that *do* have a catalogue
+   LRC, scored against certifying truth; that is more evidence than this gate asks for, and
+   deliberately out of its scope.
 
 **What arms A and B are on a PJS medley.** Arm B is the synthetic prior `buildCorpus.mjs`
 plants (a constant per-medley offset plus per-line jitter, in place of a catalogue LRC): a fair
@@ -125,9 +171,11 @@ has no single correct instant.
 current verdict. A kind with too few songs or lines prints a shortfall and NOT MET.
 
 **What the report cannot check, and so is the owner's to honour when choosing songs:** that a
-`human-onsets` song is real accompanied music with no catalogue LRC, and that its marked lines
-are the ones the sampling rule selects. Both are selection decisions made before marking, and
-no hash can see them. Everything else in this gate is machine-checked.
+`human-onsets` song is real accompanied music with no catalogue LRC. That is a selection
+decision made before marking, and no hash can see it. Everything else in this gate is
+machine-checked — including, since 2026-11-07, that the marked lines are the ones the sampling
+rule selects: the rule is computed from the lyric sheet alone, so the scorer recomputes it
+rather than taking it on trust.
 
 ## Decision rule (pre-registered, unchanged)
 
@@ -142,9 +190,9 @@ and it is an informative result, not a near miss.
 
 This ADR is replaced by an accepted ADR once the gate above is evaluated and a branch of the
 decision rule is taken. The gate's *evidence terms* may be restated again only before the
-evaluating run (as they were on 2026-11-06, with zero certifying songs scored and so no
-result to tune against); restating them after a run, in the direction of the result, voids
-the pre-registration.
+evaluating run (as they were on 2026-11-06 and corrected on 2026-11-07, both with zero
+certifying songs scored and so no result to tune against); restating them after a run, in the
+direction of the result, voids the pre-registration.
 
 ## Revision history
 
@@ -161,13 +209,37 @@ a quotation of the original should expect the gate paragraph to differ.
   lines a song and two independent passes, ten songs is over a thousand careful listening
   judgements from one person. Spec §8.5 directs that the bar be re-derived from the corpus
   rather than inherited.
-- *What changed:* the certifying kinds are named (adding `corpus-onsets`, which did not
-  exist when this ADR was written); the song and line counts are split by kind, with real
-  accompanied songs required separately so PJS volume cannot carry the gate alone; the
-  per-song evidence is a pre-registered stratified sample rather than every line; clause 3
-  says what "beats A and B" means when the arms have not run on the same songs (paired lines,
-  and an unrun comparison is a failure to evaluate); and the thresholds are labelled as the
-  judgements they are, with ledger L41 recording what they rest on.
+- *What changed:* five things, each written out in full in the gate section above rather than
+  summarised twice here — the certifying kinds, the per-kind song and line counts, the
+  stratified sample in place of every line, what "beats A and B" means when the arms did not
+  run on the same songs, and the thresholds relabelled as judgements (ledger L41).
+- *What clause 3 lost, which the first version of this history did not admit.* It said clause 3
+  was only made precise. It was also narrowed: because the gate requires the `human-onsets`
+  songs to have no catalogue LRC, **arm B does not exist for any gate song that is real music**,
+  and the only arm-B comparison the gate can hold is against the builder's own synthetic prior
+  on PJS medleys. "Beats the LRC as-is" is therefore no longer tested against a real catalogue
+  artefact at all. Stated beside clause 3 above.
 - *What did not change:* the hypothesis, the four arms, the decision rule, 250 ms, 85% and
   the 1 s unflagged limit. The numbers were not loosened — the evidence demanded was made
   affordable and its shape was made explicit.
+
+**2026-11-07 — corrections to the 2026-11-06 restatement, still before any evaluating run. No
+threshold, count or arm moved.** A whole-branch review found that the restatement was readable
+as healthier than it is; each correction below removes a way the apparatus could look fine
+having certified less than it appeared to.
+
+- Clause 2's exemption is now stated with its consequence: a flag exempts a line at *any*
+  error, clause 1 bounds the exposure at ~15% of scored lines, and so the gate certifies that
+  false confidence is **labelled**, not that it is fixed.
+- The scorer prints the flagged count, the worst scored line and the missing predictions in the
+  verdict section, as reported rows. Before this, a kind could read MET with lines arbitrarily
+  wrong and the verdict section showed nothing a reader could notice it by.
+- Clause 3's narrowing is recorded (above), and the report's arm B row is renamed to stop
+  claiming a catalogue LRC that, for medleys, does not exist.
+- The sampling rule is machine-checked instead of being listed among the things "no hash can
+  see", which it never was: it is computed from the sheet alone, so the scorer recomputes it.
+- The minimum sheet length a gate song needs (20 non-blank lines) is stated, with the
+  consequence for the one song already marked.
+- `PIN_SEC`, which decides which lines clause 2 exempts, and the builder's planted prior
+  constants, which set the bar clause 3 asks arm D to beat on medleys, have a ledger entry
+  (L42) saying what they are bracketed against. Both are judgements; neither is measured.

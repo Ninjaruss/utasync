@@ -165,3 +165,20 @@ for (let g = 0; g * PER < songs.length; g++) {
 }
 writeFileSync(join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
 console.log(`wrote ${manifest.songs.length} medleys and ${join(OUT, 'manifest.json')}`)
+
+// Rebuilding with a different --per (or --bed) renumbers the medleys and leaves the previous
+// annotations on disk. They are well-formed corpus-onsets files, so corpus-ci still passes them and
+// still counts them -- a PJS count reading higher than the evidence, with no local audio or manifest
+// entry that can ever score them. Reported, never silent; deleting them is the owner's call.
+// Scoped to this run's own naming: a `--bed` run must not call the unaccompanied run's annotations
+// orphans, since the documented workflow builds both sets from two runs into two --out directories.
+const built = new Set(manifest.songs.map((s) => `${s.id}.json`))
+const mine = (f) => /-bed\.json$/.test(f) === !!bed
+const orphans = (existsSync(ANN_DIR) ? readdirSync(ANN_DIR) : []).filter((f) => f.endsWith('.json') && mine(f) && !built.has(f)).sort()
+if (orphans.length) {
+  console.warn(`\nWARNING: ${orphans.length} committed PJS annotation(s) were NOT written by this run:`)
+  for (const f of orphans) console.warn(`  - experiments/phase0/pjs/annotations/${f}`)
+  console.warn(`They are left over from an earlier ${bed ? '--bed ' : ''}build with a different --per.`)
+  console.warn('No medley in this manifest matches them, so nothing can score them, yet corpus-ci counts')
+  console.warn('them as PJS annotations. Delete them, or rebuild them with the options that made them.')
+}

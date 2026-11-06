@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { assertAnnotationDescribesSheet } from '../../scripts/lib/syncBenchmark.mjs'
+import { assertAnnotationDescribesSheet, lyricLines } from '../../scripts/lib/syncBenchmark.mjs'
 import { hashLyricLine, LYRIC_HASH_VERSION } from '../../scripts/lib/lyricHash.mjs'
+import { sampledLineIndices, samplingRuleDisagreement } from './sampling.mjs'
 
 const ann = (texts) => ({ lineHashVersion: LYRIC_HASH_VERSION, lines: texts.map((t, i) => ({ textHash: hashLyricLine(t), onset: i + 1 })) })
 
@@ -23,12 +24,13 @@ test('repeated identical lines stay matched by index', () => {
 
 // ---- wiring: score.mjs must turn a mismatch into a visible skip line, never silence ----
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const scorer = resolve(dirname(fileURLToPath(import.meta.url)), 'score.mjs')
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const GATE = '**The gate cannot be evaluated from this report.**'
 const HEADING = 'Skipped, not scored'
 
@@ -147,7 +149,7 @@ test('score.mjs: a mark coarser than the threshold cannot adjudicate it', () => 
 test('score.mjs: an unrun arm comparison is "not evaluated", never a tick', () => {
   const out = report([{ id: 'eligible-one', sheet: 'a\nb\n', annotation: blind(['a', 'b']) }])
   assert.match(out, /\| D p90 below arm A, per song \| every song \| not evaluated/)
-  assert.match(out, /\| D p90 below arm B, per song with an LRC \| every such song \| not evaluated/)
+  assert.match(out, /\| D p90 below arm B, per song with an arm B prior \| every such song \| not evaluated/)
 })
 
 // ---- the MET path and the clause arithmetic, on planted runs (--runs) ----
@@ -274,7 +276,7 @@ test('score.mjs: both kinds satisfied over two manifests prints Verdict: MET', (
   assert.match(gate, /\| scored lines, pooled \| ≥ 60 \| 60 \|/)
   assert.match(gate, /\| scored lines, pooled \| ≥ 50 \| 50 \|/)
   assert.match(gate, /\| D p90 below arm A, per song \| every song \| 10 of 10 song\(s\) \|/)
-  assert.match(gate, /\| D p90 below arm B, per song with an LRC \| every such song \| 10 of 10 song\(s\) \|/)
+  assert.match(gate, /\| D p90 below arm B, per song with an arm B prior \| every such song \| 10 of 10 song\(s\) \|/)
   assert.match(gate, /\*\*Shortfall:\*\* none\./)
 })
 
@@ -307,4 +309,143 @@ test('score.mjs: a duplicate song id across manifests is reported, not double-co
 test('score.mjs: the accompanied clause is printed for real songs too, marked not machine-checked', () => {
   const out = gateReport(bothKindsPassing())
   assert.match(out, /\| of those, accompanied \| all of them \| 0 detected by id; not machine-checked, the owner's to honour \|/)
+})
+
+// ---- the defect this report must not hide: lines arbitrarily wrong, but flagged ----
+// The reviewer's own fixture. Clause 2 exempts a flagged line entirely and the 85%-within-0.25 s
+// clause tolerates the rest, so both kinds still read MET — that is the gate's design, recorded in
+// ADR-0003. What is NOT optional is that the exemption's size and the worst error PRINT, which is
+// exactly what the verdict section used to drop on the floor (nFlagged computed, then discarded).
+// These rows are reported, not clauses, so these assertions pin the numbers, never a verdict.
+function flaggedButWildlyWrong({ wrong = 5, nWrong = 2 } = {}) {
+  const songs = { corpus: [], human: [] }, runs = []
+  const ann = (texts, onsets, unc) => ({ status: 'adjudicated', predictionsShown: false, priorPredictionExposure: 'none', reviewer: 'R', lineHashVersion: LYRIC_HASH_VERSION, lines: texts.map((t, i) => ({ textHash: hashLyricLine(t), onset: onsets[i], uncertainty: unc })) })
+  const err = (j) => (j < nWrong ? wrong : 0.05) // the first nWrong lines of every song are hopeless
+  for (let i = 1; i <= 10; i++) {
+    const id = `pjs-medley-${String(i).padStart(2, '0')}${i <= 3 ? '-bed' : ''}`
+    const { texts, onsets } = lines(20, id)
+    songs.corpus.push({ id, sheet: texts.join('\n') + '\n', annotation: ann(texts, onsets, 0.02) })
+    runs.push({ song: id, arm: 'D-whisper-knowntext@lrc', lines: texts.map((t, j) => ({ startTime: onsets[j] + err(j), prior: onsets[j] + 0.7, priorKnown: true, pinned: j < nWrong })) })
+    runs.push({ song: id, arm: 'A-pipeline-live', lines: texts.map((t, j) => ({ startTime: onsets[j] + 0.5 })) })
+  }
+  for (const id of ['real-song-a', 'real-song-b']) {
+    const { texts, onsets } = lines(25, id)
+    songs.human.push({ id, sheet: texts.join('\n') + '\n', annotation: ann(texts, onsets, 0.1) })
+    runs.push({ song: id, arm: 'D-whisper-knowntext@run', lines: texts.map((t, j) => ({ startTime: onsets[j] + err(j), prior: onsets[j] + 0.9, priorKnown: true, pinned: j < nWrong })) })
+  }
+  return { groups: [{ kind: 'corpus-onsets', songs: songs.corpus }, { kind: 'human-onsets', songs: songs.human }], runs }
+}
+
+test('score.mjs: flagged lines 5 s wrong are counted and printed, per kind, with the worst error', () => {
+  const out = gateReport(flaggedButWildlyWrong())
+  const gate = out.slice(out.indexOf('## 2.'), out.indexOf('## 3.'))
+  const kind = (title) => gate.slice(gate.indexOf(`### ${title}`), gate.indexOf('**Shortfall:**', gate.indexOf(`### ${title}`)))
+  const corpus = kind('corpus-onsets (PJS medleys)'), human = kind('human-onsets (real accompanied songs)')
+  // 10 medleys x 20 lines, 2 flagged each; 2 real songs x 25 lines, 2 flagged each.
+  assert.match(corpus, /\| flagged lines \(exempt from the clause above\) \| reported \| 20 of 200 \|/)
+  assert.match(human, /\| flagged lines \(exempt from the clause above\) \| reported \| 4 of 50 \|/)
+  assert.match(corpus, /\| worst scored line \| reported \| 5\.00 s \|/)
+  assert.match(human, /\| worst scored line \| reported \| 5\.00 s \|/)
+  assert.match(corpus, /\| missing predictions \(counted in "scored lines" above\) \| reported \| 0 \|/)
+  // The mechanics that let this through, pinned so a reader of the report can see them.
+  assert.match(corpus, /\| unflagged lines over 1\.0 s \| 0 \| 0 \|/)
+  assert.match(corpus, /\| arm D starts within 0\.25 s \| ≥ 85% \| 90% \|/)
+  assert.match(human, /\| arm D starts within 0\.25 s \| ≥ 85% \| 92% \|/)
+  assert.ok(gate.includes('reported, not clauses'))
+  assert.ok(gate.includes('wrong by any amount as long as the aligner flagged them'))
+})
+
+test('score.mjs: a clean report prints zero flagged and its real worst error', () => {
+  const out = gateReport(bothKindsPassing())
+  const gate = out.slice(out.indexOf('## 2.'), out.indexOf('## 3.'))
+  assert.match(gate, /\| flagged lines \(exempt from the clause above\) \| reported \| 0 of 60 \|/)
+  assert.match(gate, /\| worst scored line \| reported \| 0\.06 s \|/) // corpus-onsets: every line 0.06 s out
+  assert.match(gate, /\| worst scored line \| reported \| 0\.08 s \|/) // human-onsets
+})
+
+test('score.mjs: missing predictions are counted in "scored lines" and printed as their own row', () => {
+  const both = bothKindsPassing()
+  // Drop the last prediction of one medley run: the line stays in the 85% denominator and fails
+  // that clause, and the count of what the aligner never predicted now prints.
+  const run = both.runs.find((r) => r.arm === 'D-whisper-knowntext@lrc')
+  run.lines[run.lines.length - 1] = { startTime: null, prior: null, priorKnown: false }
+  const out = gateReport(both)
+  const gate = out.slice(out.indexOf('## 2.'), out.indexOf('## 3.'))
+  assert.match(gate, /\| missing predictions \(counted in "scored lines" above\) \| reported \| 1 \|/)
+  assert.match(gate, /\| scored lines, pooled \| ≥ 60 \| 60 \|/)
+  assert.match(gate, /\| arm D starts within 0\.25 s \| ≥ 85% \| 98% \|/)
+})
+
+// ---- a run that does not match the manifest inputs is a reported skip, not a silent drop ----
+test('score.mjs: a run whose input hashes differ from the manifest is reported, and not scored', () => {
+  const both = bothKindsPassing()
+  const runs = both.runs.map((r) => (r.song === 'real-song-a' ? { ...r, audioSha256: 'OTHER' } : r))
+  const out = gateReport({ ...both, runs })
+  assert.match(out, /- real-song-a D-whisper-knowntext@run: run audioSha256 differs from the manifest/)
+  assert.match(out, /\*\*Shortfall:\*\*.*1 certifying song\(s\) with no arm D run/)
+  assert.ok(!out.includes('**Verdict: MET**'))
+})
+
+// ---- ADR-0003's sampling rule is recomputed from the sheet, blank lines and all ----
+test('sampledLineIndices: blocks are delimited by blank lines, and edges are always marked', () => {
+  // Two blocks of 4 invented lines. Block-first and block-last of each, plus interior position 1.
+  const sheet = 'a1\na2\na3\na4\n\nb1\nb2\nb3\nb4\n'
+  const { total, blocks, marked } = sampledLineIndices(sheet, 4)
+  assert.equal(total, 8)
+  assert.equal(blocks, 2)
+  assert.deepEqual([...marked], [0, 1, 3, 4, 5, 7])
+})
+
+test('sampledLineIndices: reading the sheet through lyricLines would lose the block structure', () => {
+  const sheet = 'a1\na2\na3\na4\n\nb1\nb2\nb3\nb4\n'
+  const asOneBlock = sampledLineIndices(lyricLines(sheet).join('\n'), 4)
+  assert.notDeepEqual([...asOneBlock.marked], [0, 1, 3, 4, 5, 7]) // 4 and 7 are block edges only in the raw sheet
+  assert.deepEqual([...asOneBlock.marked], [0, 1, 4, 7])
+})
+
+test('sampledLineIndices: step 5 tops up in sheet order, and a short sheet marks every line', () => {
+  const nine = sampledLineIndices(Array.from({ length: 9 }, (_, i) => `l${i}`).join('\n'), 20)
+  assert.equal(nine.marked.size, 9) // fewer lines than the minimum: all of them
+  const thirty = sampledLineIndices(Array.from({ length: 30 }, (_, i) => `l${i}`).join('\n'), 20)
+  assert.equal(thirty.marked.size, 20)
+  for (const i of [0, 29, 1, 4]) assert.ok(thirty.marked.has(i)) // edges and the rule's own interior picks
+})
+
+test('samplingRuleDisagreement: a whole-song marking agrees; a sample off the rule does not', () => {
+  const sheet = 'a1\na2\na3\na4\n\nb1\nb2\nb3\nb4\n'
+  const all = { lines: Array.from({ length: 8 }, (_, i) => ({ onset: i })) }
+  assert.equal(samplingRuleDisagreement(sheet, all), null)
+  // Exactly the rule's set at minimum 4: 0,1,3,4,5,7.
+  const byRule = { lines: Array.from({ length: 8 }, (_, i) => ([0, 1, 3, 4, 5, 7].includes(i) ? { onset: i } : { onset: null, excluded: true })) }
+  assert.equal(samplingRuleDisagreement(sheet, byRule, 4), null)
+  // A block-last line dropped (the melisma case the rule exists to over-weight).
+  const dropped = { lines: byRule.lines.map((l, i) => (i === 7 ? { onset: null, excluded: true } : l)) }
+  assert.match(samplingRuleDisagreement(sheet, dropped, 4), /not scored \(line 8\)/)
+  // A line scored that the rule does not select, with another excluded so it is a sample.
+  const extra = { lines: byRule.lines.map((l, i) => (i === 2 ? { onset: 2 } : i === 1 ? { onset: null, excluded: true } : l)) }
+  assert.match(samplingRuleDisagreement(sheet, extra, 4), /the rule does not select \(line 3\)/)
+  // A hard line hidden by a null onset rather than `excluded` is caught too.
+  const nulled = { lines: byRule.lines.map((l, i) => (i === 0 ? { onset: null } : l)) }
+  assert.match(samplingRuleDisagreement(sheet, nulled, 4), /not scored \(line 1\)/)
+})
+
+test('score.mjs: a human-onsets song marked off the sampling rule is gate-ineligible, with the reason', () => {
+  const texts = Array.from({ length: 30 }, (_, i) => `l${i}`)
+  const annotation = {
+    status: 'adjudicated', predictionsShown: false, priorPredictionExposure: 'none', reviewer: 'R',
+    lineHashVersion: LYRIC_HASH_VERSION,
+    // 20 lines marked, but the easy first 20 rather than the rule's block-edge sample.
+    lines: texts.map((t, i) => ({ textHash: hashLyricLine(t), uncertainty: 0.1, ...(i < 20 ? { onset: 10 + i } : { onset: null, excluded: true }) })),
+  }
+  const out = report([{ id: 'off-rule', sheet: texts.join('\n') + '\n', annotation }])
+  assert.match(out, /- off-rule: scored lines disagree with ADR-0003's sampling rule/)
+  assert.match(out, /\| certifying songs \(eligible\) \| ≥ 2 \| 0 \|/)
+})
+
+test("score.mjs: the project's own marked song agrees with the rule as recomputed", () => {
+  const ann = JSON.parse(readFileSync(resolve(repoRoot, 'benchmarks/sync/annotations/will-death-poetry.json'), 'utf8'))
+  const sheet = readFileSync(resolve(repoRoot, 'benchmarks/sync/will-death-lyrics.txt'), 'utf8')
+  assert.equal(samplingRuleDisagreement(sheet, ann), null)
+  // 18 lines is below the gate's own per-song minimum, which is why ADR-0003 now states it.
+  assert.ok(sampledLineIndices(sheet).total < 20)
 })

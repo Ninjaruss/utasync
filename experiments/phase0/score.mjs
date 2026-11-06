@@ -9,6 +9,9 @@
  *     Section 2 states the gate's terms in numbers and its current verdict. A kind with
  *     fewer songs or lines than the gate requires prints a shortfall and NOT MET: a
  *     shortfall is a failure to evaluate, never a pass and never silence (ADR-0006).
+ *     The verdict section also REPORTS (never gates) the flagged lines clause 2 exempts, the
+ *     worst scored line and the missing predictions, so a MET verdict cannot hide arbitrarily
+ *     wrong lines behind a flag, and recomputes ADR-0003's sampling rule from the sheet.
  *  2. DIAGNOSTICS (no truth needed) — how much arm D moves its prior, whether it lands
  *     in the same place from two independent priors (catalogue LRC vs the app's own run),
  *     and whether it recovers a planted ±0.8 s prior offset. These say whether the method
@@ -22,6 +25,7 @@ import { fileURLToPath } from 'node:url'
 import { canCertify } from '../../scripts/lib/truthKinds.mjs'
 import { lyricLines, assertAnnotationDescribesSheet } from '../../scripts/lib/syncBenchmark.mjs'
 import { safeSkipReason } from '../../scripts/lib/corpusCoverage.mjs'
+import { samplingRuleDisagreement } from './sampling.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const argv = process.argv.slice(2)
@@ -78,13 +82,19 @@ const GATE = Object.freeze({
   }),
 })
 // Why a song's certifying truth may still not adjudicate the gate. Reported, never silent.
-function gateIneligibility(ann) {
+// `sheetText` is the RAW sheet (blank lines intact): the sampling rule is defined on them.
+function gateIneligibility(ann, sheetText) {
   const r = []
   if (ann.kind === 'human-onsets') { // blind and adjudicated, or it is a draft and certifies nothing
     if (ann.status !== 'adjudicated') r.push(`status is ${JSON.stringify(ann.status ?? null)}, not "adjudicated"`)
     if (ann.predictionsShown !== false) r.push('predictionsShown is not false')
     if (ann.priorPredictionExposure !== 'none') r.push('priorPredictionExposure is not "none"')
     if (!ann.reviewer?.trim()) r.push('no named reviewer')
+    // ADR-0003 pre-registers the sample as computable from the sheet alone, so it is recomputed
+    // here rather than taken on trust: a song marked on some other set of lines cannot adjudicate
+    // a gate whose cost was justified by that rule.
+    const off = samplingRuleDisagreement(sheetText, ann)
+    if (off) r.push(off)
   }
   const scored = (ann.lines ?? []).filter((l) => l.onset != null && !l.excluded)
   if (!scored.length) r.push('no scored lines')
@@ -103,6 +113,7 @@ out.push(`# Phase 0 report\n\nGenerated ${new Date().toISOString()}. Arm D = Whi
 out.push('## 1. Accuracy against blind human onsets\n')
 const accRows = []
 const skippedSongs = [] // annotations that do not describe their inputs: reported, never scored, never silent
+const runSkips = [] // runs whose own input hashes do not match the manifest: reported, never silent
 annotated: for (const song of manifest.songs) {
   const annPath = resolve(root, song.reference?.annotationPath ?? '')
   if (!song.reference?.annotationPath || !existsSync(annPath)) continue
@@ -114,17 +125,24 @@ annotated: for (const song of manifest.songs) {
     if (ann[k] !== song[k]) { skip(`annotation ${k} differs from the manifest (rebuilt after annotating)`); continue annotated }
   }
   if (!song.lyrics) { skip('manifest has no lyrics path for this song'); continue }
+  let sheetText
   try {
-    assertAnnotationDescribesSheet(ann, lyricLines(readFileSync(resolve(root, song.lyrics), 'utf8')), song.id)
+    // Read once, raw: lyricLines() strips the blank lines the sampling rule is defined on.
+    sheetText = readFileSync(resolve(root, song.lyrics), 'utf8')
+    assertAnnotationDescribesSheet(ann, lyricLines(sheetText), song.id)
   } catch (e) {
     // The wrapper prefixes the song id and safeSkipReason prefixes the error name; the list line already names the song.
     skip(safeSkipReason(e).replace(/^Error: /, '').replace(`${song.id}: `, ''))
     continue
   }
-  const gate = { id: song.id, kind: ann.kind, accompanied: accompanied(song), ineligible: gateIneligibility(ann), arms: {} }
+  const gate = { id: song.id, kind: ann.kind, accompanied: accompanied(song), ineligible: gateIneligibility(ann, sheetText), arms: {} }
   gateSongs.push(gate)
   for (const run of runs.filter((r) => r.song === song.id && r.status === 'completed')) {
-    if (run.audioSha256 !== song.audioSha256 || run.lyricsSha256 !== song.lyricsSha256) continue
+    // A run against other inputs is not evidence about these ones. It fails safe (the song then
+    // shows as having no arm D run) but a silent drop is the shape of the bug this branch fixed,
+    // so it is reported with its reason.
+    const stale = ['audioSha256', 'lyricsSha256'].filter((k) => run[k] !== song[k])
+    if (stale.length) { runSkips.push({ id: song.id, arm: run.arm ?? '(unnamed arm)', reason: `run ${stale.join(' and ')} differs from the manifest (inputs changed since the run)` }); continue }
     const cand = [['prior', priorOf(run)], [run.arm, starts(run)]]
     for (const [label, xs] of cand) {
       const errs = []; let missing = 0, nFlagged = 0, falseConfidence = 0, unflaggedOverMax = 0
@@ -143,8 +161,11 @@ annotated: for (const song of manifest.songs) {
       })
       const n = errs.length + missing
       // Keyed by arm, so the gate section can pair D against A and B on these same lines.
+      // `flagged` and `worst` are carried, not discarded: clause 2 exempts a flagged line entirely
+      // and the 85% clause tolerates ~15% of lines at any error, so a report that printed only
+      // `unflaggedOverMax` could say MET with lines arbitrarily wrong and show nothing of it.
       gate.arms[label === 'prior' ? `prior:${run.arm}` : run.arm] =
-        { n, scored: errs.length, missing, within: errs.filter((e) => e <= GATE.withinSeconds).length, p90: q(errs, 0.9), unflaggedOverMax }
+        { n, scored: errs.length, missing, within: errs.filter((e) => e <= GATE.withinSeconds).length, p90: q(errs, 0.9), unflaggedOverMax, flagged: nFlagged, worst: errs.length ? Math.max(...errs) : null }
       const flagCols = label === 'prior' ? '— | —' : `${nFlagged} | ${falseConfidence}`
       accRows.push(`| ${song.id} | ${label === 'prior' ? `prior of ${run.arm}` : label} | ${ann.kind === 'corpus-onsets' ? 'corpus' : ann.status}${ann.kind === 'human-onsets' && ann.priorPredictionExposure === 'none' ? ', blind' : ''} | ${n} | ${pct(errs.filter((e) => e <= 0.25).length, n)} | ${pct(errs.filter((e) => e <= 0.5).length, n)} | ${f(med(errs))} | ${f(q(errs, 0.9))} | ${f(errs.length ? Math.max(...errs) : null)} | ${missing} | ${flagCols} |`)
     }
@@ -158,6 +179,10 @@ if (skippedSongs.length) {
   out.push('\n**Skipped, not scored (annotation does not match its inputs):**\n')
   out.push(...skippedSongs.map((s) => `- ${s.id}: ${s.reason}`))
 }
+if (runSkips.length) {
+  out.push('\n**Runs ignored (the run does not match the manifest inputs):**\n')
+  out.push(...runSkips.map((s) => `- ${s.id} ${s.arm}: ${s.reason}`))
+}
 out.push(`\nManifests read: ${manifestPaths.map(shownPath).join(', ')}.`)
 if (manifestWarnings.length) {
   out.push('\n**Manifest conflicts (reported, never silent):**\n')
@@ -168,8 +193,9 @@ if (manifestWarnings.length) {
 // Every clause is checked per certifying kind and never pooled across kinds: PJS medleys are
 // cheap and easy, real accompanied songs are the claim. A kind short of songs or lines is a
 // shortfall and NOT MET -- never a pass, and never silence (ADR-0006 rule 3).
-out.push('\n## 2. The gate (ADR-0003, evidence terms restated 2026-11-06)\n')
+out.push('\n## 2. The gate (ADR-0003, evidence terms restated 2026-11-06, corrected 2026-11-07)\n')
 out.push(`Only \`human-onsets\` (blind: \`predictionsShown: false\`, \`priorPredictionExposure: "none"\`; adjudicated, reviewer named) and \`corpus-onsets\` certify (ADR-0006). Each kind must meet every clause on its own. Arm D = the primary run (\`@lrc\` where a catalogue LRC exists, else \`@run\`); arm B = that run's LRC prior; arm A = the current pipeline's own output, read from the prior of the \`@run\` run or from a run whose arm is named \`A-…\`/\`A@…\`. Thresholds ${GATE.withinSeconds} s / ${Math.round(100 * GATE.fractionWithin)}% / ${f(GATE.maxUnflaggedSeconds, 1)} s are judgements, not measurements: ledger L41.\n`)
+out.push(`Three rows below are **reported, not clauses**: flagged lines, the worst scored line, and missing predictions. They bound what MET certifies. Clause 2 exempts a flagged line from the over-${f(GATE.maxUnflaggedSeconds, 1)} s check entirely, and the ${Math.round(100 * GATE.fractionWithin)}%-within-${GATE.withinSeconds} s clause tolerates the rest, so a kind can read MET with up to ~${100 - Math.round(100 * GATE.fractionWithin)}% of its scored lines wrong by any amount as long as the aligner flagged them. Read those rows, not just the verdict (ADR-0003, clause 2).\n`)
 
 const primaryD = (g) => g.arms['D-whisper-knowntext@lrc'] ? 'D-whisper-knowntext@lrc' : g.arms['D-whisper-knowntext@run'] ? 'D-whisper-knowntext@run' : null
 // Arm A is the current pipeline. Either it ran as its own arm (`A-...` / `A@...`) or it supplied
@@ -187,6 +213,11 @@ for (const [kind, need] of Object.entries(GATE.perKind)) {
   const lines = scored.reduce((t, g) => t + g.arms[primaryD(g)].n, 0)
   const within = scored.reduce((t, g) => t + g.arms[primaryD(g)].within, 0)
   const overMax = scored.reduce((t, g) => t + g.arms[primaryD(g)].unflaggedOverMax, 0)
+  // Reported, never clauses (whether to cap flagged lines is ADR-0003's call, not the scorer's).
+  // Without them a reader cannot tell a kind that was right from one whose errors were all exempt.
+  const flaggedLines = scored.reduce((t, g) => t + g.arms[primaryD(g)].flagged, 0)
+  const missingPred = scored.reduce((t, g) => t + g.arms[primaryD(g)].missing, 0)
+  const worst = scored.reduce((w, g) => { const x = g.arms[primaryD(g)].worst; return x != null && (w == null || x > w) ? x : w }, null)
   const thin = scored.filter((g) => g.arms[primaryD(g)].n < need.linesPerSong)
   // Clause 3, paired on the same song and the same line indices. `applies` is the set of songs
   // the clause is about; a song in it with no comparison run is NOT EVALUATED, which is a
@@ -227,8 +258,13 @@ for (const [kind, need] of Object.entries(GATE.perKind)) {
   if (need.linesPerSong) out.push(`| scored lines per song | ≥ ${need.linesPerSong} | ${scored.length ? scored.map((g) => g.arms[primaryD(g)].n).join(', ') : '—'} |`)
   out.push(`| arm D starts within ${GATE.withinSeconds} s | ≥ ${Math.round(100 * GATE.fractionWithin)}% | ${pct(within, lines)} |`)
   out.push(`| unflagged lines over ${f(GATE.maxUnflaggedSeconds, 1)} s | 0 | ${scored.length ? overMax : '—'} |`)
+  out.push(`| flagged lines (exempt from the clause above) | reported | ${scored.length ? `${flaggedLines} of ${lines}` : '—'} |`)
+  out.push(`| worst scored line | reported | ${!scored.length ? '—' : worst == null ? 'no line was predicted' : `${f(worst)} s`} |`)
+  out.push(`| missing predictions (counted in "scored lines" above) | reported | ${scored.length ? missingPred : '—'} |`)
   out.push(`| D p90 below arm A, per song | every song | ${a.cell} |`)
-  out.push(`| D p90 below arm B, per song with an LRC | every such song | ${b.cell} |`)
+  // Not "with an LRC": on a PJS medley arm B is the synthetic prior buildCorpus.mjs plants, not a
+  // catalogue artefact, and the gate requires the human-onsets songs to have no catalogue LRC at all.
+  out.push(`| D p90 below arm B, per song with an arm B prior | every such song | ${b.cell} |`)
   if (all.length > ok.length) {
     out.push('\n**Certifying truth present but not gate-eligible:**\n')
     out.push(...all.filter((g) => g.ineligible.length).map((g) => `- ${g.id}: ${g.ineligible.join('; ')}`))

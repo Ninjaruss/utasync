@@ -80,6 +80,17 @@ is anchored to the audio. They cannot say it is anchored to the *right place*.
   `eligibleForAccuracyClaim` in `scoreRun`. Reconciling the two is a separate change with its
   own ledger line; the two predicates answer different questions and are kept apart on
   purpose.
+- **"Certifies" means two different things, and a reader must not take `canCertify` for the
+  whole test.** The table above is about *kinds*: `canCertify('corpus-onsets')` is true, and that
+  is what `experiments/phase0/score.mjs` asks. The `precise` predicate in
+  `scripts/lib/syncBenchmark.mjs` additionally requires `kind === 'human-onsets'` *literally*, so
+  it can never be true for a `corpus-onsets` annotation however well-formed — measured corpus
+  truth is not listened truth, and `benchmarks/sync` asks "is this whole song right, against a
+  human?". The code says so in a comment at that line; it is recorded here too, because
+  `canCertify` reads like the certification test and is only half of it. In short: `canCertify`
+  answers "may a score against this kind back an accuracy claim at all", `precise` answers "is
+  this whole-song, blind, adjudicated, human-listened truth". A change that collapses them needs
+  its own ADR, not a patch.
 
 ## Reversal
 

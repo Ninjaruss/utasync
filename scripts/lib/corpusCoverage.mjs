@@ -6,6 +6,18 @@ export function coverageVerdict({ expected, scored, skipped }) {
 }
 
 // A song counts as scored only if some attempt really produced scored lines.
+//
+// HAZARD, named rather than guarded: "scored" here does NOT mean "certifiable". Since scoreRun was
+// widened to score every kind the truth table allows, a `corpus-onsets` annotation satisfies this
+// predicate while its `eligibleForAccuracyClaim` is permanently false (`precise` requires
+// kind === 'human-onsets' literally; ADR-0006, Consequences). So a benchmarks/sync coverage floor
+// could read "met" with nothing certifiable scored. No such annotation lives in benchmarks/sync
+// today — PJS truth sits under experiments/phase0/pjs/annotations and is not in that manifest.
+// It is deliberately not guarded here: this predicate answers "did the run measure anything at
+// all", and the corpus's own `lrc-derived` and `coarse-captions` songs do not certify either, so
+// requiring certification would make the floor unreachable for the corpus as it stands. The place
+// to require certification is the caller that makes an accuracy claim — `eligibleForAccuracyClaim`
+// in scoreRun, and the ADR-0003 gate in experiments/phase0/score.mjs, both of which do.
 export function songCoverage(attempts) {
   if (attempts.some(a => a.status === 'SCORED' && a.scoredLines > 0)) return { scored: true }
   if (!attempts.length) return { scored: false, reason: 'no run recorded' }

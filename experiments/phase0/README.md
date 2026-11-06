@@ -58,7 +58,24 @@ Scoring one manifest alone shows the other kind with zero songs, which can never
 Section 2 prints every clause, what was scored, the shortfall and the verdict; too few songs
 or lines is NOT MET, never a pass.
 
-**Arms A and B on a medley.** Arm B is the synthetic prior `buildCorpus.mjs` plants. Arm A is a
+**What MET does and does not certify.** Clause 2 exempts a *flagged* line from the over-1 s check
+entirely, at any error, and clause 1 tolerates the rest, so a kind can read MET with ~15% of its
+scored lines wrong by any amount provided the aligner flagged them. Section 2 therefore prints
+three **reported, not gating** rows — flagged lines, the worst scored line, and the missing
+predictions counted in "scored lines" — and they are the rows to read beside the verdict. ADR-0003
+states the consequence beside clause 2: the gate certifies that false confidence is *labelled*,
+not that it is gone. The constant behind the flag (`PIN_SEC`) is ledger L42.
+
+Two further checks the scorer makes for itself: a `human-onsets` song is gate-ineligible, with the
+reason printed, when its scored lines are not the ones ADR-0003's sampling rule selects (recomputed
+from the raw sheet, blank lines and all, since the rule is defined on blocks); and a sheet of fewer
+than 20 lines can never satisfy the per-song clause, which is why `will-death-poetry` (18 lines)
+cannot be one of the gate's two real songs.
+
+**Arms A and B on a medley.** Arm B is the synthetic prior `buildCorpus.mjs` plants (constants:
+ledger L42) — which is why the report's row reads `D p90 below arm B, per song with an arm B prior`
+rather than "with an LRC". The gate's real songs must have no catalogue LRC, so arm B does not
+exist for any of them and the gate never compares D against a real catalogue artefact. Arm A is a
 run of the current PWA pipeline over the medley's own `.wav` and sheet — possible in principle,
 but `scripts/sync-benchmark.mjs` reads `benchmarks/sync/manifest.json` at a fixed path and
 `runAll.sh` has no PJS entries, so no arm A run exists for a medley today and the
@@ -70,7 +87,10 @@ diagnostics in section 3 show whether D is anchored to the audio; they cannot pa
 1. Blind human onsets on the stratified sample, for two real accompanied songs with no
    catalogue LRC (`npm run benchmark:sync -- review <song>`), then a second listening pass and
    adjudication. Today only `will-death-poetry` has marks, still `status: "draft"` after one
-   pass, so nothing certifies: the report lists it as not gate-eligible.
+   pass, so nothing certifies: the report lists it as not gate-eligible, and
+   `npm run benchmark:sync -- inventory` prints `referenceCertifies: false` beside its
+   `human-onsets` kind. Its sheet is 18 lines, below the gate's per-song minimum, so **both**
+   gate songs still have to be found and marked.
 2. More songs with catalogue LRC priors (target 20, with ≥5 held out).
 3. Arm C, if the MMS model can be fetched once on a machine with network access.
 
@@ -83,10 +103,36 @@ https://sites.google.com/site/shinnosuketakamichi/research-topics/pjs_corpus and
 
 ```sh
 node experiments/phase0/pjs/buildCorpus.mjs .cache/pjs-src            # unaccompanied
-node experiments/phase0/pjs/buildCorpus.mjs .cache/pjs-src --bed <openly licensed backing.wav>
 node experiments/phase0/knownTextAlign.mjs pjs-medley-01 --manifest .cache/pjs/manifest.json --prior lrc
 node experiments/phase0/score.mjs --manifest .cache/pjs/manifest.json
 ```
+
+**The gate's "≥ 3 accompanied" row needs two builder runs, and therefore two manifests.** `--bed`
+is a single global flag for a whole run and the manifest is written once at `--out`, so one run
+cannot produce both kinds of medley. Build them separately, into separate output directories, and
+pass every manifest to the scorer (`--manifest` may be repeated, or given a comma-separated list):
+
+```sh
+node experiments/phase0/pjs/buildCorpus.mjs .cache/pjs-src                         # -> .cache/pjs/manifest.json
+node experiments/phase0/pjs/buildCorpus.mjs .cache/pjs-src --bed <backing.wav> \
+     --out .cache/pjs-bed                                                          # -> .cache/pjs-bed/manifest.json
+# align each medley against the manifest that knows it, then one report over all three manifests:
+node experiments/phase0/score.mjs \
+  --manifest benchmarks/sync/manifest.json \
+  --manifest .cache/pjs/manifest.json \
+  --manifest .cache/pjs-bed/manifest.json
+```
+
+The `--bed` run names its medleys `pjs-medley-NN-bed`, so the two sets never collide and the
+scorer's own duplicate-id guard stays quiet. ADR-0003 names `.cache/pjs/manifest.json` as *the*
+medley manifest; read that as "the medley manifests", one per builder run.
+
+**Rebuilding with a different `--per` orphans annotations.** The medleys are numbered by group, so
+changing `--per` renumbers them and the previous `pjs-medley-NN.json` files stay on disk. They are
+well-formed `corpus-onsets` files, so `corpus-ci` still passes *and still counts* them, which makes
+its PJS count read higher than the evidence — nothing in the new manifest can ever score them. The
+builder now warns and lists them at the end of a run (scoped to its own `--bed`-ness, so the
+two-run workflow above does not cry wolf). Delete them, or rebuild with the options that made them.
 
 What is committed and what is not:
 
