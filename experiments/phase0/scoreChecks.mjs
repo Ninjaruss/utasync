@@ -23,7 +23,7 @@ test('repeated identical lines stay matched by index', () => {
 
 // ---- wiring: score.mjs must turn a mismatch into a visible skip line, never silence ----
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -91,5 +91,139 @@ test('score.mjs: when everything is skipped the gate sentence is still printed b
 test('score.mjs: a matching annotation is not in the skip list', () => {
   const out = report([{ id: 'healthy', sheet: 'a\nb\n', annotation: hashedAnn(['a', 'b']) }])
   assert.ok(!out.includes(HEADING))
-  assert.ok(!out.includes('healthy'))
+  // Scoped to section 1 (the skip list) since the gate section was added: a song whose
+  // annotation describes its inputs but is not blind/adjudicated is named there instead,
+  // which the next assertion pins. Nothing about section 1 was loosened.
+  assert.ok(!out.slice(out.indexOf('## 1.'), out.indexOf('## 2.')).includes('healthy'))
+  assert.match(out, /- healthy: status is null, not "adjudicated".*no named reviewer/)
+})
+
+// ---- wiring: the gate section must state its terms and its verdict, and never pass on a shortfall ----
+const blind = (texts, over = {}) => ({
+  status: 'adjudicated', predictionsShown: false, priorPredictionExposure: 'none', reviewer: 'R',
+  lineHashVersion: LYRIC_HASH_VERSION,
+  lines: texts.map((t, i) => ({ textHash: hashLyricLine(t), onset: i + 1, uncertainty: 0.1 })), ...over,
+})
+
+test('score.mjs: the gate section states its numeric terms', () => {
+  const out = report([{ id: 'eligible-one', sheet: 'a\nb\n', annotation: blind(['a', 'b']) }])
+  assert.ok(out.includes('## 2. The gate'))
+  for (const term of ['0.25 s', '85%', '1.0 s', '| certifying songs (eligible) | ≥ 2 |', '| scored lines, pooled | ≥ 50 |', '| scored lines per song | ≥ 20 |'])
+    assert.ok(out.includes(term), `missing ${term}`)
+})
+
+test('score.mjs: one eligible song is a shortfall, NOT MET, and never a pass', () => {
+  const out = report([{ id: 'eligible-one', sheet: 'a\nb\n', annotation: blind(['a', 'b']) }])
+  assert.ok(out.includes('human-onsets (real accompanied songs) — **NOT MET**'))
+  assert.match(out, /\*\*Shortfall:\*\*.*1 more certifying song\(s\)/)
+  assert.match(out, /\*\*Shortfall:\*\*.*50 more scored line\(s\)/)
+  assert.ok(out.includes('**Verdict: NOT MET.**'))
+  assert.ok(out.includes('the gate cannot be evaluated from this report'))
+  assert.ok(!out.includes('Verdict: MET'))
+})
+
+test('score.mjs: with no certifying song at all the gate is still stated and NOT MET', () => {
+  const out = report([])
+  assert.ok(out.includes('## 2. The gate'))
+  assert.ok(out.includes('corpus-onsets (PJS medleys) — **NOT MET**'))
+  assert.match(out, /\*\*Shortfall:\*\*.*10 more certifying song\(s\)/)
+  assert.ok(out.includes('**Verdict: NOT MET.**'))
+  assert.ok(!out.includes('Verdict: MET'))
+})
+
+test('score.mjs: a draft human-onsets annotation is reported as not gate-eligible, with the reason', () => {
+  const out = report([{ id: 'draft-marks', sheet: 'a\n', annotation: blind(['a'], { status: 'draft' }) }])
+  assert.ok(out.includes('Certifying truth present but not gate-eligible'))
+  assert.match(out, /- draft-marks: status is "draft", not "adjudicated"/)
+  assert.match(out, /\| certifying songs \(eligible\) \| ≥ 2 \| 0 \|/)
+})
+
+test('score.mjs: a mark coarser than the threshold cannot adjudicate it', () => {
+  const ann = blind(['a']); ann.lines[0].uncertainty = 0.3
+  const out = report([{ id: 'coarse-mark', sheet: 'a\n', annotation: ann }])
+  assert.match(out, /- coarse-mark: a scored line's uncertainty exceeds 0.25 s/)
+})
+
+test('score.mjs: an unrun arm comparison is "not evaluated", never a tick', () => {
+  const out = report([{ id: 'eligible-one', sheet: 'a\nb\n', annotation: blind(['a', 'b']) }])
+  assert.match(out, /\| D p90 below arm A, per song \| every song \| not evaluated/)
+  assert.match(out, /\| D p90 below arm B, per song with an LRC \| every such song \| not evaluated/)
+})
+
+// ---- the MET path and the clause arithmetic, on planted runs (--runs) ----
+// Covers the direction the shortfall tests cannot: that a report CAN say MET, and that each
+// clause flips it back when the numbers miss. Hashes: 'A'/'L', as report() writes them.
+function gateReport({ songs, runs, kind = 'human-onsets' }) {
+  const dir = mkdtempSync(join(tmpdir(), 'phase0-gate-'))
+  const runsDir = join(dir, 'runs')
+  mkdirSync(runsDir)
+  const entries = songs.map((s) => {
+    const annPath = join(dir, `${s.id}.json`)
+    writeFileSync(annPath, JSON.stringify({ kind, audioSha256: 'A', lyricsSha256: 'L', ...s.annotation }))
+    const lyrics = join(dir, `${s.id}.txt`)
+    writeFileSync(lyrics, s.sheet)
+    return { id: s.id, audioSha256: 'A', lyricsSha256: 'L', lyrics, reference: { annotationPath: annPath } }
+  })
+  for (const r of runs) writeFileSync(join(runsDir, `${r.song}.${r.arm.replace(/\W+/g, '_')}.json`), JSON.stringify({ status: 'completed', audioSha256: 'A', lyricsSha256: 'L', ...r }))
+  const manifest = join(dir, 'manifest.json')
+  writeFileSync(manifest, JSON.stringify({ songs: entries }))
+  const out = spawnSync('node', [scorer, '--manifest', manifest, '--runs', runsDir], { encoding: 'utf8' })
+  assert.equal(out.status, 0, out.stderr)
+  return out.stdout
+}
+// n lines, arm D off by `err` seconds, its prior (= arm A's output) off by `priorErr`.
+const passing = (n, { err = 0.05, priorErr = 0.9, dErr } = {}) => {
+  const texts = Array.from({ length: n }, (_, i) => `l${i}`)
+  const mk = (id) => ({
+    sheet: texts.join('\n') + '\n',
+    annotation: { status: 'adjudicated', predictionsShown: false, priorPredictionExposure: 'none', reviewer: 'R', lineHashVersion: LYRIC_HASH_VERSION, lines: texts.map((t, i) => ({ textHash: hashLyricLine(t), onset: 10 + i, uncertainty: 0.1 })) },
+    id,
+  })
+  const run = (song) => ({
+    song, arm: 'D-whisper-knowntext@run',
+    lines: texts.map((t, i) => ({ startTime: 10 + i + (dErr?.(i) ?? err), prior: 10 + i + priorErr, priorKnown: true, pinned: false })),
+  })
+  return { songs: [mk('song-a'), mk('song-b')], runs: [run('song-a'), run('song-b')] }
+}
+
+test('score.mjs: two blind songs of 20 lines pass every clause but the pooled line count', () => {
+  const out = gateReport(passing(20))
+  assert.match(out, /\| certifying songs \(eligible\) \| ≥ 2 \| 2 \|/)
+  assert.match(out, /\| D p90 below arm A, per song \| every song \| 2 of 2 song\(s\) \|/)
+  assert.match(out, /arm B.*not applicable \(no gate song has a catalogue LRC/)
+  assert.match(out, /\*\*Shortfall:\*\* 10 more scored line\(s\)\./) // the only one left
+  assert.ok(out.includes('human-onsets (real accompanied songs) — **NOT MET**'))
+})
+
+test('score.mjs: 25 lines a song clears the pooled line count, and the kind reads MET', () => {
+  const out = gateReport(passing(25))
+  assert.match(out, /\| scored lines, pooled \| ≥ 50 \| 50 \|/)
+  assert.match(out, /\| arm D starts within 0.25 s \| ≥ 85% \| 100% \|/)
+  assert.ok(out.includes('human-onsets (real accompanied songs) — **MET**'))
+  assert.ok(out.includes('**Verdict: NOT MET.**')) // corpus-onsets still has nothing
+})
+
+test('score.mjs: 19 sampled lines a song misses the per-song minimum', () => {
+  const out = gateReport(passing(19))
+  assert.match(out, /\*\*Shortfall:\*\*.*song-a: 19 scored lines, needs 20/)
+  assert.ok(out.includes('human-onsets (real accompanied songs) — **NOT MET**'))
+})
+
+test('score.mjs: one unflagged line over 1 s fails the kind, however good the rest', () => {
+  const out = gateReport(passing(25, { dErr: (i) => (i === 0 ? 1.4 : 0.05) }))
+  assert.match(out, /\| unflagged lines over 1.0 s \| 0 \| 2 \|/)
+  assert.match(out, /\*\*Shortfall:\*\*.*2 unflagged line\(s\) over 1.0 s/)
+  assert.ok(!out.includes('(real accompanied songs) — **MET**'))
+})
+
+test('score.mjs: D no better than arm A on p90 fails the comparison clause', () => {
+  const out = gateReport(passing(25, { priorErr: 0.05 }))
+  assert.match(out, /\| D p90 below arm A, per song \| every song \| 0 of 2 song\(s\) \|/)
+  assert.ok(!out.includes('(real accompanied songs) — **MET**'))
+})
+
+test('score.mjs: a kind below 85% within the threshold fails it', () => {
+  const out = gateReport(passing(25, { dErr: (i) => (i % 2 ? 0.05 : 0.4) }))
+  assert.match(out, /\| arm D starts within 0.25 s \| ≥ 85% \| 48% \|/)
+  assert.match(out, /\*\*Shortfall:\*\*.*within 0.25 s is 48%, needs 85%/)
 })

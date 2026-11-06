@@ -1192,3 +1192,48 @@ nothing rather than an arbitrary row.
   line in `experiments/phase0/pjs/annotations/<id>.json` (`phoneme-label` vs `energy`); the
   thresholds are in `energyOnset` and `labelOnset` of `buildCorpus.mjs`. To test the energy rule
   against the label rule, run it on songs that have both and compare the two onsets: not done here.
+
+### L41 — the ADR-0003 gate's thresholds: 250 ms, 1 s, 85%, and the song/line counts (judgements, not measurements)
+
+- **What:** the restated gate in `docs/adr/0003-known-text-alignment-hypothesis.md`, as reported
+  by `GATE` in `experiments/phase0/score.mjs`: a line start counts as correct within **0.25 s**;
+  **≥85%** of scored lines must be within it; **no unflagged line over 1.0 s**; and, per certifying
+  kind, **≥10 PJS `corpus-onsets` medleys (≥3 accompanied) totalling ≥60 lines** and **≥2 real
+  accompanied `human-onsets` songs totalling ≥50 lines, ≥20 per song**.
+- **Gates:** the Phase 0 decision (ADR-0003's pre-registered decision rule) and nothing else.
+  These numbers do not gate app behaviour; no shipped code reads them.
+- **0.25 s — a judgement, carried over from ADR-0003 (2026-11-03), not measured.** Nothing in
+  this ledger measures how sharply a *sung* onset can be located, and sung onsets are soft: a
+  melisma or a breathy consonant has no single correct instant. L30 (+0.31 s, veil, version-exact
+  LRC vs stem onsets) and L36 (-0.36 s, veil, arm D) measure *catalogue-LRC-versus-singing offsets*,
+  a different quantity, and do **not** support 0.25 s. What 0.25 s is bracketed against:
+  - **above:** the `uncertainty` the human-onset worksheet already writes on every line, 0.25 s
+    (`benchmarks/sync/annotations/will-death-poetry.json`). A threshold below a mark's own stated
+    precision cannot be adjudicated by that mark, so 0.25 s is the *tightest* claim listened truth
+    can make here — the gate reads "indistinguishable from the human mark, at the mark's own
+    precision", which is also why the gate requires `uncertainty ≤ 0.25` on every scored line.
+  - **below:** 0.3 s, the `lrc-derived` uncertainty of L39, which is *larger* than this threshold.
+    That is the concrete reason `lrc-derived` cannot certify: it cannot adjudicate 0.25 s at all.
+  - **comfortably clear:** 0.02 s / 0.05 s, the PJS `corpus-onsets` grain (L40), far finer than
+    0.25 s, so corpus truth adjudicates the threshold with room to spare.
+- **1.0 s — a product judgement, not measured.** A sung line typically runs 2–4 s, so a second of
+  error puts the highlight a quarter to half a line out, which reads as "the wrong line". It is the
+  magnitude the July 2026 audit used when it described the hidden ~1.18 s lag as a failure
+  (40 of 59 lines over a second off). `score.mjs` separately reports unflagged error over **0.5 s**
+  as "false confidence"; that column is diagnostic and is not a gate clause.
+- **85% — a judgement, carried over unchanged from ADR-0003.** No measurement sets it. For contrast,
+  `benchmarks/sync/manifest.json` carries a different and looser target for its own whole-song
+  question (90% within 0.5 s, worst ≤ 2 s); the two instruments are not interchangeable.
+- **The song and line counts — chosen for affordability and for coverage, not measured.** Spec §8.4
+  records the owner's agreement to a large automatic set plus about two hand-marked songs. 2 songs
+  x ~25 sampled lines x 2 listening passes is roughly 100 judgements; the previous gate's "≥10 songs,
+  every line" is over 1,000, which is why it stood at zero for its whole life. ≥60 PJS lines over
+  ≥10 medleys is one number, not two: `buildCorpus.mjs` defaults to `--per 6`, so 10 medleys is
+  60 lines, and PJS ver. 1.1 yields far more than 10 at that setting for no listening cost; ≥3
+  accompanied medleys is a judgement that an unaccompanied solo sentence over silence is too easy
+  to stand in for J-pop, and is the minimum that makes the accompanied case more than anecdote.
+  Per-kind clauses are never pooled, so the cheap evidence cannot carry the gate.
+- **Reproduce:** `node experiments/phase0/score.mjs` prints every clause, the counts scored by kind,
+  the shortfall and the verdict. The sampling rule that fixes "~25 lines a song" is written out in
+  ADR-0003 and is computed from the lyric sheet alone. The bracketing figures above are L30, L36,
+  L39 and L40 — this entry adds no new measurement.

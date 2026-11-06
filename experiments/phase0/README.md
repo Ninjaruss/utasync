@@ -39,16 +39,24 @@ About 5 s per line on 2 CPU cores; peak memory over 2 GB.
 
 ## Gate (pre-registered in ADR-0003)
 
-Evaluated **only** against complete, adjudicated, blind human onsets (`benchmarks/sync`),
-on ≥10 songs: D passes if ≥85% of line starts are within 250 ms, no unflagged line is over
-1 s, and D beats both B and A on p90. Truth-free diagnostics in `score.mjs` section 2 show
-whether D is anchored to the audio; they cannot pass the gate.
+The gate's evidence terms were **restated on 2026-11-06** (ADR-0003, "Gate"; thresholds in
+ledger L41; measurement rules in ADR-0006). In short: only `human-onsets` (blind, adjudicated)
+and `corpus-onsets` certify; ≥10 PJS medleys (≥3 accompanied, ≥60 lines) **and** ≥2 real
+accompanied songs with no catalogue LRC (≥50 lines, ≥20 per song, on the stratified sample
+ADR-0003 fixes in advance); each kind must separately reach ≥85% of starts within 250 ms with
+no unflagged line over 1 s and beat arms A and B on p90, paired on the same lines. The two
+kinds are never pooled, so PJS volume alone cannot pass the gate.
+
+`node experiments/phase0/score.mjs` section 2 prints every clause, what was scored, the
+shortfall and the verdict; too few songs or lines is NOT MET, never a pass. Truth-free
+diagnostics in section 3 show whether D is anchored to the audio; they cannot pass the gate.
 
 ## What is needed next
 
-1. Blind human onsets for the songs D has run on (`npm run benchmark:sync -- review <song>`),
-   then adjudication. Today only `will-death-poetry` has (draft) marks, and its audio was not
-   reachable from the agent session.
+1. Blind human onsets on the stratified sample, for two real accompanied songs with no
+   catalogue LRC (`npm run benchmark:sync -- review <song>`), then a second listening pass and
+   adjudication. Today only `will-death-poetry` has marks, still `status: "draft"` after one
+   pass, so nothing certifies: the report lists it as not gate-eligible.
 2. More songs with catalogue LRC priors (target 20, with ≥5 held out).
 3. Arm C, if the MMS model can be fetched once on a machine with network access.
 
