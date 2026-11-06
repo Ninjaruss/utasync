@@ -56,20 +56,22 @@ out.push(`# Phase 0 report\n\nGenerated ${new Date().toISOString()}. Arm D = Whi
 out.push('## 1. Accuracy against blind human onsets\n')
 const accRows = []
 const skippedSongs = [] // annotations that do not describe their inputs: reported, never scored, never silent
-for (const song of manifest.songs) {
+annotated: for (const song of manifest.songs) {
   const annPath = resolve(root, song.reference?.annotationPath ?? '')
   if (!song.reference?.annotationPath || !existsSync(annPath)) continue
   const ann = JSON.parse(readFileSync(annPath, 'utf8'))
   // corpus-onsets (e.g. PJS medleys) are measured, not listened; reported separately by the marks column.
   if (!canCertify(ann.kind)) continue
-  if (ann.audioSha256 !== song.audioSha256 || ann.lyricsSha256 !== song.lyricsSha256) {
-    skippedSongs.push({ id: song.id, reason: 'annotation audio/lyrics hash differs from the manifest (rebuilt after annotating)' })
-    continue
+  const skip = (reason) => skippedSongs.push({ id: song.id, reason })
+  for (const k of ['audioSha256', 'lyricsSha256']) {
+    if (ann[k] !== song[k]) { skip(`annotation ${k} differs from the manifest (rebuilt after annotating)`); continue annotated }
   }
+  if (!song.lyrics) { skip('manifest has no lyrics path for this song'); continue }
   try {
-    assertAnnotationDescribesSheet(ann, lyricLines(readFileSync(resolve(root, song.lyrics ?? ''), 'utf8')), song.id)
+    assertAnnotationDescribesSheet(ann, lyricLines(readFileSync(resolve(root, song.lyrics), 'utf8')), song.id)
   } catch (e) {
-    skippedSongs.push({ id: song.id, reason: safeSkipReason(e) })
+    // The wrapper prefixes the song id and safeSkipReason prefixes the error name; the list line already names the song.
+    skip(safeSkipReason(e).replace(/^Error: /, '').replace(`${song.id}: `, ''))
     continue
   }
   for (const run of runs.filter((r) => r.song === song.id && r.status === 'completed')) {

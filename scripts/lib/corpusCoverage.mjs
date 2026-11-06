@@ -12,7 +12,11 @@ export function songCoverage(attempts) {
   return { scored: false, reason: `no SCORED attempt (statuses: ${[...new Set(attempts.map(a => a.status))].join(', ')})` }
 }
 
-// Rule 6: a skip reason names the error type only, never the message (it may embed file contents).
+// Rule 6: sanitises an exception into a reason that is safe to print. Node errno messages keep only
+// their code and summary (paths withheld); a SyntaxError is reduced to a fixed string; any other
+// message is passed through truncated to 120 chars with quoted spans redacted. That last branch
+// is NOT a guarantee: an unquoted lyric fragment in a message would survive, so callers must
+// throw messages that never contain lyric text.
 export function safeSkipReason(e) {
   const m = String(e?.message ?? '')
   if (e instanceof SyntaxError) return 'SyntaxError: unparseable JSON (message withheld)'

@@ -7,7 +7,7 @@ export function requireAccess(song, heldout = false) {
   if (song.split === 'heldout' && !heldout) throw new Error('Held-out song: explicit --heldout required; do not tune against this result')
 }
 // Annotation lines match the lyric sheet strictly by index (repeated choruses share hashes), never by content.
-export function assertAnnotationMatchesLyrics(annotation, texts) {
+function assertAnnotationMatchesLyrics(annotation, texts) {
   if (annotation.lineHashVersion !== undefined && annotation.lineHashVersion !== LYRIC_HASH_VERSION) throw new Error(`Annotation lineHashVersion ${annotation.lineHashVersion} does not match scorer LYRIC_HASH_VERSION ${LYRIC_HASH_VERSION}`)
   const lines = annotation.lines
   if (!Array.isArray(lines) || lines.length !== texts.length) throw new Error('Annotation lyric/order mismatch')
