@@ -6,6 +6,12 @@ const song = { id: 'test', split: 'development', audioSha256: 'a', lyricsSha256:
 const run = { ...song, song: 'test', runId: 'test', workflow: 'AutoAlignFlow', status: 'completed', lines: [{ original: 'line', startTime: 10 }] }
 const annotation = { kind: 'human-onsets', status: 'adjudicated', reviewer: 'independent listener', predictionsShown: false, priorPredictionExposure: 'none', audioSha256: 'a', lyricsSha256: 'b', lines: [{ text: 'line', onset: 10, uncertainty: .2 }] }
 const score = (r = run, a = annotation) => scoreRun(song, ['line'], r, a)
+
+test('corpus-derived onsets score and can certify in scoreRun', () => {
+  const s = score(run, { ...annotation, kind: 'corpus-onsets' })
+  assert.equal(s.status, 'SCORED')
+  assert.equal(s.scoredLines, 1)
+})
 test('complete independent marks can pass', () => assert.equal(score().pass, true))
 test('no truth is unscored, never a zero-error pass', () => assert.equal(score(run, null).pass, null))
 test('missing prediction stays in denominator and fails', () => { const s = score({ ...run, lines: [] }); assert.equal(s.scoredLines, 1); assert.equal(s.missingPredictions, 1); assert.equal(s.pass, false) })

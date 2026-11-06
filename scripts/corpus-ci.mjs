@@ -6,6 +6,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { LYRIC_HASH_VERSION } from './lib/lyricHash.mjs'
+import { isKnownKind } from './lib/truthKinds.mjs'
 
 const root = resolve(process.argv[2] ?? join(import.meta.dirname, '..'))
 const violations = []
@@ -27,6 +28,7 @@ function validate(where, path) {
   checked++
   let a
   try { a = JSON.parse(readFileSync(path, 'utf8')) } catch { bad(where, 'unparseable JSON'); return }
+  if (!isKnownKind(a.kind)) bad(where, `unknown kind ${JSON.stringify(a.kind)}`)
   if (a.lineHashVersion !== LYRIC_HASH_VERSION) bad(where, `lineHashVersion ${JSON.stringify(a.lineHashVersion)} is not the current ${LYRIC_HASH_VERSION}`)
   for (const k of ['audioSha256', 'lyricsSha256']) if (typeof a[k] !== 'string' || !/^[0-9a-f]{64}$/.test(a[k])) bad(where, `missing or malformed ${k}`)
   if (!Array.isArray(a.lines)) { bad(where, 'lines is not an array'); return }

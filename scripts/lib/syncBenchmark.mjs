@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { LYRIC_HASH_VERSION, hashLyricLine } from './lyricHash.mjs'
+import { canScore, canCertify } from './truthKinds.mjs'
 export const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 export const lyricLines = text => text.split(/\r?\n/).map(x => x.trim()).filter(Boolean)
 export function requireAccess(song, heldout = false) {
@@ -28,7 +29,7 @@ export function scoreRun(song, texts, run, annotation, target = { fractionWithin
   if (!inputVerified) throw new Error('Run input hash mismatch')
   if (!annotation) return { ...base, status: 'UNSCORED', eligibleForAccuracyClaim: false, scoredLines: 0, pass: null }
   if (annotation.audioSha256 !== song.audioSha256 || annotation.lyricsSha256 !== song.lyricsSha256) throw new Error('Annotation input hash mismatch')
-  if (!['human-onsets', 'coarse-captions', 'lrc-derived'].includes(annotation.kind)) throw new Error('Unverified reference cannot score accuracy')
+  if (!canScore(annotation.kind)) throw new Error('Unverified reference cannot score accuracy')
   assertAnnotationMatchesLyrics(annotation, texts)
   const details = []
   for (let i = 0; i < texts.length; i++) {
@@ -43,7 +44,8 @@ export function scoreRun(song, texts, run, annotation, target = { fractionWithin
   const errors = details.filter(x => !x.missing).map(x => x.error).sort((a, b) => a - b)
   const n = details.length, missing = details.filter(x => x.missing).length
   const unexpected = Math.max(0, (run.lines?.length ?? 0) - texts.length)
-  const precise = annotation.kind === 'human-onsets' && annotation.predictionsShown === false && annotation.priorPredictionExposure === 'none' && annotation.status === 'adjudicated' && !!annotation.reviewer?.trim() && n > 0 && n === texts.length && annotation.lines.every(l => !l.excluded && l.uncertainty <= .25)
+  // canCertify is deliberately redundant with the human-onsets check: demoting human-onsets in the table must never leave precise true.
+  const precise = annotation.kind === 'human-onsets' && canCertify(annotation.kind) && annotation.predictionsShown === false && annotation.priorPredictionExposure === 'none' && annotation.status === 'adjudicated' && !!annotation.reviewer?.trim() && n > 0 && n === texts.length && annotation.lines.every(l => !l.excluded && l.uncertainty <= .25)
   const median = errors.length ? (errors[Math.floor((errors.length - 1) / 2)] + errors[Math.floor(errors.length / 2)]) / 2 : null
   const within = details.filter(x => x.withinHalfSecond).length
   return { ...base, status: n ? 'SCORED' : 'UNSCORED', scoredLines: n, missingPredictions: missing, unexpectedPredictions: unexpected, eligibleForAccuracyClaim: precise, pass: precise ? missing === 0 && unexpected === 0 && within / n >= target.fractionWithinHalfSecond && errors.at(-1) <= target.maxErrorSeconds : null, withinHalfSecond: within, withinReferenceTolerance: details.filter(x => x.withinReferenceTolerance).length, medianAbsoluteError: median, p90AbsoluteError: errors.length ? errors[Math.ceil(.9 * errors.length) - 1] : null, worstAbsoluteError: errors.at(-1) ?? null, details }

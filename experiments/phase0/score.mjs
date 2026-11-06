@@ -16,6 +16,7 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { canCertify } from '../../scripts/lib/truthKinds.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const runsDir = resolve(root, '.cache/phase0/runs')
@@ -57,7 +58,7 @@ for (const song of manifest.songs) {
   if (!song.reference?.annotationPath || !existsSync(annPath)) continue
   const ann = JSON.parse(readFileSync(annPath, 'utf8'))
   // corpus-onsets (e.g. PJS medleys) are measured, not listened; reported separately by the marks column.
-  if (!['human-onsets', 'corpus-onsets'].includes(ann.kind) || ann.audioSha256 !== song.audioSha256 || ann.lyricsSha256 !== song.lyricsSha256) continue
+  if (!canCertify(ann.kind) || ann.audioSha256 !== song.audioSha256 || ann.lyricsSha256 !== song.lyricsSha256) continue
   for (const run of runs.filter((r) => r.song === song.id && r.status === 'completed')) {
     if (run.audioSha256 !== song.audioSha256 || run.lyricsSha256 !== song.lyricsSha256) continue
     const cand = [['prior', priorOf(run)], [run.arm, starts(run)]]
