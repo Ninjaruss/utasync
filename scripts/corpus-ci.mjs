@@ -6,7 +6,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { LYRIC_HASH_VERSION } from './lib/lyricHash.mjs'
-import { isKnownKind } from './lib/truthKinds.mjs'
+import { annotationViolations } from './lib/annotationShape.mjs'
 
 const root = resolve(process.argv[2] ?? join(import.meta.dirname, '..'))
 const violations = []
@@ -28,17 +28,7 @@ function validate(where, path) {
   checked++
   let a
   try { a = JSON.parse(readFileSync(path, 'utf8')) } catch { bad(where, 'unparseable JSON'); return }
-  if (!isKnownKind(a.kind)) bad(where, `unknown kind ${JSON.stringify(a.kind)}`)
-  if (a.lineHashVersion !== LYRIC_HASH_VERSION) bad(where, `lineHashVersion ${JSON.stringify(a.lineHashVersion)} is not the current ${LYRIC_HASH_VERSION}`)
-  for (const k of ['audioSha256', 'lyricsSha256']) if (typeof a[k] !== 'string' || !/^[0-9a-f]{64}$/.test(a[k])) bad(where, `missing or malformed ${k}`)
-  if (!Array.isArray(a.lines)) { bad(where, 'lines is not an array'); return }
-  if (a.lines.length === 0) { bad(where, 'lines is empty; an annotation with no lines verifies nothing'); return }
-  const notObj = a.lines.flatMap((l, i) => l !== null && typeof l === 'object' && !Array.isArray(l) ? [] : [i + 1])
-  if (notObj.length) { bad(where, `${notObj.length} line entr(ies) are not objects (first: line ${notObj[0]})`); return }
-  const withText = a.lines.flatMap((l, i) => 'text' in l ? [i + 1] : [])
-  if (withText.length) bad(where, `carries a text field on ${withText.length} line(s) (first: line ${withText[0]}); song text must not be committed`)
-  const noHash = a.lines.flatMap((l, i) => typeof l.textHash === 'string' && /^[0-9a-f]{64}$/.test(l.textHash) ? [] : [i + 1])
-  if (noHash.length) bad(where, `missing or malformed textHash on ${noHash.length} line(s) (first: line ${noHash[0]})`)
+  for (const v of annotationViolations(a)) bad(where, v)
 }
 // The allowlist trusts the id-to-path mapping, so it must be one-to-one.
 for (const [what, vals] of [['song id', songs.map(x => x.id)], ['annotationPath', songs.map(x => x.reference?.annotationPath).filter(Boolean)]]) {

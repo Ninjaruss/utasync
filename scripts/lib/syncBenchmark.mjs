@@ -45,6 +45,7 @@ export function scoreRun(song, texts, run, annotation, target = { fractionWithin
   const n = details.length, missing = details.filter(x => x.missing).length
   const unexpected = Math.max(0, (run.lines?.length ?? 0) - texts.length)
   // canCertify is deliberately redundant with the human-onsets check: demoting human-onsets in the table must never leave precise true.
+  // corpus-onsets certifies in the table yet is kept out of precise by the literal kind check: precise means blind, adjudicated, reviewed human marks specifically.
   const precise = annotation.kind === 'human-onsets' && canCertify(annotation.kind) && annotation.predictionsShown === false && annotation.priorPredictionExposure === 'none' && annotation.status === 'adjudicated' && !!annotation.reviewer?.trim() && n > 0 && n === texts.length && annotation.lines.every(l => !l.excluded && l.uncertainty <= .25)
   const median = errors.length ? (errors[Math.floor((errors.length - 1) / 2)] + errors[Math.floor(errors.length / 2)]) / 2 : null
   const within = details.filter(x => x.withinHalfSecond).length

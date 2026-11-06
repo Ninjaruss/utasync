@@ -7,10 +7,19 @@ const run = { ...song, song: 'test', runId: 'test', workflow: 'AutoAlignFlow', s
 const annotation = { kind: 'human-onsets', status: 'adjudicated', reviewer: 'independent listener', predictionsShown: false, priorPredictionExposure: 'none', audioSha256: 'a', lyricsSha256: 'b', lines: [{ text: 'line', onset: 10, uncertainty: .2 }] }
 const score = (r = run, a = annotation) => scoreRun(song, ['line'], r, a)
 
-test('corpus-derived onsets score and can certify in scoreRun', () => {
+test('corpus-derived onsets score but never make an accuracy claim', () => {
   const s = score(run, { ...annotation, kind: 'corpus-onsets' })
   assert.equal(s.status, 'SCORED')
   assert.equal(s.scoredLines, 1)
+  assert.equal(s.eligibleForAccuracyClaim, false)
+  assert.equal(s.pass, null)
+})
+test('lrc-derived onsets score but never make an accuracy claim', () => {
+  const s = score(run, { ...annotation, kind: 'lrc-derived' })
+  assert.equal(s.status, 'SCORED')
+  assert.equal(s.scoredLines, 1)
+  assert.equal(s.eligibleForAccuracyClaim, false)
+  assert.equal(s.pass, null)
 })
 test('complete independent marks can pass', () => assert.equal(score().pass, true))
 test('no truth is unscored, never a zero-error pass', () => assert.equal(score(run, null).pass, null))
