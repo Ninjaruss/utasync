@@ -61,3 +61,51 @@ test('annotationFileToCheck: absent is writable, human-marked file is refused, u
   writeFileSync(join(d, 'ok.json'), JSON.stringify({ kind: 'corpus-onsets' }))
   assert.doesNotThrow(() => annotationFileToCheck(join(d, 'ok.json')))
 })
+
+// ---- wiring: corpus-ci must scan, validate and CJK-guard the PJS annotation directory ----
+import { spawnSync } from 'node:child_process'
+import { cpSync, mkdirSync } from 'node:fs'
+import { resolve, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
+// A temp repo root holding the real manifest and annotations, so only the PJS directory varies.
+function ciWith(files) {
+  const root = mkdtempSync(join(tmpdir(), 'pjs-ci-'))
+  cpSync(join(repo, 'benchmarks/sync'), join(root, 'benchmarks/sync'), { recursive: true })
+  const dir = join(root, 'experiments/phase0/pjs/annotations')
+  mkdirSync(dir, { recursive: true })
+  for (const [name, content] of Object.entries(files)) writeFileSync(join(dir, name), typeof content === 'string' ? content : JSON.stringify(content))
+  return spawnSync('node', [join(repo, 'scripts/corpus-ci.mjs'), root], { encoding: 'utf8' })
+}
+const builtGood = () => build([{ text: 'invented line one', onset: 1, method: 'phoneme-label' }, { text: 'invented line two', onset: 3 }])
+
+test('corpus-ci: no PJS annotations says so rather than reporting a bare ok', () => {
+  const r = ciWith({})
+  assert.equal(r.status, 0, r.stderr)
+  assert.match(r.stdout, /PJS annotations: none built/)
+})
+
+test('corpus-ci: a PJS annotation built by buildAnnotation is accepted and counted', () => {
+  const r = ciWith({ 'pjs-medley-01.json': builtGood() })
+  assert.equal(r.status, 0, r.stderr)
+  assert.match(r.stdout, /1 PJS annotation\(s\)/)
+})
+
+test('corpus-ci: a malformed PJS annotation fails the guard', () => {
+  const r = ciWith({ 'pjs-medley-01.json': { kind: 'corpus-onsets', lines: [] } })
+  assert.equal(r.status, 1)
+  assert.match(r.stderr, /pjs-medley-01\.json/)
+})
+
+test('corpus-ci: a PJS annotation of another kind fails the guard', () => {
+  const r = ciWith({ 'pjs-medley-01.json': { ...builtGood(), kind: 'human-onsets' } })
+  assert.equal(r.status, 1)
+  assert.match(r.stderr, /corpus-onsets/)
+})
+
+test('corpus-ci: a CJK character in a PJS annotation fails the guard (invented character, not a lyric)', () => {
+  const r = ciWith({ 'pjs-medley-01.json': JSON.stringify(builtGood(), null, 2).replace('"corpus-onsets"', '"corpus-onsetsあ"') })
+  assert.equal(r.status, 1)
+  assert.match(r.stderr, /Japanese\/CJK/)
+})

@@ -106,4 +106,4 @@ if (violations.length) {
   for (const v of violations) console.error(`  - ${v}`)
   process.exit(1)
 }
-console.log(`corpus-ci: ok (${checked} annotation(s) checked, ${pjsFiles.length} PJS annotation(s), lineHashVersion ${LYRIC_HASH_VERSION})`)
+console.log(`corpus-ci: ok (${checked} annotation(s) checked, ${pjsFiles.length ? `${pjsFiles.length} PJS annotation(s)` : 'PJS annotations: none built'}, lineHashVersion ${LYRIC_HASH_VERSION})`)

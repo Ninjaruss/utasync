@@ -123,7 +123,7 @@ for (let g = 0; g * PER < songs.length; g++) {
   group.forEach((s, i) => {
     t += gaps[i]
     mix.set(s.audio, Math.round(t * SR))
-    lines.push({ text: s.text, onset: Number((t + s.onset).toFixed(3)), uncertainty: s.method === 'phoneme-label' ? 0.02 : 0.05, method: s.method, source: s.id })
+    lines.push({ text: s.text, onset: Number((t + s.onset).toFixed(3)), method: s.method, source: s.id })
     t += s.audio.length / SR
   })
   if (bed) {
