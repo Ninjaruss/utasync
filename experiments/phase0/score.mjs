@@ -17,6 +17,8 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { canCertify } from '../../scripts/lib/truthKinds.mjs'
+import { lyricLines, assertAnnotationDescribesSheet } from '../../scripts/lib/syncBenchmark.mjs'
+import { safeSkipReason } from '../../scripts/lib/corpusCoverage.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const runsDir = resolve(root, '.cache/phase0/runs')
@@ -53,12 +55,23 @@ out.push(`# Phase 0 report\n\nGenerated ${new Date().toISOString()}. Arm D = Whi
 // ---------- 1. accuracy against human onsets ----------
 out.push('## 1. Accuracy against blind human onsets\n')
 const accRows = []
+const skippedSongs = [] // annotations that do not describe their inputs: reported, never scored, never silent
 for (const song of manifest.songs) {
   const annPath = resolve(root, song.reference?.annotationPath ?? '')
   if (!song.reference?.annotationPath || !existsSync(annPath)) continue
   const ann = JSON.parse(readFileSync(annPath, 'utf8'))
   // corpus-onsets (e.g. PJS medleys) are measured, not listened; reported separately by the marks column.
-  if (!canCertify(ann.kind) || ann.audioSha256 !== song.audioSha256 || ann.lyricsSha256 !== song.lyricsSha256) continue
+  if (!canCertify(ann.kind)) continue
+  if (ann.audioSha256 !== song.audioSha256 || ann.lyricsSha256 !== song.lyricsSha256) {
+    skippedSongs.push({ id: song.id, reason: 'annotation audio/lyrics hash differs from the manifest (rebuilt after annotating)' })
+    continue
+  }
+  try {
+    assertAnnotationDescribesSheet(ann, lyricLines(readFileSync(resolve(root, song.lyrics ?? ''), 'utf8')), song.id)
+  } catch (e) {
+    skippedSongs.push({ id: song.id, reason: safeSkipReason(e) })
+    continue
+  }
   for (const run of runs.filter((r) => r.song === song.id && r.status === 'completed')) {
     if (run.audioSha256 !== song.audioSha256 || run.lyricsSha256 !== song.lyricsSha256) continue
     const cand = [['prior', priorOf(run)], [run.arm, starts(run)]]
@@ -84,6 +97,10 @@ if (accRows.length) {
   out.push('| song | arm | marks | lines | ≤0.25 s | ≤0.5 s | p50 s | p90 s | worst s | missing | flagged | unflagged >0.5 s (false confidence) |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |')
   out.push(...accRows)
 } else out.push('No song has both blind human onsets and a Phase 0 run yet. **The gate cannot be evaluated from this report.**')
+if (skippedSongs.length) {
+  out.push('\n**Skipped, not scored (annotation does not match its inputs):**\n')
+  out.push(...skippedSongs.map((s) => `- ${s.id}: ${s.reason}`))
+}
 
 // ---------- 2. diagnostics ----------
 out.push('\n## 2. Diagnostics (no truth): is arm D anchored to the audio?\n')

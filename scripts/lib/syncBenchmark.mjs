@@ -7,7 +7,7 @@ export function requireAccess(song, heldout = false) {
   if (song.split === 'heldout' && !heldout) throw new Error('Held-out song: explicit --heldout required; do not tune against this result')
 }
 // Annotation lines match the lyric sheet strictly by index (repeated choruses share hashes), never by content.
-function assertAnnotationMatchesLyrics(annotation, texts) {
+export function assertAnnotationMatchesLyrics(annotation, texts) {
   if (annotation.lineHashVersion !== undefined && annotation.lineHashVersion !== LYRIC_HASH_VERSION) throw new Error(`Annotation lineHashVersion ${annotation.lineHashVersion} does not match scorer LYRIC_HASH_VERSION ${LYRIC_HASH_VERSION}`)
   const lines = annotation.lines
   if (!Array.isArray(lines) || lines.length !== texts.length) throw new Error('Annotation lyric/order mismatch')
@@ -16,8 +16,16 @@ function assertAnnotationMatchesLyrics(annotation, texts) {
   if (hashed) {
     if (annotation.lineHashVersion === undefined) throw new Error('Hashed annotation must declare lineHashVersion')
     if (texts.some(t => typeof t !== 'string')) throw new Error('Lyric lines must be strings')
-    if (lines.some((l, i) => l.textHash !== hashLyricLine(texts[i]))) throw new Error('Annotation lyric/order mismatch')
-  } else if (lines.some((l, i) => l.text !== texts[i])) throw new Error('Annotation lyric/order mismatch')
+    const bad = lines.findIndex((l, i) => l.textHash !== hashLyricLine(texts[i]))
+    if (bad >= 0) throw new Error(`Annotation lyric/order mismatch: line ${bad + 1}`)
+  } else {
+    const bad = lines.findIndex((l, i) => l.text !== texts[i])
+    if (bad >= 0) throw new Error(`Annotation lyric/order mismatch: line ${bad + 1}`)
+  }
+}
+// Phase 0 entry point: same positional check, but the failure names the song. Never carries lyric text.
+export function assertAnnotationDescribesSheet(annotation, texts, songId) {
+  try { assertAnnotationMatchesLyrics(annotation, texts) } catch (e) { throw new Error(`${songId}: ${e.message}`) }
 }
 export function scoreRun(song, texts, run, annotation, target = { fractionWithinHalfSecond: .9, maxErrorSeconds: 2 }) {
   if (!Number.isFinite(target.fractionWithinHalfSecond) || target.fractionWithinHalfSecond < 0 || target.fractionWithinHalfSecond > 1 || !Number.isFinite(target.maxErrorSeconds) || target.maxErrorSeconds < 0) throw new Error('Invalid accuracy target')
