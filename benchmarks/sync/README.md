@@ -93,3 +93,49 @@ A line-start benchmark does not validate line ends or word/syllable karaoke timi
 6. Check real player playback, seeking and repeated choruses on target devices.
 
 No global alignment settings or production behavior are changed by this benchmark.
+
+## Truth corpus workflow
+
+Annotations are committed with per-line SHA-256 hashes (`textHash`, under
+`lineHashVersion`, see `scripts/lib/lyricHash.mjs`) instead of lyric text, so song text
+never enters git (ADR-0004). The scorer hashes the local lyric sheet and compares by index.
+If the normalizer changes, bump `LYRIC_HASH_VERSION` and regenerate; `scripts/corpus-ci.mjs`
+(run in CI, no audio needed) fails on any `text` field, stale `lineHashVersion`, missing
+input hashes, or Japanese/CJK characters anywhere in the annotations, manifest or this README (do not rely on `git grep -P '\p{Han}'`: it silently matches nothing in some git builds), or a manifest-referenced annotation that is absent (songs whose reference is
+still `unverified-lrc` have a planned path and are exempt from that check).
+
+Adding a song: stage the audio and lyric sheet locally (both stay uncommitted), run
+`node scripts/lrc-to-annotation.mjs` against your local LRC, and commit only the generated
+annotation file. The generator refuses to overwrite anything that is not already `lrc-derived`.
+
+Generating an annotation does NOT put a song under the required floor. The `unverified-lrc`
+exemption in `scripts/corpus-ci.mjs` ends only by a deliberate manual step: add the song id to
+`MUST_HAVE` in `scripts/corpus-ci.mjs` and change its `reference.kind` in the manifest. This is
+manual on purpose: the generator must never edit the manifest the guard reads, or deleting an
+annotation and downgrading its kind would become one silent change. Until you do both, a
+generated song stays outside the floor.
+
+`report` exits non-zero when it scores fewer songs than expected, so a short run cannot pass.
+The coverage gate is red today (`report` prints `COVERAGE FAILURE: scored N of 7 expected songs`;
+run it to see N, which rises as annotations are added); that is the known state of the pilot,
+not a regression.
+
+### Known unverified: `akfg-first-take` hashes (blocking follow-up)
+
+`benchmarks/sync/annotations/akfg-first-take.json` carries 30 hashes and is on the `MUST_HAVE`
+floor, but it has never been checked against a lyric sheet: the sheet is absent on the machine
+that produced it. If the hashes were derived from the caption fixture in
+`tests/ai-pipeline/akfg-ground-truth.test.ts` rather than from `lyricLines(sheet)`, the song
+becomes a permanent counted skip in `report`. The manifest `lyrics` path
+(`tests/ai-pipeline/fixtures/akfg-user-ja.txt`) matches where that test reads its sheet; the
+file itself is missing here, so the path cannot be confirmed either. On a machine that has the
+sheet, run:
+
+```sh
+npm run benchmark:sync -- inventory   # lyricsMatch must be true for akfg-first-take
+npm run benchmark:sync -- report      # akfg-first-take must be scored, not SKIPPED
+```
+
+If it is skipped, regenerate the hashes from `lyricLines(sheet)` and fix the manifest path.
+Do not merge this branch as fully verified until this has been run.
+

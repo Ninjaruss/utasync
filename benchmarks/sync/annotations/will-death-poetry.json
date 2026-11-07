@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "kind": "human-onsets",
+  "status": "draft",
+  "priorPredictionExposure": "none",
+  "created": "2026-10-17T21:59:53.110Z",
+  "reviewer": "Russ",
+  "audioSha256": "c3dfa1516c608aa9d1525f346a0bc0bcd9343264e2e82b834f321e43fd693c31",
+  "lyricsSha256": "d55ad99534807d68fc9e2a62d21bdad78749fafd5b16acfee27f9ade16107e01",
+  "audio": {
+    "filename": "will-death-poetry.mp3",
+    "sha256": "c3dfa1516c608aa9d1525f346a0bc0bcd9343264e2e82b834f321e43fd693c31",
+    "duration": 127.9422
+  },
+  "convention": "first audible sung syllable; uncertainty symmetric in seconds; null means unscored",
+  "predictionsShown": false,
+  "reviewProvenance": {
+    "annotator": "User supplied annotation export and confirmed marking by ear without seeing predicted or reference timestamps.",
+    "listeningPasses": 1,
+    "secondPassCompleted": false,
+    "confirmationDate": "2026-10-18",
+    "confirmationTimezone": "Asia/Tokyo"
+  },
+  "lineHashVersion": "1",
+  "lines": [
+    {
+      "line": 1,
+      "textHash": "0129486ae37d80be48c324e4eb39a8f378e75c6e6870631a2e3643d8999206ae",
+      "onset": 0.853267,
+      "uncertainty": 0.25
+    },
+    {
+      "line": 2,
+      "textHash": "4ecc231d5ec1b098a2bdb954a78086fc4e2d602bba9ed8de00ccace2939e3b21",
+      "onset": 4.953992,
+      "uncertainty": 0.25
+    },
+    {
+      "line": 3,
+      "textHash": "f3f4fbd1b6235546d57493e30c2418af062018c85941c5fe8e0a7d5ff5954db9",
+      "onset": 8.200318,
+      "uncertainty": 0.25
+    },
+    {
+      "line": 4,
+      "textHash": "7de73f6c953b5baebbce4a30f67668856d3201260df0c61ccaf78fe27713b777",
+      "onset": 15.525215,
+      "uncertainty": 0.25
+    },
+    {
+      "line": 5,
+      "textHash": "4ecc231d5ec1b098a2bdb954a78086fc4e2d602bba9ed8de00ccace2939e3b21",
+      "onset": 19.771282,
+      "uncertainty": 0.25
+    },
+    {
+      "line": 6,
+      "textHash": "c9cc50ba23d15686389eeb7457bf3536e178c746a4d8c2e962382afc71be1268",
+      "onset": 23.477042,
+      "uncertainty": 0.25
+    },
+    {
+      "line": 7,
+      "textHash": "8e2aff3640d4263ad01286280759352c6c6c86e54097c5e634fd2f02eae2978d",
+      "onset": 45.685186,
+      "uncertainty": 0.25
+    },
+    {
+      "line": 8,
+      "textHash": "f223aabbdd94d349695fc6e82522ad1c205ac75f6492698bd8751c8bc1f8a648",
+      "onset": 53.270591,
+      "uncertainty": 0.25
+    },
+    {
+      "line": 9,
+      "textHash": "608f3b5292d2fc2057761d0f3bd9e5dd2c7b0741a84b16e2a1815a2b76778905",
+      "onset": 60.476238,
+      "uncertainty": 0.25
+    },
+    {
+      "line": 10,
+      "textHash": "db83224a5a6f75df0539aed64b8d2260cfeec9f7e3dfa6af36fea43b91c0182b",
+      "onset": 67.958093,
+      "uncertainty": 0.25
+    },
+    {
+      "line": 11,
+      "textHash": "e9c0fa1510f879bd1e90c69b75d4dd6d12d0ed2a2c8d7dc4b34a079c43e9a80d",
+      "onset": 75.296749,
+      "uncertainty": 0.25
+    },
+    {
+      "line": 12,
+      "textHash": "f91cf0b60469210d051dc848ca640dacf8bbc922930d2563c61b5bedc35e4eef",
+      "onset": 83.424539,
+      "uncertainty": 0.25
+    },
+    {
+      "line": 13,
+      "textHash": "0129486ae37d80be48c324e4eb39a8f378e75c6e6870631a2e3643d8999206ae",
+      "onset": 90.60037,
+      "uncertainty": 0.25
+    },
+    {
+      "line": 14,
+      "textHash": "4ecc231d5ec1b098a2bdb954a78086fc4e2d602bba9ed8de00ccace2939e3b21",
+      "onset": 94.808715,
+      "uncertainty": 0.25
+    },
+    {
+      "line": 15,
+      "textHash": "f3f4fbd1b6235546d57493e30c2418af062018c85941c5fe8e0a7d5ff5954db9",
+      "onset": 98.245387,
+      "uncertainty": 0.25
+    },
+    {
+      "line": 16,
+      "textHash": "7de73f6c953b5baebbce4a30f67668856d3201260df0c61ccaf78fe27713b777",
+      "onset": 105.641418,
+      "uncertainty": 0.25
+    },
+    {
+      "line": 17,
+      "textHash": "4ecc231d5ec1b098a2bdb954a78086fc4e2d602bba9ed8de00ccace2939e3b21",
+      "onset": 110.087702,
+      "uncertainty": 0.25
+    },
+    {
+      "line": 18,
+      "textHash": "c9cc50ba23d15686389eeb7457bf3536e178c746a4d8c2e962382afc71be1268",
+      "onset": 113.143562,
+      "uncertainty": 0.25
+    }
+  ]
+}

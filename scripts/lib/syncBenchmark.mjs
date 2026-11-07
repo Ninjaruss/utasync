@@ -1,8 +1,22 @@
 import { createHash } from 'node:crypto'
+import { LYRIC_HASH_VERSION, hashLyricLine } from './lyricHash.mjs'
 export const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 export const lyricLines = text => text.split(/\r?\n/).map(x => x.trim()).filter(Boolean)
 export function requireAccess(song, heldout = false) {
   if (song.split === 'heldout' && !heldout) throw new Error('Held-out song: explicit --heldout required; do not tune against this result')
+}
+// Annotation lines match the lyric sheet strictly by index (repeated choruses share hashes), never by content.
+function assertAnnotationMatchesLyrics(annotation, texts) {
+  if (annotation.lineHashVersion !== undefined && annotation.lineHashVersion !== LYRIC_HASH_VERSION) throw new Error(`Annotation lineHashVersion ${annotation.lineHashVersion} does not match scorer LYRIC_HASH_VERSION ${LYRIC_HASH_VERSION}`)
+  const lines = annotation.lines
+  if (!Array.isArray(lines) || lines.length !== texts.length) throw new Error('Annotation lyric/order mismatch')
+  const hashed = lines.every(l => l.textHash !== undefined), texted = lines.every(l => l.text !== undefined)
+  if (hashed === texted) throw new Error('Annotation lines must all carry textHash or all carry text, not a mix or neither')
+  if (hashed) {
+    if (annotation.lineHashVersion === undefined) throw new Error('Hashed annotation must declare lineHashVersion')
+    if (texts.some(t => typeof t !== 'string')) throw new Error('Lyric lines must be strings')
+    if (lines.some((l, i) => l.textHash !== hashLyricLine(texts[i]))) throw new Error('Annotation lyric/order mismatch')
+  } else if (lines.some((l, i) => l.text !== texts[i])) throw new Error('Annotation lyric/order mismatch')
 }
 export function scoreRun(song, texts, run, annotation, target = { fractionWithinHalfSecond: .9, maxErrorSeconds: 2 }) {
   if (!Number.isFinite(target.fractionWithinHalfSecond) || target.fractionWithinHalfSecond < 0 || target.fractionWithinHalfSecond > 1 || !Number.isFinite(target.maxErrorSeconds) || target.maxErrorSeconds < 0) throw new Error('Invalid accuracy target')
@@ -14,8 +28,8 @@ export function scoreRun(song, texts, run, annotation, target = { fractionWithin
   if (!inputVerified) throw new Error('Run input hash mismatch')
   if (!annotation) return { ...base, status: 'UNSCORED', eligibleForAccuracyClaim: false, scoredLines: 0, pass: null }
   if (annotation.audioSha256 !== song.audioSha256 || annotation.lyricsSha256 !== song.lyricsSha256) throw new Error('Annotation input hash mismatch')
-  if (!['human-onsets', 'coarse-captions'].includes(annotation.kind)) throw new Error('Unverified reference cannot score accuracy')
-  if (annotation.lines.length !== texts.length || annotation.lines.some((l, i) => l.text !== texts[i])) throw new Error('Annotation lyric/order mismatch')
+  if (!['human-onsets', 'coarse-captions', 'lrc-derived'].includes(annotation.kind)) throw new Error('Unverified reference cannot score accuracy')
+  assertAnnotationMatchesLyrics(annotation, texts)
   const details = []
   for (let i = 0; i < texts.length; i++) {
     const a = annotation.lines[i]

@@ -1,0 +1,193 @@
+{
+  "schemaVersion": 1,
+  "kind": "coarse-captions",
+  "status": "legacy-reference",
+  "reviewer": "Repository caption fixture; not re-fetched",
+  "predictionsShown": false,
+  "audioSha256": "753eba02bbbcc46c85619209ccf67c248a3621a1f02b138f1776d1151043cbb2",
+  "lyricsSha256": "bde6d006473c1b0abc09a40f1f35fe9f7dbc9c52a1bf9f416028a0ff6b4b23fb",
+  "source": "tests/ai-pipeline/akfg-ground-truth.test.ts",
+  "lineHashVersion": "1",
+  "lines": [
+    {
+      "textHash": "73f092bf606bbafea4e26dd61ff2900e54fd6e43708fae2211bca3378877018e",
+      "onset": 98,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "23afa8d1c28beff50305f38598613bbb2a8d919cb8056d556e38c3a52f8277ac",
+      "onset": 104,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "c39cf916d1420e0d5daf76c4983468ea0b20e5d972b3372f0dbcf43fe1101677",
+      "onset": 111,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "076727765bdba8b26dafdaaa78f7a959c77557c4afbe8ff1566cfacc54464230",
+      "onset": 118,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "fbae0ed6f69fdf7678762cc595052f11f3f2e6c26e92c364908365f48baff8b2",
+      "onset": 122,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "48f73d98b07304890cfd6e0d3a4761f1bb4f6d067dd56eeed0930bfa48e44d6d",
+      "onset": 131,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "700893ce2eba5fda58ad3ef65f7b195475912d9a6921d926a491d7c90a9622fb",
+      "onset": 131,
+      "uncertainty": 2,
+      "excluded": true
+    },
+    {
+      "textHash": "64c89fa4bf44b53b97602442931377254a1e52e939dfec0b6abaefbf7f282f67",
+      "onset": 141,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "ae078344a4347478a5d6e43394517e63a8c6e939a1c542ab2631d04fef50c053",
+      "onset": 141,
+      "uncertainty": 2,
+      "excluded": true
+    },
+    {
+      "textHash": "2ef83db8b6509a15cb66bf1043d31e47fd4a047814e084364c64419ba9326516",
+      "onset": 148,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "c42cf997cee08d45f541e4b166303f38b96085a60003a9e941a9efdf353bb282",
+      "onset": 154,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "c8a1f165e3393ea3f2221f258696d03f791ed1ee6a3d05e9bc6c8eb11278e782",
+      "onset": 154,
+      "uncertainty": 2,
+      "excluded": true
+    },
+    {
+      "textHash": "3ee5355b9295f1120fd5025000d2525913a9961d1701849993e69db5912422e6",
+      "onset": 161,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "7e949e2261e383370f095b3fbd8fa16861cc83774c7a6bbe0f443e49a0e8467c",
+      "onset": 177,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "1f154b9007973cce55c635e92217e3e10a8eac817f538fbf6ae5926847994cff",
+      "onset": 183,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "8ca957b70ae22b440464b4fb240eaca964af56f0230a9045bd872cf2ce9b435e",
+      "onset": 190,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "0483743f661df6f84c709d8e2459770577b3746f24128133fb8b00e0ae193a44",
+      "onset": 203,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "01014ecf50750938080385be2bb787e883f7ef4e4330e8dd5a8f4abe7dc46d6b",
+      "onset": 210,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "5e9b677458d2599960f9951a63b5fe7ad78f30da0dfc48f3014de6dce8dab152",
+      "onset": 217,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "e1a49994a3e932a2368ceb1a3e402d51f124fabd41abbec261b04dc0afeefd88",
+      "onset": 217,
+      "uncertainty": 2,
+      "excluded": true
+    },
+    {
+      "textHash": "96260e8e083ba8c32f91944b7baf39e8d8ce83676d39ff4499c3d873b5b7eaed",
+      "onset": 223,
+      "uncertainty": 3,
+      "excluded": false
+    },
+    {
+      "textHash": "5740069dddc589b1019717103d8e7e07437f351d446ad142fe8705ef8237fd6d",
+      "onset": 262,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "e3f05aa7d038332709fb61feebddaa58c41b2d4589b23ae771d62fbc470287cf",
+      "onset": 275,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "ff506404743f0da5df60e36a7c3843ab82fbf6d2bb8568a1dae7adc6b6b0d127",
+      "onset": 282,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "ac4a8b457dcea305bd6f4bc5926e1112ed6c4becb3f9b8f36f3f3cbf33766faa",
+      "onset": 292,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "ae078344a4347478a5d6e43394517e63a8c6e939a1c542ab2631d04fef50c053",
+      "onset": 292,
+      "uncertainty": 2,
+      "excluded": true
+    },
+    {
+      "textHash": "2ef83db8b6509a15cb66bf1043d31e47fd4a047814e084364c64419ba9326516",
+      "onset": 299,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "c42cf997cee08d45f541e4b166303f38b96085a60003a9e941a9efdf353bb282",
+      "onset": 306,
+      "uncertainty": 2,
+      "excluded": false
+    },
+    {
+      "textHash": "c8a1f165e3393ea3f2221f258696d03f791ed1ee6a3d05e9bc6c8eb11278e782",
+      "onset": 306,
+      "uncertainty": 2,
+      "excluded": true
+    },
+    {
+      "textHash": "4c0e88d67523365f0da4dc356f19b9adfe3435788c643dfde060ff369cd004f1",
+      "onset": 312,
+      "uncertainty": 3,
+      "excluded": false
+    }
+  ]
+}

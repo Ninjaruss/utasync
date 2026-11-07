@@ -2,6 +2,8 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, symlinkSync, rmSync
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
+import { coverageVerdict, songCoverage, safeSkipReason } from './lib/corpusCoverage.mjs'
+import { LYRIC_HASH_VERSION, hashLyricLine } from './lib/lyricHash.mjs'
 import { hash, lyricLines, requireAccess, scoreRun } from './lib/syncBenchmark.mjs'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const manifest = JSON.parse(readFileSync(resolve(root, 'benchmarks/sync/manifest.json')))
@@ -26,19 +28,36 @@ if (command === 'stage-pilot') {
 } else if (command === 'report') {
   const { readdirSync } = await import('node:fs')
   const runsDir = file('.cache/sync-benchmark/runs')
-  const runs = existsSync(runsDir) ? readdirSync(runsDir).filter(p => p.endsWith('.json')).map(p => JSON.parse(readFileSync(resolve(runsDir, p)))).sort((a, b) => a.startedAt.localeCompare(b.startedAt)) : []
+  const runs = existsSync(runsDir) ? readdirSync(runsDir).filter(p => p.endsWith('.json')).flatMap(p => { try { return [JSON.parse(readFileSync(resolve(runsDir, p)))] } catch { console.error(`skipped unreadable run file ${p}`); return [] } }).filter(r => r && typeof r.startedAt === 'string').sort((a, b) => a.startedAt.localeCompare(b.startedAt)) : []
   const unfinishedPath = file('.cache/sync-benchmark/unfinished.json')
   const unfinished = existsSync(unfinishedPath) ? JSON.parse(readFileSync(unfinishedPath)) : []
+  const scored = [], skipped = []
   const songs = manifest.songs.map(song => {
-    const annotationPath = file(song.reference.annotationPath)
-    const annotation = existsSync(annotationPath) ? JSON.parse(readFileSync(annotationPath)) : null
-    const texts = lyricLines(readFileSync(file(song.lyrics), 'utf8'))
-    const attempts = runs.filter(r => r.song === song.id).map(run => ({ ...scoreRun(song, texts, run, annotation, manifest.target), isolation: run.isolation, elapsedSeconds: run.elapsedSeconds, error: run.error ?? null }))
+    const counted = song.split !== 'heldout'
+    let attempts, failure = null
+    try {
+      const annotationPath = file(song.reference.annotationPath)
+      const annotation = existsSync(annotationPath) ? JSON.parse(readFileSync(annotationPath)) : null
+      const texts = lyricLines(readFileSync(file(song.lyrics), 'utf8'))
+      attempts = runs.filter(r => r.song === song.id).map(run => ({ ...scoreRun(song, texts, run, annotation, manifest.target), isolation: run.isolation, elapsedSeconds: run.elapsedSeconds, error: run.error ?? null }))
+    } catch (e) { failure = safeSkipReason(e) }
+    if (failure) {
+      if (counted) skipped.push({ id: song.id, reason: failure })
+      return { id: song.id, split: song.split, status: 'SKIPPED', attempts: [], skipReason: failure }
+    }
+    const cov = songCoverage(attempts)
+    if (counted) { if (cov.scored) scored.push(song.id); else skipped.push({ id: song.id, reason: cov.reason }) }
     return { id: song.id, split: song.split, status: attempts.length ? 'attempted' : unfinished.some(r => r.song === song.id) ? 'INCOMPLETE' : 'NOT_RUN', attempts }
   })
-  const report = { generatedAt: new Date().toISOString(), pilotSongs: songs.length, heldoutSongs: manifest.songs.filter(s => s.split === 'heldout').length, representativeClaim: false, songs }
+  const coverage = coverageVerdict({ expected: manifest.songs.filter(s => s.split !== 'heldout').length, scored, skipped })
+  const report = { generatedAt: new Date().toISOString(), pilotSongs: songs.length, heldoutSongs: manifest.songs.filter(s => s.split === 'heldout').length, representativeClaim: false, coverage, songs }
   save(file('.cache/sync-benchmark/report.json'), report)
   console.log(JSON.stringify(report, null, 2))
+  if (!coverage.ok) {
+    console.error(`COVERAGE FAILURE: scored ${coverage.scoredCount} of ${coverage.expected} expected songs (shortfall ${coverage.shortfall}). A run that measured nothing is not a pass.`)
+    for (const k of coverage.skipped) console.error(`  skipped ${k.id}: ${k.reason}`)
+    process.exitCode = 1
+  }
 } else if (command === 'collect') {
   const log = file('node_modules/.e2e-status.log')
   let count = 0
@@ -72,7 +91,7 @@ if (command === 'stage-pilot') {
   } else if (command === 'template') {
     const p = file('.cache/sync-benchmark/annotations/' + id + '.json')
     if (existsSync(p)) throw new Error('Template already exists; refusing to overwrite human work')
-    save(p, { schemaVersion: 1, kind: 'human-onsets', status: 'draft', reviewer: '', predictionsShown: false, priorPredictionExposure: 'unknown', audioSha256: song.audioSha256, lyricsSha256: song.lyricsSha256, convention: 'First audible sung syllable; seconds; null is unscored. Adjudicate independently before changing status.', lines: texts.map(text => ({ text, onset: null, uncertainty: null })) }); console.log(p)
+    save(p, { schemaVersion: 1, kind: 'human-onsets', status: 'draft', reviewer: '', predictionsShown: false, priorPredictionExposure: 'unknown', audioSha256: song.audioSha256, lyricsSha256: song.lyricsSha256, lineHashVersion: LYRIC_HASH_VERSION, convention: 'First audible sung syllable; seconds; null is unscored. Adjudicate independently before changing status.', lines: texts.map(text => ({ textHash: hashLyricLine(text), onset: null, uncertainty: null })) }); console.log(p)
   } else if (command === 'stage') {
     const dest = file('public/e2e/benchmark/' + id); mkdirSync(dest, { recursive: true })
     const audio = resolve(dest, 'audio.mp3'); if (existsSync(audio)) rmSync(audio); symlinkSync(input.audio, audio)
