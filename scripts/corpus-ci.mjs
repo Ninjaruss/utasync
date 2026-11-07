@@ -6,6 +6,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { LYRIC_HASH_VERSION } from './lib/lyricHash.mjs'
+import { annotationViolations, kindAgreementViolation } from './lib/annotationShape.mjs'
 
 const root = resolve(process.argv[2] ?? join(import.meta.dirname, '..'))
 const violations = []
@@ -26,17 +27,9 @@ const MUST_HAVE = ['akfg-first-take', 'will-death-poetry']
 function validate(where, path) {
   checked++
   let a
-  try { a = JSON.parse(readFileSync(path, 'utf8')) } catch { bad(where, 'unparseable JSON'); return }
-  if (a.lineHashVersion !== LYRIC_HASH_VERSION) bad(where, `lineHashVersion ${JSON.stringify(a.lineHashVersion)} is not the current ${LYRIC_HASH_VERSION}`)
-  for (const k of ['audioSha256', 'lyricsSha256']) if (typeof a[k] !== 'string' || !/^[0-9a-f]{64}$/.test(a[k])) bad(where, `missing or malformed ${k}`)
-  if (!Array.isArray(a.lines)) { bad(where, 'lines is not an array'); return }
-  if (a.lines.length === 0) { bad(where, 'lines is empty; an annotation with no lines verifies nothing'); return }
-  const notObj = a.lines.flatMap((l, i) => l !== null && typeof l === 'object' && !Array.isArray(l) ? [] : [i + 1])
-  if (notObj.length) { bad(where, `${notObj.length} line entr(ies) are not objects (first: line ${notObj[0]})`); return }
-  const withText = a.lines.flatMap((l, i) => 'text' in l ? [i + 1] : [])
-  if (withText.length) bad(where, `carries a text field on ${withText.length} line(s) (first: line ${withText[0]}); song text must not be committed`)
-  const noHash = a.lines.flatMap((l, i) => typeof l.textHash === 'string' && /^[0-9a-f]{64}$/.test(l.textHash) ? [] : [i + 1])
-  if (noHash.length) bad(where, `missing or malformed textHash on ${noHash.length} line(s) (first: line ${noHash[0]})`)
+  try { a = JSON.parse(readFileSync(path, 'utf8')) } catch { bad(where, 'unparseable JSON'); return null }
+  for (const v of annotationViolations(a)) bad(where, v)
+  return a
 }
 // The allowlist trusts the id-to-path mapping, so it must be one-to-one.
 for (const [what, vals] of [['song id', songs.map(x => x.id)], ['annotationPath', songs.map(x => x.reference?.annotationPath).filter(Boolean)]]) {
@@ -58,7 +51,8 @@ for (const song of songs) {
   }
   seen.add(rel)
   const before = violations.length
-  validate(where, path)
+  const a = validate(where, path)
+  if (a) { const v = kindAgreementViolation(song.reference.kind, a); if (v) bad(where, v) }
   if (violations.length === before) validIds.add(song.id)
 }
 
@@ -72,6 +66,17 @@ if (existsSync(dir)) for (const f of readdirSync(dir).filter(f => f.endsWith('.j
   validate(rel, join(dir, f))
 }
 
+// PJS medley annotations are committed apart from the manifest (which stays local, under .cache/pjs).
+// Each must be well-formed and corpus-onsets; zero files is fine (the corpus is built by hand).
+const pjsRel = 'experiments/phase0/pjs/annotations'
+const pjsDir = join(root, pjsRel)
+const pjsFiles = existsSync(pjsDir) ? readdirSync(pjsDir).filter(f => f.endsWith('.json')).sort() : []
+for (const f of pjsFiles) {
+  const a = validate(`${pjsRel}/${f}`, join(pjsDir, f))
+  checked-- // validate() counts toward the manifest floor; PJS files must not mask a missing manifest annotation
+  if (a && a.kind !== 'corpus-onsets') bad(`${pjsRel}/${f}`, `PJS annotation must be kind "corpus-onsets", found ${JSON.stringify(a.kind)}`)
+}
+
 // Rule 6 backstop: no kana or CJK ideographs in committed corpus files. Typographic non-ASCII
 // (± – — ’) is fine. Reports file and line only, never the matched text.
 const CJK = /\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Han}|[\u30fb\u30fc]/u
@@ -80,6 +85,7 @@ for (const song of songs) if (song.reference?.annotationPath) scanned.add(song.r
 // Every annotation present is scanned, whether or not the manifest knows about it.
 const annDir = join(root, 'benchmarks/sync/annotations')
 if (existsSync(annDir)) for (const f of readdirSync(annDir)) if (f.endsWith('.json')) scanned.add(`benchmarks/sync/annotations/${f}`)
+for (const f of pjsFiles) scanned.add(`${pjsRel}/${f}`)
 for (const rel of scanned) {
   const path = join(root, rel)
   if (!existsSync(path)) {
@@ -100,4 +106,4 @@ if (violations.length) {
   for (const v of violations) console.error(`  - ${v}`)
   process.exit(1)
 }
-console.log(`corpus-ci: ok (${checked} annotation(s) checked, lineHashVersion ${LYRIC_HASH_VERSION})`)
+console.log(`corpus-ci: ok (${checked} annotation(s) checked, ${pjsFiles.length ? `${pjsFiles.length} PJS annotation(s)` : 'PJS annotations: none built'}, lineHashVersion ${LYRIC_HASH_VERSION})`)

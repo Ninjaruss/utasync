@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process'
 import { coverageVerdict, songCoverage, safeSkipReason } from './lib/corpusCoverage.mjs'
 import { LYRIC_HASH_VERSION, hashLyricLine } from './lib/lyricHash.mjs'
 import { hash, lyricLines, requireAccess, scoreRun } from './lib/syncBenchmark.mjs'
+import { canCertify } from './lib/truthKinds.mjs'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const manifest = JSON.parse(readFileSync(resolve(root, 'benchmarks/sync/manifest.json')))
 const [command = 'inventory', id, runPath] = process.argv.slice(2)
@@ -22,7 +23,18 @@ if (command === 'stage-pilot') {
   save(file('public/e2e/benchmark/pilot.json'), songs.map(s => s.id))
   console.log('Open /?benchmark=pilot; runs sequentially and stops on timeout or cancellation.')
 } else if (command === 'inventory') {
-  const songs = manifest.songs.map(s => ({ id: s.id, split: s.split, ...inputs(s), reference: s.reference.kind, annotationExists: existsSync(file(s.reference.annotationPath)), baseline: 'not inferred from transcript fixtures' }))
+  // The kind alone reads as a verdict: 'human-onsets' looks like certified truth even when the
+  // annotation behind it is a single-pass draft. Print whether it actually certifies beside it.
+  const certifies = s => {
+    const p = file(s.reference.annotationPath ?? '')
+    if (!s.reference.annotationPath || !existsSync(p)) return { certifies: false, why: 'no annotation file' }
+    if (!canCertify(s.reference.kind)) return { certifies: false, why: `kind ${s.reference.kind} cannot certify (ADR-0006)` }
+    let a
+    try { a = JSON.parse(readFileSync(p, 'utf8')) } catch (e) { return { certifies: false, why: safeSkipReason(e) } }
+    if (a.status !== 'adjudicated') return { certifies: false, why: `status ${JSON.stringify(a.status ?? null)}, not "adjudicated"` }
+    return { certifies: true, why: null }
+  }
+  const songs = manifest.songs.map(s => ({ id: s.id, split: s.split, ...inputs(s), reference: s.reference.kind, referenceCertifies: certifies(s), annotationExists: existsSync(file(s.reference.annotationPath)), baseline: 'not inferred from transcript fixtures' }))
   const report = { generatedAt: new Date().toISOString(), pilotSongs: songs.length, heldoutSongs: songs.filter(s => s.split === 'heldout').length, targetSongs: manifest.targetSongs, representativeClaim: false, songs }
   save(file('.cache/sync-benchmark/inventory.json'), report); console.log(JSON.stringify(report, null, 2))
 } else if (command === 'report') {

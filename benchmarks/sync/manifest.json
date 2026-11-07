@@ -140,9 +140,9 @@
         "decoder syllable loops"
       ],
       "reference": {
-        "kind": "none",
+        "kind": "human-onsets",
         "annotationPath": "benchmarks/sync/annotations/will-death-poetry.json",
-        "notes": "User confirmed 18-line sheet; no independently checked onsets."
+        "notes": "User confirmed 18-line sheet. Onsets exist but come from ONE listening pass and the annotation is still status \"draft\", so this reference certifies nothing (ADR-0006); the inventory prints referenceCertifies beside the kind for exactly this case. The 18-line sheet is also below the ADR-0003 gate's 20-line per-song minimum, so this song cannot be one of that gate's two real songs however it is adjudicated."
       }
     }
   ]
