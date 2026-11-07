@@ -1,24 +1,18 @@
-# Static checks only, deliberately — see the note at the bottom before extending this.
+# Typecheck, lint and unit tests on every push and pull request.
 #
-# `tsc -b` and `eslint` both pass as of the commit that adds this file, so the gate
-# is useful from its very first run rather than starting out red.
+# Tests that read copyrighted fixtures (lyric sheets, catalogue LRCs, Whisper
+# transcripts) are listed in tests/privateFixtures.mjs. Those files are not in git,
+# so vite.config.ts excludes their tests here; they still run on a machine that has
+# the local copies. The CPU-bound corpus ratchets that used to make this suite flaky
+# under load are among them.
 #
-# Two things are deliberately NOT here yet:
+# Still deliberately NOT here:
 #
-#   * `vitest run`. The alignment corpus ratchets are CPU-bound and time out under
-#     load: measured 7 failures while other work shared the CPU, with the same three
-#     files passing 50/50 in isolation, and ~300s for those three files alone. Wired
-#     in today they would make this pipeline fail spuriously, which teaches people to
-#     ignore it. De-flake the ratchet timeouts first, then add the suite here.
 #   * `npm run build`. Its `prebuild` step downloads a ~64 MB model, making it slow
-#     and network-dependent. Add it once that download is cached.
-#
-# `tsc -b` also does NOT typecheck `tests/`: that directory is outside every tsconfig
-# project (`tsconfig.app.json` includes only `src/`), and 81 real type errors live
-# there. Adding `tests/` to the typecheck project is the follow-up that would let
-# this gate catch contract drift in test code — the class of bug that let a shipped
-# loader defect (`alt` senses dropped in src/ai-pipeline/jmdictGloss.ts) and a
-# trust-loop self-comparison go unnoticed.
+#     and network-dependent. Add it once that download is cached or removed.
+#   * Typechecking `tests/`. That directory is outside every tsconfig project, and
+#     about 81 type errors live there. Fix them, add tests/ to a tsconfig, then add
+#     `npx tsc -p <that config>` below.
 
 name: CI
 
@@ -50,3 +44,21 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: npx vitest run --reporter=dot

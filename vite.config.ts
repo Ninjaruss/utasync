@@ -1,10 +1,11 @@
-import { defineConfig } from 'vitest/config'
-import { appendFileSync, readFileSync, readdirSync } from 'node:fs'
+import { defineConfig, configDefaults } from 'vitest/config'
+import { appendFileSync, existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import type { Connect, Plugin, PreviewServer, ViteDevServer } from 'vite'
+import { PRIVATE_FIXTURES, PRIVATE_FIXTURE_TESTS } from './tests/privateFixtures.mjs'
 
 // @huggingface/transformers bundles its own onnxruntime-web build (currently
 // 1.22.0-dev), distinct from the onnxruntime-web 1.26 this repo also depends on
@@ -513,5 +514,13 @@ export default defineConfig({
      * period was up — so the failure blamed the test's duration rather than the
      * assertion, and raising the waitFor budget in a file did nothing. */
     testTimeout: 20_000,
+    // Tests that read copyrighted fixtures run only where those (untracked) files exist.
+    // See tests/privateFixtures.mjs.
+    exclude: [
+      ...configDefaults.exclude,
+      ...(PRIVATE_FIXTURES.every((f) => existsSync(fileURLToPath(new URL(`./${f}`, import.meta.url))))
+        ? []
+        : PRIVATE_FIXTURE_TESTS),
+    ],
   },
 })

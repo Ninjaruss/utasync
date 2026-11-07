@@ -184,6 +184,46 @@ describe('alignTranscriptToLines', () => {
 })
 
 describe('sanitizeTranscript', () => {
+  it('rejects a single-glyph overstamp before shortening its misleading onset', () => {
+    const words: TranscriptWord[] = [
+      { word: ' 赤♪ ', startTime: 240, endTime: 263.16 },
+      { word: 'い', startTime: 263.16, endTime: 263.82 },
+    ]
+    expect(sanitizeTranscript(words)).toEqual([words[1]])
+  })
+
+  it('preserves held glyphs up to the existing ten-second word limit', () => {
+    for (const word of ['あ', '愛', 'a']) {
+      const held = { word, startTime: 20, endTime: 30 }
+      expect(sanitizeTranscript([held])).toEqual([held])
+    }
+  })
+
+  it('does not merge real repeats across a rejected long token', () => {
+    const words: TranscriptWord[] = [
+      { word: '愛', startTime: 0, endTime: 1 },
+      { word: 'x', startTime: 1, endTime: 23 },
+      { word: '愛', startTime: 23, endTime: 24 },
+    ]
+    expect(sanitizeTranscript(words)).toEqual([words[0], words[2]])
+  })
+
+  it('preserves a long sung phrase and its full timing extent', () => {
+    const phrase = { word: '赤い赤い小さな車は君を乗せて', startTime: 262, endTime: 275 }
+    const words = sanitizeTranscript([phrase])
+    expect(words.map(w => w.word).join('')).toBe(phrase.word)
+    expect(words[0].startTime).toBe(262)
+    expect(words.at(-1)?.endTime).toBe(275)
+  })
+
+  it('retains a single sung glyph after an explicitly marked instrumental lead-in', () => {
+    const words = sanitizeTranscript([{ word: '[Music] あ', startTime: 0, endTime: 20 }])
+    expect(words).toHaveLength(1)
+    expect(words[0].word).toBe('あ')
+    expect(words[0].startTime).toBeCloseTo(18.8)
+    expect(words[0].endTime).toBe(20)
+  })
+
   it('drops zero/negative and subdivides segment-length slots', () => {
     const words: TranscriptWord[] = [
       { word: 'ok', startTime: 1, endTime: 2 },

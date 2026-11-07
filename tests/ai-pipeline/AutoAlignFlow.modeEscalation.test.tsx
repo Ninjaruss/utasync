@@ -195,6 +195,52 @@ beforeEach(async () => {
 })
 
 describe('automatic timestamp-mode escalation', () => {
+  it('aborts the owning transcription signal when the flow unmounts', async () => {
+    let signal: AbortSignal | undefined
+    transcribeAudio.mockImplementationOnce((_a, _r, opts) => {
+      signal = (opts as typeof opts & { signal?: AbortSignal })?.signal
+      return new Promise(() => {})
+    })
+    const view = render(<AutoAlignFlow song={song} autoStart onComplete={vi.fn()} onClose={vi.fn()} />)
+    await waitFor(() => expect(signal).toBeDefined())
+    expect(signal?.aborted).toBe(false)
+    view.unmount()
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('falls back from a word timeout to a fresh segment pass', async () => {
+    transcribeAudio.mockRejectedValueOnce(new Error('Transcription timed out'))
+    const onComplete = vi.fn()
+    render(<AutoAlignFlow song={song} autoStart onComplete={onComplete} onClose={vi.fn()} />)
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1))
+    expect(transcribeAudio.mock.calls.map(c => c[2]?.timestampMode)).toEqual(['word', 'segment'])
+    expect((await db.songs.get(song.id))?.lyrics.lines[0].startTime).toBe(starts.segment)
+    expect(document.body.textContent).not.toContain('Try again with segment timestamps')
+  })
+
+  it('keeps a completed first alignment when optional segment recovery times out', async () => {
+    const normal = transcribeAudio.getMockImplementation()!
+    transcribeAudio.mockImplementationOnce(normal).mockRejectedValueOnce(new Error('Transcription timed out'))
+    const onComplete = vi.fn()
+    render(<AutoAlignFlow song={song} autoStart onComplete={onComplete} onClose={vi.fn()} />)
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1))
+    expect(transcribeAudio.mock.calls.map(c => c[2]?.timestampMode)).toEqual(['word', 'segment'])
+    expect((await db.songs.get(song.id))?.lyrics.lines[0].startTime).toBe(starts.word)
+    expect(document.body.textContent).toContain('Your first alignment has been kept for review')
+    expect(gapCalls.n).toBe(0)
+  })
+
+  it('keeps completed timings and stops further repairs after a gap failure', async () => {
+    labels.word = ['good']
+    gapPasses.impl = () => { throw new Error('Transcript finalization timed out') }
+    const onComplete = vi.fn()
+    render(<AutoAlignFlow song={song} autoStart onComplete={onComplete} onClose={vi.fn()} />)
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1))
+    expect((await db.songs.get(song.id))?.lyrics.lines[0].startTime).toBe(starts.word)
+    expect(gapCalls.n).toBe(1)
+    expect(document.body.textContent).toContain('Some timing repairs could not finish')
+  })
+
   it('re-runs in segment mode by itself when the word-mode run is weak, and keeps the better result', async () => {
     const onComplete = vi.fn()
     render(<AutoAlignFlow song={song} autoStart onComplete={onComplete} onClose={vi.fn()} />)

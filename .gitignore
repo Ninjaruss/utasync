@@ -47,3 +47,52 @@ scripts/.cache/
 # Kept out of the tree deliberately — anything under public/ is SERVED, and a page
 # that writes a fake song into a visitor's storage has no business in production.
 public/seed-drag-fixture.html
+
+# Copyrighted song text used by local alignment tests: never commit (tests/privateFixtures.mjs)
+tests/ai-pipeline/fixtures/akfg-user-ja.txt
+tests/ai-pipeline/fixtures/akfg/lyrics.en.txt
+tests/ai-pipeline/fixtures/akfg/lyrics.ja.txt
+tests/ai-pipeline/fixtures/akfg/transcript.segment.json
+tests/ai-pipeline/fixtures/akfg/transcript.word.garbled.json
+tests/ai-pipeline/fixtures/akfg/transcript.word.instrumental.json
+tests/ai-pipeline/fixtures/akfg/transcript.word.json
+tests/ai-pipeline/fixtures/embeddings-cache.json
+tests/ai-pipeline/fixtures/going-my-way/lyrics.txt
+tests/ai-pipeline/fixtures/guitar-loneliness/lyrics.en.txt
+tests/ai-pipeline/fixtures/guitar-loneliness/lyrics.ja.txt
+tests/ai-pipeline/fixtures/guitar-loneliness/transcript.segment.json
+tests/ai-pipeline/fixtures/guitar-loneliness/transcript.word.json
+tests/ai-pipeline/fixtures/lrc-truth/going-my-way.json
+tests/ai-pipeline/fixtures/lrc-truth/guitar-loneliness.json
+tests/ai-pipeline/fixtures/lrc-truth/recollect.json
+tests/ai-pipeline/fixtures/lrc-truth/stranger-than-heaven.json
+tests/ai-pipeline/fixtures/lrc-truth/veil.json
+tests/ai-pipeline/fixtures/my-eyes-only.lyrics.txt
+tests/ai-pipeline/fixtures/my-eyes-only.transcript.json
+tests/ai-pipeline/fixtures/pairing-truth.json
+tests/ai-pipeline/fixtures/reading-truth.json
+tests/ai-pipeline/fixtures/recollect/lyrics.txt
+tests/ai-pipeline/fixtures/recollect/transcript.segment.forced-en.json
+tests/ai-pipeline/fixtures/recollect/transcript.segment.json
+tests/ai-pipeline/fixtures/recollect/transcript.word.json
+tests/ai-pipeline/fixtures/stranger-than-heaven/lyrics.txt
+tests/ai-pipeline/fixtures/stranger-than-heaven/transcript.segment.autolang.json
+tests/ai-pipeline/fixtures/stranger-than-heaven/transcript.segment.forced-en.json
+tests/ai-pipeline/fixtures/stranger-than-heaven/transcript.segment.json
+tests/ai-pipeline/fixtures/stranger-than-heaven/transcript.segment.medium.json
+tests/ai-pipeline/fixtures/stranger-than-heaven/transcript.word.autolang.json
+tests/ai-pipeline/fixtures/stranger-than-heaven/transcript.word.forced-en.json
+tests/ai-pipeline/fixtures/stranger-than-heaven/transcript.word.json
+tests/ai-pipeline/fixtures/stranger-than-heaven/transcript.word.medium.json
+tests/ai-pipeline/fixtures/veil/lyrics.en.txt
+tests/ai-pipeline/fixtures/veil/lyrics.ja.txt
+tests/ai-pipeline/fixtures/veil/transcript.words.json
+
+# Benchmark reference material containing song text: the lyric sheet the manifest
+# binds for will-death-poetry, and the annotation files, whose schema stores each
+# line's text for its integrity check (scripts/lib/syncBenchmark.mjs:18).
+# ADR-0004 wants hashes here instead; until the schema stores hashes, these stay
+# local like the other whole-song text (tests/privateFixtures.mjs).
+benchmarks/sync/will-death-lyrics.txt
+benchmarks/sync/annotations/akfg-first-take.json
+benchmarks/sync/annotations/will-death-poetry.json

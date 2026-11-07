@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "targetSongs": 20,
+  "minimumPilotSongs": 15,
+  "minimumHeldoutSongs": 5,
+  "target": {
+    "fractionWithinHalfSecond": 0.9,
+    "maxErrorSeconds": 2
+  },
+  "songs": [
+    {
+      "id": "guitar-loneliness",
+      "split": "development",
+      "exposure": "previously-used-in-development",
+      "audio": "public/e2e/guitar.mp3",
+      "audioSha256": "1157d216d8379f1207aa64caeedefbd86f683d74f7f10784a849f29678f06fac",
+      "lyrics": "tests/ai-pipeline/fixtures/guitar-loneliness/lyrics.ja.txt",
+      "lyricsSha256": "f103bc58f2614990c3c49056e9229379829f9dca75d731949ae63afa321f77de",
+      "tags": [
+        "sung Japanese",
+        "garbled transcript (the acoustic-onset case)",
+        "version-EXACT LRCLIB truth"
+      ],
+      "reference": {
+        "kind": "unverified-lrc",
+        "legacyPath": "tests/ai-pipeline/fixtures/lrc-truth/guitar-loneliness.json",
+        "notes": "version-exact — 229.0s LRC against 228.98s audio, so its offset is OURS",
+        "annotationPath": "benchmarks/sync/annotations/guitar-loneliness.json"
+      }
+    },
+    {
+      "id": "veil",
+      "split": "development",
+      "exposure": "previously-used-in-development",
+      "audio": "public/e2e/veil.mp3",
+      "audioSha256": "1adc52caf62f2e75603cbda725397b5b886aca497070c844a902266df38b87d2",
+      "lyrics": "tests/ai-pipeline/fixtures/veil/lyrics.ja.txt",
+      "lyricsSha256": "d523e95bb80df1ef32c042cd6e4e2b4ea417f8ed65b9d8a0e85819b2414119d8",
+      "tags": [
+        "pure Japanese",
+        "the clean case: best offset in the corpus (-0.02s)"
+      ],
+      "reference": {
+        "kind": "unverified-lrc",
+        "legacyPath": "tests/ai-pipeline/fixtures/lrc-truth/veil.json",
+        "notes": "version-matched (203s entry against 218.77s audio is an edit difference the median-offset fit absorbs; its residual offset is -0.02s, the best in the corpus)",
+        "annotationPath": "benchmarks/sync/annotations/veil.json"
+      }
+    },
+    {
+      "id": "stranger-than-heaven",
+      "split": "development",
+      "exposure": "previously-used-in-development",
+      "audio": "public/e2e/stranger.mp3",
+      "audioSha256": "69dd8cb05f087897d405ac61372734beff7058f75b2111703056fada8071bf86",
+      "lyrics": "tests/ai-pipeline/fixtures/stranger-than-heaven/lyrics.txt",
+      "lyricsSha256": "f55a1e9d5e9dafd4e855d97ffcac14d55398e3cd5e739244584810f971cc57f0",
+      "tags": [
+        "mixed JA/EN",
+        "the ALTERNATE-TAKE case: ~30 lines with no evidence anywhere"
+      ],
+      "reference": {
+        "kind": "unverified-lrc",
+        "legacyPath": "tests/ai-pipeline/fixtures/lrc-truth/stranger-than-heaven.json",
+        "notes": "ONE-SIDED — a 237s edit against 233.57s audio, so its offset is partly a version difference and cannot be attributed to us",
+        "annotationPath": "benchmarks/sync/annotations/stranger-than-heaven.json"
+      }
+    },
+    {
+      "id": "recollect",
+      "split": "development",
+      "exposure": "previously-used-in-development",
+      "audio": "public/e2e/recollect.mp3",
+      "audioSha256": "42aecf9c311785517fa6314390693b98d6d0d0cce243f5171b51214b85336974",
+      "lyrics": "tests/ai-pipeline/fixtures/recollect/lyrics.txt",
+      "lyricsSha256": "cc0fd34a2662d3d23cbb589e04c90d958c567a62fa41bfe606801a29eb264e32",
+      "tags": [
+        "dense within-line JA/EN code-switching",
+        "non-isolated transcript, transcription-bound"
+      ],
+      "reference": {
+        "kind": "unverified-lrc",
+        "legacyPath": "tests/ai-pipeline/fixtures/lrc-truth/recollect.json",
+        "notes": "version-matched, but only 16 of 47 lines carry enough matched evidence for the offset fit — the rest are transcription-bound",
+        "annotationPath": "benchmarks/sync/annotations/recollect.json"
+      }
+    },
+    {
+      "id": "akfg-first-take",
+      "split": "development",
+      "exposure": "previously-used-in-development",
+      "audio": "public/e2e/akfg.mp3",
+      "audioSha256": "753eba02bbbcc46c85619209ccf67c248a3621a1f02b138f1776d1151043cbb2",
+      "lyrics": "tests/ai-pipeline/fixtures/akfg-user-ja.txt",
+      "lyricsSha256": "bde6d006473c1b0abc09a40f1f35fe9f7dbc9c52a1bf9f416028a0ff6b4b23fb",
+      "tags": [
+        "Japanese, THE FIRST TAKE live arrangement",
+        "98s spoken/quiet intro",
+        "stem path that measurably HURTS (15.4s vs 2.8s mix)"
+      ],
+      "reference": {
+        "kind": "coarse-captions",
+        "legacyPath": "tests/ai-pipeline/akfg-ground-truth.test.ts",
+        "notes": "no LRCLIB entry exists for the First Take arrangement; truth is YouTube caption onsets (±2s), in tests/ai-pipeline/akfg-ground-truth.test.ts",
+        "annotationPath": "benchmarks/sync/annotations/akfg-first-take.json"
+      }
+    },
+    {
+      "id": "going-my-way",
+      "split": "development",
+      "exposure": "previously-used-in-development",
+      "audio": "public/e2e/going-my-way.mp3",
+      "audioSha256": "0b3e469cbabb9f5a4a6ce54d845725a9b01d7518a137d4524e8fcbe45a443bf9",
+      "lyrics": "tests/ai-pipeline/fixtures/going-my-way/lyrics.txt",
+      "lyricsSha256": "eab39b6a18714de544bb7ed2c891bc3e31f99533d2b52743789b0b229978d8aa",
+      "tags": [
+        "sung Japanese, but NOT used by any committed test",
+        "a song with NO committed transcript, so its evidence must be produced locally",
+        "an ORPHANED truth fixture: no test in the suite consumes it"
+      ],
+      "reference": {
+        "kind": "unverified-lrc",
+        "legacyPath": "tests/ai-pipeline/fixtures/lrc-truth/going-my-way.json",
+        "notes": "matched, but scored by NO test, and its lyric sheet was derived from this very LRC (31 of 31 lines byte-identical with the timestamps stripped), so the text is circular — see the ledger on orphaned fixtures",
+        "annotationPath": "benchmarks/sync/annotations/going-my-way.json"
+      }
+    },
+    {
+      "id": "will-death-poetry",
+      "split": "development",
+      "exposure": "previously-used-in-development",
+      "audio": "public/e2e/will-death-poetry.mp3",
+      "audioSha256": "c3dfa1516c608aa9d1525f346a0bc0bcd9343264e2e82b834f321e43fd693c31",
+      "lyrics": "benchmarks/sync/will-death-lyrics.txt",
+      "lyricsSha256": "d55ad99534807d68fc9e2a62d21bdad78749fafd5b16acfee27f9ade16107e01",
+      "tags": [
+        "Japanese",
+        "repeated choruses",
+        "short recording",
+        "decoder syllable loops"
+      ],
+      "reference": {
+        "kind": "none",
+        "annotationPath": "benchmarks/sync/annotations/will-death-poetry.json",
+        "notes": "User confirmed 18-line sheet; no independently checked onsets."
+      }
+    }
+  ]
+}

@@ -28,7 +28,7 @@ import {
 } from './alignModeChoice'
 import { assessAlignmentTrust, isBetterAlignment, isWorseAlignment, type AlignmentTrust } from './alignmentTrust'
 import { detectSheetLanguage } from './whisperLanguage'
-import { isRecoverableTranscriptionError, classifyAlignError, isNetworkFailure } from './workerError'
+import { isRecoverableTranscriptionError, classifyAlignError, isNetworkFailure, isTranscriptionTimeout } from './workerError'
 import { resetWhisperTranscriber, transcribeAudio, type LoadProgress, type TranscribeProgressStatus } from './whisperTranscriber'
 import { DEMUCS_OUTPUT_SAMPLE_RATE, SeparationAbandonedError, isDemucsModelAvailable, refreshDemucsModelAvailability, separateVocals } from './demucsSeparator'
 import { formatEta } from './separationEta'
@@ -171,6 +171,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
   // transcription just snaps the progress bar to 0 with no explanation (the
   // transcribing stage never showed loadDetail). Held until the retry finishes.
   const [retryNotice, setRetryNotice] = useState<string | null>(null)
+  const [recoveryWarning, setRecoveryWarning] = useState<string | null>(null)
   // Round-8 gap re-transcription: a status line shown during the aligning stage
   // while unaligned sections are being recovered ("Recovering N section(s)…").
   const [gapRecovery, setGapRecovery] = useState<string | null>(null)
@@ -269,6 +270,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       setProgress(0)
       setLoadDetail(null)
       setRetryNotice(null)
+      setRecoveryWarning(null)
 
       // Per-song memory: a stem that proved useless last time is not worth the
       // separation again (measured: ~17 minutes on a 6:33 track), so the remembered
@@ -521,6 +523,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       // below. Carries the calibrated residual the flow reports instead of the old
       // label-based count (see alignmentTrust.ts and ledger L14).
       let finalTrust: AlignmentTrust | null = null
+      let recoveryStopped = false
       const transcribeWithFallback = async (
         language: typeof alignmentLanguage,
         scaleProgress: (pct: number) => number,
@@ -536,23 +539,30 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
             ...transcribeOptions(language, scaleProgress),
             timestampMode: timestampModeOverride ?? forcedTimestampMode ?? effectiveTimestampMode,
             highAccuracy: effectiveHighAccuracy,
+            signal: abortRef.current?.signal,
           })
         try {
           return await run()
         } catch (e) {
           if (cancelledRef.current || !isRecoverableTranscriptionError(e)) throw e
-          if (effectiveTimestampMode === 'word' && !timestampModeOverride) {
+          if ((timestampModeOverride ?? forcedTimestampMode ?? effectiveTimestampMode) === 'word') {
             effectiveTimestampMode = 'segment'
             // Shown in the transcribing stage's detail area (loadDetail never
             // rendered there — the bar just snapped to 0 unexplained).
             // A load/interrupted-download failure lands in this same rung, so it
             // must not be described as memory pressure: that sends the user off to
             // close tabs for a problem that is their connection.
-            setRetryNotice(
-              isNetworkFailure(e)
+            const notice = isNetworkFailure(e)
                 ? 'Downloading the speech model was interrupted — retrying…'
-                : 'Word-level pass failed (likely out of memory) — retrying with segment timestamps…',
-            )
+                : isTranscriptionTimeout(e) && 'phase' in e && e.phase === 'load'
+                  ? 'Speech model setup took too long — retrying…'
+                : isTranscriptionTimeout(e)
+                  ? 'Word-level timing took too long — retrying with segment timestamps…'
+                  : 'Word-level pass failed (likely out of memory) — retrying with segment timestamps…'
+            setRetryNotice(notice)
+            setLoadDetail(notice)
+            setLoadPhase('download')
+            setLastLoadProgress(null)
           } else if (effectiveHighAccuracy) {
             effectiveHighAccuracy = false
             const notice = 'High-accuracy model failed — retrying with the standard model…'
@@ -568,6 +578,11 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
           } else {
             throw e
           }
+          // Both crashes and deadlines retire the worker. Show its replacement
+          // loading, and let the next onModelLoaded transition back to inference.
+          modelAnnounced = false
+          setStage('loading')
+          console.info(`[AutoAlignFlow] recovery mode=${timestampModeOverride ?? forcedTimestampMode ?? effectiveTimestampMode} highAccuracy=${effectiveHighAccuracy} reason=${isTranscriptionTimeout(e) ? 'timeout' : 'failure'}`)
           setProgress(0)
           try {
             return await run()
@@ -771,10 +786,19 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
           setStage('transcribing')
           setProgress(0)
           forcedTimestampMode = 'segment'
-          const escalated = await runPasses()
-          forcedTimestampMode = null
-          if (!escalated) return
-          if (acceptEscalatedRun(verdict, modeRunVerdict(escalated.refined.lineAlignmentQuality))) {
+          let escalated: Awaited<ReturnType<typeof runPasses>> = null
+          try {
+            escalated = await runPasses()
+          } catch (e) {
+            if (cancelledRef.current || !isRecoverableTranscriptionError(e)) throw e
+            recoveryStopped = true
+            setRecoveryWarning('Additional timing checks could not finish. Your first alignment has been kept for review.')
+            console.warn('[AutoAlignFlow] optional timestamp retry failed; keeping first alignment', String(e))
+          } finally {
+            forcedTimestampMode = null
+          }
+          if (cancelledRef.current) return
+          if (escalated && acceptEscalatedRun(verdict, modeRunVerdict(escalated.refined.lineAlignmentQuality))) {
             refined = escalated.refined
             transcriptWords = escalated.transcriptWords
             effectiveTimestampMode = 'segment'
@@ -793,6 +817,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
       // Extracted so the convergence loop below can run it more than once. Returns
       // false when the run was cancelled.
       const runGapPass = async (): Promise<boolean> => {
+        if (recoveryStopped) return true
         // Re-use the main pass's exact progress callbacks (language-independent) so
         // the slice transcriber updates the UI the same way the main passes do. It
         // carries its OWN crash-downgrade ladder, seeded from the main pass's
@@ -808,8 +833,11 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
           timestampMode: effectiveTimestampMode,
           onLoadProgress: sliceLoadProgress,
           onTranscribeProgress: sliceTranscribeProgress,
+          signal: abortRef.current?.signal,
         })
-        const gap = await reanalyzeGaps({
+        let gap: Awaited<ReturnType<typeof reanalyzeGaps>>
+        try {
+          gap = await reanalyzeGaps({
           refined,
           transcriptWords,
           sheetRows,
@@ -823,7 +851,15 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
               n > 0 ? `Recovering ${n} unaligned section${n === 1 ? '' : 's'}…` : null,
             )
           },
-        })
+          })
+        } catch (e) {
+          if (cancelledRef.current || !isRecoverableTranscriptionError(e)) throw e
+          recoveryStopped = true
+          setGapRecovery(null)
+          setRecoveryWarning('Some timing repairs could not finish. The alignment is saved for review.')
+          console.warn('[AutoAlignFlow] gap recovery failed; keeping completed alignment', String(e))
+          return true
+        }
         if (cancelledRef.current) return false
         setGapRecovery(null)
         refined = gap.refined
@@ -879,7 +915,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
             sig: stemAccepted && vocalSig ? vocalSig : undefined,
           })
         let trust = assess()
-        for (let round = 0; round < MAX_TRUST_ROUNDS && !cancelledRef.current; round++) {
+        for (let round = 0; round < MAX_TRUST_ROUNDS && !cancelledRef.current && !recoveryStopped; round++) {
           if (trust.converged || trust.repairableLineIndices.length === 0) break
           setRetryNotice(
             `Refining ${trust.repairableLineIndices.length} uncertain line${trust.repairableLineIndices.length === 1 ? '' : 's'}…`,
@@ -887,6 +923,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
           const before = refined
           const beforeWords = transcriptWords
           if (!(await runGapPass())) return
+          if (recoveryStopped) break
           const next = assess()
           if (isWorseAlignment(next, trust)) {
             // Only a strictly worse round is discarded, so the extra transcription can
@@ -1278,6 +1315,7 @@ export function AutoAlignFlow({ song, onComplete, onClose, autoStart = false }: 
         )}
         {stage === 'done' && (
           <div className="space-y-3">
+            {recoveryWarning && <p role="status" className="text-yellow-400 text-sm">{recoveryWarning}</p>}
             {lowConfidence
               ? (
                 <p className="text-yellow-400 text-sm">

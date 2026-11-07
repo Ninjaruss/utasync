@@ -16,7 +16,11 @@ void purgeStaleCoepCaches()
 // usable from browsers no automation can drive (Firefox). The dynamic import
 // keeps it out of the production bundle.
 const e2eParams = new URLSearchParams(location.search)
-if (import.meta.env.DEV && /^[a-z0-9-]+$/.test(e2eParams.get('e2e') ?? '')) {
+if (import.meta.env.DEV && /^[a-z0-9-]+$/.test(e2eParams.get('benchmark') ?? '')) {
+  void import('./dev/syncBenchmarkHarness').then(({ runBenchmarkSuite }) =>
+    runBenchmarkSuite(document.getElementById('root')!, e2eParams.get('benchmark')!),
+  )
+} else if (import.meta.env.DEV && /^[a-z0-9-]+$/.test(e2eParams.get('e2e') ?? '')) {
   // `&flow=1` renders the REAL AutoAlignFlow on a seeded song and asserts on what
   // it renders (see e2eFlowHarness) — the only way to verify a button in a browser
   // no automation can drive. Without it, the headless mirror harness runs.

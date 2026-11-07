@@ -1091,3 +1091,68 @@ nothing rather than an arbitrary row.
 | 2026-09-30 | whisper-medium as arbiter | Assumed a better recogniser would anchor MORE lines and tighten the interval. Measured: whisper-medium on the veil stem anchors FEWER lines than small (coverage 47% -> 31%), with hallucinated non-monotone word timestamps, and the quality gate refuses its verdict. The "bigger model = better instrument" assumption failed on the arbiter side exactly as it failed on the alignment side (L16). |
 | 2026-09-30 | audit baselines | The ledger's guitar baseline (fixture transcript, p50 0.39 / p90 2.29 in segment mode) is not what the app produces at runtime: the same pipeline fed LIVE whisper-small on the same audio gives p50 0.85 / p90 10.73. Measured, not inferred (L32). The implication for the headline numbers is flagged as a hypothesis with a named test rather than asserted. |
 | 2026-09-30 | untimed highlight | Found BY the browser check rather than by reasoning: a song with no timing highlighted the last lyric line for its entire length (86/86 samples), because `lineEffectiveEnd` invented a `[0, ∞)` span for a line that has none. Fixed in `lineTiming.ts`, verified 86/86 → 0/86 in the browser, 4 new specs fail without the fix. |
+
+
+### L36 — Phase 0, arm D: Whisper known-text alignment is anchored to the audio (truth-free; NOT an accuracy result)
+
+- **Date:** 2026-11-03. **Instrument:** `experiments/phase0/knownTextAlign.mjs` + `score.mjs`
+  (whisper-small q8, cross-attention DTW over the forced lyric tokens, one ≤30 s window per
+  line placed from a prior only). Runs: `.cache/phase0/runs/` (local; they contain lyric text).
+- **Status:** **SOURCED, reproducible** given the local audio. **No human truth was used**, so
+  this says nothing about the ADR-0003 gate. It answers a narrower question: does D land on
+  the same audio position regardless of where it is told to look?
+- **Measured (5 songs with catalogue LRC priors, 238 lines):**
+
+  | song | D vs LRC median shift | D from LRC prior vs D from app-run prior, lines whose priors agree ≤1.5 s | planted +0.8 s recovered ≤0.25 s | planted −0.8 s recovered ≤0.25 s |
+  | --- | --- | --- | --- | --- |
+  | guitar-loneliness | −0.19 s | 100% (n=21), p90 0.06 s | 98% | 96% |
+  | veil | −0.36 s | 93% (n=30), p90 0.10 s | 96% | 100% |
+  | going-my-way | −0.24 s | 70% (n=27), p90 3.35 s | 81% | 84% |
+  | stranger-than-heaven | +0.96 s (237 s LRC edit vs 233.57 s audio) | — | — | — |
+  | recollect | −0.20 s | — | — | — |
+
+- **Corroboration:** D moves veil's LRC 0.36 s earlier; L30's independent stem arbiter found that
+  LRC +0.31 s late against the singing. Two unrelated instruments agree on sign and size.
+- **Failure mode, measured:** the lines that do NOT recover move by exactly the planted shift,
+  i.e. they follow the prior: line 0 of every song (no preceding context in its window), and
+  two runs of consecutive lines in going-my-way (indices 12–13, 24–26). "Does the result move
+  when the prior is nudged?" is therefore a usable, truth-free per-line reliability flag.
+- **Not covered:** where the prior is many seconds off (app-run priors with p90 15–24 s
+  disagreement), the window never contains the singing and D cannot recover — expected by
+  design. Cost: 4–5.5 s per line on 2 CPU cores; peak memory >2 GB (killed in a 3 GB VM).
+- **Next:** blind human onsets for these songs, then the ADR-0003 gate. Arm C (MMS) not run:
+  model not cached, huggingface.co unreachable from the agent environment.
+
+
+### L37 — a `♪` filler token does not fix prior-following lines; a free `pinned` flag detects them
+
+- **Date:** 2026-11-04. **Instrument:** `experiments/phase0/spikes/2026-11-04-prior-following.md`
+  (gate pre-registered before the run) and `gate-2026-11-04.mjs`.
+- **Mechanism (measured):** every line that followed its prior in L36 was the first text in its
+  window; its start equalled the window start exactly (shift −1.00 / −3.00 s).
+- **Variant result: FAIL on all three gate criteria.** 6 of 16 target cases fixed (needed ≥12);
+  going-my-way −0.8 s recovery fell 84% → 81%; baseline-stable going-my-way lines moved by a median
+  0.10 s. The filler also hid the failures from the edge flag (caught 1 of 6). Not adopted.
+- **Adopted instead:** `pinned` = start within 0.1 s of the window start. On the baseline runs it
+  catches 8 of 10 planted failures and flags 0 of 136 stable lines (misses moved 0.26 s, at the
+  0.25 s threshold). It is a truth-free per-line warning, not a fix; its value against human
+  truth is reported by `score.mjs` (false confidence column) once marks exist.
+
+
+### L38 — pinned lines fall back to the prior; PJS corpus prepared as label-free truth
+
+- **Date:** 2026-11-04. **Change:** `knownTextAlign.mjs` now replaces a `pinned` start (within
+  0.1 s of the window edge, L37) with the line's prior, keeping the raw value in `alignedStart`.
+  Rationale is by construction, not measurement: a pinned start equals the window start
+  (prior − 1 s or − 3 s), an artifact of where the window was cut, so the prior is never worse.
+  Affects 1–7 lines per run (1 on veil, guitar, recollect, stranger; 6 on going-my-way).
+- **Migration check:** existing runs were post-processed by `migrateFallback.mjs`; a full rerun of
+  guitar-loneliness with the new code matched the migrated run exactly (max difference 0.0 s,
+  47 lines), so migration is equivalent to re-running.
+- **Not measured:** whether the fallback improves accuracy — that needs truth. Expected effect is
+  a 1–3 s correction on each affected line toward the catalogue timing.
+- **PJS:** `experiments/phase0/pjs/buildCorpus.mjs` turns the PJS singing corpus (CC BY-SA 4.0,
+  arXiv:2006.02959) into multi-line "medleys" with measured onsets (phoneme labels if present,
+  else energy onset on the solo recording) and a synthetic catalogue LRC as prior. Verified on a
+  synthetic fixture (planted onsets recovered exactly). Not yet run on PJS: the corpus is only on
+  Google Drive, which is blocked from the agent environment.
