@@ -6,9 +6,18 @@ import { coverageVerdict, songCoverage, safeSkipReason } from './lib/corpusCover
 import { LYRIC_HASH_VERSION, hashLyricLine } from './lib/lyricHash.mjs'
 import { hash, lyricLines, requireAccess, scoreRun } from './lib/syncBenchmark.mjs'
 import { canCertify } from './lib/truthKinds.mjs'
+import { DEFAULT_MANIFEST, loadManifests, manifestPathsFrom, withoutManifestFlags } from './lib/manifestArgs.mjs'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const manifest = JSON.parse(readFileSync(resolve(root, 'benchmarks/sync/manifest.json')))
-const [command = 'inventory', id, runPath] = process.argv.slice(2)
+// --manifest may be repeated or comma-separated, exactly as in experiments/phase0/score.mjs, so the
+// PJS medleys (.cache/pjs/manifest.json) can be staged, collected and reported beside the real songs.
+// A duplicate song id is reported on stderr and the first manifest listing it wins.
+const rawArgs = process.argv.slice(2)
+const manifestPaths = manifestPathsFrom(rawArgs)
+const { warnings: manifestWarnings, ...manifest } = loadManifests(root, manifestPaths)
+// A medley-only invocation has no target of its own; judge it by the real-song manifest's.
+manifest.target ??= loadManifests(root, [DEFAULT_MANIFEST]).target
+for (const w of manifestWarnings) console.error(`manifest warning: ${w}`)
+const [command = 'inventory', id, runPath] = withoutManifestFlags(rawArgs)
 const file = p => resolve(root, p)
 const save = (p, obj) => { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, JSON.stringify(obj, null, 2) + '\n') }
 function inputs(song) {
@@ -19,7 +28,7 @@ function inputs(song) {
 }
 if (command === 'stage-pilot') {
   const songs = manifest.songs.filter(s => s.split === 'development')
-  for (const song of songs) execFileSync(process.execPath, [file('scripts/sync-benchmark.mjs'), 'stage', song.id, ...(process.argv.includes('--mix') ? ['--mix'] : [])], { cwd: root, stdio: 'inherit' })
+  for (const song of songs) execFileSync(process.execPath, [file('scripts/sync-benchmark.mjs'), 'stage', song.id, ...manifestPaths.flatMap(p => ['--manifest', p]), ...(process.argv.includes('--mix') ? ['--mix'] : [])], { cwd: root, stdio: 'inherit' })
   save(file('public/e2e/benchmark/pilot.json'), songs.map(s => s.id))
   console.log('Open /?benchmark=pilot; runs sequentially and stops on timeout or cancellation.')
 } else if (command === 'inventory') {

@@ -16,9 +16,10 @@ run() { # song priorKind(lrc|run) [shift] [runfile]
   local s=$1 p=$2 sh=${3:-} rf=${4:-}
   [ -f "$(out "$s" "$p" "$sh")" ] && { echo "skip $s $p $sh" >> "$log"; return; }
   local args=("$s" --prior "$([ "$p" = run ] && echo "run:$rf" || echo lrc)")
+  [ -n "${MANIFEST:-}" ] && args+=(--manifest "$MANIFEST")
   [ -n "$sh" ] && args+=(--prior-shift "$sh")
   echo "=== ${args[*]} $(date -u +%FT%TZ)" >> "$log"
-  node experiments/phase0/knownTextAlign.mjs "${args[@]}" >> "$log" 2>&1 || echo "FAILED ${args[*]}" >> "$log"
+  node experiments/phase0/knownTextAlign.mjs "${args[@]}" >> "$log" 2>&1 </dev/null || echo "FAILED ${args[*]}" >> "$log"
 }
 run veil lrc
 run veil run "" $R/veil-81cdf87f-cae5-4140-b157-b2498e67312e.json
@@ -33,4 +34,20 @@ run recollect lrc
 run veil lrc -0.8
 run guitar-loneliness lrc -0.8
 run going-my-way lrc +0.8
+# PJS medleys (corpus-onsets). Arm B is the synthetic prior the builder plants (D@lrc); arm A is the
+# current pipeline's own output, read from the prior of D@run, which needs a browser run per medley:
+#   npm run benchmark:sync -- stage-pilot --manifest .cache/pjs/manifest.json   (then /?benchmark=pilot)
+#   npm run benchmark:sync -- collect
+# A medley with no completed browser run yet is logged and skipped, so its arm A shows as "not
+# evaluated" in the report rather than being faked. Manifests default to the two builder outputs
+# (unaccompanied, --bed); override with PJS_MANIFESTS="a.json b.json".
+for m in ${PJS_MANIFESTS:-.cache/pjs/manifest.json .cache/pjs-bed/manifest.json}; do
+  [ -f "$m" ] || { echo "no PJS manifest at $m (build it: experiments/phase0/README.md)" >> "$log"; continue; }
+  while IFS=$'\t' read -r id _; do
+    MANIFEST=$m run "$id" lrc
+    rf=$(node experiments/phase0/medleyBatch.mjs latest "$R" "$id")
+    if [ -n "$rf" ]; then MANIFEST=$m run "$id" run "" "$rf"
+    else echo "no completed arm A browser run for $id; D@run skipped" >> "$log"; fi
+  done < <(node experiments/phase0/medleyBatch.mjs ids "$m")
+done
 echo "=== ALL DONE $(date -u +%FT%TZ)" >> "$log"

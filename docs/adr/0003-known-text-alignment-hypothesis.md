@@ -153,14 +153,19 @@ claim anything about the unsampled interior.
 plants (a constant per-medley offset plus per-line jitter, in place of a catalogue LRC): a fair
 prior, but a stand-in for a catalogue artefact rather than one. Arm A is a run of the current
 PWA pipeline over the medley's own `.wav` and lyric sheet — nothing about a medley prevents it,
-since it is ordinary local audio with a matching sheet. **Two pieces of plumbing do not exist
-yet**, and until they do the `corpus-onsets` column cannot pass clause 3: `scripts/sync-benchmark.mjs`
-reads `benchmarks/sync/manifest.json` at a fixed path and so cannot see a medley, and
-`runAll.sh` has no PJS entries. The consequence, stated rather than left to be discovered:
-with only `--prior lrc` runs the report prints arm A as "not evaluated" for `corpus-onsets`,
-which is NOT MET. Closing it means teaching the benchmark harness a manifest path and adding
-the PJS songs to the batch; it is a change to the instrument, not to this gate, and it is not
-part of the restatement.
+since it is ordinary local audio with a matching sheet. **The plumbing now exists (2026-11-07), and
+has not yet run on a real medley.** `scripts/sync-benchmark.mjs` takes the same repeatable
+`--manifest` as `score.mjs` (shared reader: `scripts/lib/manifestArgs.mjs`, duplicate ids reported,
+first wins), so `stage-pilot`, `collect`, `report` and `score` see medleys; and `runAll.sh` has a PJS
+section that, per medley, runs `D@lrc` (arm B, the planted prior) and `D@run` from that medley's
+newest completed browser run (arm A). Arm A itself is still a **browser run per medley**
+(`stage-pilot`, open `/?benchmark=pilot`, `collect`) — the plumbing removes the manifest blocker, not
+the hours of Whisper. A medley with no completed browser run is logged and skipped, so the report still
+prints arm A as "not evaluated" (NOT MET) rather than inventing it. The medley path was built and
+tested against synthetic fixtures only: the PJS archive is a manual download and was not on the
+machine, so no real medley has been through the pipeline. That is the open question this
+change does not answer — nothing in the code gates a short, silence-separated clip out of
+`AutoAlignFlow`, but no run has shown it aligns one sensibly. The instrument change is not part of the restatement.
 
 250 ms and 1 s are **judgements, not measurements** — see ledger L41 for what each rests on
 and what it is bracketed against. Nothing in this repository measures how sharply a *sung*
