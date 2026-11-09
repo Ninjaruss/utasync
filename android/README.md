@@ -21,7 +21,6 @@ experiment (`../experiments/phase0/`, ADR-0003).
 Requirements: JDK 17, Android SDK 35. Open this folder in Android Studio, or:
 
 ```sh
-gradle wrapper --gradle-version 8.11.1   # once: generates gradlew + gradle-wrapper.jar
 ./gradlew :align:test :app:assembleDebug
 ```
 
@@ -30,10 +29,10 @@ gradle wrapper --gradle-version 8.11.1   # once: generates gradlew + gradle-wrap
 - `:align` compiles with Kotlin 2.1.0 (`-Werror`) and its 16 tests pass. Its window planner
   produces exactly the windows of `experiments/phase0/knownTextAlign.mjs` on a real song
   (48 of 48, difference 0.0 s).
-- `:app`, `:data` and `:playback` were written **without an Android SDK or Google Maven**
-  (both unreachable from the authoring environment) and have **never been compiled**. Expect
-  a small number of fixes on first sync. CI (`.github/workflows/android.yml`) is the first
-  real build.
+- `:app`, `:data` and `:playback` were written without an Android SDK, then compiled for the
+  first time with the versions below: `./gradlew :align:test :app:assembleDebug` is green
+  (no source changes were needed), and CI (`.github/workflows/android.yml`) is configured to
+  run the same two commands; its first run has not happened yet. Nothing has been run on a device or emulator yet.
 - Versions in `gradle/libs.versions.toml` are deliberately conservative and known to work
   together. Upgrade them as a set (KSP must match Kotlin exactly).
 
