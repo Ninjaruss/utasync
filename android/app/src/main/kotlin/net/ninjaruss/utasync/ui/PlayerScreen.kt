@@ -109,6 +109,13 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
         return
     }
 
+    var tapping by rememberSaveable { mutableStateOf(false) }
+    if (tapping) {
+        BackHandler { tapping = false }
+        TapAlongScreen(songId, dao, controller, onDone = { tapping = false })
+        return
+    }
+
     val pickLrc = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch { importLrc(context, dao, songId, uri) }
     }
@@ -122,7 +129,10 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                actions = { TextButton(onClick = { pickLrc.launch(arrayOf("*/*")) }) { Text("Lyrics…") } },
+                actions = {
+                    TextButton(onClick = { tapping = true }, enabled = lines.isNotEmpty()) { Text("Tap along") }
+                    TextButton(onClick = { pickLrc.launch(arrayOf("*/*")) }) { Text("Lyrics…") }
+                },
             )
         },
         bottomBar = {

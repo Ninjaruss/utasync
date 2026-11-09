@@ -1382,3 +1382,23 @@ nothing rather than an arbitrary row.
 - **Playhead on Cancel:** observed once that the playhead was not where it started after leaving; the restore
   is coded but **not confirmed working**; treat as an open defect until checked.
 
+
+### L46 — Android tap-along: `TapSession.DEBOUNCE_MS` = 250 ms (a judgement, not a measurement)
+
+- **Where:** `android/align/.../TapAlong.kt`. **Gates:** a tap closer than this to the previous accepted tap is
+  rejected and consumes no line. Without it, an accidental double-tap times the next line at the same
+  instant and every later line is off by one.
+- **What it rests on:** nothing measured. It is meant to sit above the gap between the two taps of an
+  accidental double-tap (roughly 100-200 ms, from general experience, not from this project) and below
+  any real gap between sung lines (lines in this project's songs are seconds apart). If a rapid
+  deliberate sequence of short lines is rejected, lower it; if double-taps still get through, raise it.
+- **Not a judgement:** a tap earlier than the previous one is rejected outright; a tap after the last line
+  is rejected. Both are rules, not tuned numbers.
+- **Not handled:** tap latency (finger to player clock). Taps land a little after the true line start;
+  it is not compensated and has not been measured.
+- **Reproduce:** `cd android && ./gradlew :align:test --tests '*TapAlongTest*'` (logic only). The window's
+  effect on a real finger is untested.
+- **What was drawn (emulator-5554, `-no-audio`, 8-line test tone):** taps advance the highlighted line,
+  Undo steps back one, Save writes `source = "user"` anchors in ms and leaves `lines` unchanged. Not heard.
+- **Reach:** this is the tool for errors beyond nudge's roughly +/-6 s (L45); nothing yet routes the user
+  from one to the other.
