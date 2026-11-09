@@ -1341,3 +1341,21 @@ nothing rather than an arbitrary row.
 - **Open item:** on a physical phone, drag over a song and listen. If audio lags the thumb or stutters
   with seek storms, adjust the constant and record what was heard here. Untested until then.
 - **Reproduce:** `cd android && ./gradlew :playback:testDebugUnitTest --tests '*ScrubberTest*'`.
+
+### L45 — Android nudge screen: `ScrubAudio.IDLE_PAUSE_MS` = 150 ms and `NudgeWindow.SPAN_MS` = 12 s (judgements, not measurements; never heard on a device)
+
+- **Where:** `android/app/.../ui/ScrubAudio.kt`, `NudgeState.kt`. **Gates:** (1) `IDLE_PAUSE_MS`: how long a
+  held finger keeps the player running before it pauses, so a stationary thumb repeats its spot instead of
+  the song running ahead of it. Playback starts on the first drag event (a paused ExoPlayer is silent on
+  `seekTo`) and the pre-gesture play state is restored on release. (2) `SPAN_MS`: seconds of song across
+  the waveform; this bounds how far one drag can move a line (handle cannot leave the view).
+- **What they rest on:** 150 ms is above the 60 ms seek window (L44) so normal movement never idles, and
+  below a perceptible pause. 12 s is about two or three sung lines at the pace of the demo songs. Both are
+  judgements; nothing was measured or listened to.
+- **Hard numbers in the same change that are NOT judgements:** `MIN_GAP_MS` = 50 equals `applyAnchors`'s
+  `minGapSec` default 0.05 (`NudgeStateTest.clampedTimeIsOneAlignLeavesAlone`); `FINE_STEP_MS` = 100 is the
+  product spec's "±0.1 s".
+- **Open item:** on a physical phone, drag with the song paused and listen: does it sound under the thumb,
+  does a held finger repeat cleanly, is 12 s too narrow. Record what was heard here.
+- **Reproduce:** `cd android && ./gradlew :app:testDebugUnitTest --tests '*ScrubAudioTest*' --tests '*NudgeStateTest*'`
+  (logic only; says nothing about how it sounds).
