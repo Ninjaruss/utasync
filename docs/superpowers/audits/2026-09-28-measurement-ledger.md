@@ -1325,3 +1325,19 @@ nothing rather than an arbitrary row.
 - **Reproduce:** `cd android && ./gradlew :playback:connectedDebugAndroidTest`, then
   `adb logcat -d -s WaveformGate` (each line carries the device tag). Run it on a physical phone to
   fill the empty row; until then this gate is unmet and untested on hardware.
+
+### L44 — Android `Scrubber.COALESCE_WINDOW_MS` = 60 ms (a judgement, not a measurement; never tried on a real player)
+
+- **Where:** `android/playback/.../Scrubber.kt`. **Gates:** how often a drag on the nudge waveform
+  issues a `seekTo`. The first position in a window seeks at once; later ones are held and only the
+  latest is seeked to when the window ends. At 60 ms a drag is capped at ~16 seeks/s.
+- **What it rests on:** a UX judgement. 60 ms is about four 60 Hz frames: short enough that the audio
+  feels attached to the thumb, long enough that a drag emitting hundreds of events/s does not queue
+  hundreds of seeks. Nothing was measured. It was deliberately **not** timed on the emulator or any
+  player (L43 shows emulator timings do not transfer to hardware).
+- **What the tests do and do not pin:** `ScrubberTest` uses a fake clock and a fake seek target. It
+  proves the *coalescing logic* (one seek per window, last position wins, no seek after `stop`). It
+  says nothing about whether 60 ms *sounds* right, or about real `MediaController.seekTo` latency.
+- **Open item:** on a physical phone, drag over a song and listen. If audio lags the thumb or stutters
+  with seek storms, adjust the constant and record what was heard here. Untested until then.
+- **Reproduce:** `cd android && ./gradlew :playback:testDebugUnitTest --tests '*ScrubberTest*'`.

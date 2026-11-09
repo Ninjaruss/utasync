@@ -22,6 +22,8 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
 
+    testImplementation(libs.junit)
+
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.junit)
 }
