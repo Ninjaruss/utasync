@@ -31,8 +31,8 @@ Requirements: JDK 17, Android SDK 35. Open this folder in Android Studio, or:
   (48 of 48, difference 0.0 s).
 - `:app`, `:data` and `:playback` were written without an Android SDK, then compiled for the
   first time with the versions below: `./gradlew :align:test :app:assembleDebug` is green
-  (no source changes were needed), and CI (`.github/workflows/android.yml`) runs the same
-  two commands. Nothing has been run on a device or emulator yet.
+  (no source changes were needed), and CI (`.github/workflows/android.yml`) is configured to
+  run the same two commands; its first run has not happened yet. Nothing has been run on a device or emulator yet.
 - Versions in `gradle/libs.versions.toml` are deliberately conservative and known to work
   together. Upgrade them as a set (KSP must match Kotlin exactly).
 

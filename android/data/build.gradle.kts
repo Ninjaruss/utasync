@@ -7,6 +7,7 @@ plugins {
 android {
     namespace = "net.ninjaruss.utasync.data"
     compileSdk = 35
+    buildToolsVersion = "35.0.0"
     defaultConfig { minSdk = 26 }
 }
 
