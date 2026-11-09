@@ -12,8 +12,9 @@ import androidx.media3.session.MediaController
  * make the audio lag behind the thumb. So seeks are coalesced: the first position in a window
  * seeks at once (the drag is audible immediately), later ones are held, and when the window
  * ends only the **latest** held position is seeked to. At most one seek per
- * [COALESCE_WINDOW_MS]; the last position always wins. [stop] drops the held position, so no
- * seek happens after the finger lifts.
+ * [COALESCE_WINDOW_MS]; during a drag the most recent position wins. [stop] drops any held
+ * position, so no seek happens after the finger lifts; the final position on release is
+ * therefore the caller's to apply.
  *
  * Free of Android UI types: time and scheduling come from [Timer], so tests are deterministic.
  */
@@ -80,7 +81,7 @@ class Scrubber(private val seek: (Long) -> Unit, private val timer: Timer) {
 
     companion object {
         /**
-         * 60 ms: a judgement, not measured (ledger L44). About four 60 Hz frames: short enough
+         * 60 ms: a judgement, not measured (ledger L44). About four 60 Hz frames (3.6, rounded): short enough
          * that audio tracks the thumb, long enough to cap a drag at ~16 seeks/s.
          */
         const val COALESCE_WINDOW_MS = 60L
