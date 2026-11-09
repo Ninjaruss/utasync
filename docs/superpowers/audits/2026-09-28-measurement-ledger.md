@@ -1370,3 +1370,15 @@ nothing rather than an arbitrary row.
   reaches roughly +/-6 s at most, bounded by the neighbour clamp, not the 12 s view. Errors in the 6-24 s
   band measured in this project belong to tap-along (Task 5). **Nothing yet hands the user from one tool to
   the other**; today they must know. "Centre on playhead" moves the view, not the clamp.
+- **Rotation (fixed in part).** Rotating used to drop an unsaved drag and re-decode. The proposal now
+  survives rotation (`rememberSaveable`, re-applied when the state is rebuilt; observed on the emulator: New
+  12.45 s kept after rotating). The **waveform still decodes again**, so a rotation mid-correction costs the
+  decode time (28-49 s for a 4-minute file, L43) behind the Loading state; the handle works meanwhile.
+- **Clamp outside the view (fixed).** When a clamp lands outside the window (reachable after "Centre on
+  playhead"), the handle, original and neighbour lines are now pinned to the view edge instead of vanishing,
+  and the status text sits in a minimum-height slot so a message appearing mid-drag does not shove the waveform
+  under the finger. Observed: `pinned_clamp_outside_view.png` (handle at the left edge, New 12.45 s, clamp text).
+  Pinning shows that a clamp happened, not by how much.
+- **Playhead on Cancel:** observed once that the playhead was not where it started after leaving; the restore
+  is coded but **not confirmed working**; treat as an open defect until checked.
+

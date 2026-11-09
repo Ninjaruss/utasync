@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -38,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -95,9 +97,12 @@ fun NudgeScreen(
         return
     }
     // Anchors win over computed starts: they are what the player shows.
+    // An unsaved drag survives rotation (the waveform does not; it decodes again).
+    var savedProposal by rememberSaveable(songId, lineIndex) { mutableStateOf<Long?>(null) }
     val state by produceState<NudgeState?>(null, songId, lineIndex) {
         val pinned = dao.anchors(songId).associate { it.lineIndex to it.timeMs }
         value = NudgeState.forLine(loadedLines.map { pinned[it.lineIndex] ?: it.startMs }, lineIndex)
+            .also { st -> savedProposal?.let(st::drag) }
     }
     val s = state ?: return Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
 
@@ -113,6 +118,7 @@ fun NudgeScreen(
     val scope = rememberCoroutineScope()
     val proposed by s.proposedFlow.collectAsStateWithLifecycle()
     val clamped by s.clampedFlow.collectAsStateWithLifecycle()
+    LaunchedEffect(proposed) { savedProposal = proposed }
     val waveform by s.waveform.collectAsStateWithLifecycle()
     var window by remember(s) { mutableStateOf(NudgeWindow.around(s.initialCenterMs())) }
     // Leaving must not move the song: remember where the playhead was and put it back.
@@ -146,15 +152,21 @@ fun NudgeScreen(
                 Text("Original ${fmt(s.original)}", color = Amber)
                 Text("New ${fmt(proposed)}", color = Blue)
             }
-            when (val w = waveform) {
-                WaveformStatus.Loading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    Text("Reading waveform… you can already drag to place the line by ear.")
+            // Minimum-height status slot: a message appearing mid-drag must not shove the waveform
+            // out from under the finger.
+            Box(Modifier.fillMaxWidth().heightIn(min = 96.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                when (val w = waveform) {
+                    WaveformStatus.Loading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Text("Reading waveform… you can already drag to place the line by ear.")
+                    }
+                    is WaveformStatus.Failed -> Text(w.message, color = MaterialTheme.colorScheme.error)
+                    is WaveformStatus.Ready -> Unit
                 }
-                is WaveformStatus.Failed -> Text(w.message, color = MaterialTheme.colorScheme.error)
-                is WaveformStatus.Ready -> Unit
+                if (clamped) Text("Stopped at the neighbouring line: a line cannot pass its neighbours.")
+                }
             }
-            if (clamped) Text("Stopped at the neighbouring line: a line cannot pass its neighbours.")
 
             val envelope = (waveform as? WaveformStatus.Ready)?.envelope
             Canvas(
@@ -232,13 +244,15 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNudge(
             drawLine(Color.Gray, Offset(x.toFloat(), mid - half), Offset(x.toFloat(), mid + half), strokeWidth = 2f)
         }
     }
+    // Everything is pinned to the view edge when it lies outside, so a clamp is never invisible.
+    fun xOf(ms: Long) = window.xAt(ms, w).coerceIn(0f, w)
     for (n in listOfNotNull(s.neighbourBefore, s.neighbourAfter)) {
-        val x = window.xAt(n, w)
-        if (x in 0f..w) drawLine(Color.DarkGray, Offset(x, 0f), Offset(x, h), strokeWidth = 2f)
+        val x = xOf(n)
+        drawLine(Color.DarkGray, Offset(x, 0f), Offset(x, h), strokeWidth = 2f)
     }
-    s.original?.let { drawLine(Amber, Offset(window.xAt(it, w), 0f), Offset(window.xAt(it, w), h), strokeWidth = 4f) }
+    s.original?.let { drawLine(Amber, Offset(xOf(it), 0f), Offset(xOf(it), h), strokeWidth = 4f) }
     proposed?.let {
-        val x = window.xAt(it, w)
+        val x = xOf(it)
         val c = if (enabled) Blue else Color.Gray
         drawLine(c, Offset(x, 0f), Offset(x, h), strokeWidth = 4f)
         drawCircle(c, radius = 28f, center = Offset(x, mid))
