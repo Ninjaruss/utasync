@@ -1278,3 +1278,39 @@ nothing rather than an arbitrary row.
   each medley's own offset is written to `.cache/pjs/<id>.lrc.json` as `plantedOffset`. To test the
   pin boundary, re-score an existing run at other values of `PIN_SEC` and read the flagged count and
   the clause-2 column: not done here.
+
+### L43 — Android waveform decode gate: a 4-minute file decodes in under 2 s (a judgement, not a measurement; currently UNMET on the emulator, UNTESTED on hardware)
+
+- **What:** the pre-registered gate for `decodeEnvelope` (`android/playback/.../WaveformDecoder.kt`)
+  in the Android correction plan, Task 2. The gate is "a 4-minute local file → 200 peaks/s envelope in
+  **< 2 s** on a debug build, and envelope length within **50 ms** of the file duration". The 50 ms is
+  10 peaks at 200/s, i.e. the envelope's own grain; the 2 s is the number this entry is about.
+- **Gates:** whether the nudge screen (drag a line start along a waveform) may be built on this decoder.
+  Nothing in `src/` or `android/` reads the constant; it is a go/no-go for the plan. CI asserts only a
+  coarse real-time factor (< 10x audio length) so a hang or order-of-magnitude regression fails, and
+  deliberately does **not** assert 2 s.
+- **2 s for 4 min — a judgement, not measured.** It rests on a UX budget: the waveform should appear
+  about as fast as the screen opens, and 2 s is roughly "the user does not feel a wait". Nothing was
+  measured to derive it. It is expressed as ms because the plan wrote it that way; the portable form is
+  a real-time factor: 2 s / 240 s = 0.0083.
+- **Length (hardware-independent):** WAV, mono and stereo, 6 s and 240 s: exact. AAC-LC stereo
+  (in-test `MediaCodec`+`MediaMuxer`): 6.000 s source → 1199 peaks, durationMs 5990; 240.000 s source →
+  47996 peaks, durationMs 239978. Both inside 50 ms (10 / 22 ms short, i.e. 2 / 4 peaks).
+- **Timings taken (every one; the device is in each row — emulator numbers are NOT hardware numbers):**
+
+  | Input | Device | Warm-up? | Time | RTF | vs 2 s |
+  | --- | --- | --- | --- | --- | --- |
+  | PCM WAV, mono 44.1k, 240 s | EMULATOR (AVD sdk_gphone64_arm64, android-35, software GPU) | no (cold) | 6104, 9390, 6985 ms | 0.025–0.039 | over |
+  | PCM WAV, stereo 44.1k, 240 s | EMULATOR (same) | yes (one prior decode of the AAC file) | 8164 ms | 0.034 | over |
+  | AAC-LC stereo 128 kbps 44.1k, 240 s | EMULATOR (same) | yes | 31603, 49642, 43276 ms | 0.132–0.207 | over, 16–25x |
+  | any | real phone | — | **not measured** | — | **untested** |
+
+  The mono-WAV rows exercised the PCM pass-through path only (no compressed decoder), so they say
+  nothing about real songs; the AAC row is the realistic input. The emulator runs software codecs on
+  an Apple Silicon host; the relationship to a phone's hardware or NEON decoder is unknown and not
+  assumed.
+- **What is and is not known:** on the emulator the approach is well over the judged budget on realistic
+  input. That is a finding about *this emulator*, not proof that a phone misses. It is not tuned.
+- **Reproduce:** `cd android && ./gradlew :playback:connectedDebugAndroidTest`, then
+  `adb logcat -d -s WaveformGate` (each line carries the device tag). Run it on a physical phone to
+  fill the empty row; until then this gate is unmet and untested on hardware.

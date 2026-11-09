@@ -58,7 +58,14 @@ private suspend fun decode(context: Context, uri: Uri, peaksPerSecond: Int): Env
         var channels = inFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
         var floatPcm = false
 
-        val peaks = ArrayList<Float>(1024)
+        // Capacity from the container's duration hint (+ slack); grown if the hint is short/absent.
+        val hintUs = if (inFormat.containsKey(MediaFormat.KEY_DURATION)) inFormat.getLong(MediaFormat.KEY_DURATION) else 0L
+        var peaks = FloatArray((hintUs * peaksPerSecond / 1_000_000L).toInt() + 64)
+        var peakCount = 0
+        fun addPeak(v: Float) {
+            if (peakCount == peaks.size) peaks = peaks.copyOf(maxOf(1024, peaks.size * 2))
+            peaks[peakCount++] = v
+        }
         var frames = 0L // decoded frames so far (one frame = one sample per channel)
         var bucketMax = 0f
         var bucketIdx = 0L // bucket k covers frames [k*rate/pps, (k+1)*rate/pps)
@@ -106,7 +113,7 @@ private suspend fun decode(context: Context, uri: Uri, peaksPerSecond: Int): Env
                             frames++
                             // Close every bucket whose end boundary this frame has reached.
                             while (frames * peaksPerSecond >= (bucketIdx + 1) * sampleRate) {
-                                peaks.add(bucketMax.coerceAtMost(1f))
+                                addPeak(bucketMax.coerceAtMost(1f))
                                 bucketMax = 0f
                                 bucketIdx++
                             }
@@ -118,8 +125,8 @@ private suspend fun decode(context: Context, uri: Uri, peaksPerSecond: Int): Env
             }
         }
         // Flush the trailing partial bucket so the envelope covers the whole file.
-        if (frames * peaksPerSecond > bucketIdx * sampleRate) peaks.add(bucketMax.coerceAtMost(1f))
-        return Envelope(peaksPerSecond, peaks.toFloatArray(), frames * 1000L / sampleRate)
+        if (frames * peaksPerSecond > bucketIdx * sampleRate) addPeak(bucketMax.coerceAtMost(1f))
+        return Envelope(peaksPerSecond, peaks.copyOf(peakCount), frames * 1000L / sampleRate)
     } finally {
         runCatching { codec?.stop() }
         runCatching { codec?.release() }
