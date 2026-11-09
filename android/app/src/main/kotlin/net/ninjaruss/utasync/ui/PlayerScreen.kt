@@ -1,8 +1,10 @@
 package net.ninjaruss.utasync.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -32,6 +34,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -48,7 +51,7 @@ import net.ninjaruss.utasync.align.activeLineIndex
 import net.ninjaruss.utasync.data.SongDao
 import net.ninjaruss.utasync.playback.PlayerConnection
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
     val context = LocalContext.current
@@ -98,6 +101,14 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
         if (active >= 0) listState.animateScrollToItem(maxOf(0, active - 2))
     }
 
+    // Long-press a line to nudge its start by ear. Hosted here so the player connection is shared.
+    var nudging by rememberSaveable { mutableStateOf<Int?>(null) }
+    nudging?.let { index ->
+        BackHandler { nudging = null }
+        NudgeScreen(songId, index, dao, controller, onDone = { nudging = null })
+        return
+    }
+
     val pickLrc = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch { importLrc(context, dao, songId, uri) }
     }
@@ -139,7 +150,11 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
                         color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable(enabled = line.startMs != null) { line.startMs?.let { controller?.seekTo(it) } }
+                            .combinedClickable(
+                                onLongClickLabel = "Nudge this line's start",
+                                onLongClick = { nudging = i },
+                                onClick = { line.startMs?.let { controller?.seekTo(it) } },
+                            )
                             .padding(horizontal = 24.dp, vertical = 10.dp),
                     )
                 }

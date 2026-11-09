@@ -5,7 +5,9 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -30,6 +33,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -42,6 +47,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.session.MediaController
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import net.ninjaruss.utasync.data.SongDao
 import net.ninjaruss.utasync.playback.Envelope
@@ -108,8 +114,19 @@ fun NudgeScreen(
     val proposed by s.proposedFlow.collectAsStateWithLifecycle()
     val clamped by s.clampedFlow.collectAsStateWithLifecycle()
     val waveform by s.waveform.collectAsStateWithLifecycle()
-    val window = remember(s) { NudgeWindow.around(s.initialCenterMs()) }
-    val enabled = s.handleEnabled && audio != null
+    var window by remember(s) { mutableStateOf(NudgeWindow.around(s.initialCenterMs())) }
+    // Leaving must not move the song: remember where the playhead was and put it back.
+    val startPosition = remember(controller) { controller?.currentPosition }
+    DisposableEffect(controller) {
+        onDispose { startPosition?.let { controller?.seekTo(it) } }
+    }
+    var playing by remember { mutableStateOf(false) }
+    LaunchedEffect(controller) {
+        while (controller != null) { playing = controller.isPlaying; delay(200) }
+    }
+    // Derived from the collected state (not s.handleEnabled): reading the flow's value directly would
+    // not trigger recomposition when the decode fails, leaving the handle looking alive.
+    val enabled = waveform !is WaveformStatus.Failed && audio != null
 
     Scaffold(
         topBar = {
@@ -121,7 +138,9 @@ fun NudgeScreen(
             )
         },
     ) { pad ->
-        Column(Modifier.fillMaxSize().padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(pad).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(loadedLines[lineIndex].text, style = MaterialTheme.typography.titleLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                 Text("Original ${fmt(s.original)}", color = Amber)
@@ -129,27 +148,29 @@ fun NudgeScreen(
             }
             when (val w = waveform) {
                 WaveformStatus.Loading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CircularProgressIndicator(Modifier.height(20.dp))
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     Text("Reading waveform… you can already drag to place the line by ear.")
                 }
                 is WaveformStatus.Failed -> Text(w.message, color = MaterialTheme.colorScheme.error)
-                is WaveformStatus.Ready -> if (clamped) Text("Stopped at the neighbouring line.")
+                is WaveformStatus.Ready -> Unit
             }
+            if (clamped) Text("Stopped at the neighbouring line: a line cannot pass its neighbours.")
 
             val envelope = (waveform as? WaveformStatus.Ready)?.envelope
             Canvas(
                 Modifier
                     .fillMaxWidth()
                     .height(220.dp)
-                    .pointerInput(enabled, s, audio) {
+                    .pointerInput(enabled, s, audio, window) {
                         if (!enabled) return@pointerInput
-                        detectDragGestures(
+                        // Horizontal only, so a vertical swipe still scrolls the screen.
+                        detectHorizontalDragGestures(
                             onDragStart = { o ->
                                 audio!!.begin()
                                 s.drag(window.msAt(o.x, size.width.toFloat()))
                                 s.proposedMs?.let(audio::move)
                             },
-                            onDrag = { change, _ ->
+                            onHorizontalDrag = { change, _ ->
                                 change.consume()
                                 s.drag(window.msAt(change.position.x, size.width.toFloat()))
                                 s.proposedMs?.let(audio!!::move)
@@ -163,6 +184,14 @@ fun NudgeScreen(
             }
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(enabled = controller != null, onClick = {
+                    controller?.run { if (isPlaying) pause() else play() }
+                }) { Text(if (playing) "Pause" else "Play") }
+                OutlinedButton(enabled = controller != null, onClick = {
+                    controller?.let { window = NudgeWindow.around(it.currentPosition) }
+                }) { Text("Centre on playhead") }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(enabled = enabled && proposed != null, onClick = {
                     s.fine(-NudgeState.FINE_STEP_MS); s.proposedMs?.let { audio?.preview(it) }
                 }) { Text("−0.1 s") }
@@ -171,7 +200,7 @@ fun NudgeScreen(
                 }) { Text("+0.1 s") }
             }
             Button(
-                enabled = s.canSave && s.handleEnabled,
+                enabled = proposed != null && proposed != s.original && enabled,
                 onClick = { scope.launch { s.save(dao, songId, lineIndex); onDone() } },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Save") }

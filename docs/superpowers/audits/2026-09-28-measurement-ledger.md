@@ -1342,7 +1342,7 @@ nothing rather than an arbitrary row.
   with seek storms, adjust the constant and record what was heard here. Untested until then.
 - **Reproduce:** `cd android && ./gradlew :playback:testDebugUnitTest --tests '*ScrubberTest*'`.
 
-### L45 — Android nudge screen: `ScrubAudio.IDLE_PAUSE_MS` = 150 ms and `NudgeWindow.SPAN_MS` = 12 s (judgements, not measurements; never heard on a device)
+### L45 — Android nudge screen: `ScrubAudio.IDLE_PAUSE_MS` = 150 ms and `NudgeWindow.SPAN_MS` = 12 s (judgements, not measurements; drawn on the emulator, never heard)
 
 - **Where:** `android/app/.../ui/ScrubAudio.kt`, `NudgeState.kt`. **Gates:** (1) `IDLE_PAUSE_MS`: how long a
   held finger keeps the player running before it pauses, so a stationary thumb repeats its spot instead of
@@ -1359,3 +1359,14 @@ nothing rather than an arbitrary row.
   does a held finger repeat cleanly, is 12 s too narrow. Record what was heard here.
 - **Reproduce:** `cd android && ./gradlew :app:testDebugUnitTest --tests '*ScrubAudioTest*' --tests '*NudgeStateTest*'`
   (logic only; says nothing about how it sounds).
+- **What was drawn (emulator-5554, API 35, `-no-audio`, 27 s TTS m4a):** Loading, Ready, Failed (missing
+  file), a null-time line, portrait and landscape, a drag clamped at the neighbour, and Save writing one
+  `anchors` row with `lines` unchanged. Two layout defects were found and fixed this way (no scroll; squashed
+  progress indicator) plus a stale-state bug (handle stayed live after a failed decode). **Not heard:** the
+  emulator has no audio, so nothing here says whether scrubbing sounds right; `IDLE_PAUSE_MS` and the
+  `Scrubber` window remain untested by ear. **Not verified:** that Cancel restores the playhead (coded, not
+  observed).
+- **Known gap: reach.** A line cannot pass its neighbours (clamp) and lines sit ~3-5 s apart, so nudge
+  reaches roughly +/-6 s at most, bounded by the neighbour clamp, not the 12 s view. Errors in the 6-24 s
+  band measured in this project belong to tap-along (Task 5). **Nothing yet hands the user from one tool to
+  the other**; today they must know. "Centre on playhead" moves the view, not the clamp.
