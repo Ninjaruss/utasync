@@ -16,6 +16,7 @@ import kotlin.math.PI
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -119,7 +120,10 @@ class WaveformDecoderTest {
         return f
     }
 
-    private fun decode(f: File) = runBlocking { decodeEnvelope(context, Uri.fromFile(f), 200) }
+    // withTimeout so a hung codec loop fails loudly instead of stalling the run.
+    private fun decode(f: File) = runBlocking {
+        withTimeout(180_000) { decodeEnvelope(context, Uri.fromFile(f), 200) }
+    }
 
     private fun assertLengthAndShape(env: Envelope, seconds: Double, tol: Float) {
         assertEquals(200, env.peaksPerSecond)

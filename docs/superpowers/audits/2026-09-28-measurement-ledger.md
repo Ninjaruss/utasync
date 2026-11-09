@@ -1287,7 +1287,7 @@ nothing rather than an arbitrary row.
   10 peaks at 200/s, i.e. the envelope's own grain; the 2 s is the number this entry is about.
 - **Gates:** whether the nudge screen (drag a line start along a waveform) may be built on this decoder.
   Nothing in `src/` or `android/` reads the constant; it is a go/no-go for the plan. CI asserts only a
-  coarse real-time factor (< 10x audio length) so a hang or order-of-magnitude regression fails, and
+  coarse real-time factor (< 10x audio length) so an order-of-magnitude slowdown fails (the assert runs after the decode returns; a hang is caught separately by a 180 s `withTimeout` around each test decode), and
   deliberately does **not** assert 2 s.
 - **2 s for 4 min — a judgement, not measured.** It rests on a UX budget: the waveform should appear
   about as fast as the screen opens, and 2 s is roughly "the user does not feel a wait". Nothing was
@@ -1303,12 +1303,23 @@ nothing rather than an arbitrary row.
   | PCM WAV, mono 44.1k, 240 s | EMULATOR (AVD sdk_gphone64_arm64, android-35, software GPU) | no (cold) | 6104, 9390, 6985 ms | 0.025–0.039 | over |
   | PCM WAV, stereo 44.1k, 240 s | EMULATOR (same) | yes (one prior decode of the AAC file) | 8164 ms | 0.034 | over |
   | AAC-LC stereo 128 kbps 44.1k, 240 s | EMULATOR (same) | yes | 31603, 49642, 43276 ms | 0.132–0.207 | over, 16–25x |
+  | PCM WAV, stereo 44.1k, 240 s, **after loop change** (drain/feed with timeout 0, bulk buffer read) | EMULATOR (same) | yes | 5022 ms | 0.021 | over (gate: <2 s) |
+  | AAC-LC stereo 128 kbps 44.1k, 240 s, **after loop change** | EMULATOR (same) | yes | 31203, 28131, 38622 ms | 0.117–0.161 | over (gate: <8 s) |
   | any | real phone | — | **not measured** | — | **untested** |
 
   The mono-WAV rows exercised the PCM pass-through path only (no compressed decoder), so they say
   nothing about real songs; the AAC row is the realistic input. The emulator runs software codecs on
   an Apple Silicon host; the relationship to a phone's hardware or NEON decoder is unknown and not
   assumed.
+- **Loop-overhead experiment (gate written before the run: PCM WAV < 2 s AND AAC < 8 s).** Hypothesis:
+  the 10 ms-timeout one-buffer-per-iteration loop, not decode, was the cost. One change (feed all free
+  input buffers and drain all ready output with timeout 0; bulk-copy each output buffer to an array)
+  gave PCM 8.2 → 5.0 s and AAC 31.6/49.6/43.3 → 31.2/28.1/38.6 s. **Both gates missed**: the loop is
+  not the main cost on this emulator (PCM only improved ~40%, AAC within its own run-to-run spread). Not
+  iterated further, by design.
+- **Open item — float-PCM branch untested.** The decoder has a `ENCODING_PCM_FLOAT` path (and a bulk
+  float read); the emulator's decoders emit 16-bit, so it has never run. Needs a device whose decoder
+  emits float, or a test that requests float output via `KEY_PCM_ENCODING`.
 - **What is and is not known:** on the emulator the approach is well over the judged budget on realistic
   input. That is a finding about *this emulator*, not proof that a phone misses. It is not tuned.
 - **Reproduce:** `cd android && ./gradlew :playback:connectedDebugAndroidTest`, then
