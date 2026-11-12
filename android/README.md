@@ -27,7 +27,7 @@ Requirements: JDK 17, Android SDK 35. Open this folder in Android Studio, or:
 
 ## What has been verified, and what has not
 
-- `:align` compiles with Kotlin 2.1.0 (`-Werror`) and its 16 tests pass. Its window planner
+- `:align` compiles with Kotlin 2.1.0 (`-Werror`) and its 23 tests pass. Its window planner
   produces exactly the windows of `experiments/phase0/knownTextAlign.mjs` on a real song
   (48 of 48, difference 0.0 s).
 - `:app`, `:data` and `:playback` were written without an Android SDK, then compiled for the
@@ -46,6 +46,12 @@ Requirements: JDK 17, Android SDK 35. Open this folder in Android Studio, or:
 - No network calls (the manifest has no INTERNET permission yet; LRCLIB comes next).
 
 ## Pins survive everything
+
+> **Upgrading from an earlier build of this branch:** the `anchors` table gained a `writtenAtMs`
+> column, so the Room schema's identity hash changed while the version stayed at 1. There is no
+> migration and no `fallbackToDestructiveMigration`, so an older build's database makes Room throw
+> "cannot verify the data integrity" on first access — a crash, not a message. Uninstall the old
+> build first. This matters only to developers: the app has never shipped.
 
 A timing the user sets (by nudging a line or tapping along) is stored as an anchor, apart from
 the computed times in `lines`. Re-alignment, re-import or a pipeline change rewrites only the
