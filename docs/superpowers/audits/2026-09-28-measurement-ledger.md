@@ -1411,7 +1411,6 @@ nothing rather than an arbitrary row.
 - **Reach:** this is the tool for errors beyond nudge's roughly +/-6 s (L45); nothing yet routes the user
   from one to the other.
 
-
 ### L47 — Android practice speeds: 0.5x / 0.75x / 1x (a judgement, not a measurement)
 
 - **Where:** `SPEEDS` in `android/app/.../ui/PlayerScreen.kt`. **Gates:** which playback speeds the player offers.
@@ -1427,3 +1426,10 @@ nothing rather than an arbitrary row.
 - **Reproduce:** `cd android && ./gradlew :app:testDebugUnitTest --tests '*RepeatRangeTest*'` (range logic only).
   Loop seamlessness is unverified: the loop is driven by a per-frame poll (about 16 ms granularity), so it can
   overshoot the boundary by up to a frame; whether that is audible is unknown.
+- **Loop target is latched at the toggle (known sharp edge, no threshold added):** pressing Repeat picks the
+  active line at that instant. Pressed a beat before a line starts, it loops the previous line (seen once on the
+  emulator). Resolving that would need a proximity threshold, which rule 2 forbids without a measurement. A single
+  tap on the intended line retargets the loop. Following the active line instead cannot work: the position
+  crosses into the next line every pass.
+- **Unexamined, sub-frame:** the inclusive `position >= range.last` check can let one frame of the next line play
+  before the seek back, and the loop does not check for a pending seek. Not judged without audio.

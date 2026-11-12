@@ -88,12 +88,14 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
     // Read the player clock once per frame: no timers, no drift between audio and highlight.
     var positionMs by remember { mutableLongStateOf(0L) }
     var playing by remember { mutableStateOf(false) }
+    var durationMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(controller) {
         val c = controller ?: return@LaunchedEffect
         while (true) {
             withFrameNanos { }
             positionMs = c.currentPosition
             playing = c.isPlaying
+            durationMs = c.duration.coerceAtLeast(0L)  // TIME_UNSET (negative) until prepared
         }
     }
 
@@ -104,7 +106,7 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
     var speed by rememberSaveable { mutableStateOf(1f) }
     LaunchedEffect(controller) { controller?.let { speed = it.playbackParameters.speed } }
     LaunchedEffect(controller, speed) { controller?.setPlaybackSpeed(speed) }
-    val loopRange = repeatLine?.let { repeatRange(starts, it, song?.durationMs ?: controller?.duration?.takeIf { d -> d > 0 } ?: 0L) }
+    val loopRange = repeatLine?.let { repeatRange(starts, it, song?.durationMs ?: durationMs) }
     // Loop on the same per-frame clock that drives the highlight. When the clock reaches the
     // line's end, seek back to its start (also when the last line hits the end of the audio).
     LaunchedEffect(controller, loopRange) {

@@ -34,4 +34,10 @@ class RepeatRangeTest {
         assertEquals(1_000L..9_000L, repeatRange(listOf(1_000L, null, null, 9_000L), 0, duration))
         assertEquals(9_000L..duration, repeatRange(listOf(1_000L, 9_000L, null, null), 1, duration))
     }
+
+    @Test fun aHeldNoteLineRunsThroughTheSilenceToTheNextStart() {
+        // Accepted cost of one timestamp per line (spec 7.1): a line ending on a long note before an
+        // instrumental runs through that silence. Intended; do not "fix" by guessing an end.
+        assertEquals(1_000L..30_000L, repeatRange(listOf(1_000L, 30_000L), 0, duration))
+    }
 }
