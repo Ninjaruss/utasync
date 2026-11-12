@@ -1410,3 +1410,20 @@ nothing rather than an arbitrary row.
   Undo steps back one, Save writes `source = "user"` anchors in ms and leaves `lines` unchanged. Not heard.
 - **Reach:** this is the tool for errors beyond nudge's roughly +/-6 s (L45); nothing yet routes the user
   from one to the other.
+
+
+### L47 — Android practice speeds: 0.5x / 0.75x / 1x (a judgement, not a measurement)
+
+- **Where:** `SPEEDS` in `android/app/.../ui/PlayerScreen.kt`. **Gates:** which playback speeds the player offers.
+  Nothing else depends on them; speed goes straight to Media3 `setPlaybackSpeed`.
+- **What it rests on:** nothing measured. Three coarse steps were chosen so a learner can slow a line down
+  without a fiddly slider. No learner has used them and no study backs the values. If people want slower
+  or finer control, change the list.
+- **Not ours:** pitch preservation at reduced speed is the platform's job (Media3/ExoPlayer defaults).
+  Not verified here: the emulator runs `-no-audio`, so nothing about the sound was heard.
+- **Repeat range is not a constant:** `repeatRange` has no thresholds; a line loops from its start to the
+  next timed line's start (last line: the audio duration), so a line ending on a held note loops through
+  the following silence. That is the accepted cost of one timestamp per line.
+- **Reproduce:** `cd android && ./gradlew :app:testDebugUnitTest --tests '*RepeatRangeTest*'` (range logic only).
+  Loop seamlessness is unverified: the loop is driven by a per-frame poll (about 16 ms granularity), so it can
+  overshoot the boundary by up to a frame; whether that is audible is unknown.

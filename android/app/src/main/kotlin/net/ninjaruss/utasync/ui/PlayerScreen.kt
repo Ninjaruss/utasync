@@ -8,6 +8,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import kotlinx.coroutines.launch
 import net.ninjaruss.utasync.align.activeLineIndex
@@ -95,6 +98,27 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
     }
 
     val starts = remember(lines) { lines.map { it.startMs } }
+
+    // Practice: the line being looped (null = off) and the playback speed.
+    var repeatLine by rememberSaveable { mutableStateOf<Int?>(null) }
+    var speed by rememberSaveable { mutableStateOf(1f) }
+    LaunchedEffect(controller) { controller?.let { speed = it.playbackParameters.speed } }
+    LaunchedEffect(controller, speed) { controller?.setPlaybackSpeed(speed) }
+    val loopRange = repeatLine?.let { repeatRange(starts, it, song?.durationMs ?: controller?.duration?.takeIf { d -> d > 0 } ?: 0L) }
+    // Loop on the same per-frame clock that drives the highlight. When the clock reaches the
+    // line's end, seek back to its start (also when the last line hits the end of the audio).
+    LaunchedEffect(controller, loopRange) {
+        val c = controller ?: return@LaunchedEffect
+        val r = loopRange ?: return@LaunchedEffect
+        if (r.isEmpty()) return@LaunchedEffect
+        while (true) {
+            withFrameNanos { }
+            if (c.playbackState == Player.STATE_ENDED || (c.isPlaying && c.currentPosition >= r.last)) {
+                c.seekTo(r.first)
+                if (c.playbackState == Player.STATE_ENDED) c.play()
+            }
+        }
+    }
     val active = activeLineIndex(starts, positionMs)
     val listState = rememberLazyListState()
     LaunchedEffect(active) {
@@ -137,9 +161,23 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
         },
         bottomBar = {
             BottomAppBar {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                    Button(onClick = { controller?.run { if (isPlaying) pause() else play() } }) {
-                        Text(if (playing) "Pause" else "Play")
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Button(onClick = { controller?.run { if (isPlaying) pause() else play() } }) {
+                            Text(if (playing) "Pause" else "Play")
+                        }
+                        val canRepeat = repeatLine != null || starts.getOrNull(active) != null
+                        FilterChip(
+                            selected = repeatLine != null,
+                            enabled = canRepeat,
+                            onClick = { repeatLine = if (repeatLine != null) null else active },
+                            label = { Text("Repeat line") },
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        SPEEDS.forEach { s ->
+                            FilterChip(selected = speed == s, onClick = { speed = s }, label = { Text("${s}x") })
+                        }
                     }
                 }
             }
@@ -163,7 +201,10 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
                             .combinedClickable(
                                 onLongClickLabel = "Nudge this line's start",
                                 onLongClick = { nudging = i },
-                                onClick = { line.startMs?.let { controller?.seekTo(it) } },
+                                onClick = {
+                                    line.startMs?.let { controller?.seekTo(it) }
+                                    if (repeatLine != null && line.startMs != null) repeatLine = i
+                                },
                             )
                             .padding(horizontal = 24.dp, vertical = 10.dp),
                     )
@@ -172,3 +213,6 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
         }
     }
 }
+
+/** Speed choices. A judgement, not a measurement: see ledger L47. */
+private val SPEEDS = listOf(0.5f, 0.75f, 1f)
