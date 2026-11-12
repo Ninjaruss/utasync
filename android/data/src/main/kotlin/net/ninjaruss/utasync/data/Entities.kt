@@ -49,6 +49,14 @@ data class AnchorEntity(
     val timeMs: Long,
     /** "user" or "auto". */
     val source: String,
+    /**
+     * Wall-clock time this row was written, stamped by [SongDao.upsertUser]/[SongDao.upsertAuto].
+     * Callers leave it at 0; the DAO fills it in. It exists so that "the most recent correction
+     * wins" is available to [resolveStarts] as a conflict rule without a later schema migration
+     * (the app has never shipped, so the column is free today and costs a migration tomorrow).
+     * The resolver does not use it yet — see its KDoc.
+     */
+    val writtenAtMs: Long = 0,
 )
 
 /** Provenance of every alignment, so a better engine can re-prepare and be compared. */

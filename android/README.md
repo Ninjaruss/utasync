@@ -21,7 +21,8 @@ experiment (`../experiments/phase0/`, ADR-0003).
 Requirements: JDK 17, Android SDK 35. Open this folder in Android Studio, or:
 
 ```sh
-./gradlew :align:test :app:assembleDebug
+# Everything CI runs: every JVM unit test, then the debug APK.
+./gradlew :align:test :data:testDebugUnitTest :playback:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug
 ```
 
 ## What has been verified, and what has not
@@ -30,9 +31,11 @@ Requirements: JDK 17, Android SDK 35. Open this folder in Android Studio, or:
   produces exactly the windows of `experiments/phase0/knownTextAlign.mjs` on a real song
   (48 of 48, difference 0.0 s).
 - `:app`, `:data` and `:playback` were written without an Android SDK, then compiled for the
-  first time with the versions below: `./gradlew :align:test :app:assembleDebug` is green
-  (no source changes were needed), and CI (`.github/workflows/android.yml`) is configured to
-  run the same two commands; its first run has not happened yet. Nothing has been run on a device or emulator yet.
+  first time with the versions below (no source changes were needed). CI
+  (`.github/workflows/android.yml`) runs every JVM unit test — `:align:test`,
+  `:data:testDebugUnitTest`, `:playback:testDebugUnitTest`, `:app:testDebugUnitTest` — and then
+  `:app:assembleDebug`. The test tasks have to be named: `assembleDebug` does not compile unit-test
+  sources, so a build that only assembles cannot catch a broken or deleted test.
 - Versions in `gradle/libs.versions.toml` are deliberately conservative and known to work
   together. Upgrade them as a set (KSP must match Kotlin exactly).
 
@@ -55,13 +58,16 @@ pins. Check with `grep -rn startMs android/app/src/main`; every hit must be a wr
 unrelated to line times. Where pins disagree about order, the resolver returns a monotonic view
 (earlier line wins) and changes nothing stored; re-nudging either line fixes it.
 
-Automatic timings may only be stored with `SongDao.upsertAuto`, which refuses to replace a user
-pin (one anchor row per line, so a plain upsert of an "auto" row would destroy it).
+Automatic timings may only be stored with `SongDao.upsertAuto` and user pins only with
+`SongDao.upsertUser`; the raw `upsertAnchor` is `protected`, so no caller outside the DAO can
+write an anchor of the wrong source past those two checks. A pin is removed with
+`SongDao.deleteAnchor` (the nudge screen's "Clear pin"), the only supported undo.
 
-**The key test is instrumented-only and does not run in CI today.** `PinsSurviveReAlignmentTest`
-(real Room: pin, re-align, resolve; auto write cannot replace a pin) needs a device or emulator.
-CI runs only `:align:test :app:assembleDebug`. Before merging anything that touches timings, run:
+**CI runs every JVM unit test. The instrumented tests still need a device or emulator.**
+`PinsSurviveReAlignmentTest` (real Room: pin, re-align, resolve; auto write cannot replace a pin;
+each door refuses the other's source; clearing a pin restores the computed time) and
+`WaveformDecoderTest` do not run in CI. Before merging anything that touches timings, run them:
 
 ```sh
-./gradlew :data:testDebugUnitTest :app:testDebugUnitTest :align:test :data:connectedDebugAndroidTest
+./gradlew :data:connectedDebugAndroidTest :playback:connectedDebugAndroidTest
 ```

@@ -10,6 +10,7 @@ import java.nio.ByteOrder
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
@@ -151,8 +152,11 @@ private suspend fun decode(context: Context, uri: Uri, peaksPerSecond: Int): Env
                 codec.releaseOutputBuffer(o, false)
                 if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
             }
-            // Nothing moved this pass: block briefly on the output side instead of spinning.
-            if (fed == 0 && drained == 0 && !outputDone) Thread.sleep(2)
+            // Nothing moved this pass: yield briefly instead of spinning. delay, not Thread.sleep:
+            // this runs on Dispatchers.Default, whose pool is sized to the core count, so sleeping
+            // here blocks a core's worth of every other coroutine (ledger L43). 2 ms is a tuned
+            // number, not a measured one.
+            if (fed == 0 && drained == 0 && !outputDone) delay(2)
         }
         // Flush the trailing partial bucket so the envelope covers the whole file.
         if (frames * peaksPerSecond > bucketIdx * sampleRate) addPeak(bucketMax.coerceAtMost(1f))

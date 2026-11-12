@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -20,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -76,6 +78,9 @@ fun TapAlongScreen(songId: Long, dao: SongDao, controller: MediaController?, onD
     }
     val replaced = countReplaced(session.taps, userAnchored).takeIf { tapCount > 0 } ?: 0
     var notice by remember { mutableStateOf("") }
+    // Save is irreversible for the lines it replaces, and the caption above the button is not read
+    // mid-flow; when it would overwrite hand-placed pins, ask. No threshold, no tolerance.
+    var confirmReplace by remember { mutableStateOf(false) }
     var playing by remember(controller) { mutableStateOf(controller?.isPlaying == true) }
     DisposableEffect(controller) {
         val c = controller
@@ -91,6 +96,30 @@ fun TapAlongScreen(songId: Long, dao: SongDao, controller: MediaController?, onD
 
     LaunchedEffect(tapCount) {
         next?.let { listState.animateScrollToItem(maxOf(0, it - 1)) }
+    }
+
+    suspend fun saveTaps() {
+        session.taps.forEach { dao.upsertUser(it.toEntity(songId)) }
+        onDone()
+    }
+
+    if (confirmReplace) {
+        AlertDialog(
+            onDismissRequest = { confirmReplace = false },
+            title = { Text("Replace $replaced hand-timed line${if (replaced == 1) "" else "s"}?") },
+            text = {
+                Text(
+                    "Saving your $tapCount tap${if (tapCount == 1) "" else "s"} replaces " +
+                        "$replaced line${if (replaced == 1) "" else "s"} " +
+                        "you placed by hand. That cannot be undone; the hand-placed time${if (replaced == 1) "" else "s"} " +
+                        "will be gone.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmReplace = false; scope.launch { saveTaps() } }) { Text("Replace") }
+            },
+            dismissButton = { TextButton(onClick = { confirmReplace = false }) { Text("Keep my timings") } },
+        )
     }
 
     Scaffold(
@@ -137,7 +166,7 @@ fun TapAlongScreen(songId: Long, dao: SongDao, controller: MediaController?, onD
                         Text("Undo")
                     }
                     Button(
-                        onClick = { scope.launch { session.taps.forEach { dao.upsertAnchor(it.toEntity(songId)) }; onDone() } },
+                        onClick = { if (replaced > 0) confirmReplace = true else scope.launch { saveTaps() } },
                         enabled = tapCount > 0,
                     ) { Text("Save ($tapCount)") }
                 }

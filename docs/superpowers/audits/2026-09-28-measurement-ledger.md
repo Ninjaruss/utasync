@@ -1317,6 +1317,22 @@ nothing rather than an arbitrary row.
   gave PCM 8.2 → 5.0 s and AAC 31.6/49.6/43.3 → 31.2/28.1/38.6 s. **Both gates missed**: the loop is
   not the main cost on this emulator (PCM only improved ~40%, AAC within its own run-to-run spread). Not
   iterated further, by design.
+- **`peaksPerSecond` = 200 (`WaveformDecoder.kt`, the default argument) — a judgement, not a
+  measurement.** This entry's 50 ms length tolerance is derived from it (10 peaks at 200/s), so it
+  has to be stated here. What it buys: one peak per 5 ms. The nudge waveform is 12 s wide
+  (`NudgeWindow.SPAN_MS`, L45) on a phone screen of roughly 1080 px, so one screen pixel covers
+  about 11 ms — two peaks. That is the point: at 200/s the picture is never the limit on what the
+  eye can see, while the array stays small (a 4-minute song is 48 000 floats, 192 KB). Below about
+  100/s a pixel would span a peak or more and attack transients would smear; far above 200/s costs
+  memory for detail no pixel can show. Nothing was measured to pick it, and the decode cost is
+  dominated by the codec, not by the bucketing, so changing it would not move the timings above.
+- **`delay(2)` in the drain loop — a tuned number, not a measured one.** When a pass of the loop
+  neither feeds nor drains a buffer it waits 2 ms rather than spinning. It was `Thread.sleep(2)`,
+  which blocked a `Dispatchers.Default` pool thread (the pool is sized to the core count) inside
+  this very loop; it is now `delay(2)`, which suspends instead. The 2 ms is unchanged and
+  unmeasured: it is short enough to be well under one buffer of audio and long enough to stop a
+  busy-spin. The timings in the table above were taken with `Thread.sleep`; the change can only
+  free pool threads, not slow the decode, and it was not re-timed.
 - **Open item — float-PCM branch untested.** The decoder has a `ENCODING_PCM_FLOAT` path (and a bulk
   float read); the emulator's decoders emit 16-bit, so it has never run. Needs a device whose decoder
   emits float, or a test that requests float output via `KEY_PCM_ENCODING`.
@@ -1355,6 +1371,26 @@ nothing rather than an arbitrary row.
 - **Hard numbers in the same change that are NOT judgements:** `MIN_GAP_MS` = 50 equals `applyAnchors`'s
   `minGapSec` default 0.05 (`NudgeStateTest.clampedTimeIsOneAlignLeavesAlone`); `FINE_STEP_MS` = 100 is the
   product spec's "±0.1 s".
+- **`TimingResolver.MIN_PIN_GAP_MS` = 50 — the same rule, a third copy, and the one that guards the
+  guarantee.** `android/data/.../TimingResolver.kt`. **Gates:** how far a conflicting later user pin is
+  pushed forward in the resolved monotonic view when two user pins cross (the earlier line wins and the
+  later one is clamped to at least this far after it), and whether an auto pin is considered to "fit"
+  between its neighbours. It is not a tuned number: it is `applyAnchors`'s `minGapSec` default 0.05 s
+  expressed in ms, so that a time this module stores is never one the `:align` module would move. The
+  50 ms itself is `:align`'s, and is a floor on distinguishable line starts, not a measurement of
+  anything in this project. All three copies are now pinned to `:align`'s default by tests:
+  `NudgeStateTest.clampedTimeIsOneAlignLeavesAlone` and
+  `TimingResolverTest.theResolversMinimumGapIsTheAlignModulesDefault`, which reads the default back out
+  of `applyAnchors`'s behaviour rather than restating the literal. Changing one without the others now
+  fails a test. **Reproduce:** `cd android && ./gradlew :data:testDebugUnitTest :app:testDebugUnitTest`.
+- **Conflict rule: earlier-line-wins, with the data to change it now stored.** `AnchorEntity.writtenAtMs`
+  (stamped by `SongDao.upsertUser`/`upsertAuto`) records when each pin was written, so "the most recent
+  correction wins" is available whenever it is wanted. It was added while the database is still at
+  version 1 with no installed base, so it cost a regenerated schema JSON and no migration. The resolver
+  deliberately does **not** use it yet: no one has been observed hitting the case, and switching rules
+  would change resolved times with nothing measured to say the new rule is better (rule 2).
+  Earlier-line-wins is also order-stable — the view depends only on the pins, not on the order they were
+  saved in. Not a permanent decision; the blocker is now a measurement, not a schema.
 - **Open item:** on a physical phone, drag with the song paused and listen: does it sound under the thumb,
   does a held finger repeat cleanly, is 12 s too narrow. Record what was heard here.
 - **Reproduce:** `cd android && ./gradlew :app:testDebugUnitTest --tests '*ScrubAudioTest*' --tests '*NudgeStateTest*'`
@@ -1379,8 +1415,25 @@ nothing rather than an arbitrary row.
   and the status text sits in a minimum-height slot so a message appearing mid-drag does not shove the waveform
   under the finger. Observed: `pinned_clamp_outside_view.png` (handle at the left edge, New 12.45 s, clamp text).
   Pinning shows that a clamp happened, not by how much.
-- **Playhead on Cancel:** observed once that the playhead was not where it started after leaving; the restore
-  is coded but **not confirmed working**; treat as an open defect until checked.
+- **Playhead on Cancel (explained and fixed).** The restore was coded correctly all along; a second effect
+  was undoing it. `PlayerScreen`'s repeat loop was declared ABOVE the early returns that hand over to the
+  nudge and tap-along screens, so Compose kept it composed and seeking while those screens were open: with
+  Repeat on, `onDispose` seeked back to the start position and the still-live loop seeked it away on the
+  next frame. The same effect made the nudge handle jump out from under the thumb (`ScrubAudio` starts
+  playback on the first drag; the loop then saw the position past the range and seeked back) and looped one
+  line forever during tap-along, so a whole set of taps could be saved crammed inside a single line. Fixed
+  by hoisting the `nudging`/`tapping` state above the loop and suspending the loop while either is up
+  (Repeat stays on and resumes on return). Reproduced and then confirmed gone on emulator-5554.
+- **Removing a pin (added).** The guarantee was only "a pin can never be lost"; the inverse was missing and
+  the only escape from a bad pin was deleting the song. Pinned lines now carry a marker in `PlayerScreen`
+  and the nudge screen offers "Clear pin", one `SongDao.deleteAnchor`, after which the line falls back to
+  its computed time. No threshold, nothing measured; it is a missing inverse, not a tuning choice.
+- **Known gap, deliberately not closed: anchors re-attach by line INDEX.** Importing a different `.lrc`
+  whose lines do not correspond one-to-one leaves every pin on whatever line now holds that index, silently.
+  The resolver already drops pins on indexes past the end of a shorter sheet, which is the only part that
+  cannot be wrong. Binding a pin to line CONTENT instead (or prompting the user at re-import) is a design
+  decision about what a pin is attached to, and is bigger than this wave; it is recorded here rather than
+  guessed at. Until it is settled, a user who re-imports a differently-cut sheet must check their pins.
 
 
 ### L46 — Android tap-along: `TapSession.DEBOUNCE_MS` = 250 ms (a judgement, not a measurement)
@@ -1410,6 +1463,12 @@ nothing rather than an arbitrary row.
   Undo steps back one, Save writes `source = "user"` anchors in ms and leaves `lines` unchanged. Not heard.
 - **Reach:** this is the tool for errors beyond nudge's roughly +/-6 s (L45); nothing yet routes the user
   from one to the other.
+- **Replacing hand-timed lines is now a confirmation, not a caption (no threshold involved).** The warning
+  used to be static text above the TAP/Save row, which a user mid-flow does not read, and one tap then
+  replaced hand-nudged pins irreversibly. When a save would replace at least one `source = "user"` pin,
+  a dialog names the count and asks ("Replace" / "Keep my timings"). `countReplaced` is an exact count of
+  overlapping line indexes; no tolerance or merge window was invented (rule 2 — the right call remains not
+  to guess one).
 
 ### L47 — Android practice speeds: 0.5x / 0.75x / 1x (a judgement, not a measurement)
 

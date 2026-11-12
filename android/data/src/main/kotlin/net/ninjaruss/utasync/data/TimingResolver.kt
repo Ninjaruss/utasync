@@ -28,9 +28,14 @@ const val MIN_PIN_GAP_MS = 50L
  *    [MIN_PIN_GAP_MS] after it is clamped forward to that. A user pin is never dropped.
  *  - An auto pin is kept only if it fits between its neighbouring pins; otherwise the view
  *    ignores it (it is a guess, not a correction).
- * "Earlier line wins" is deliberately arbitrary: [AnchorEntity] has no write timestamp, so the
- * natural rule, "the most recent correction wins", is not available without a schema change.
- * Because nothing stored is changed, a conflict is recoverable: re-nudging either line fixes it.
+ * "Earlier line wins" is a choice, not the only rule available. [AnchorEntity.writtenAtMs] now
+ * records when each pin was written, so "the most recent correction wins" COULD be implemented
+ * here. It deliberately is not, yet: which rule a user expects when two of their own pins cross
+ * has not been observed, and switching would change resolved times with nothing measured to say
+ * it is better (CLAUDE.md rule 2). Earlier-line-wins is kept because it is order-stable — the
+ * view depends only on the pins, not on the sequence they were saved in — and because nothing
+ * stored is changed, so a conflict is recoverable: re-nudging either line fixes it. The data to
+ * change this rule exists from the day the first pin is written (ledger L45).
  *
  * Units: [applyAnchors] works in seconds, the database in milliseconds. This function is the
  * only place the two meet and converts both ways; seconds never leave it.

@@ -170,7 +170,16 @@ class NudgeStateTest {
         override fun observeAnchors(songId: Long) = error("unused")
         override suspend fun anchorOn(songId: Long, lineIndex: Int): AnchorEntity? = null
         override suspend fun upsertAnchor(anchor: AnchorEntity) { anchorWrites += anchor }
+        override suspend fun deleteAnchor(songId: Long, lineIndex: Int) { deletes += songId to lineIndex }
+        override fun nowMs(): Long = WRITTEN_AT
         override suspend fun insertRun(run: AlignmentRunEntity): Long { otherWrites += "insertRun"; return 0 }
+
+        val deletes = mutableListOf<Pair<Long, Int>>()
+    }
+
+    private companion object {
+        /** Fixed clock so the stamped [AnchorEntity.writtenAtMs] is assertable. */
+        const val WRITTEN_AT = 1_700_000_000_000L
     }
 
     @Test fun savingANudgeWritesOneAnchorAndNoLine() = runBlocking {
@@ -178,7 +187,16 @@ class NudgeStateTest {
         val s = NudgeState(10_000, 5_000, 20_000)
         s.drag(12_000)
         s.save(dao, songId = 7, lineIndex = 4)
-        assertEquals(listOf(AnchorEntity(7, 4, 12_000, "user")), dao.anchorWrites)
+        // Written through SongDao.upsertUser, which stamps writtenAtMs from the DAO's clock.
+        assertEquals(listOf(AnchorEntity(7, 4, 12_000, "user", WRITTEN_AT)), dao.anchorWrites)
+        assertTrue("no LineEntity or other row may be written: ${dao.otherWrites}", dao.otherWrites.isEmpty())
+    }
+
+    @Test fun clearingAPinDeletesExactlyThatLinesAnchor() = runBlocking {
+        val dao = RecordingDao()
+        clearPin(dao, songId = 7, lineIndex = 4)
+        assertEquals(listOf(7L to 4), dao.deletes)
+        assertTrue("clearing a pin writes nothing: ${dao.anchorWrites}", dao.anchorWrites.isEmpty())
         assertTrue("no LineEntity or other row may be written: ${dao.otherWrites}", dao.otherWrites.isEmpty())
     }
 }

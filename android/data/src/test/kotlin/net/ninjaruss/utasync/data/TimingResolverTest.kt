@@ -53,6 +53,23 @@ class TimingResolverTest {
         resolveStarts(listOf(line(1, 2_000), line(0, 1_000)), emptyList())
     }
 
+    /**
+     * The 50 ms minimum gap exists three times under three names: `applyAnchors(minGapSec = 0.05)`
+     * in `:align`, `NudgeState.MIN_GAP_MS` (pinned by `NudgeStateTest`) and this module's
+     * [MIN_PIN_GAP_MS]. This probe reads `:align`'s DEFAULT back out of its behaviour — in an
+     * open-ended segment an unanchored line is pushed exactly `minGapSec` past the pin — so
+     * changing one of the three without the others fails here instead of silently desynchronising
+     * the resolved view from the module it hands its anchors to.
+     */
+    @Test fun theResolversMinimumGapIsTheAlignModulesDefault() {
+        val pushed = net.ninjaruss.utasync.align.applyAnchors(
+            computed = listOf(0.0, 0.0),
+            anchors = listOf(net.ninjaruss.utasync.align.TimingAnchor(0, 10.0)),
+        )
+        assertEquals(MIN_PIN_GAP_MS / 1000.0, pushed[1] - pushed[0], 1e-9)
+        assertEquals(50L, MIN_PIN_GAP_MS)
+    }
+
     @Test fun resolvingLeavesTheStoredAnchorsUntouched() {
         val stored = listOf(user(1, 3_500), user(2, 3_000))
         val copy = stored.toList()

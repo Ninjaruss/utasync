@@ -114,11 +114,17 @@ class NudgeState(val original: Long?, val neighbourBefore: Long?, val neighbourA
 }
 
 /**
- * Persists a nudge: exactly one anchor row. No [net.ninjaruss.utasync.data.LineEntity] is
+ * Persists a nudge: exactly one anchor row, through the user door ([SongDao.upsertUser]), which
+ * is the only way a "user" pin may be stored. No [net.ninjaruss.utasync.data.LineEntity] is
  * written, so computed timings are untouched and re-alignment cannot undo the fix.
  */
 suspend fun NudgeState.save(dao: SongDao, songId: Long, lineIndex: Int) {
-    dao.upsertAnchor(toAnchor(songId, lineIndex))
+    dao.upsertUser(toAnchor(songId, lineIndex))
+}
+
+/** Removes this line's pin, so a bad correction can be undone. The computed time comes back. */
+suspend fun clearPin(dao: SongDao, songId: Long, lineIndex: Int) {
+    dao.deleteAnchor(songId, lineIndex)
 }
 
 /** Maps screen x to song time for a fixed-span view. Pure so the drag mapping is testable. */

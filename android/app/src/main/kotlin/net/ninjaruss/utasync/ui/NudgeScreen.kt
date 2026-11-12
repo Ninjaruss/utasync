@@ -104,6 +104,10 @@ fun NudgeScreen(
         value = NudgeState.forLine(resolveStarts(loadedLines, dao.anchors(songId)), lineIndex)
             .also { st -> savedProposal?.let(st::drag) }
     }
+    // A pin can be removed, not only set: without this the only escape from a bad pin was
+    // deleting the song. Live, so the button disappears the moment the pin is cleared.
+    val anchors by dao.observeAnchors(songId).collectAsStateWithLifecycle(initialValue = emptyList())
+    val isPinned = anchors.any { it.lineIndex == lineIndex && it.source == "user" }
     val s = state ?: return Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
 
     // Runs in this composition's coroutine (decodeEnvelope hops to Dispatchers.Default): never on the
@@ -216,6 +220,12 @@ fun NudgeScreen(
                 onClick = { scope.launch { s.save(dao, songId, lineIndex); onDone() } },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Save") }
+            if (isPinned) {
+                OutlinedButton(
+                    onClick = { scope.launch { clearPin(dao, songId, lineIndex); onDone() } },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Clear pin (back to the computed time)") }
+            }
         }
     }
 }

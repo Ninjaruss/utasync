@@ -1,6 +1,7 @@
-# Native Android shell (android/). Runs the same two commands as android/README.md:
-# the pure-JVM :align tests and a debug APK build of :app (which compiles :data and
-# :playback). No emulator, so instrumented tests are not run here.
+# Native Android shell (android/). Runs EVERY JVM unit test (:align, :data, :playback, :app)
+# and then a debug APK build of :app. assembleDebug does not compile unit-test sources, so the
+# test tasks have to be named: without them a change that breaks resolveStarts goes green.
+# Only the instrumented tests (:data, :playback androidTest) stay out — they need an emulator.
 
 name: Android
 
@@ -43,4 +44,11 @@ jobs:
       # The runner image ships an Android SDK (ANDROID_HOME); AGP installs any missing
       # build-tools itself.
       - name: Unit tests and debug build
-        run: ./gradlew :align:test :app:assembleDebug --stacktrace
+        run: >-
+          ./gradlew
+          :align:test
+          :data:testDebugUnitTest
+          :playback:testDebugUnitTest
+          :app:testDebugUnitTest
+          :app:assembleDebug
+          --stacktrace

@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "ce441ab84dab6c5dd4b9989d0406db10",
+    "identityHash": "88e7773a1600db905b7bd4b82c0321ac",
     "entities": [
       {
         "tableName": "songs",
@@ -125,7 +125,7 @@
       },
       {
         "tableName": "anchors",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`songId` INTEGER NOT NULL, `lineIndex` INTEGER NOT NULL, `timeMs` INTEGER NOT NULL, `source` TEXT NOT NULL, PRIMARY KEY(`songId`, `lineIndex`), FOREIGN KEY(`songId`) REFERENCES `songs`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`songId` INTEGER NOT NULL, `lineIndex` INTEGER NOT NULL, `timeMs` INTEGER NOT NULL, `source` TEXT NOT NULL, `writtenAtMs` INTEGER NOT NULL, PRIMARY KEY(`songId`, `lineIndex`), FOREIGN KEY(`songId`) REFERENCES `songs`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "songId",
@@ -149,6 +149,12 @@
             "fieldPath": "source",
             "columnName": "source",
             "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "writtenAtMs",
+            "columnName": "writtenAtMs",
+            "affinity": "INTEGER",
             "notNull": true
           }
         ],
@@ -250,7 +256,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ce441ab84dab6c5dd4b9989d0406db10')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '88e7773a1600db905b7bd4b82c0321ac')"
     ]
   }
 }
