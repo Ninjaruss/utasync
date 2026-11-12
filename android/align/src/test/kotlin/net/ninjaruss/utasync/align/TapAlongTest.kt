@@ -59,4 +59,21 @@ class TapAlongTest {
         // Undo on an empty session is a no-op.
         val e = TapSession(2); e.undoLast(); assertTrue(e.taps.isEmpty())
     }
+
+    @Test fun replayRebuildsTheSameSessionAndDropsInvalidTimes() {
+        val s = TapSession(3); s.tap(1_000); s.tap(4_000)
+        val r = TapSession.fromTimes(3, s.tapTimesMs)
+        assertEquals(s.taps, r.taps)
+        assertEquals(2, r.nextLine)
+        // Times that break the rules on replay are dropped, not trusted.
+        assertEquals(listOf(1_000L), TapSession.fromTimes(3, listOf(1_000, 1_050, 500)).tapTimesMs)
+        assertEquals(2, TapSession.fromTimes(2, listOf(1_000, 4_000, 9_000)).taps.size)
+    }
+
+    @Test fun countsOnlyTappedLinesThatAlreadyHaveUserAnchors() {
+        val s = TapSession(5); s.tap(1_000); s.tap(4_000); s.tap(8_000)
+        assertEquals(2, countReplaced(s.taps, setOf(1, 2, 4)))
+        assertEquals(0, countReplaced(s.taps, emptySet()))
+        assertEquals(0, countReplaced(emptyList(), setOf(0)))
+    }
 }

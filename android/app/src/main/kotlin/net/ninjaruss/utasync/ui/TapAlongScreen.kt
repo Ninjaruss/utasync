@@ -27,17 +27,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import kotlinx.coroutines.launch
 import net.ninjaruss.utasync.align.AnchorSource
 import net.ninjaruss.utasync.align.TapSession
 import net.ninjaruss.utasync.align.TimingAnchor
+import net.ninjaruss.utasync.align.countReplaced
 import net.ninjaruss.utasync.data.AnchorEntity
 import net.ninjaruss.utasync.data.SongDao
 import kotlin.math.roundToLong
@@ -54,16 +59,32 @@ fun TimingAnchor.toEntity(songId: Long) = AnchorEntity(
  * Time a song by ear: play it and tap once as each line begins. The tap reads the player clock, so
  * the time is whatever the audio is doing at that instant. A rejected tap (double-tap, past the
  * last line) changes nothing and says so. Save writes every tap as a "user" anchor; computed line
- * times are left alone, exactly as for a nudge.
+ * times are left alone, exactly as for a nudge. A partial session saves only the tapped lines (see
+ * [TapSession]); the screen warns when a save would replace lines already timed by hand.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TapAlongScreen(songId: Long, dao: SongDao, controller: MediaController?, onDone: () -> Unit) {
     val lines by dao.observeLines(songId).collectAsStateWithLifecycle(initialValue = emptyList())
-    val session = remember(lines.size) { TapSession(lines.size) }
-    var tapCount by remember(session) { mutableIntStateOf(0) }
+    // Tap times survive rotation (a LongArray is Bundle-safe). The session is rebuilt from them by
+    // replay, and again once the lines load (lines.size is 0 until the flow emits).
+    var savedTimes by rememberSaveable { mutableStateOf(longArrayOf()) }
+    val session = remember(lines.size) { TapSession.fromTimes(lines.size, savedTimes.toList()) }
+    var tapCount by remember(session) { mutableIntStateOf(session.taps.size) }
+    val userAnchored by produceState(emptySet<Int>(), songId) {
+        value = dao.anchors(songId).filter { it.source == "user" }.map { it.lineIndex }.toSet()
+    }
+    val replaced = countReplaced(session.taps, userAnchored).takeIf { tapCount > 0 } ?: 0
     var notice by remember { mutableStateOf("") }
-    var playing by remember { mutableStateOf(false) }
+    var playing by remember(controller) { mutableStateOf(controller?.isPlaying == true) }
+    DisposableEffect(controller) {
+        val c = controller
+        val l = object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying }
+        }
+        c?.addListener(l)
+        onDispose { c?.removeListener(l) }
+    }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val next = session.nextLine
@@ -87,6 +108,11 @@ fun TapAlongScreen(songId: Long, dao: SongDao, controller: MediaController?, onD
                     notice.ifEmpty { if (next == null) "All ${lines.size} lines timed." else "Tap as line ${next + 1} begins." },
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                Text(
+                    if (replaced > 0) "Save replaces $replaced line${if (replaced == 1) "" else "s"} you already timed by hand. Taps are a first pass; fine-tune with nudge."
+                    else "Taps are a first pass; fine-tune any line afterwards with nudge (long-press it).",
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 Button(
                     onClick = {
                         val at = controller?.currentPosition ?: return@Button
@@ -95,15 +121,19 @@ fun TapAlongScreen(songId: Long, dao: SongDao, controller: MediaController?, onD
                             if (next == null) "Every line is already timed." else "Ignored: too soon after the last tap."
                         } else ""
                         tapCount = session.taps.size
+                        savedTimes = session.tapTimesMs.toLongArray()
                     },
                     enabled = controller != null && next != null,
                     modifier = Modifier.fillMaxWidth().height(96.dp),
                 ) { Text("TAP", style = MaterialTheme.typography.headlineMedium) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = {
-                        controller?.run { if (isPlaying) pause() else play(); playing = isPlaying }
+                        controller?.run { if (isPlaying) pause() else play() }
                     }) { Text(if (playing) "Pause" else "Play") }
-                    OutlinedButton(onClick = { session.undoLast(); tapCount = session.taps.size; notice = "" }, enabled = tapCount > 0) {
+                    OutlinedButton(onClick = {
+                        session.undoLast(); tapCount = session.taps.size
+                        savedTimes = session.tapTimesMs.toLongArray(); notice = ""
+                    }, enabled = tapCount > 0) {
                         Text("Undo")
                     }
                     Button(

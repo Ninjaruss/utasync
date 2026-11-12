@@ -5,6 +5,11 @@ package net.ninjaruss.utasync.align
  * types. Every accepted tap becomes a USER [TimingAnchor] (seconds; the caller converts to the
  * milliseconds that storage uses). A rejected tap consumes no line, so an accidental double-tap
  * cannot push every later line off by one.
+ *
+ * Partial sessions are deliberate: saving writes anchors for the tapped lines only. Untapped lines
+ * keep whatever anchors they already had; if those now sit out of order against the new taps,
+ * [applyAnchors] (the resolver) is what reconciles them, not this class. Tapped lines REPLACE any
+ * existing anchor for that line, including a nudged one; [countReplaced] lets the UI say so first.
  */
 class TapSession(val lineCount: Int) {
     private val times = mutableListOf<Long>()
@@ -28,12 +33,19 @@ class TapSession(val lineCount: Int) {
         return line
     }
 
+    /** Raw accepted tap times in ms, in line order. Lets a caller persist the session across rotation. */
+    val tapTimesMs: List<Long> get() = times.toList()
+
     /** Removes exactly the most recent tap; no-op when there is none. */
     fun undoLast() {
         if (times.isNotEmpty()) times.removeAt(times.lastIndex)
     }
 
     companion object {
+        /** Rebuilds a session by replaying [timesMs] through [tap], so every invariant still holds. */
+        fun fromTimes(lineCount: Int, timesMs: List<Long>): TapSession =
+            TapSession(lineCount).also { s -> timesMs.forEach { s.tap(it) } }
+
         /**
          * Minimum spacing between accepted taps. A judgement, not a measurement (ledger L46): above
          * the usual gap between the two taps of an accidental double-tap, below any real gap between
@@ -42,3 +54,7 @@ class TapSession(val lineCount: Int) {
         const val DEBOUNCE_MS = 250L
     }
 }
+
+/** How many of [taps] would overwrite a line that already has a user anchor ([userAnchoredLines]). */
+fun countReplaced(taps: List<TimingAnchor>, userAnchoredLines: Set<Int>): Int =
+    taps.count { it.lineIndex in userAnchoredLines }

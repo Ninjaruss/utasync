@@ -1394,8 +1394,16 @@ nothing rather than an arbitrary row.
   deliberate sequence of short lines is rejected, lower it; if double-taps still get through, raise it.
 - **Not a judgement:** a tap earlier than the previous one is rejected outright; a tap after the last line
   is rejected. Both are rules, not tuned numbers.
-- **Not handled:** tap latency (finger to player clock). Taps land a little after the true line start;
-  it is not compensated and has not been measured.
+- **Not handled:** tap latency (finger to player clock). Its sign and size are unknown: tapping to an
+  anticipated line start tends to land near zero or slightly early, Bluetooth output delay pushes the
+  other way, and both vary by user and audio route. No offset is applied (rule 2: none is measured).
+  Taps are a first pass, and the screen says to fine-tune with nudge. Measuring it against the
+  `benchmarks/sync` blind human onsets is a follow-up.
+- **Rejection observed on screen (once, by a different route):** with the player paused the clock does not
+  advance, so consecutive taps arrive with the same position and the "Ignored: too soon after the last tap."
+  notice appeared (`07_replace_warning.png`). That shows the rejection path reaches the UI. A genuine fast
+  double-tap with a real finger was NOT observed: `adb input tap` pairs are too slow and too
+  unreliable to land inside 250 ms. The 250 ms window itself is covered by unit tests only.
 - **Reproduce:** `cd android && ./gradlew :align:test --tests '*TapAlongTest*'` (logic only). The window's
   effect on a real finger is untested.
 - **What was drawn (emulator-5554, `-no-audio`, 8-line test tone):** taps advance the highlighted line,
