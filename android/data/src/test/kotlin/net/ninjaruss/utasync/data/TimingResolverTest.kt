@@ -23,6 +23,8 @@ class TimingResolverTest {
         assertEquals(listOf<Long?>(1_000, 2_000), resolveStarts(sheet.take(2), listOf(user(3, 9_000), user(7, 1))))
     }
 
+    // Defence in depth only: the schema allows one anchor per line and SongDao.upsertAuto refuses to
+    // replace a user pin (tested in PinsSurviveReAlignmentTest), so storage cannot produce this pair.
     @Test fun autoAnchorsAreOverriddenByUserAnchors() {
         assertEquals(2_700L, resolveStarts(sheet, listOf(auto(1, 2_200), user(1, 2_700)))[1])
         assertEquals(2_200L, resolveStarts(sheet, listOf(auto(1, 2_200)))[1])
@@ -44,6 +46,11 @@ class TimingResolverTest {
         assertEquals(3_000L, out[2])
         assertTrue(out[1]!! < out[2]!!)
         assertTrue(out[1] != 3_500L)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun linesOutOfOrderAreRejectedNotSilentlyMisresolved() {
+        resolveStarts(listOf(line(1, 2_000), line(0, 1_000)), emptyList())
     }
 
     @Test fun resolvingLeavesTheStoredAnchorsUntouched() {

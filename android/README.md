@@ -54,3 +54,14 @@ computed times; it cannot touch an anchor. This is the product's one non-negotia
 pins. Check with `grep -rn startMs android/app/src/main`; every hit must be a write at import or
 unrelated to line times. Where pins disagree about order, the resolver returns a monotonic view
 (earlier line wins) and changes nothing stored; re-nudging either line fixes it.
+
+Automatic timings may only be stored with `SongDao.upsertAuto`, which refuses to replace a user
+pin (one anchor row per line, so a plain upsert of an "auto" row would destroy it).
+
+**The key test is instrumented-only and does not run in CI today.** `PinsSurviveReAlignmentTest`
+(real Room: pin, re-align, resolve; auto write cannot replace a pin) needs a device or emulator.
+CI runs only `:align:test :app:assembleDebug`. Before merging anything that touches timings, run:
+
+```sh
+./gradlew :data:testDebugUnitTest :app:testDebugUnitTest :align:test :data:connectedDebugAndroidTest
+```

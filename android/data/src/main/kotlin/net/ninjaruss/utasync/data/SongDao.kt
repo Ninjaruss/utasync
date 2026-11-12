@@ -44,6 +44,22 @@ abstract class SongDao {
     @Upsert
     abstract suspend fun upsertAnchor(anchor: AnchorEntity)
 
+    @Query("SELECT * FROM anchors WHERE songId = :songId AND lineIndex = :lineIndex")
+    protected abstract suspend fun anchorOn(songId: Long, lineIndex: Int): AnchorEntity?
+
+    /**
+     * The ONLY way an automatic timing may be stored as a pin. There is one anchor row per line, so
+     * a plain [upsertAnchor] of an "auto" anchor would silently replace a user's pin; this refuses
+     * to. It replaces an earlier auto pin, never a user one. Returns whether it wrote.
+     */
+    @Transaction
+    open suspend fun upsertAuto(anchor: AnchorEntity): Boolean {
+        require(anchor.source == "auto") { "upsertAuto stores auto anchors only" }
+        if (anchorOn(anchor.songId, anchor.lineIndex)?.source == "user") return false
+        upsertAnchor(anchor)
+        return true
+    }
+
     @Insert
     abstract suspend fun insertRun(run: AlignmentRunEntity): Long
 }

@@ -16,7 +16,10 @@ const val MIN_PIN_GAP_MS = 50L
  * Returns one start per entry of [lines] (same order; [lines] must be in ascending lineIndex
  * order), in milliseconds. A line with neither a pin nor a computed time stays null.
  *
- * Precedence, per line: a "user" anchor, then an "auto" anchor, then the computed time.
+ * Precedence, per line: a "user" anchor, then an "auto" anchor, then the computed time. The
+ * database holds one anchor row per line, so a user-and-auto pair on one line cannot come from
+ * stored data: [SongDao.upsertAuto] refuses to overwrite a user pin. The rule here is
+ * defence in depth for a state the DAO must prevent, not a state it produces.
  * Anchors on line indexes that are not in [lines] (a shorter sheet after re-import) are ignored.
  *
  * Stored anchors are the source of truth and are NEVER changed by this function; it returns a
@@ -33,6 +36,9 @@ const val MIN_PIN_GAP_MS = 50L
  * only place the two meet and converts both ways; seconds never leave it.
  */
 fun resolveStarts(lines: List<LineEntity>, anchors: List<AnchorEntity>): List<Long?> {
+    require(lines.zipWithNext().all { (a, b) -> a.lineIndex < b.lineIndex }) {
+        "lines must be in strictly ascending lineIndex order"
+    }
     val present = lines.map { it.lineIndex }.toSet()
     // One pin per line, user over auto. Pins on vanished lines are ignored.
     val byLine = anchors.filter { it.lineIndex in present }

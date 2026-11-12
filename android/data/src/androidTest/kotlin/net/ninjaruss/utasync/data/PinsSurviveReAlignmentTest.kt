@@ -6,6 +6,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** The non-negotiable guarantee, against a real Room database: replaceLines cannot unpin. */
@@ -27,6 +29,24 @@ class PinsSurviveReAlignmentTest {
 
             dao.replaceLines(id, lines(900))                    // a shorter re-imported sheet: no crash
             assertEquals(listOf<Long?>(900), resolveStarts(dao.observeLines(id).first(), dao.anchors(id)))
+        } finally { db.close() }
+    }
+
+    @Test fun anAutoWriteCannotReplaceAUserPin() = runBlocking {
+        val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
+        val db = Room.inMemoryDatabaseBuilder(context, UtasyncDatabase::class.java).build()
+        try {
+            val dao = db.songDao()
+            val id = dao.insertSong(SongEntity(title = "t", audioUri = "content://x", createdAtMs = 0))
+            dao.replaceLines(id, listOf(LineEntity(id, 0, "l0", 1_000, null), LineEntity(id, 1, "l1", 2_000, null)))
+            dao.upsertAnchor(AnchorEntity(id, 0, 1_234, "user"))
+
+            assertFalse(dao.upsertAuto(AnchorEntity(id, 0, 9_999, "auto")))   // refused
+            assertTrue(dao.upsertAuto(AnchorEntity(id, 1, 2_100, "auto")))    // free line: written
+            assertTrue(dao.upsertAuto(AnchorEntity(id, 1, 2_200, "auto")))    // newer auto replaces auto
+
+            val stored = dao.anchors(id)
+            assertEquals(listOf(AnchorEntity(id, 0, 1_234, "user"), AnchorEntity(id, 1, 2_200, "auto")), stored)
         } finally { db.close() }
     }
 }

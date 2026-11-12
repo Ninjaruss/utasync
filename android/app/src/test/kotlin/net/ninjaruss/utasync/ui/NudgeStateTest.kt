@@ -168,6 +168,7 @@ class NudgeStateTest {
         override suspend fun replaceLines(songId: Long, lines: List<LineEntity>) { otherWrites += "replaceLines" }
         override suspend fun anchors(songId: Long): List<AnchorEntity> = emptyList()
         override fun observeAnchors(songId: Long) = error("unused")
+        override suspend fun anchorOn(songId: Long, lineIndex: Int): AnchorEntity? = null
         override suspend fun upsertAnchor(anchor: AnchorEntity) { anchorWrites += anchor }
         override suspend fun insertRun(run: AlignmentRunEntity): Long { otherWrites += "insertRun"; return 0 }
     }
