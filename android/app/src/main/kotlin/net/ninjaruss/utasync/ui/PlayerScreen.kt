@@ -52,6 +52,7 @@ import androidx.media3.session.MediaController
 import kotlinx.coroutines.launch
 import net.ninjaruss.utasync.align.activeLineIndex
 import net.ninjaruss.utasync.data.SongDao
+import net.ninjaruss.utasync.data.resolveStarts
 import net.ninjaruss.utasync.playback.PlayerConnection
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -99,7 +100,9 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
         }
     }
 
-    val starts = remember(lines) { lines.map { it.startMs } }
+    // The only way to read timings: pins win over computed times (see resolveStarts).
+    val anchors by dao.observeAnchors(songId).collectAsStateWithLifecycle(initialValue = emptyList())
+    val starts = remember(lines, anchors) { resolveStarts(lines, anchors) }
 
     // Practice: the line being looped (null = off) and the playback speed.
     var repeatLine by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -204,8 +207,8 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
                                 onLongClickLabel = "Nudge this line's start",
                                 onLongClick = { nudging = i },
                                 onClick = {
-                                    line.startMs?.let { controller?.seekTo(it) }
-                                    if (repeatLine != null && line.startMs != null) repeatLine = i
+                                    starts.getOrNull(i)?.let { controller?.seekTo(it) }
+                                    if (repeatLine != null && starts.getOrNull(i) != null) repeatLine = i
                                 },
                             )
                             .padding(horizontal = 24.dp, vertical = 10.dp),

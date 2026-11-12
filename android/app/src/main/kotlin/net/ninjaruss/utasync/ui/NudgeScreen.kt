@@ -52,6 +52,7 @@ import androidx.media3.session.MediaController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import net.ninjaruss.utasync.data.SongDao
+import net.ninjaruss.utasync.data.resolveStarts
 import net.ninjaruss.utasync.playback.Envelope
 import net.ninjaruss.utasync.playback.Scrubber
 import net.ninjaruss.utasync.playback.decodeEnvelope
@@ -100,8 +101,7 @@ fun NudgeScreen(
     // An unsaved drag survives rotation (the waveform does not; it decodes again).
     var savedProposal by rememberSaveable(songId, lineIndex) { mutableStateOf<Long?>(null) }
     val state by produceState<NudgeState?>(null, songId, lineIndex) {
-        val pinned = dao.anchors(songId).associate { it.lineIndex to it.timeMs }
-        value = NudgeState.forLine(loadedLines.map { pinned[it.lineIndex] ?: it.startMs }, lineIndex)
+        value = NudgeState.forLine(resolveStarts(loadedLines, dao.anchors(songId)), lineIndex)
             .also { st -> savedProposal?.let(st::drag) }
     }
     val s = state ?: return Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }

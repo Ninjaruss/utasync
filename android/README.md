@@ -41,3 +41,16 @@ Requirements: JDK 17, Android SDK 35. Open this folder in Android Studio, or:
 - Highlight within 30 ms of `player.currentPosition` across a full song (instrumented test).
 - Playback continues in the background with notification controls.
 - No network calls (the manifest has no INTERNET permission yet; LRCLIB comes next).
+
+## Pins survive everything
+
+A timing the user sets (by nudging a line or tapping along) is stored as an anchor, apart from
+the computed times in `lines`. Re-alignment, re-import or a pipeline change rewrites only the
+computed times; it cannot touch an anchor. This is the product's one non-negotiable guarantee
+(ADR-0002): the predecessor lost user corrections to re-runs.
+
+`resolveStarts(lines, anchors)` in `:data` is the **only** way to read timings. Never read
+`LineEntity.startMs` in a screen: it is just the latest computed time and silently ignores the
+pins. Check with `grep -rn startMs android/app/src/main`; every hit must be a write at import or
+unrelated to line times. Where pins disagree about order, the resolver returns a monotonic view
+(earlier line wins) and changes nothing stored; re-nudging either line fixes it.

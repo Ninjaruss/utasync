@@ -37,6 +37,10 @@ abstract class SongDao {
     @Query("SELECT * FROM anchors WHERE songId = :songId ORDER BY lineIndex")
     abstract suspend fun anchors(songId: Long): List<AnchorEntity>
 
+    /** Live view of the pins, so a screen showing timings updates the moment one is saved. */
+    @Query("SELECT * FROM anchors WHERE songId = :songId ORDER BY lineIndex")
+    abstract fun observeAnchors(songId: Long): Flow<List<AnchorEntity>>
+
     @Upsert
     abstract suspend fun upsertAnchor(anchor: AnchorEntity)
 
