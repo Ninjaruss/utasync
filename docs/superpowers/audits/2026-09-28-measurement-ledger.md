@@ -1492,3 +1492,85 @@ nothing rather than an arbitrary row.
   crosses into the next line every pass.
 - **Unexamined, sub-frame:** the inclusive `position >= range.last` check can let one frame of the next line play
   before the seek back, and the loop does not check for a pending seek. Not judged without audio.
+
+### L48 — the vocal stem decides Japanese alignment: p50 3.69 s with it, 20.21 s without, same song (MEASURED)
+
+- **What:** four real `AutoAlignFlow` runs on PJS corpus medleys (Japanese singing, CC BY-SA 4.0),
+  scored against `corpus-onsets` truth with per-line `uncertainty` 0.02 s (phoneme labels, L40).
+  Truth is measured, not listened for, so these are accuracy numbers and not a regression signal.
+- **The controlled pair** — `pjs-medley-17`, the same audio and the same truth, the stem the only
+  variable:
+
+  | run | stem | line 1 error | p50 | worst |
+  | --- | --- | --- | --- | --- |
+  | default policy | **accepted** | −0.44 s | **3.69 s** | 4.31 s |
+  | `--mix` (isolation off) | none | +15.44 s | **20.21 s** | 29.66 s |
+
+  Without the stem all four lines collapsed into a ~9 s window (20.3–29.5 s) while the song spans
+  70 s. With it, the opening landed within half a second.
+- **The other two runs** (`pjs-medley-07`, 6 lines): default policy had its stem REJECTED by the
+  stem-quality guard (`stem pass unverifiable, only 0.00 of 6 lines verified, floor 0.25`) and fell
+  back to the raw mix — p50 14.91 s, worst 24.33 s, lines 1–5 packed end-to-end from t=0.00 while
+  singing starts at 7.93 s. Re-running it `--mix` gave byte-identical times for lines 1–5, which is
+  how we learned the "default" run had already become a mix run.
+- **`pjs-medley-05` (103 s audio) TIMED OUT twice** at the harness's 12-minute cap with no output,
+  on the default path with the stem accepted. The run that completed only did so because its stem
+  was rejected early, short-circuiting the work.
+- **What this overturns:** isolation is **load-bearing for accuracy on solo voice**, not waste. An
+  earlier reading of this session (and L35's "vocal isolation worsens most lines on clean songs")
+  pointed the other way. The decisive switch is the **stem-quality verification**: when it passes
+  you get 3.69 s, when it fails you pay the separation cost AND get the bad answer AND may time out.
+- **What it does NOT show:** nothing here reaches the ADR-0003 gate. Even the best run is ±4 s
+  scattered (not drifting), ~15x outside the 250 ms the gate asks for. And these are SYNTHETIC
+  medleys — unrelated sentences separated by 1.5–3.5 s of silence — which is the worst case for a
+  line-packing failure and nothing like real J-pop. The gate's real-song half remains unmeasured.
+- **A prediction of mine that was falsified, recorded so it is not re-made:** I expected the no-stem
+  failure to pin line 1 at t=0 (as medley-07 did). `medley-17` instead collapsed its lines into a
+  mid-song window. "No stem" has no single signature, so a fix targeting pin-to-zero would miss
+  half the cases.
+- **Reproduce:** download PJS ver. 1.1 to `.cache/pjs-src/`, then
+  `node experiments/phase0/pjs/buildCorpus.mjs .cache/pjs-src/PJS_corpus_ver1.1 --per 6`,
+  `npm run benchmark:sync -- stage-pilot --manifest .cache/pjs/manifest.json` (add `--mix` for the
+  no-stem arm), open `/?benchmark=pjs-medley-17`, then `collect` and `report --manifest`.
+
+### L49 — English hand-aligned truth: 13 of 26 line starts within 0.5 s (MEASURED; first truth in this project that is neither ours nor an LRC)
+
+- **What:** `jamendo-lower-loveday-is-it-right`, 26 lines, from JamendoLyrics (Durand, Stoller &
+  Ewert, ICASSP 2023) — real accompanied music whose line onsets were **aligned by hand,
+  independently of this project**. Converted by `experiments/phase0/jamendo/buildCorpus.mjs`.
+- **Result:** 13/26 within 0.5 s (50%), 11/26 within 0.3 s, p50 0.54 s, p90 1.83 s, worst 9.78 s,
+  0 missing predictions. Run with vocal isolation on.
+- **Why it matters:** CLAUDE.md rule 1 says an LRC is not truth, which left this project with no way
+  to measure itself on real accompanied music. This is the first corpus here that is hand-aligned by
+  a third party, so it is evidence rather than a regression signal.
+- **Why it does NOT certify:** `uncertainty` is declared 0.3 s — the tolerance the alignment
+  literature uses when scoring against this data, which is an EVALUATION tolerance and not a
+  measurement of annotation precision. Nothing available gives the latter. 0.3 s exceeds the gate's
+  0.25 s eligibility ceiling, so these songs score but cannot certify. Choosing a value just under
+  0.25 to make them eligible would have been picking a number to pass a gate.
+- **Also not Japanese.** It measures the timing machinery, not reading or pairing, so it cannot
+  stand in for the gate's real-J-pop half.
+- **Reproduce:** fetch the dataset's `annotations/lines/*.csv` and `subsets/en/mp3/*` from
+  HuggingFace (`jamendolyrics/jamendolyrics`), then
+  `node experiments/phase0/jamendo/buildCorpus.mjs .cache/jamendolyrics-src --uncertainty 0.3`.
+  Per-song licences are in `JamendoLyrics.csv`; audio stays local and is never committed.
+
+### L50 — the PJS corpus yields 100/100 phoneme-label onsets (0.02 s), and the committed truth is hash-only
+
+- **What:** PJS ver. 1.1 (Koguchi & Takamichi, arXiv:2006.02959, CC BY-SA 4.0 — commercial use
+  permitted) downloaded and built into 17 medleys. **All 100 source songs produced a phoneme-label
+  onset**, i.e. the 0.02 s path of L40, not the 0.05 s energy fallback.
+- **Gates:** this clears the ADR-0003 gate's `corpus-onsets` volume requirement (≥10 medleys,
+  ≥60 lines) in one build: 17 medleys, 100 lines.
+- **What is committed:** `experiments/phase0/pjs/annotations/*.json` — 17 files, 100 lines, every
+  line a `textHash` with no `text` field, verified. Audio, lyric sheets, the synthetic LRC priors
+  and the PJS manifest stay in `.cache/pjs/` and are never committed (ADR-0004, rule 6).
+  `node scripts/corpus-ci.mjs` validates them and now reports a real count instead of "none built".
+- **Still missing for the gate:** the `≥3 accompanied` medleys, which need an openly licensed backing
+  track for `--bed` and two builder runs into separate output directories; and the real-J-pop half,
+  which needs blind human onsets on the pre-registered stratified sample. Neither is blocked by
+  anything here.
+- **Download note:** the archive is a single Google Drive link (275,179,158 bytes) and no script
+  fetches it. This environment truncates any single download at 10 MiB, so it was reassembled from
+  8 MiB ranged requests and verified byte-exact against the server's `content-length` plus
+  `unzip -t` before use.
