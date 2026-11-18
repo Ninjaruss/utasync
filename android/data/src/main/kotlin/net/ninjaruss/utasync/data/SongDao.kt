@@ -37,8 +37,54 @@ abstract class SongDao {
     @Query("SELECT * FROM anchors WHERE songId = :songId ORDER BY lineIndex")
     abstract suspend fun anchors(songId: Long): List<AnchorEntity>
 
+    /** Live view of the pins, so a screen showing timings updates the moment one is saved. */
+    @Query("SELECT * FROM anchors WHERE songId = :songId ORDER BY lineIndex")
+    abstract fun observeAnchors(songId: Long): Flow<List<AnchorEntity>>
+
+    /**
+     * Raw row write. **Protected on purpose**: it accepts any [AnchorEntity.source], and there is
+     * one anchor row per line, so an "auto" row written this way would silently destroy a user's
+     * pin — the predecessor's exact failure (ADR-0002). The only doors out of this class are
+     * [upsertUser] and [upsertAuto], which each enforce their half of the rule. Do not widen it.
+     */
     @Upsert
-    abstract suspend fun upsertAnchor(anchor: AnchorEntity)
+    protected abstract suspend fun upsertAnchor(anchor: AnchorEntity)
+
+    @Query("SELECT * FROM anchors WHERE songId = :songId AND lineIndex = :lineIndex")
+    protected abstract suspend fun anchorOn(songId: Long, lineIndex: Int): AnchorEntity?
+
+    /** Clock for [AnchorEntity.writtenAtMs]. Overridable so a test can write a known time. */
+    protected open fun nowMs(): Long = System.currentTimeMillis()
+
+    /**
+     * The ONLY way a user's timing may be stored as a pin. A user pin replaces whatever is on the
+     * line (an earlier user pin or an auto one): the user is the authority.
+     */
+    @Transaction
+    open suspend fun upsertUser(anchor: AnchorEntity) {
+        require(anchor.source == "user") { "upsertUser stores user anchors only" }
+        upsertAnchor(anchor.copy(writtenAtMs = nowMs()))
+    }
+
+    /**
+     * The ONLY way an automatic timing may be stored as a pin. There is one anchor row per line, so
+     * a plain upsert of an "auto" anchor would silently replace a user's pin; this refuses
+     * to. It replaces an earlier auto pin, never a user one. Returns whether it wrote.
+     */
+    @Transaction
+    open suspend fun upsertAuto(anchor: AnchorEntity): Boolean {
+        require(anchor.source == "auto") { "upsertAuto stores auto anchors only" }
+        if (anchorOn(anchor.songId, anchor.lineIndex)?.source == "user") return false
+        upsertAnchor(anchor.copy(writtenAtMs = nowMs()))
+        return true
+    }
+
+    /**
+     * Removes the pin on one line, so a bad correction can be undone without deleting the song.
+     * The line falls back to its computed time (see [resolveStarts]). No-op when there is no pin.
+     */
+    @Query("DELETE FROM anchors WHERE songId = :songId AND lineIndex = :lineIndex")
+    abstract suspend fun deleteAnchor(songId: Long, lineIndex: Int)
 
     @Insert
     abstract suspend fun insertRun(run: AlignmentRunEntity): Long
