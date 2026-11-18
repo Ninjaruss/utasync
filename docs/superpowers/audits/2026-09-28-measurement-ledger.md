@@ -1278,3 +1278,299 @@ nothing rather than an arbitrary row.
   each medley's own offset is written to `.cache/pjs/<id>.lrc.json` as `plantedOffset`. To test the
   pin boundary, re-score an existing run at other values of `PIN_SEC` and read the flagged count and
   the clause-2 column: not done here.
+
+### L43 — Android waveform decode gate: a 4-minute file decodes in under 2 s (a judgement, not a measurement; currently UNMET on the emulator, UNTESTED on hardware)
+
+- **What:** the pre-registered gate for `decodeEnvelope` (`android/playback/.../WaveformDecoder.kt`)
+  in the Android correction plan, Task 2. The gate is "a 4-minute local file → 200 peaks/s envelope in
+  **< 2 s** on a debug build, and envelope length within **50 ms** of the file duration". The 50 ms is
+  10 peaks at 200/s, i.e. the envelope's own grain; the 2 s is the number this entry is about.
+- **Gates:** whether the nudge screen (drag a line start along a waveform) may be built on this decoder.
+  Nothing in `src/` or `android/` reads the constant; it is a go/no-go for the plan. CI asserts only a
+  coarse real-time factor (< 10x audio length) so an order-of-magnitude slowdown fails (the assert runs after the decode returns; a hang is caught separately by a 180 s `withTimeout` around each test decode), and
+  deliberately does **not** assert 2 s.
+- **2 s for 4 min — a judgement, not measured.** It rests on a UX budget: the waveform should appear
+  about as fast as the screen opens, and 2 s is roughly "the user does not feel a wait". Nothing was
+  measured to derive it. It is expressed as ms because the plan wrote it that way; the portable form is
+  a real-time factor: 2 s / 240 s = 0.0083.
+- **Length (hardware-independent):** WAV, mono and stereo, 6 s and 240 s: exact. AAC-LC stereo
+  (in-test `MediaCodec`+`MediaMuxer`): 6.000 s source → 1199 peaks, durationMs 5990; 240.000 s source →
+  47996 peaks, durationMs 239978. Both inside 50 ms (10 / 22 ms short, i.e. 2 / 4 peaks).
+- **Timings taken (every one; the device is in each row — emulator numbers are NOT hardware numbers):**
+
+  | Input | Device | Warm-up? | Time | RTF | vs 2 s |
+  | --- | --- | --- | --- | --- | --- |
+  | PCM WAV, mono 44.1k, 240 s | EMULATOR (AVD sdk_gphone64_arm64, android-35, software GPU) | no (cold) | 6104, 9390, 6985 ms | 0.025–0.039 | over |
+  | PCM WAV, stereo 44.1k, 240 s | EMULATOR (same) | yes (one prior decode of the AAC file) | 8164 ms | 0.034 | over |
+  | AAC-LC stereo 128 kbps 44.1k, 240 s | EMULATOR (same) | yes | 31603, 49642, 43276 ms | 0.132–0.207 | over, 16–25x |
+  | PCM WAV, stereo 44.1k, 240 s, **after loop change** (drain/feed with timeout 0, bulk buffer read) | EMULATOR (same) | yes | 5022 ms | 0.021 | over (gate: <2 s) |
+  | AAC-LC stereo 128 kbps 44.1k, 240 s, **after loop change** | EMULATOR (same) | yes | 31203, 28131, 38622 ms | 0.117–0.161 | over (gate: <8 s) |
+  | any | real phone | — | **not measured** | — | **untested** |
+
+  The mono-WAV rows exercised the PCM pass-through path only (no compressed decoder), so they say
+  nothing about real songs; the AAC row is the realistic input. The emulator runs software codecs on
+  an Apple Silicon host; the relationship to a phone's hardware or NEON decoder is unknown and not
+  assumed.
+- **Loop-overhead experiment (gate written before the run: PCM WAV < 2 s AND AAC < 8 s).** Hypothesis:
+  the 10 ms-timeout one-buffer-per-iteration loop, not decode, was the cost. One change (feed all free
+  input buffers and drain all ready output with timeout 0; bulk-copy each output buffer to an array)
+  gave PCM 8.2 → 5.0 s and AAC 31.6/49.6/43.3 → 31.2/28.1/38.6 s. **Both gates missed**: the loop is
+  not the main cost on this emulator (PCM only improved ~40%, AAC within its own run-to-run spread). Not
+  iterated further, by design.
+- **`peaksPerSecond` = 200 (`WaveformDecoder.kt`, the default argument) — a judgement, not a
+  measurement.** This entry's 50 ms length tolerance is derived from it (10 peaks at 200/s), so it
+  has to be stated here. What it buys: one peak per 5 ms. The nudge waveform is 12 s wide
+  (`NudgeWindow.SPAN_MS`, L45) on a phone screen of roughly 1080 px, so one screen pixel covers
+  about 11 ms — two peaks. That is the point: at 200/s the picture is never the limit on what the
+  eye can see, while the array stays small (a 4-minute song is 48 000 floats, 192 KB). Below about
+  100/s a pixel would span a peak or more and attack transients would smear; far above 200/s costs
+  memory for detail no pixel can show. Nothing was measured to pick it, and the decode cost is
+  dominated by the codec, not by the bucketing, so changing it would not move the timings above.
+- **`delay(2)` in the drain loop — a tuned number, not a measured one.** When a pass of the loop
+  neither feeds nor drains a buffer it waits 2 ms rather than spinning. It was `Thread.sleep(2)`,
+  which blocked a `Dispatchers.Default` pool thread (the pool is sized to the core count) inside
+  this very loop; it is now `delay(2)`, which suspends instead. The 2 ms is unchanged and
+  unmeasured: it is short enough to be well under one buffer of audio and long enough to stop a
+  busy-spin. The timings in the table above were taken with `Thread.sleep`; the change can only
+  free pool threads, not slow the decode, and it was not re-timed.
+- **Open item — float-PCM branch untested.** The decoder has a `ENCODING_PCM_FLOAT` path (and a bulk
+  float read); the emulator's decoders emit 16-bit, so it has never run. Needs a device whose decoder
+  emits float, or a test that requests float output via `KEY_PCM_ENCODING`.
+- **What is and is not known:** on the emulator the approach is well over the judged budget on realistic
+  input. That is a finding about *this emulator*, not proof that a phone misses. It is not tuned.
+- **Reproduce:** `cd android && ./gradlew :playback:connectedDebugAndroidTest`, then
+  `adb logcat -d -s WaveformGate` (each line carries the device tag). Run it on a physical phone to
+  fill the empty row; until then this gate is unmet and untested on hardware.
+
+### L44 — Android `Scrubber.COALESCE_WINDOW_MS` = 60 ms (a judgement, not a measurement; never tried on a real player)
+
+- **Where:** `android/playback/.../Scrubber.kt`. **Gates:** how often a drag on the nudge waveform
+  issues a `seekTo`. The first position in a window seeks at once; later ones are held and only the
+  latest is seeked to when the window ends. At 60 ms a drag is capped at ~16 seeks/s.
+- **What it rests on:** a UX judgement. 60 ms is about four 60 Hz frames (3.6, rounded): short enough that the audio
+  feels attached to the thumb, long enough that a drag emitting hundreds of events/s does not queue
+  hundreds of seeks. Nothing was measured. It was deliberately **not** timed on the emulator or any
+  player (L43's emulator timings are explicitly about that emulator, not hardware).
+- **What the tests do and do not pin:** `ScrubberTest` uses a fake clock and a fake seek target. It
+  proves the *coalescing logic* (one seek per window, last position wins, no seek after `stop`). It
+  says nothing about whether 60 ms *sounds* right, or about real `MediaController.seekTo` latency.
+- **Open item:** on a physical phone, drag over a song and listen. If audio lags the thumb or stutters
+  with seek storms, adjust the constant and record what was heard here. Untested until then.
+- **Reproduce:** `cd android && ./gradlew :playback:testDebugUnitTest --tests '*ScrubberTest*'`.
+
+### L45 — Android nudge screen: `ScrubAudio.IDLE_PAUSE_MS` = 150 ms and `NudgeWindow.SPAN_MS` = 12 s (judgements, not measurements; drawn on the emulator, never heard)
+
+- **Where:** `android/app/.../ui/ScrubAudio.kt`, `NudgeState.kt`. **Gates:** (1) `IDLE_PAUSE_MS`: how long a
+  held finger keeps the player running before it pauses, so a stationary thumb repeats its spot instead of
+  the song running ahead of it. Playback starts on the first drag event (a paused ExoPlayer is silent on
+  `seekTo`) and the pre-gesture play state is restored on release. (2) `SPAN_MS`: seconds of song across
+  the waveform; this bounds how far one drag can move a line (handle cannot leave the view).
+- **What they rest on:** 150 ms is above the 60 ms seek window (L44) so normal movement never idles, and
+  below a perceptible pause. 12 s is about two or three sung lines at the pace of the demo songs. Both are
+  judgements; nothing was measured or listened to.
+- **Hard numbers in the same change that are NOT judgements:** `MIN_GAP_MS` = 50 equals `applyAnchors`'s
+  `minGapSec` default 0.05 (`NudgeStateTest.clampedTimeIsOneAlignLeavesAlone`); `FINE_STEP_MS` = 100 is the
+  product spec's "±0.1 s".
+- **`TimingResolver.MIN_PIN_GAP_MS` = 50 — the same rule, a third copy, and the one that guards the
+  guarantee.** `android/data/.../TimingResolver.kt`. **Gates:** how far a conflicting later user pin is
+  pushed forward in the resolved monotonic view when two user pins cross (the earlier line wins and the
+  later one is clamped to at least this far after it), and whether an auto pin is considered to "fit"
+  between its neighbours. It is not a tuned number: it is `applyAnchors`'s `minGapSec` default 0.05 s
+  expressed in ms, so that a time this module stores is never one the `:align` module would move. The
+  50 ms itself is `:align`'s, and is a floor on distinguishable line starts, not a measurement of
+  anything in this project. All three copies are now pinned to `:align`'s default by tests:
+  `NudgeStateTest.clampedTimeIsOneAlignLeavesAlone` and
+  `TimingResolverTest.theResolversMinimumGapIsTheAlignModulesDefault`, which reads the default back out
+  of `applyAnchors`'s behaviour rather than restating the literal. Changing one without the others now
+  fails a test. **Reproduce:** `cd android && ./gradlew :data:testDebugUnitTest :app:testDebugUnitTest`.
+- **Conflict rule: earlier-line-wins, with the data to change it now stored.** `AnchorEntity.writtenAtMs`
+  (stamped by `SongDao.upsertUser`/`upsertAuto`) records when each pin was written, so "the most recent
+  correction wins" is available whenever it is wanted. It was added while the database is still at
+  version 1 with no installed base, so it cost a regenerated schema JSON and no migration. The resolver
+  deliberately does **not** use it yet: no one has been observed hitting the case, and switching rules
+  would change resolved times with nothing measured to say the new rule is better (rule 2).
+  Earlier-line-wins is also order-stable — the view depends only on the pins, not on the order they were
+  saved in. Not a permanent decision; the blocker is now a measurement, not a schema.
+- **Open item:** on a physical phone, drag with the song paused and listen: does it sound under the thumb,
+  does a held finger repeat cleanly, is 12 s too narrow. Record what was heard here.
+- **Reproduce:** `cd android && ./gradlew :app:testDebugUnitTest --tests '*ScrubAudioTest*' --tests '*NudgeStateTest*'`
+  (logic only; says nothing about how it sounds).
+- **What was drawn (emulator-5554, API 35, `-no-audio`, 27 s TTS m4a):** Loading, Ready, Failed (missing
+  file), a null-time line, portrait and landscape, a drag clamped at the neighbour, and Save writing one
+  `anchors` row with `lines` unchanged. Two layout defects were found and fixed this way (no scroll; squashed
+  progress indicator) plus a stale-state bug (handle stayed live after a failed decode). **Not heard:** the
+  emulator has no audio, so nothing here says whether scrubbing sounds right; `IDLE_PAUSE_MS` and the
+  `Scrubber` window remain untested by ear. **Not verified:** that Cancel restores the playhead (coded, not
+  observed).
+- **Known gap: reach.** A line cannot pass its neighbours (clamp) and lines sit ~3-5 s apart, so nudge
+  reaches roughly +/-6 s at most, bounded by the neighbour clamp, not the 12 s view. Errors in the 6-24 s
+  band measured in this project belong to tap-along (Task 5). **Nothing yet hands the user from one tool to
+  the other**; today they must know. "Centre on playhead" moves the view, not the clamp.
+- **Rotation (fixed in part).** Rotating used to drop an unsaved drag and re-decode. The proposal now
+  survives rotation (`rememberSaveable`, re-applied when the state is rebuilt; observed on the emulator: New
+  12.45 s kept after rotating). The **waveform still decodes again**, so a rotation mid-correction costs the
+  decode time (28-49 s for a 4-minute file, L43) behind the Loading state; the handle works meanwhile.
+- **Clamp outside the view (fixed).** When a clamp lands outside the window (reachable after "Centre on
+  playhead"), the handle, original and neighbour lines are now pinned to the view edge instead of vanishing,
+  and the status text sits in a minimum-height slot so a message appearing mid-drag does not shove the waveform
+  under the finger. Observed: `pinned_clamp_outside_view.png` (handle at the left edge, New 12.45 s, clamp text).
+  Pinning shows that a clamp happened, not by how much.
+- **Playhead on Cancel (explained and fixed).** The restore was coded correctly all along; a second effect
+  was undoing it. `PlayerScreen`'s repeat loop was declared ABOVE the early returns that hand over to the
+  nudge and tap-along screens, so Compose kept it composed and seeking while those screens were open: with
+  Repeat on, `onDispose` seeked back to the start position and the still-live loop seeked it away on the
+  next frame. The same effect made the nudge handle jump out from under the thumb (`ScrubAudio` starts
+  playback on the first drag; the loop then saw the position past the range and seeked back) and looped one
+  line forever during tap-along, so a whole set of taps could be saved crammed inside a single line. Fixed
+  by hoisting the `nudging`/`tapping` state above the loop and suspending the loop while either is up
+  (Repeat stays on and resumes on return). Reproduced and then confirmed gone on emulator-5554.
+- **Removing a pin (added).** The guarantee was only "a pin can never be lost"; the inverse was missing and
+  the only escape from a bad pin was deleting the song. Pinned lines now carry a marker in `PlayerScreen`
+  and the nudge screen offers "Clear pin", one `SongDao.deleteAnchor`, after which the line falls back to
+  its computed time. No threshold, nothing measured; it is a missing inverse, not a tuning choice.
+- **Known gap, deliberately not closed: anchors re-attach by line INDEX.** Importing a different `.lrc`
+  whose lines do not correspond one-to-one leaves every pin on whatever line now holds that index, silently.
+  The resolver already drops pins on indexes past the end of a shorter sheet, which is the only part that
+  cannot be wrong. Binding a pin to line CONTENT instead (or prompting the user at re-import) is a design
+  decision about what a pin is attached to, and is bigger than this wave; it is recorded here rather than
+  guessed at. Until it is settled, a user who re-imports a differently-cut sheet must check their pins.
+
+
+### L46 — Android tap-along: `TapSession.DEBOUNCE_MS` = 250 ms (a judgement, not a measurement)
+
+- **Where:** `android/align/.../TapAlong.kt`. **Gates:** a tap closer than this to the previous accepted tap is
+  rejected and consumes no line. Without it, an accidental double-tap times the next line at the same
+  instant and every later line is off by one.
+- **What it rests on:** nothing measured. It is meant to sit above the gap between the two taps of an
+  accidental double-tap (roughly 100-200 ms, from general experience, not from this project) and below
+  any real gap between sung lines (lines in this project's songs are seconds apart). If a rapid
+  deliberate sequence of short lines is rejected, lower it; if double-taps still get through, raise it.
+- **Not a judgement:** a tap earlier than the previous one is rejected outright; a tap after the last line
+  is rejected. Both are rules, not tuned numbers.
+- **Not handled:** tap latency (finger to player clock). Its sign and size are unknown: tapping to an
+  anticipated line start tends to land near zero or slightly early, Bluetooth output delay pushes the
+  other way, and both vary by user and audio route. No offset is applied (rule 2: none is measured).
+  Taps are a first pass, and the screen says to fine-tune with nudge. Measuring it against the
+  `benchmarks/sync` blind human onsets is a follow-up.
+- **Rejection observed on screen (once, by a different route):** with the player paused the clock does not
+  advance, so consecutive taps arrive with the same position and the "Ignored: too soon after the last tap."
+  notice appeared (`07_replace_warning.png`). That shows the rejection path reaches the UI. A genuine fast
+  double-tap with a real finger was NOT observed: `adb input tap` pairs are too slow and too
+  unreliable to land inside 250 ms. The 250 ms window itself is covered by unit tests only.
+- **Reproduce:** `cd android && ./gradlew :align:test --tests '*TapAlongTest*'` (logic only). The window's
+  effect on a real finger is untested.
+- **What was drawn (emulator-5554, `-no-audio`, 8-line test tone):** taps advance the highlighted line,
+  Undo steps back one, Save writes `source = "user"` anchors in ms and leaves `lines` unchanged. Not heard.
+- **Reach:** this is the tool for errors beyond nudge's roughly +/-6 s (L45); nothing yet routes the user
+  from one to the other.
+- **Replacing hand-timed lines is now a confirmation, not a caption (no threshold involved).** The warning
+  used to be static text above the TAP/Save row, which a user mid-flow does not read, and one tap then
+  replaced hand-nudged pins irreversibly. When a save would replace at least one `source = "user"` pin,
+  a dialog names the count and asks ("Replace" / "Keep my timings"). `countReplaced` is an exact count of
+  overlapping line indexes; no tolerance or merge window was invented (rule 2 — the right call remains not
+  to guess one).
+
+### L47 — Android practice speeds: 0.5x / 0.75x / 1x (a judgement, not a measurement)
+
+- **Where:** `SPEEDS` in `android/app/.../ui/PlayerScreen.kt`. **Gates:** which playback speeds the player offers.
+  Nothing else depends on them; speed goes straight to Media3 `setPlaybackSpeed`.
+- **What it rests on:** nothing measured. Three coarse steps were chosen so a learner can slow a line down
+  without a fiddly slider. No learner has used them and no study backs the values. If people want slower
+  or finer control, change the list.
+- **Not ours:** pitch preservation at reduced speed is the platform's job (Media3/ExoPlayer defaults).
+  Not verified here: the emulator runs `-no-audio`, so nothing about the sound was heard.
+- **Repeat range is not a constant:** `repeatRange` has no thresholds; a line loops from its start to the
+  next timed line's start (last line: the audio duration), so a line ending on a held note loops through
+  the following silence. That is the accepted cost of one timestamp per line.
+- **Reproduce:** `cd android && ./gradlew :app:testDebugUnitTest --tests '*RepeatRangeTest*'` (range logic only).
+  Loop seamlessness is unverified: the loop is driven by a per-frame poll (about 16 ms granularity), so it can
+  overshoot the boundary by up to a frame; whether that is audible is unknown.
+- **Loop target is latched at the toggle (known sharp edge, no threshold added):** pressing Repeat picks the
+  active line at that instant. Pressed a beat before a line starts, it loops the previous line (seen once on the
+  emulator). Resolving that would need a proximity threshold, which rule 2 forbids without a measurement. A single
+  tap on the intended line retargets the loop. Following the active line instead cannot work: the position
+  crosses into the next line every pass.
+- **Unexamined, sub-frame:** the inclusive `position >= range.last` check can let one frame of the next line play
+  before the seek back, and the loop does not check for a pending seek. Not judged without audio.
+
+### L48 — the vocal stem decides Japanese alignment: p50 3.69 s with it, 20.21 s without, same song (MEASURED)
+
+- **What:** four real `AutoAlignFlow` runs on PJS corpus medleys (Japanese singing, CC BY-SA 4.0),
+  scored against `corpus-onsets` truth with per-line `uncertainty` 0.02 s (phoneme labels, L40).
+  Truth is measured, not listened for, so these are accuracy numbers and not a regression signal.
+- **The controlled pair** — `pjs-medley-17`, the same audio and the same truth, the stem the only
+  variable:
+
+  | run | stem | line 1 error | p50 | worst |
+  | --- | --- | --- | --- | --- |
+  | default policy | **accepted** | −0.44 s | **3.69 s** | 4.31 s |
+  | `--mix` (isolation off) | none | +15.44 s | **20.21 s** | 29.66 s |
+
+  Without the stem all four lines collapsed into a ~9 s window (20.3–29.5 s) while the song spans
+  70 s. With it, the opening landed within half a second.
+- **The other two runs** (`pjs-medley-07`, 6 lines): default policy had its stem REJECTED by the
+  stem-quality guard (`stem pass unverifiable, only 0.00 of 6 lines verified, floor 0.25`) and fell
+  back to the raw mix — p50 14.91 s, worst 24.33 s, lines 1–5 packed end-to-end from t=0.00 while
+  singing starts at 7.93 s. Re-running it `--mix` gave byte-identical times for lines 1–5, which is
+  how we learned the "default" run had already become a mix run.
+- **`pjs-medley-05` (103 s audio) TIMED OUT twice** at the harness's 12-minute cap with no output,
+  on the default path with the stem accepted. The run that completed only did so because its stem
+  was rejected early, short-circuiting the work.
+- **What this overturns:** isolation is **load-bearing for accuracy on solo voice**, not waste. An
+  earlier reading of this session (and L35's "vocal isolation worsens most lines on clean songs")
+  pointed the other way. The decisive switch is the **stem-quality verification**: when it passes
+  you get 3.69 s, when it fails you pay the separation cost AND get the bad answer AND may time out.
+- **What it does NOT show:** nothing here reaches the ADR-0003 gate. Even the best run is ±4 s
+  scattered (not drifting), ~15x outside the 250 ms the gate asks for. And these are SYNTHETIC
+  medleys — unrelated sentences separated by 1.5–3.5 s of silence — which is the worst case for a
+  line-packing failure and nothing like real J-pop. The gate's real-song half remains unmeasured.
+- **A prediction of mine that was falsified, recorded so it is not re-made:** I expected the no-stem
+  failure to pin line 1 at t=0 (as medley-07 did). `medley-17` instead collapsed its lines into a
+  mid-song window. "No stem" has no single signature, so a fix targeting pin-to-zero would miss
+  half the cases.
+- **Reproduce:** download PJS ver. 1.1 to `.cache/pjs-src/`, then
+  `node experiments/phase0/pjs/buildCorpus.mjs .cache/pjs-src/PJS_corpus_ver1.1 --per 6`,
+  `npm run benchmark:sync -- stage-pilot --manifest .cache/pjs/manifest.json` (add `--mix` for the
+  no-stem arm), open `/?benchmark=pjs-medley-17`, then `collect` and `report --manifest`.
+
+### L49 — English hand-aligned truth: 13 of 26 line starts within 0.5 s (MEASURED; first truth in this project that is neither ours nor an LRC)
+
+- **What:** `jamendo-lower-loveday-is-it-right`, 26 lines, from JamendoLyrics (Durand, Stoller &
+  Ewert, ICASSP 2023) — real accompanied music whose line onsets were **aligned by hand,
+  independently of this project**. Converted by `experiments/phase0/jamendo/buildCorpus.mjs`.
+- **Result:** 13/26 within 0.5 s (50%), 11/26 within 0.3 s, p50 0.54 s, p90 1.83 s, worst 9.78 s,
+  0 missing predictions. Run with vocal isolation on.
+- **Why it matters:** CLAUDE.md rule 1 says an LRC is not truth, which left this project with no way
+  to measure itself on real accompanied music. This is the first corpus here that is hand-aligned by
+  a third party, so it is evidence rather than a regression signal.
+- **Why it does NOT certify:** `uncertainty` is declared 0.3 s — the tolerance the alignment
+  literature uses when scoring against this data, which is an EVALUATION tolerance and not a
+  measurement of annotation precision. Nothing available gives the latter. 0.3 s exceeds the gate's
+  0.25 s eligibility ceiling, so these songs score but cannot certify. Choosing a value just under
+  0.25 to make them eligible would have been picking a number to pass a gate.
+- **Also not Japanese.** It measures the timing machinery, not reading or pairing, so it cannot
+  stand in for the gate's real-J-pop half.
+- **Reproduce:** fetch the dataset's `annotations/lines/*.csv` and `subsets/en/mp3/*` from
+  HuggingFace (`jamendolyrics/jamendolyrics`), then
+  `node experiments/phase0/jamendo/buildCorpus.mjs .cache/jamendolyrics-src --uncertainty 0.3`.
+  Per-song licences are in `JamendoLyrics.csv`; audio stays local and is never committed.
+
+### L50 — the PJS corpus yields 100/100 phoneme-label onsets (0.02 s), and the committed truth is hash-only
+
+- **What:** PJS ver. 1.1 (Koguchi & Takamichi, arXiv:2006.02959, CC BY-SA 4.0 — commercial use
+  permitted) downloaded and built into 17 medleys. **All 100 source songs produced a phoneme-label
+  onset**, i.e. the 0.02 s path of L40, not the 0.05 s energy fallback.
+- **Gates:** this clears the ADR-0003 gate's `corpus-onsets` volume requirement (≥10 medleys,
+  ≥60 lines) in one build: 17 medleys, 100 lines.
+- **What is committed:** `experiments/phase0/pjs/annotations/*.json` — 17 files, 100 lines, every
+  line a `textHash` with no `text` field, verified. Audio, lyric sheets, the synthetic LRC priors
+  and the PJS manifest stay in `.cache/pjs/` and are never committed (ADR-0004, rule 6).
+  `node scripts/corpus-ci.mjs` validates them and now reports a real count instead of "none built".
+- **Still missing for the gate:** the `≥3 accompanied` medleys, which need an openly licensed backing
+  track for `--bed` and two builder runs into separate output directories; and the real-J-pop half,
+  which needs blind human onsets on the pre-registered stratified sample. Neither is blocked by
+  anything here.
+- **Download note:** the archive is a single Google Drive link (275,179,158 bytes) and no script
+  fetches it. This environment truncates any single download at 10 MiB, so it was reassembled from
+  8 MiB ranged requests and verified byte-exact against the server's `content-length` plus
+  `unzip -t` before use.
