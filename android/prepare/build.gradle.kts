@@ -18,8 +18,13 @@ kotlin {
 }
 
 dependencies {
+    // api: prepareSong/adoptTrack take :data's SongDao and SongEntity, so :data is part of
+    // this module's public signatures. With `implementation` it compiled only because :app
+    // happens to depend on :data itself, which a future consumer need not.
+    api(project(":data"))
+    // implementation: :align's Sheet is used inside adoptTrack and never appears in a
+    // signature, so a consumer does not need it. Checked, not assumed.
     implementation(project(":align"))
-    implementation(project(":data"))
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.junit)

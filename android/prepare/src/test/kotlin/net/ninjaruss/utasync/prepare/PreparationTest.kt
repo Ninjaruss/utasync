@@ -170,7 +170,8 @@ class PreparationTest {
 
         assertEquals(PrepareOutcome.NotFound(LookupOutcome.NO_ENTRY), outcome)
         assertTrue(dao.replaceLinesCalls.isEmpty())
-        assertEquals("failed", dao.current.prepareState)
+        // The service answered: there is simply nothing to take. Not a failure to reach it.
+        assertEquals("no-match", dao.current.prepareState)
         assertTrue(dao.lyricsSources.isEmpty())
     }
 
@@ -188,6 +189,8 @@ class PreparationTest {
         // No lyrics are stored on a guess: the user picks (no matching threshold, rule 2).
         assertTrue(dao.replaceLinesCalls.isEmpty())
         assertEquals(listOf("get", "search"), http.urls.map { StubHttp.endpointOf(it) })
+        // The service answered and there are results waiting; "failed" here would be a lie.
+        assertEquals(listOf("fetching", "no-match"), dao.states)
     }
 
     @Test fun `a 404 with no candidates returns NotFound(NO_ENTRY)`() {
@@ -202,7 +205,7 @@ class PreparationTest {
 
         assertEquals(PrepareOutcome.NotFound(LookupOutcome.NO_ENTRY), outcome)
         assertTrue(dao.replaceLinesCalls.isEmpty())
-        assertEquals("failed", dao.current.prepareState)
+        assertEquals("no-match", dao.current.prepareState)
     }
 
     @Test fun `an offline rung 1 does not go on to search`() {
@@ -332,7 +335,7 @@ class PreparationTest {
         assertTrue(dao.replaceLinesCalls.isEmpty())
     }
 
-    @Test fun `prepareState is fetching during the call and done or failed after`() {
+    @Test fun `prepareState is fetching during the call and done or no-match after`() {
         val dao = FakeDao(song())
         val http = StubHttp(mapOf("get" to json(record(synced = "[00:01.00]one"))))
         var stateWhenAsked: String? = null
@@ -349,7 +352,61 @@ class PreparationTest {
             ),
         )
         runBlocking { prepareSong(failing, lrclib(miss), failing.current) }
-        assertEquals(listOf("fetching", "failed"), failing.states)
+        assertEquals(listOf("fetching", "no-match"), failing.states)
+    }
+
+    /**
+     * The split that stops "Couldn't reach LRCLIB" being shown when LRCLIB answered. A test
+     * asserting merely "not done" would pass either way, so the exact value is asserted.
+     */
+    @Test fun `a service that answered with nothing is no-match, not failed`() {
+        val dao = FakeDao(song())
+        val http = StubHttp(
+            mapOf(
+                "get" to json("""{"statusCode":404}""", code = 404),
+                "search" to json("[]"),
+            ),
+        )
+        val outcome = runBlocking { prepareSong(dao, lrclib(http), dao.current) }
+        assertEquals(PrepareOutcome.NotFound(LookupOutcome.NO_ENTRY), outcome)
+        assertEquals("no-match", dao.current.prepareState)
+    }
+
+    @Test fun `a service that could not be reached is failed, not no-match`() {
+        val dao = FakeDao(song())
+        val http = object : HttpGet {
+            override suspend fun get(url: String, userAgent: String): HttpResponse =
+                throw java.io.IOException("no network")
+        }
+        val outcome = runBlocking { prepareSong(dao, lrclib(http), dao.current) }
+        assertEquals(PrepareOutcome.NotFound(LookupOutcome.OFFLINE), outcome)
+        // A retry is sensible here, and only "failed" says so.
+        assertEquals("failed", dao.current.prepareState)
+    }
+
+    @Test fun `a rate-limited lookup is failed, not no-match`() {
+        val dao = FakeDao(song())
+        val http = StubHttp(
+            mapOf("get" to HttpResponse(429, "application/json", """{"statusCode":429}""", 86_400)),
+        )
+        val outcome = runBlocking { prepareSong(dao, lrclib(http), dao.current) }
+        assertEquals(PrepareOutcome.NotFound(LookupOutcome.RATE_LIMITED), outcome)
+        assertEquals("failed", dao.current.prepareState)
+    }
+
+    @Test fun `a song with no title is no-match, since no query could be formed`() {
+        val dao = FakeDao(song(title = ""))
+        val http = StubHttp(emptyMap())
+        runBlocking { prepareSong(dao, lrclib(http), dao.current) }
+        assertTrue(http.urls.isEmpty())
+        assertEquals(listOf("no-match"), dao.states)
+    }
+
+    @Test fun `a no-artist song whose search finds candidates is no-match`() {
+        val dao = FakeDao(song(artist = ""))
+        val http = StubHttp(mapOf("search" to json("[${record()}]")))
+        runBlocking { prepareSong(dao, lrclib(http), dao.current) }
+        assertEquals(listOf("fetching", "no-match"), dao.states)
     }
 
     // ---- Filling in what the file did not say. ----
