@@ -1,6 +1,7 @@
 package net.ninjaruss.utasync
 
 import android.app.Application
+import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -38,6 +39,8 @@ class UtasyncApplication : Application() {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            // Log the failure's type only: no song title, artist, URI or path.
+            Log.w("Utasync", "startup lookup reset failed: ${e.javaClass.simpleName}")
             // Must not escape to the thread's uncaught handler. The lookup waiting on this may
             // proceed: the worst case is a stale "fetching" label that its own write corrects.
         }

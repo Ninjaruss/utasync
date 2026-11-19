@@ -52,4 +52,14 @@ class ReadinessTest {
         assertEquals(Readiness.SINGABLE, readinessOf("no-match", 5, 5))
         assertEquals(Readiness.SINGABLE, readinessOf("failed", 5, 5))
     }
+
+    // Why emptyPlayerMessage may fold WORDS_ONLY and SINGABLE into its `else`: a song with no
+    // lines can never be either.
+    @Test fun `a song with no lines is never WORDS_ONLY or SINGABLE, whatever the prepare state`() {
+        for (state in listOf("pending", "fetching", "done", "no-match", "failed", "off")) {
+            val r = readinessOf(state, 0, 0)
+            assertNotEquals(state, Readiness.WORDS_ONLY, r)
+            assertNotEquals(state, Readiness.SINGABLE, r)
+        }
+    }
 }

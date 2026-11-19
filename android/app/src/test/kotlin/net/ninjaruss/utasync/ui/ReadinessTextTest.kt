@@ -19,14 +19,13 @@ class ReadinessTextTest {
         assertEquals(listOf(Readiness.SINGABLE), Readiness.entries.filter { libraryStatus(it) == null })
     }
 
-    @Test fun `every empty-player message is non-blank and distinct across the whole enum`() {
-        val texts = Readiness.entries.map { emptyPlayerMessage(it) }
+    @Test fun `the messages a song with no lines can actually show are non-blank and distinct`() {
+        // The reachable domain is derived, not listed: every prepareState a song can hold, run
+        // through readinessOf with no lines. A new state or a precedence change is covered.
+        val reachable = ALL_PREPARE_STATES.map { readinessOf(it, 0, 0) }.toSet()
+        val texts = reachable.map { emptyPlayerMessage(it) }
         assertTrue(texts.all { it.isNotBlank() })
-        // Only states a song with no lines can be in need their own wording; the rest never reach
-        // this screen. WORDS_ONLY and SINGABLE fall to the generic text, so compare the reachable ones.
-        val reachable = listOf(Readiness.FETCHING, Readiness.NO_LYRICS, Readiness.NO_MATCH, Readiness.FETCH_FAILED)
-            .map { emptyPlayerMessage(it) }
-        assertEquals(reachable, reachable.distinct())
+        assertEquals(texts, texts.distinct())
     }
 
     @Test fun `NO_MATCH and FETCH_FAILED read differently in both places`() {
@@ -57,5 +56,9 @@ class ReadinessTextTest {
             assertFalse(it, it.contains("fail", ignoreCase = true))
             assertFalse(it, it.contains("LRCLIB", ignoreCase = true))
         }
+    }
+
+    private companion object {
+        val ALL_PREPARE_STATES = listOf("pending", "fetching", "done", "no-match", "failed", "off")
     }
 }
