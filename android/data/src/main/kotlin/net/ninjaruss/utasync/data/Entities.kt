@@ -15,6 +15,13 @@ data class SongEntity(
     val durationMs: Long? = null,
     /** Where the lyric text came from: "lrc-file", "embedded", "lrclib", "paste". */
     val lyricsSource: String? = null,
+    /**
+     * What preparation has been **attempted**: "pending", "fetching", "done", "failed" or "off"
+     * (automatic lookup is switched off). It deliberately says nothing about what the lines
+     * contain — readiness for singing is derived from the lines themselves — so the two cannot
+     * drift apart.
+     */
+    val prepareState: String = "pending",
     val createdAtMs: Long,
 )
 

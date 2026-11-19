@@ -15,8 +15,28 @@ abstract class SongDao {
     @Query("SELECT * FROM songs WHERE id = :id")
     abstract fun observeSong(id: Long): Flow<SongEntity?>
 
+    /** One read of a song's current row, for code that must decide and then write. */
+    @Query("SELECT * FROM songs WHERE id = :id")
+    abstract suspend fun song(id: Long): SongEntity?
+
     @Insert
     abstract suspend fun insertSong(song: SongEntity): Long
+
+    /** Records what preparation has been attempted. See [SongEntity.prepareState]. */
+    @Query("UPDATE songs SET prepareState = :state WHERE id = :id")
+    abstract suspend fun setPrepareState(id: Long, state: String)
+
+    /**
+     * Corrects the song's name and artist, which a filename or missing tag may have left blank.
+     * It is a plain setter: deciding whether to overwrite what the file said belongs to the
+     * caller, which can see both values.
+     */
+    @Query("UPDATE songs SET title = :title, artist = :artist WHERE id = :id")
+    abstract suspend fun setTitleArtist(id: Long, title: String, artist: String)
+
+    /** Records where the stored lyric text came from. See [SongEntity.lyricsSource]. */
+    @Query("UPDATE songs SET lyricsSource = :source WHERE id = :id")
+    abstract suspend fun setLyricsSource(id: Long, source: String)
 
     @Query("SELECT * FROM lines WHERE songId = :songId ORDER BY lineIndex")
     abstract fun observeLines(songId: Long): Flow<List<LineEntity>>

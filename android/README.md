@@ -43,13 +43,14 @@ Requirements: JDK 17, Android SDK 35. Open this folder in Android Studio, or:
 
 - Highlight within 30 ms of `player.currentPosition` across a full song (instrumented test).
 - Playback continues in the background with notification controls.
-- No network calls (the manifest has no INTERNET permission yet; LRCLIB comes next).
+- The only network call is a lyric lookup against LRCLIB, carrying the title, artist, album and
+  duration read from the user's own file. It can be switched off (`FetchSetting`, on by default).
 
 ## Pins survive everything
 
 > **Upgrading from an earlier build of this branch:** the `anchors` table gained a `writtenAtMs`
-> column, so the Room schema's identity hash changed while the version stayed at 1. There is no
-> migration and no `fallbackToDestructiveMigration`, so an older build's database makes Room throw
+> column and `songs` gained `prepareState`, so the Room schema's identity hash changed while the
+> version stayed at 1. There is no migration and no `fallbackToDestructiveMigration`, so an older build's database makes Room throw
 > "cannot verify the data integrity" on first access — a crash, not a message. Uninstall the old
 > build first. This matters only to developers: the app has never shipped.
 
@@ -63,6 +64,12 @@ computed times; it cannot touch an anchor. This is the product's one non-negotia
 pins. Check with `grep -rn startMs android/app/src/main`; every hit must be a write at import or
 unrelated to line times. Where pins disagree about order, the resolver returns a monotonic view
 (earlier line wins) and changes nothing stored; re-nudging either line fixes it.
+
+There is a second way to break the guarantee without writing an anchor: anchors are keyed by
+`lineIndex`, so **replacing a pinned song's lyric sheet with a differently split one moves every
+pin onto different words**. `prepareSong` therefore returns `RefusedHasPins` for a song with any
+`source = "user"` anchor unless the user says to go ahead (`allowReplaceSheet`). "No anchor row
+was written" is not enough on its own; both properties are asserted in `PreparationTest`.
 
 Automatic timings may only be stored with `SongDao.upsertAuto` and user pins only with
 `SongDao.upsertUser`; the raw `upsertAnchor` is `protected`, so no caller outside the DAO can

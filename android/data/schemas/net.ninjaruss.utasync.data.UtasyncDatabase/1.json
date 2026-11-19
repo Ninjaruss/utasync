@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "88e7773a1600db905b7bd4b82c0321ac",
+    "identityHash": "e3a2c5c0faf84162017a093afee6a0b5",
     "entities": [
       {
         "tableName": "songs",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `title` TEXT NOT NULL, `artist` TEXT NOT NULL, `audioUri` TEXT NOT NULL, `durationMs` INTEGER, `lyricsSource` TEXT, `createdAtMs` INTEGER NOT NULL)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `title` TEXT NOT NULL, `artist` TEXT NOT NULL, `audioUri` TEXT NOT NULL, `durationMs` INTEGER, `lyricsSource` TEXT, `prepareState` TEXT NOT NULL, `createdAtMs` INTEGER NOT NULL)",
         "fields": [
           {
             "fieldPath": "id",
@@ -43,6 +43,12 @@
             "columnName": "lyricsSource",
             "affinity": "TEXT",
             "notNull": false
+          },
+          {
+            "fieldPath": "prepareState",
+            "columnName": "prepareState",
+            "affinity": "TEXT",
+            "notNull": true
           },
           {
             "fieldPath": "createdAtMs",
@@ -256,7 +262,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '88e7773a1600db905b7bd4b82c0321ac')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'e3a2c5c0faf84162017a093afee6a0b5')"
     ]
   }
 }
