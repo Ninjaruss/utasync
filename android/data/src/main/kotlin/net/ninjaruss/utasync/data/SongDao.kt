@@ -27,6 +27,21 @@ abstract class SongDao {
     abstract suspend fun setPrepareState(id: Long, state: String)
 
     /**
+     * A lookup runs only inside a process, so at process start no song can truly be
+     * `"fetching"`: any that is was interrupted. Back to `"pending"` — nothing was learned, so
+     * it must not read as a failure or a miss.
+     */
+    @Query("UPDATE songs SET prepareState = 'pending' WHERE prepareState = 'fetching'")
+    abstract suspend fun resetInterruptedLookups()
+
+    /**
+     * Per-song line totals for readiness. [LineCounts.timed] counts non-null computed starts: a
+     * count only, never a timing read — timings come from [resolveStarts].
+     */
+    @Query("SELECT songId, COUNT(*) AS total, COUNT(startMs) AS timed FROM lines GROUP BY songId")
+    abstract fun observeLineCounts(): Flow<List<LineCounts>>
+
+    /**
      * Corrects the song's name and artist, which a filename or missing tag may have left blank.
      * It is a plain setter: deciding whether to overwrite what the file said belongs to the
      * caller, which can see both values.
@@ -109,3 +124,6 @@ abstract class SongDao {
     @Insert
     abstract suspend fun insertRun(run: AlignmentRunEntity): Long
 }
+
+/** Result row of [SongDao.observeLineCounts]. */
+data class LineCounts(val songId: Long, val total: Int, val timed: Int)

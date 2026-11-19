@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import net.ninjaruss.utasync.data.AlignmentRunEntity
 import net.ninjaruss.utasync.data.AnchorEntity
+import net.ninjaruss.utasync.data.LineCounts
 import net.ninjaruss.utasync.data.LineEntity
 import net.ninjaruss.utasync.data.SongDao
 import net.ninjaruss.utasync.data.SongEntity
@@ -81,6 +82,8 @@ class PreparationTest {
         override suspend fun anchorOn(songId: Long, lineIndex: Int): AnchorEntity? =
             pins.firstOrNull { it.lineIndex == lineIndex }
         override suspend fun insertRun(run: AlignmentRunEntity): Long = unexpected("insertRun")
+        override suspend fun resetInterruptedLookups() = unexpected("resetInterruptedLookups")
+        override fun observeLineCounts(): Flow<List<LineCounts>> = flowOf(emptyList())
 
         private fun unexpected(name: String): Nothing =
             throw AssertionError("preparation must not call $name")

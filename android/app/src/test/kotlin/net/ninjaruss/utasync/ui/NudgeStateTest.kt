@@ -173,6 +173,13 @@ class NudgeStateTest {
         override suspend fun deleteAnchor(songId: Long, lineIndex: Int) { deletes += songId to lineIndex }
         override fun nowMs(): Long = WRITTEN_AT
         override suspend fun insertRun(run: AlignmentRunEntity): Long { otherWrites += "insertRun"; return 0 }
+        override suspend fun resetInterruptedLookups() { otherWrites += "resetInterruptedLookups" }
+        override fun observeLineCounts() = error("unused")
+        // Added to the Task 5 members this fake never implemented, so the module's tests compile.
+        override suspend fun song(id: Long): SongEntity? = error("unused")
+        override suspend fun setPrepareState(id: Long, state: String) { otherWrites += "setPrepareState" }
+        override suspend fun setTitleArtist(id: Long, title: String, artist: String) { otherWrites += "setTitleArtist" }
+        override suspend fun setLyricsSource(id: Long, source: String) { otherWrites += "setLyricsSource" }
 
         val deletes = mutableListOf<Pair<Long, Int>>()
     }

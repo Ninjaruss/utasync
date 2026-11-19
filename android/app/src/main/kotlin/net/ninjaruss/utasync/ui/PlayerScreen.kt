@@ -53,7 +53,10 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import kotlinx.coroutines.launch
 import net.ninjaruss.utasync.align.activeLineIndex
+import net.ninjaruss.utasync.UtasyncApplication
+import net.ninjaruss.utasync.data.Readiness
 import net.ninjaruss.utasync.data.SongDao
+import net.ninjaruss.utasync.data.readinessOf
 import net.ninjaruss.utasync.data.resolveStarts
 import net.ninjaruss.utasync.playback.PlayerConnection
 
@@ -138,7 +141,9 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
             }
         }
     }
-    val active = activeLineIndex(starts, positionMs)
+    val readiness = readinessOf(song?.prepareState ?: "pending", lines.size, starts.count { it != null })
+    // Not singable means no highlight at all: half-timed lines must not pretend to follow along.
+    val active = if (readiness == Readiness.WORDS_ONLY) -1 else activeLineIndex(starts, positionMs)
     val listState = rememberLazyListState()
     LaunchedEffect(active) {
         if (active >= 0) listState.animateScrollToItem(maxOf(0, active - 2))
@@ -203,10 +208,27 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
     ) { padding ->
         if (lines.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("No lyrics yet. Tap Lyrics… to load a synced .lrc file.", Modifier.padding(24.dp))
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(emptyPlayerMessage(readiness), Modifier.padding(24.dp))
+                    // A retry only where one can help: LRCLIB was not reached, or nothing was
+                    // tried. Never on NO_MATCH, where asking again would change nothing.
+                    if (readiness == Readiness.FETCH_FAILED || readiness == Readiness.NO_LYRICS) {
+                        Button(onClick = { (context.applicationContext as UtasyncApplication).lookUpLyrics(songId) }) {
+                            Text(if (readiness == Readiness.FETCH_FAILED) "Try again" else "Find lyrics")
+                        }
+                    }
+                }
             }
         } else {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(padding)) {
+            Column(Modifier.fillMaxSize().padding(padding)) {
+            if (readiness == Readiness.WORDS_ONLY) {
+                Text(
+                    WORDS_ONLY_NOTICE,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                )
+            }
+            LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth()) {
                 itemsIndexed(lines, key = { _, line -> line.lineIndex }) { i, line ->
                     val isActive = i == active
                     val isPinned = line.lineIndex in pinned
@@ -231,6 +253,7 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
                             .padding(horizontal = 24.dp, vertical = 10.dp),
                     )
                 }
+            }
             }
         }
     }
