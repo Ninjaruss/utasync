@@ -9,7 +9,7 @@ import kotlinx.coroutines.withContext
  * The only part that touches the network, and it decides nothing: request, body, headers.
  * It never logs a body (ADR-0004).
  */
-class UrlConnectionHttp(private val versionName: String) : HttpGet {
+class UrlConnectionHttp : HttpGet {
     override suspend fun get(url: String, userAgent: String): HttpResponse =
         withContext(Dispatchers.IO) {
             val conn = URL(url).openConnection() as HttpURLConnection
@@ -17,7 +17,7 @@ class UrlConnectionHttp(private val versionName: String) : HttpGet {
                 conn.connectTimeout = CONNECT_TIMEOUT_MS
                 conn.readTimeout = READ_TIMEOUT_MS
                 conn.instanceFollowRedirects = true
-                conn.setRequestProperty("User-Agent", userAgent(versionName))
+                conn.setRequestProperty("User-Agent", userAgent)
                 conn.setRequestProperty("Accept", "application/json")
                 val code = conn.responseCode
                 val stream = if (code in 200..299) conn.inputStream else conn.errorStream
