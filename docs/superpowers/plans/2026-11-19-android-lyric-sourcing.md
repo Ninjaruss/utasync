@@ -41,6 +41,12 @@ posture), §6 (the ladder), §6.2 (the known defect), §6.3 (readiness).
 - **Network only during preparation** (§5.4). Nothing is fetched while a song plays. The
   `INTERNET` permission is added in Task 5, not before.
 - **Kotlin builds with `-Werror`.** Every module compiles clean.
+- **Every task's final verification runs the full CI command**, not a subset:
+  `cd android && ./gradlew :align:test :data:testDebugUnitTest :playback:testDebugUnitTest :prepare:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug`
+  A shortened command is why a non-compiling test fake in `:app` survived two task gates on this
+  branch. `:app:assembleDebug` does not compile unit-test sources, so assembling proves nothing
+  about tests — `android/README.md` says exactly this, and the first draft of this plan ignored
+  it anyway.
 - **One timestamp per line; ends are implied** (§7.1). Nothing here stores an end time that
   is not already in the imported LRC.
 - **Anchors are untouchable** (ADR-0002, §7.4). No code in this plan writes, moves or
@@ -582,9 +588,11 @@ has been attempted, which is not a failure.
 - [ ] **Step 4: Show it**
 
 `LibraryScreen` adds the state to each row's `supportingContent`: "Finding lyrics…",
-"No lyrics yet", "No lyrics found — tap to search or paste" (`NO_MATCH`), "Couldn't reach
-LRCLIB — tap to retry" (`FETCH_FAILED`), "Words only — not timed yet", or the artist when
-`SINGABLE`. `PlayerScreen`'s `lines.isEmpty()` branch is replaced by a message per `Readiness`;
+"No lyrics yet", "No lyrics found" (`NO_MATCH`), "Couldn't reach LRCLIB" (`FETCH_FAILED`),
+"Words only — not timed yet", or the artist when `SINGABLE`. **The row states; the screen acts.**
+No row text says "tap to…": tapping a row opens the player, so a row promising a retry or a
+search would be lying about the app the way a wrong readiness label lies about the service. The
+player carries "Try again" and "Find lyrics"; search and paste belong to Task 7's screen. `PlayerScreen`'s `lines.isEmpty()` branch is replaced by a message per `Readiness`;
 a `WORDS_ONLY` song shows its words with no highlight and a line saying the timing is not done,
 rather than highlighting line 1 at 0:00.
 
@@ -602,7 +610,7 @@ the lines, both of which the `Flow` observes. Do not hold outcome state in the c
 
 - [ ] **Step 6: Run the tests and build**
 
-Run: `cd android && ./gradlew :data:testDebugUnitTest :prepare:testDebugUnitTest :app:assembleDebug`
+Run: `cd android && ./gradlew :align:test :data:testDebugUnitTest :playback:testDebugUnitTest :prepare:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
@@ -664,7 +672,7 @@ or 4".
 
 - [ ] **Step 4: Run the tests and build**
 
-Run: `cd android && ./gradlew :app:testDebugUnitTest :app:assembleDebug`
+Run: `cd android && ./gradlew :align:test :data:testDebugUnitTest :playback:testDebugUnitTest :prepare:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
