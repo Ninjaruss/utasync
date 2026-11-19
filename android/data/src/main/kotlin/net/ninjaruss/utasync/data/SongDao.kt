@@ -35,10 +35,22 @@ abstract class SongDao {
     abstract suspend fun resetInterruptedLookups()
 
     /**
-     * Per-song line totals for readiness. [LineCounts.timed] counts non-null computed starts: a
-     * count only, never a timing read — timings come from [resolveStarts].
+     * Per-song line totals for readiness, in one grouped query. A line is timed when it has a
+     * computed start **or** an anchor: the same rule [resolveStarts] applies (a pin on a line with
+     * no computed time still times it), so the library and the player agree. Anchors are unique
+     * per (song, line), so the join cannot double-count. A song with no lines has no row here;
+     * callers treat that as 0/0. Counts only, never a timing read.
      */
-    @Query("SELECT songId, COUNT(*) AS total, COUNT(startMs) AS timed FROM lines GROUP BY songId")
+    @Query(
+        """
+        SELECT lines.songId AS songId,
+               COUNT(*) AS total,
+               COUNT(CASE WHEN lines.startMs IS NOT NULL OR anchors.lineIndex IS NOT NULL THEN 1 END) AS timed
+        FROM lines
+        LEFT JOIN anchors ON anchors.songId = lines.songId AND anchors.lineIndex = lines.lineIndex
+        GROUP BY lines.songId
+        """,
+    )
     abstract fun observeLineCounts(): Flow<List<LineCounts>>
 
     /**

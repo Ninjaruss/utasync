@@ -6,8 +6,8 @@ import net.ninjaruss.utasync.data.Readiness
 fun libraryStatus(readiness: Readiness): String? = when (readiness) {
     Readiness.FETCHING -> "Finding lyrics…"
     Readiness.NO_LYRICS -> "No lyrics yet"
-    Readiness.NO_MATCH -> "No lyrics found — tap to search or paste"
-    Readiness.FETCH_FAILED -> "Couldn't reach LRCLIB — tap to retry"
+    Readiness.NO_MATCH -> "No lyrics found"
+    Readiness.FETCH_FAILED -> "Couldn't reach LRCLIB"
     Readiness.WORDS_ONLY -> "Words only — not timed yet"
     Readiness.SINGABLE -> null
 }
