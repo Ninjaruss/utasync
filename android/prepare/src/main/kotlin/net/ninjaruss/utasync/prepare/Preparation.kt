@@ -166,7 +166,11 @@ suspend fun adoptTrack(dao: SongDao, songId: Long, track: LrclibTrack, consented
         }
     }
 
-    replaceSheetLines(dao, songId, lines, consented)
+    when (replaceSheetLines(dao, songId, lines, consented)) {
+        SheetReplacement.REPLACED -> Unit
+        SheetReplacement.REFUSED_HAS_PINS -> return PrepareOutcome.RefusedHasPins
+        SheetReplacement.EMPTY -> return PrepareOutcome.NotFound(LookupOutcome.NO_ENTRY)
+    }
     dao.setLyricsSource(songId, "lrclib")
     fillBlankNames(dao, songId, track)
     dao.setPrepareState(songId, DONE)
@@ -193,17 +197,37 @@ private suspend fun fillBlankNames(dao: SongDao, songId: Long, track: LrclibTrac
     )
 }
 
+/** What [replaceSheetLines] did. */
+enum class SheetReplacement {
+    REPLACED,
+
+    /** The song has a hand-placed pin and the user had not consented: nothing changed. */
+    REFUSED_HAS_PINS,
+
+    /** There were no lines to store: nothing changed (an empty sheet never replaces a real one). */
+    EMPTY,
+}
+
 /**
- * The single place a song's lyric sheet is replaced. Anchors are keyed by line index, so a
- * replaced sheet would silently re-point every pin to different words. When the user has
- * explicitly confirmed ([consented], after the hand-timed-lines warning) the pins are therefore
- * cleared, which makes the warning's "the hand-placed times will be gone" true. Never pass `true`
- * from an automatic path: the guarantee protects pins from automatic overwrites, and only an
- * explicit confirmation is the user's own decision (ADR-0002).
+ * The single place a song's lyric sheet is replaced, so the invariants live here and not in
+ * each caller (ADR-0002). Anchors are keyed by line index, so a replaced sheet would silently
+ * re-point every pin to different words:
+ * - without [consented], a song with a `source = "user"` pin is **refused** and nothing changes;
+ * - with [consented] (the user confirmed the hand-timed-lines warning), the pins are cleared in
+ *   the same transaction as the replace, which makes "the hand-placed times will be gone" true;
+ * - an **empty** [lines] never replaces or clears anything, even with consent.
+ * Never pass `consented = true` from an automatic path.
  */
-suspend fun replaceSheetLines(dao: SongDao, songId: Long, lines: List<LineEntity>, consented: Boolean) {
-    if (consented) dao.clearAnchorsForReplacedSheet(songId)
-    dao.replaceLines(songId, lines)
+suspend fun replaceSheetLines(
+    dao: SongDao,
+    songId: Long,
+    lines: List<LineEntity>,
+    consented: Boolean,
+): SheetReplacement {
+    if (lines.isEmpty()) return SheetReplacement.EMPTY
+    if (!consented && hasUserPins(dao, songId)) return SheetReplacement.REFUSED_HAS_PINS
+    if (consented) dao.replaceSheetClearingAnchors(songId, lines) else dao.replaceLines(songId, lines)
+    return SheetReplacement.REPLACED
 }
 
 /**
@@ -216,8 +240,11 @@ suspend fun adoptPastedLyrics(dao: SongDao, songId: Long, text: String, consente
     val lines = splitPastedLyrics(text).mapIndexed { i, line ->
         LineEntity(songId = songId, lineIndex = i, text = line, startMs = null, endMs = null)
     }
-    if (lines.isEmpty()) return PrepareOutcome.NotFound(LookupOutcome.NO_ENTRY)
-    replaceSheetLines(dao, songId, lines, consented)
+    when (replaceSheetLines(dao, songId, lines, consented)) {
+        SheetReplacement.REPLACED -> Unit
+        SheetReplacement.REFUSED_HAS_PINS -> return PrepareOutcome.RefusedHasPins
+        SheetReplacement.EMPTY -> return PrepareOutcome.NotFound(LookupOutcome.NO_ENTRY)
+    }
     dao.setLyricsSource(songId, "paste")
     dao.setPrepareState(songId, DONE)
     return PrepareOutcome.WordsOnly(lines.size)

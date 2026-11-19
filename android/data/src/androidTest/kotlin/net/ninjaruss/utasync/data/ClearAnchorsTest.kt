@@ -3,6 +3,7 @@ package net.ninjaruss.utasync.data
 import android.content.Context
 import androidx.room.Room
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -35,5 +36,21 @@ class ClearAnchorsTest {
         assertTrue(dao.anchors(a).isEmpty())
         assertEquals(listOf(0, 1, 2), dao.anchors(b).map { it.lineIndex })
         assertTrue(dao.anchors(b).all { it.source == "user" })
+    }
+
+    @Test fun replaceSheetClearingAnchorsReplacesLinesAndClearsOnlyThisSongsPins() = withDao { dao ->
+        val a = dao.newSong()
+        val b = dao.newSong()
+        listOf(a, b).forEach { id ->
+            dao.replaceLines(id, (0..2).map { LineEntity(id, it, "l$it", null, null) })
+            dao.upsertUser(AnchorEntity(id, 1, 2_000, "user"))
+        }
+
+        dao.replaceSheetClearingAnchors(a, listOf(LineEntity(a, 0, "new", null, null)))
+
+        assertTrue(dao.anchors(a).isEmpty())
+        assertEquals(listOf("new"), dao.observeLines(a).first().map { it.text })
+        assertEquals(listOf(1), dao.anchors(b).map { it.lineIndex })
+        assertEquals(3, dao.observeLines(b).first().size)
     }
 }

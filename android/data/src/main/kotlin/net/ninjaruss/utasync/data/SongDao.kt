@@ -144,6 +144,17 @@ abstract class SongDao {
     @Query("DELETE FROM anchors WHERE songId = :songId")
     abstract suspend fun clearAnchorsForReplacedSheet(songId: Long)
 
+    /**
+     * [clearAnchorsForReplacedSheet] then [replaceLines], as one transaction, so a process death
+     * cannot leave the pins gone with the old lines still in place. Same restriction: only for a
+     * replacement the user has explicitly confirmed; the one caller is `replaceSheetLines`.
+     */
+    @Transaction
+    open suspend fun replaceSheetClearingAnchors(songId: Long, lines: List<LineEntity>) {
+        clearAnchorsForReplacedSheet(songId)
+        replaceLines(songId, lines)
+    }
+
     @Insert
     abstract suspend fun insertRun(run: AlignmentRunEntity): Long
 }

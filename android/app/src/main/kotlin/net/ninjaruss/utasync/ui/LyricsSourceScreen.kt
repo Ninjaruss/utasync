@@ -126,8 +126,11 @@ fun LyricsSourceScreen(songId: Long, dao: SongDao, lrclib: Lrclib, onDone: () ->
                     }
                 }
                 is SheetChange.Lrc -> {
-                    if (importLrc(context, dao, songId, change.uri, consented = allowReplaceSheet) > 0) onDone()
-                    else message = "That file has no timed lines."
+                    when (importLrc(context, dao, songId, change.uri, consented = allowReplaceSheet)) {
+                        is LrcImport.Imported -> onDone()
+                        LrcImport.RefusedHasPins -> message = "This song has lines you timed by hand."
+                        LrcImport.NoLines -> message = "That file has no timed lines. Nothing was changed."
+                    }
                 }
             }
         } catch (e: CancellationException) {

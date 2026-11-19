@@ -50,6 +50,12 @@ class PreparationTest {
             clearedBeforeReplace = replaceLinesCalls.isEmpty()
         }
 
+        // Room makes the real one transactional; here it runs the two overridden steps in order.
+        override suspend fun replaceSheetClearingAnchors(songId: Long, lines: List<LineEntity>) {
+            clearAnchorsForReplacedSheet(songId)
+            replaceLines(songId, lines)
+        }
+
         override suspend fun replaceLines(songId: Long, lines: List<LineEntity>) {
             replaceLinesCalls += lines
         }
@@ -330,14 +336,17 @@ class PreparationTest {
         assertEquals(PrepareOutcome.RefusedHasPins, outcome)
         assertEquals(0, dao.clearCalls)
         assertTrue(dao.replaceLinesCalls.isEmpty())
+        assertTrue(dao.anchorWrites.isEmpty())
+        assertTrue(dao.deletedAnchors.isEmpty())
     }
 
-    @Test fun `a consented replace on an unpinned song clears harmlessly`() {
+    @Test fun `a consented replace on an unpinned song still replaces the lines and makes the clear call`() {
         val dao = FakeDao(song())
         val http = StubHttp(mapOf("get" to json(record(synced = "[00:01.00]one"))))
         runBlocking { prepareSong(dao, lrclib(http), dao.current, allowReplaceSheet = true) }
 
-        // Implementation clears unconditionally when consented; with no pins it deletes nothing.
+        // The clear is unconditional when consented. That it deletes only this song's pins is
+        // executed in :data's ClearAnchorsTest, which this fake cannot show.
         assertEquals(1, dao.clearCalls)
         assertEquals(1, dao.replaceLinesCalls.size)
     }
@@ -377,6 +386,31 @@ class PreparationTest {
         assertTrue(dao.deletedAnchors.isEmpty())
         assertTrue(dao.lyricsSources.isEmpty())
         assertTrue(dao.states.isEmpty())
+    }
+
+    @Test fun `replaceSheetLines refuses a pinned song unless consented, and changes nothing`() {
+        val pin = AnchorEntity(songId = 7, lineIndex = 0, timeMs = 500, source = "user")
+        val dao = FakeDao(song(), pins = listOf(pin))
+        val lines = listOf(LineEntity(7, 0, "la", 1_000, null))
+        val result = runBlocking { replaceSheetLines(dao, 7, lines, consented = false) }
+
+        assertEquals(SheetReplacement.REFUSED_HAS_PINS, result)
+        assertTrue(dao.replaceLinesCalls.isEmpty())
+        assertEquals(0, dao.clearCalls)
+        assertTrue(dao.anchorWrites.isEmpty())
+        assertTrue(dao.deletedAnchors.isEmpty())
+    }
+
+    @Test fun `replaceSheetLines never replaces or clears for an empty sheet, even with consent`() {
+        val pin = AnchorEntity(songId = 7, lineIndex = 0, timeMs = 500, source = "user")
+        listOf(true, false).forEach { consented ->
+            val dao = FakeDao(song(), pins = listOf(pin))
+            val result = runBlocking { replaceSheetLines(dao, 7, emptyList(), consented) }
+
+            assertEquals(SheetReplacement.EMPTY, result)
+            assertTrue(dao.replaceLinesCalls.isEmpty())
+            assertEquals(0, dao.clearCalls)
+        }
     }
 
     @Test fun `a consented adopt and a consented paste both clear, an unconsented one does not`() {
