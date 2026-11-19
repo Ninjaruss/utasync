@@ -221,39 +221,39 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
             }
         } else {
             Column(Modifier.fillMaxSize().padding(padding)) {
-            if (readiness == Readiness.WORDS_ONLY) {
-                Text(
-                    WORDS_ONLY_NOTICE,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                )
-            }
-            LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth()) {
-                itemsIndexed(lines, key = { _, line -> line.lineIndex }) { i, line ->
-                    val isActive = i == active
-                    val isPinned = line.lineIndex in pinned
+                if (readiness == Readiness.WORDS_ONLY) {
                     Text(
-                        text = if (isPinned) "\uD83D\uDCCC ${line.text}" else line.text,
-                        style = if (isActive) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleMedium,
-                        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .semantics {
-                                if (isPinned) contentDescription = "Pinned: ${line.text}"
-                            }
-                            .combinedClickable(
-                                onLongClickLabel = "Nudge this line's start",
-                                onLongClick = { nudging = i },
-                                onClick = {
-                                    starts.getOrNull(i)?.let { controller?.seekTo(it) }
-                                    if (repeatLine != null && starts.getOrNull(i) != null) repeatLine = i
-                                },
-                            )
-                            .padding(horizontal = 24.dp, vertical = 10.dp),
+                        WORDS_ONLY_NOTICE,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
                     )
                 }
-            }
+                LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    itemsIndexed(lines, key = { _, line -> line.lineIndex }) { i, line ->
+                        val isActive = i == active
+                        val isPinned = line.lineIndex in pinned
+                        Text(
+                            text = if (isPinned) "\uD83D\uDCCC ${line.text}" else line.text,
+                            style = if (isActive) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleMedium,
+                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .semantics {
+                                    if (isPinned) contentDescription = "Pinned: ${line.text}"
+                                }
+                                .combinedClickable(
+                                    onLongClickLabel = "Nudge this line's start",
+                                    onLongClick = { nudging = i },
+                                    onClick = {
+                                        starts.getOrNull(i)?.let { controller?.seekTo(it) }
+                                        if (repeatLine != null && starts.getOrNull(i) != null) repeatLine = i
+                                    },
+                                )
+                                .padding(horizontal = 24.dp, vertical = 10.dp),
+                        )
+                    }
+                }
             }
         }
     }

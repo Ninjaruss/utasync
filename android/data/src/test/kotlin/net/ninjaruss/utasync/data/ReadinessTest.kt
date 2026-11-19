@@ -28,6 +28,10 @@ class ReadinessTest {
         assertEquals(Readiness.NO_LYRICS, readinessOf("off", 0, 0))
     }
 
+    @Test fun `done with no lines stored is NO_LYRICS`() {
+        assertEquals(Readiness.NO_LYRICS, readinessOf("done", 0, 0))
+    }
+
     @Test fun `lines with no times are WORDS_ONLY`() {
         assertEquals(Readiness.WORDS_ONLY, readinessOf("done", 12, 0))
     }

@@ -33,7 +33,14 @@ class UtasyncApplication : Application() {
     // A fetch can only be in flight inside a running process, so any song stored as "fetching" at
     // startup was cut off by the process dying. Lookups wait for this, so it cannot undo one.
     private val resetInterruptedLookups = appScope.launch(start = CoroutineStart.LAZY) {
-        database.songDao().resetInterruptedLookups()
+        try {
+            database.songDao().resetInterruptedLookups()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Must not escape to the thread's uncaught handler. The lookup waiting on this may
+            // proceed: the worst case is a stale "fetching" label that its own write corrects.
+        }
     }
 
     override fun onCreate() {
