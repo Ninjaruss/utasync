@@ -26,7 +26,10 @@ android {
     buildFeatures { compose = true }
 }
 
-kotlin { jvmToolchain(17) }
+kotlin {
+    jvmToolchain(17)
+    compilerOptions { allWarningsAsErrors = true }
+}
 
 dependencies {
     implementation(project(":align"))

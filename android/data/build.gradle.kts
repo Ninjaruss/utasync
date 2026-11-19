@@ -14,7 +14,10 @@ android {
     }
 }
 
-kotlin { jvmToolchain(17) }
+kotlin {
+    jvmToolchain(17)
+    compilerOptions { allWarningsAsErrors = true }
+}
 
 ksp {
     // Exported schemas are committed so every migration can be tested against the old shape.
