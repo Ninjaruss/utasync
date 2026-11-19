@@ -1,8 +1,6 @@
 package net.ninjaruss.utasync.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,7 +33,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -51,7 +48,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
-import kotlinx.coroutines.launch
 import net.ninjaruss.utasync.align.activeLineIndex
 import net.ninjaruss.utasync.UtasyncApplication
 import net.ninjaruss.utasync.data.Readiness
@@ -64,7 +60,6 @@ import net.ninjaruss.utasync.playback.PlayerConnection
 @Composable
 fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val song by dao.observeSong(songId).collectAsStateWithLifecycle(initialValue = null)
     val lines by dao.observeLines(songId).collectAsStateWithLifecycle(initialValue = emptyList())
 
@@ -117,7 +112,8 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
     // the user drags the nudge handle or taps along (it yanked the playhead out from under both).
     var nudging by rememberSaveable { mutableStateOf<Int?>(null) }
     var tapping by rememberSaveable { mutableStateOf(false) }
-    val correcting = nudging != null || tapping
+    var sourcing by rememberSaveable { mutableStateOf(false) }
+    val correcting = nudging != null || tapping || sourcing
 
     // Practice: the line being looped (null = off) and the playback speed.
     var repeatLine by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -162,8 +158,13 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
         return
     }
 
-    val pickLrc = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch { importLrc(context, dao, songId, uri) }
+    if (sourcing) {
+        BackHandler { sourcing = false }
+        LyricsSourceScreen(
+            songId, dao, (context.applicationContext as UtasyncApplication).lrclib,
+            onDone = { sourcing = false },
+        )
+        return
     }
 
     Scaffold(
@@ -177,7 +178,7 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
                 },
                 actions = {
                     TextButton(onClick = { tapping = true }, enabled = lines.isNotEmpty()) { Text("Tap along") }
-                    TextButton(onClick = { pickLrc.launch(arrayOf("*/*")) }) { Text("Lyrics…") }
+                    TextButton(onClick = { sourcing = true }) { Text("Lyrics…") }
                 },
             )
         },
@@ -212,10 +213,15 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
                     Text(emptyPlayerMessage(readiness), Modifier.padding(24.dp))
                     // A retry only where one can help: LRCLIB was not reached, or nothing was
                     // tried. Never on NO_MATCH, where asking again would change nothing.
-                    if (readiness == Readiness.FETCH_FAILED || readiness == Readiness.NO_LYRICS) {
+                    if (readiness == Readiness.FETCH_FAILED) {
                         Button(onClick = { (context.applicationContext as UtasyncApplication).lookUpLyrics(songId) }) {
-                            Text(if (readiness == Readiness.FETCH_FAILED) "Try again" else "Find lyrics")
+                            Text("Try again")
                         }
+                    }
+                    // NO_LYRICS also covers lookup switched off, where an automatic retry would do
+                    // nothing visible. The lyrics screen searches on request whatever the setting.
+                    if (readiness == Readiness.NO_LYRICS) {
+                        Button(onClick = { sourcing = true }) { Text("Find lyrics") }
                     }
                 }
             }

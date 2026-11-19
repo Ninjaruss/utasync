@@ -26,7 +26,8 @@ class UtasyncApplication : Application() {
      */
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    private val lrclib by lazy {
+    /** The one LRCLIB client, shared by background lookups and the lyrics screen. */
+    val lrclib by lazy {
         val version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull()
         Lrclib(UrlConnectionHttp(), version ?: "0")
     }
