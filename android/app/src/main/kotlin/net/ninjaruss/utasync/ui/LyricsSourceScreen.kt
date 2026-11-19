@@ -115,11 +115,15 @@ fun LyricsSourceScreen(songId: Long, dao: SongDao, lrclib: Lrclib, onDone: () ->
                 }
                 is SheetChange.Adopt -> when (adoptTrack(dao, songId, change.track, consented = allowReplaceSheet)) {
                     is PrepareOutcome.Synced, is PrepareOutcome.WordsOnly -> onDone()
+                    PrepareOutcome.RefusedHasPins -> message = "This song has lines you timed by hand."
                     else -> message = "That record has no lyrics to use."
                 }
                 is SheetChange.Paste -> {
-                    adoptPastedLyrics(dao, songId, change.text, consented = allowReplaceSheet)
-                    onDone()
+                    when (adoptPastedLyrics(dao, songId, change.text, consented = allowReplaceSheet)) {
+                        is PrepareOutcome.WordsOnly -> onDone()
+                        PrepareOutcome.RefusedHasPins -> message = "This song has lines you timed by hand."
+                        else -> message = "There were no words to use."
+                    }
                 }
                 is SheetChange.Lrc -> {
                     if (importLrc(context, dao, songId, change.uri, consented = allowReplaceSheet) > 0) onDone()

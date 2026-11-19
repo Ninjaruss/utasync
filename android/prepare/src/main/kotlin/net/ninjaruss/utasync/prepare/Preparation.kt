@@ -136,9 +136,12 @@ private fun stateFor(outcome: LookupOutcome): String =
  * for a candidate the user picked.
  *
  * It never writes or moves an anchor. Pins are cleared only when [consented] is true, i.e. the
- * user confirmed replacing their hand-timed lines (see [replaceSheetLines]).
+ * user confirmed replacing their hand-timed lines (see [replaceSheetLines]). Without consent, a
+ * song with a hand-placed pin is refused ([PrepareOutcome.RefusedHasPins]) and nothing changes:
+ * the invariant is enforced here, where the data changes, not left to the caller.
  */
 suspend fun adoptTrack(dao: SongDao, songId: Long, track: LrclibTrack, consented: Boolean = false): PrepareOutcome {
+    if (!consented && hasUserPins(dao, songId)) return PrepareOutcome.RefusedHasPins
     val sheet = sheetFrom(track.syncedLyrics, track.plainLyrics, track.instrumental)
     val lines = when (sheet) {
         is Sheet.Timed -> sheet.lines.mapIndexed { i, row ->
@@ -203,12 +206,21 @@ suspend fun replaceSheetLines(dao: SongDao, songId: Long, lines: List<LineEntity
     dao.replaceLines(songId, lines)
 }
 
-/** Stores pasted words as untimed lines. [consented] as for [replaceSheetLines]. */
-suspend fun adoptPastedLyrics(dao: SongDao, songId: Long, text: String, consented: Boolean) {
+/**
+ * Stores pasted words as untimed lines. [consented] as for [replaceSheetLines]; without it a
+ * song with a hand-placed pin is refused and nothing changes. Nothing usable to store is
+ * [PrepareOutcome.NotFound].
+ */
+suspend fun adoptPastedLyrics(dao: SongDao, songId: Long, text: String, consented: Boolean): PrepareOutcome {
+    if (!consented && hasUserPins(dao, songId)) return PrepareOutcome.RefusedHasPins
     val lines = splitPastedLyrics(text).mapIndexed { i, line ->
         LineEntity(songId = songId, lineIndex = i, text = line, startMs = null, endMs = null)
     }
+    if (lines.isEmpty()) return PrepareOutcome.NotFound(LookupOutcome.NO_ENTRY)
     replaceSheetLines(dao, songId, lines, consented)
     dao.setLyricsSource(songId, "paste")
     dao.setPrepareState(songId, DONE)
+    return PrepareOutcome.WordsOnly(lines.size)
 }
+
+private suspend fun hasUserPins(dao: SongDao, songId: Long) = dao.anchors(songId).any { it.source == "user" }

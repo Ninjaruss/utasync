@@ -350,6 +350,35 @@ class PreparationTest {
         assertEquals(0, dao.clearCalls)
     }
 
+    @Test fun `an unconsented adoptTrack on a pinned song refuses and changes nothing`() {
+        val pin = AnchorEntity(songId = 7, lineIndex = 0, timeMs = 500, source = "user")
+        val dao = FakeDao(song(), pins = listOf(pin))
+        val track = parseTrack(record(synced = "[00:01.00]one"))!!
+        val outcome = runBlocking { adoptTrack(dao, 7, track) }
+
+        assertEquals(PrepareOutcome.RefusedHasPins, outcome)
+        assertTrue(dao.replaceLinesCalls.isEmpty())
+        assertEquals(0, dao.clearCalls)
+        assertTrue(dao.anchorWrites.isEmpty())
+        assertTrue(dao.deletedAnchors.isEmpty())
+        assertTrue(dao.lyricsSources.isEmpty())
+        assertTrue(dao.states.isEmpty())
+    }
+
+    @Test fun `an unconsented adoptPastedLyrics on a pinned song refuses and changes nothing`() {
+        val pin = AnchorEntity(songId = 7, lineIndex = 0, timeMs = 500, source = "user")
+        val dao = FakeDao(song(), pins = listOf(pin))
+        val outcome = runBlocking { adoptPastedLyrics(dao, 7, "la\nla", consented = false) }
+
+        assertEquals(PrepareOutcome.RefusedHasPins, outcome)
+        assertTrue(dao.replaceLinesCalls.isEmpty())
+        assertEquals(0, dao.clearCalls)
+        assertTrue(dao.anchorWrites.isEmpty())
+        assertTrue(dao.deletedAnchors.isEmpty())
+        assertTrue(dao.lyricsSources.isEmpty())
+        assertTrue(dao.states.isEmpty())
+    }
+
     @Test fun `a consented adopt and a consented paste both clear, an unconsented one does not`() {
         val pin = AnchorEntity(songId = 7, lineIndex = 0, timeMs = 500, source = "user")
         val track = parseTrack(record(synced = "[00:01.00]one"))!!
@@ -375,7 +404,8 @@ class PreparationTest {
         val pin = AnchorEntity(songId = 7, lineIndex = 0, timeMs = 500, source = "user")
         val dao = FakeDao(song(), pins = listOf(pin))
         val track = parseTrack(record(synced = "[00:01.00]one\n[00:02.00]two\n[00:03.00]three"))!!
-        runBlocking { adoptTrack(dao, 7, track) }
+        // Consented: an unconsented adopt on a pinned song is refused (tested separately).
+        runBlocking { adoptTrack(dao, 7, track, consented = true) }
 
         assertEquals(1, dao.replaceLinesCalls.size)
         assertTrue(dao.anchorWrites.isEmpty())
