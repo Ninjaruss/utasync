@@ -1492,3 +1492,28 @@ nothing rather than an arbitrary row.
   crosses into the next line every pass.
 - **Unexamined, sub-frame:** the inclusive `position >= range.last` check can let one frame of the next line play
   before the seek back, and the loop does not check for a pending seek. Not judged without audio.
+
+### L51 — Android LRCLIB client: timeouts, pacing and backoff (service guidance, not measurements)
+
+- **Where:** `android/prepare/.../RetryPolicy.kt`. **Gates:** `CONNECT_TIMEOUT_MS` = 10 000 and
+  `READ_TIMEOUT_MS` = 20 000 (how long a request may stall before it is an offline failure),
+  `MAX_ATTEMPTS` = 3 (attempts per request, so at most two retries), `BASE_BACKOFF_MS` = 500 and
+  `MAX_BACKOFF_MS` = 30 000 (the wait when the server gave no `Retry-After`, doubling per attempt, and
+  the ceiling on any wait), `PACING_DELAY_MS` = 300 (the pause between consecutive requests).
+- **Where two of them come from:** LRCLIB's published documentation, read 2026-11-19 at
+  `https://lrclib.net/docs.txt`. It says to "send requests sequentially by waiting for each one to finish
+  before starting the next" and to "add a short delay between requests (200–500 ms)", which is where
+  `PACING_DELAY_MS` sits (the middle of that range), and "Your client **must** honor Retry-After", which is
+  why a given `Retry-After` is waited out in full (plus caller-supplied jitter) and only the cap applies.
+  This is guidance from the service, not something measured here.
+- **The timeouts are a guess.** Nobody on this project has observed LRCLIB's real latency from a phone, on
+  mobile data or on a slow link. 10 s to connect and 20 s to read are round numbers that sit well above
+  what a healthy small JSON endpoint should need; they may be too short on a bad connection or too
+  long for a user watching a spinner. `MAX_ATTEMPTS`, `BASE_BACKOFF_MS` and `MAX_BACKOFF_MS` are equally
+  unmeasured: common retry shapes, not tuned against this service's failure behaviour.
+- **Deliberately absent:** this client contains **no title/artist similarity threshold and no acceptance
+  cut-off**. The server's +-2 s duration rule decides rung 1 (`/api/get`), and the user decides everything
+  else. The predecessor PWA's scoring machinery (`shouldAcceptEarly`, cut-offs at 0.85/0.92/0.94 and a
+  70-request fan-out) was deliberately not carried over: none of it was ever measured.
+- **Reproduce:** `cd android && ./gradlew :prepare:testDebugUnitTest --tests '*RetryPolicyTest*'` covers the
+  policy logic only. `UrlConnectionHttp` is untested, and nothing here was run against the live service.
