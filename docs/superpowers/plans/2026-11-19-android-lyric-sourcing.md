@@ -439,8 +439,18 @@ git commit -m "feat(align): decide whether a lyric source is timed, words-only o
   `"utasync"`, key `"fetch_lyrics"`, **default true** per §5.4).
 
 `SongEntity` gains `val prepareState: String = "pending"` — one of `"pending"`, `"fetching"`,
-`"done"`, `"failed"`, `"off"`. It records *what preparation has been attempted*, never what
-the lines contain, so it cannot drift from them.
+`"done"`, `"no-match"`, `"failed"`, `"off"`. It records *what preparation has been attempted*,
+never what the lines contain, so it cannot drift from them.
+
+`"no-match"` and `"failed"` are kept apart on purpose. `"no-match"` is LRCLIB answering and
+having nothing usable for this song — no record, an instrumental, candidates the user must pick
+among — or no query being formable at all (no title, or no artist, per the ruling in §Task 3).
+`"failed"` is the service not being reached: offline, rate-limited, an error. Collapsing them
+would make the app say "Couldn't reach LRCLIB" about a lookup that reached LRCLIB perfectly
+well, and offer a retry that cannot help. `NeedsChoice` stores `"no-match"` rather than taking a
+value of its own, because the candidate list lives in the `PrepareOutcome` and is not persisted:
+a stored "needs-choice" would promise a payload that does not survive process death, and both
+states lead to the same action anyway.
 
 **Schema note for the commit message and the README:** this changes Room's identity hash
 while `version` stays 1, exactly as `writtenAtMs` did. There is no migration and no
@@ -521,31 +531,42 @@ git commit -m "feat(prepare): the LRCLIB ladder, which refuses to re-sheet a pin
 
 ---
 
-### Task 6: Readiness, shown honestly
+### Task 6: Readiness, shown honestly — and the automatic lookup that makes it move
 
 **Files:**
 - Create: `android/data/src/main/kotlin/net/ninjaruss/utasync/data/Readiness.kt`
 - Modify: `android/app/src/main/kotlin/net/ninjaruss/utasync/ui/LibraryScreen.kt`
-- Modify: `android/app/src/main/kotlin/net/ninjaruss/utasync/ui/PlayerScreen.kt:204-206`
+- Modify: `android/app/src/main/kotlin/net/ninjaruss/utasync/ui/PlayerScreen.kt` (the
+  `lines.isEmpty()` branch — locate it by content, the line number has drifted)
 - Test: `android/data/src/test/kotlin/net/ninjaruss/utasync/data/ReadinessTest.kt`
 
 **Interfaces:**
-- Consumes: Task 5's `prepareState` values.
-- Produces: `enum class Readiness { FETCHING, NO_LYRICS, FETCH_FAILED, WORDS_ONLY, SINGABLE }`;
+- Consumes: Task 5's `prepareState` values — `"pending"`, `"fetching"`, `"done"`,
+  `"no-match"`, `"failed"`, `"off"` — plus `prepareSong`, `FetchSetting` and `PrepareOutcome`.
+- Produces: `enum class Readiness { FETCHING, NO_LYRICS, NO_MATCH, FETCH_FAILED, WORDS_ONLY, SINGABLE }`;
   `fun readinessOf(prepareState: String, lineCount: Int, timedLineCount: Int): Readiness`.
 
 §6.3: a song has a visible readiness state, and a song opened before it is ready says so
-plainly rather than showing bad timings.
+plainly rather than showing bad timings. §5.4: lyric fetching is **on by default**, because
+asking per song would reintroduce exactly the hassle goal 1 removes.
+
+`NO_MATCH` and `FETCH_FAILED` must stay distinct and must never be collapsed into one message.
+"Couldn't reach LRCLIB" when LRCLIB answered and simply had nothing is a false statement to the
+user, and a retry button on it would be a second lie. `NO_MATCH` means *you* must act;
+`FETCH_FAILED` means a retry is worth a tap.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```kotlin
 @Test fun `fetching wins over whatever the lines say`()
 @Test fun `no lines and a failed fetch is FETCH_FAILED`()
+@Test fun `no lines and no match is NO_MATCH, not FETCH_FAILED`()
 @Test fun `no lines and a pending fetch is NO_LYRICS`()
+@Test fun `lookup turned off reads as NO_LYRICS, never as a failure`()
 @Test fun `lines with no times are WORDS_ONLY`()
 @Test fun `every line timed is SINGABLE`()
 @Test fun `a partly timed song is WORDS_ONLY, not SINGABLE`()  // honesty: half-timed is not singable
+@Test fun `a song with lines is never NO_MATCH, whatever the prepare state says`()
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -555,26 +576,40 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement `Readiness.kt`**
 
-Pure `when`, in the order the tests fix.
+Pure `when`, in the order the tests fix. `"off"` is treated exactly like `"pending"`: nothing
+has been attempted, which is not a failure.
 
 - [ ] **Step 4: Show it**
 
-`LibraryScreen` adds the state to each row's `supportingContent` ("Finding lyrics…",
-"No lyrics yet", "Couldn't reach LRCLIB", "Words only — not timed yet", or the artist when
-`SINGABLE`). `PlayerScreen`'s empty branch is replaced by a message per `Readiness`; a
-`WORDS_ONLY` song shows its words with no highlight and a line saying the timing is not done,
+`LibraryScreen` adds the state to each row's `supportingContent`: "Finding lyrics…",
+"No lyrics yet", "No lyrics found — tap to search or paste" (`NO_MATCH`), "Couldn't reach
+LRCLIB — tap to retry" (`FETCH_FAILED`), "Words only — not timed yet", or the artist when
+`SINGABLE`. `PlayerScreen`'s `lines.isEmpty()` branch is replaced by a message per `Readiness`;
+a `WORDS_ONLY` song shows its words with no highlight and a line saying the timing is not done,
 rather than highlighting line 1 at 0:00.
 
-- [ ] **Step 5: Run the tests and build**
+- [ ] **Step 5: Trigger the lookup on import**
 
-Run: `cd android && ./gradlew :data:testDebugUnitTest :app:assembleDebug`
+Nothing in the plan called `prepareSong` before this step, so the whole ladder sat behind a
+button the user would have to find — the opposite of §5.4. In `LibraryScreen`, after
+`importAudio` returns a song id, launch `prepareSong` for that song in the screen's
+coroutine scope, passing `fetchEnabled` from `FetchSetting`. The import must not block on it:
+the song appears in the library immediately and its row's readiness changes as the fetch
+proceeds, which is what the Room `Flow` already gives for free.
+
+Discard the `PrepareOutcome` here — every state the user needs is already in `prepareState` and
+the lines, both of which the `Flow` observes. Do not hold outcome state in the composable.
+
+- [ ] **Step 6: Run the tests and build**
+
+Run: `cd android && ./gradlew :data:testDebugUnitTest :prepare:testDebugUnitTest :app:assembleDebug`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add android/data android/app
-git commit -m "feat(app): say plainly where a song is in preparation"
+git commit -m "feat(app): say plainly where a song is in preparation, and look lyrics up on import"
 ```
 
 ---
