@@ -8,6 +8,7 @@ sealed interface Sheet {
     /** Lyrics without timings; the words are known, the timing comes later. */
     data class Untimed(val lines: List<String>) : Sheet
 
+    /** Nothing usable: an instrumental, or no lyric text in either field. */
     data object None : Sheet
 }
 
@@ -15,6 +16,11 @@ sealed interface Sheet {
  * Decides what a lyric source is. An instrumental is [Sheet.None] whatever its fields hold.
  * Synced lyrics count only if they parse to at least one timed row: a "synced" field with
  * no time tags falls back to [plain], never to an empty [Sheet.Timed].
+ *
+ * Deliberate: a synced block with some tagged and some untagged rows yields [Sheet.Timed]
+ * of the tagged rows only. The untagged rows are dropped and [plain] is not consulted;
+ * preferring [plain] there would trade lost words for lost timings, which is a product
+ * decision, not something to change in passing.
  */
 fun sheetFrom(synced: String?, plain: String?, instrumental: Boolean): Sheet {
     if (instrumental) return Sheet.None

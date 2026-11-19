@@ -13,7 +13,8 @@ class SheetTest {
         assertEquals(Sheet.Untimed(listOf("one", "two")), sheetFrom(synced = null, plain = "one\ntwo", instrumental = false))
     }
 
-    // Review Focus 2: identical inputs, so only the result type proves the fallback happened.
+    // LRCLIB can serve untagged text in the synced field. The inputs are identical, so only
+    // the result type (Untimed, not Timed) proves the fallback happened.
     @Test fun `a synced block with no time tags falls back to the plain lyrics`() {
         assertEquals(Sheet.Untimed(listOf("one", "two")), sheetFrom(synced = "one\ntwo", plain = "one\ntwo", instrumental = false))
     }
@@ -23,9 +24,20 @@ class SheetTest {
         assertEquals(Sheet.None, sheetFrom(synced = "one\ntwo", plain = "  \n ", instrumental = false))
     }
 
-    // Review Focus 3.
+    // An instrumental record must never read as a find. Valid lyric values are passed on
+    // purpose: null fields would return None even if the flag were ignored.
     @Test fun `an instrumental is None even if a lyric field is non-null`() {
         assertEquals(Sheet.None, sheetFrom(synced = "[00:01.00]one", plain = "one", instrumental = true))
+    }
+
+    @Test fun `a synced field with only metadata tags or empty rows falls back to the plain lyrics`() {
+        assertEquals(Sheet.Untimed(listOf("one", "two")), sheetFrom(synced = "[ar:x]\n[ti:y]", plain = "one\ntwo", instrumental = false))
+        assertEquals(Sheet.Untimed(listOf("one", "two")), sheetFrom(synced = "[00:01.00]\n[00:02.00]  ", plain = "one\ntwo", instrumental = false))
+    }
+
+    @Test fun `untagged lines in a synced block are dropped, not recovered from the plain lyrics`() {
+        val sheet = sheetFrom(synced = "[00:01.00]one\nuntagged\n[00:03.00]two", plain = "one\nuntagged\ntwo", instrumental = false)
+        assertEquals(Sheet.Timed(listOf(LrcLine(1.0, "one"), LrcLine(3.0, "two"))), sheet)
     }
 
     @Test fun `both null is None`() {
