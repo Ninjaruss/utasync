@@ -35,6 +35,7 @@ dependencies {
     implementation(project(":align"))
     implementation(project(":data"))
     implementation(project(":playback"))
+    implementation(project(":prepare"))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

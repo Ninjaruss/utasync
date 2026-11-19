@@ -10,6 +10,9 @@ import net.ninjaruss.utasync.align.parseLrc
 import net.ninjaruss.utasync.data.LineEntity
 import net.ninjaruss.utasync.data.SongDao
 import net.ninjaruss.utasync.data.SongEntity
+import net.ninjaruss.utasync.prepare.mergeTags
+import net.ninjaruss.utasync.prepare.readTags
+import net.ninjaruss.utasync.prepare.tagsFromFilename
 import kotlin.math.roundToLong
 
 /** Adds a local audio file to the library without copying it (persisted read permission). */
@@ -19,9 +22,12 @@ suspend fun importAudio(context: Context, dao: SongDao, uri: Uri): Long = withCo
     val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
         ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
         ?: "Untitled"
+    val tags = mergeTags(readTags(context, uri), tagsFromFilename(name))
     dao.insertSong(
         SongEntity(
-            title = name.substringBeforeLast('.'),
+            title = tags.title ?: name.substringBeforeLast('.'),
+            artist = tags.artist.orEmpty(),
+            durationMs = tags.durationMs,
             audioUri = uri.toString(),
             createdAtMs = System.currentTimeMillis(),
         ),
