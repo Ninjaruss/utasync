@@ -1503,9 +1503,13 @@ nothing rather than an arbitrary row.
 - **Where two of them come from:** LRCLIB's published documentation, read 2026-11-19 at
   `https://lrclib.net/docs.txt`. It says to "send requests sequentially by waiting for each one to finish
   before starting the next" and to "add a short delay between requests (200–500 ms)", which is where
-  `PACING_DELAY_MS` sits (the middle of that range), and "Your client **must** honor Retry-After", which is
-  why a given `Retry-After` is waited out in full (plus caller-supplied jitter) and only the cap applies.
-  This is guidance from the service, not something measured here.
+  `PACING_DELAY_MS` sits (the lower half of that range), and "Your client **must** honor Retry-After", which is
+  why a given `Retry-After` is waited out exactly (plus caller-supplied jitter). `MAX_BACKOFF_MS` caps only
+  a backoff this client computed itself, never a wait the server asked for: a `Retry-After` above it is not
+  shortened, the request is not retried, and the caller reports "rate limited". This client has no API key,
+  so its only identity is its IP address, and retrying early against an explicit instruction risks a longer
+  ban that would cost the user every later lookup. This is guidance from the service, not something
+  measured here.
 - **The timeouts are a guess.** Nobody on this project has observed LRCLIB's real latency from a phone, on
   mobile data or on a slow link. 10 s to connect and 20 s to read are round numbers that sit well above
   what a healthy small JSON endpoint should need; they may be too short on a bad connection or too

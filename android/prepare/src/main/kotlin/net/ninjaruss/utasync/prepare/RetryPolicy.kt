@@ -25,16 +25,19 @@ fun classify(code: Int, contentType: String?): Reply = when {
 /**
  * Milliseconds to wait before the next attempt, or null for "do not retry". [attempt] is the
  * one that just failed, counting from 1. The caller supplies [jitterMs] so this stays pure.
+ * A Retry-After above [MAX_BACKOFF_MS] yields null (do not retry) rather than an early retry.
  */
 fun retryDelayMs(reply: Reply, retryAfterSec: Int?, attempt: Int, jitterMs: Long): Long? {
     if (reply == Reply.JSON || reply == Reply.NOT_FOUND || reply == Reply.CLIENT_ERROR) return null
     if (attempt >= MAX_ATTEMPTS) return null
-    val base = if (retryAfterSec != null) {
-        retryAfterSec.coerceAtLeast(0) * 1000L
-    } else {
-        BASE_BACKOFF_MS shl (attempt - 1)
+    if (retryAfterSec != null) {
+        // The server asked for this wait and LRCLIB says a client must honour it. A wait longer
+        // than we will hold is not shortened: we do not retry, and the caller reports RATE_LIMITED.
+        val waitMs = retryAfterSec.coerceAtLeast(0) * 1000L
+        return if (waitMs > MAX_BACKOFF_MS) null else waitMs + jitterMs
     }
-    return base.coerceAtMost(MAX_BACKOFF_MS) + jitterMs
+    // Only a backoff this client computed itself is capped.
+    return (BASE_BACKOFF_MS shl (attempt - 1)).coerceAtMost(MAX_BACKOFF_MS) + jitterMs
 }
 
 fun outcomeOf(reply: Reply): LookupOutcome = when (reply) {

@@ -33,11 +33,16 @@ class RetryPolicyTest {
         assertEquals(1_100L, retryDelayMs(Reply.RATE_LIMITED, null, attempt = 2, jitterMs = 100))
     }
 
-    @Test fun `a backoff is capped`() {
-        assertEquals(
-            MAX_BACKOFF_MS + 50,
-            retryDelayMs(Reply.RATE_LIMITED, retryAfterSec = 86_400, attempt = 1, jitterMs = 50),
-        )
+    // The cap is for a backoff this client computed, never for a wait the server asked for: a
+    // keyless client that retries early against Retry-After earns a longer ban.
+    @Test fun `a Retry-After beyond the cap is not retried`() {
+        assertNull(retryDelayMs(Reply.RATE_LIMITED, retryAfterSec = 86_400, attempt = 1, jitterMs = 50))
+    }
+
+    @Test fun `a Retry-After exactly at the cap still waits and one second above does not`() {
+        val capSec = (MAX_BACKOFF_MS / 1000).toInt()
+        assertEquals(MAX_BACKOFF_MS + 50, retryDelayMs(Reply.RATE_LIMITED, capSec, attempt = 1, jitterMs = 50))
+        assertNull(retryDelayMs(Reply.RATE_LIMITED, capSec + 1, attempt = 1, jitterMs = 50))
     }
 
     @Test fun `the last attempt does not ask for another`() {
