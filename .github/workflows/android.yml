@@ -49,6 +49,7 @@ jobs:
           :align:test
           :data:testDebugUnitTest
           :playback:testDebugUnitTest
+          :prepare:testDebugUnitTest
           :app:testDebugUnitTest
           :app:assembleDebug
           --stacktrace
