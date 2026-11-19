@@ -33,6 +33,9 @@ class PreparationTest {
         val replaceLinesCalls = mutableListOf<List<LineEntity>>()
         val anchorWrites = mutableListOf<AnchorEntity>()
         val deletedAnchors = mutableListOf<Int>()
+        var clearCalls = 0
+        /** Whether lines were replaced before the clear, to pin the order. */
+        var clearedBeforeReplace = false
         val states = mutableListOf<String>()
         val lyricsSources = mutableListOf<String>()
         val titleArtistWrites = mutableListOf<Pair<String, String>>()
@@ -41,6 +44,11 @@ class PreparationTest {
         val current: SongEntity get() = row
 
         override suspend fun anchors(songId: Long): List<AnchorEntity> = pins
+
+        override suspend fun clearAnchorsForReplacedSheet(songId: Long) {
+            clearCalls++
+            clearedBeforeReplace = replaceLinesCalls.isEmpty()
+        }
 
         override suspend fun replaceLines(songId: Long, lines: List<LineEntity>) {
             replaceLinesCalls += lines
@@ -295,7 +303,7 @@ class PreparationTest {
         assertEquals(1, dao.replaceLinesCalls.size)
     }
 
-    @Test fun `allowReplaceSheet lets the user go ahead, and still writes no anchor`() {
+    @Test fun `allowReplaceSheet lets the user go ahead, writes no anchor, and clears the pins`() {
         val pin = AnchorEntity(songId = 7, lineIndex = 3, timeMs = 9_000, source = "user")
         val dao = FakeDao(song(), pins = listOf(pin))
         val http = StubHttp(mapOf("get" to json(record(synced = "[00:01.00]one\n[00:02.00]two"))))
@@ -306,7 +314,58 @@ class PreparationTest {
         assertEquals(PrepareOutcome.Synced(2), outcome)
         assertEquals(1, dao.replaceLinesCalls.size)
         assertTrue(dao.anchorWrites.isEmpty())
+        // Consent means the warning's "the hand-placed times will be gone" must hold: the pins
+        // are cleared whole-song, not left to re-point to different words.
+        assertEquals(1, dao.clearCalls)
+        assertTrue(dao.clearedBeforeReplace)
         assertTrue(dao.deletedAnchors.isEmpty())
+    }
+
+    @Test fun `a refused replace deletes nothing`() {
+        val pin = AnchorEntity(songId = 7, lineIndex = 3, timeMs = 9_000, source = "user")
+        val dao = FakeDao(song(), pins = listOf(pin))
+        val http = StubHttp(mapOf("get" to json(record(synced = "[00:01.00]one"))))
+        val outcome = runBlocking { prepareSong(dao, lrclib(http), dao.current, allowReplaceSheet = false) }
+
+        assertEquals(PrepareOutcome.RefusedHasPins, outcome)
+        assertEquals(0, dao.clearCalls)
+        assertTrue(dao.replaceLinesCalls.isEmpty())
+    }
+
+    @Test fun `a consented replace on an unpinned song clears harmlessly`() {
+        val dao = FakeDao(song())
+        val http = StubHttp(mapOf("get" to json(record(synced = "[00:01.00]one"))))
+        runBlocking { prepareSong(dao, lrclib(http), dao.current, allowReplaceSheet = true) }
+
+        // Implementation clears unconditionally when consented; with no pins it deletes nothing.
+        assertEquals(1, dao.clearCalls)
+        assertEquals(1, dao.replaceLinesCalls.size)
+    }
+
+    @Test fun `an unconsented replace of an unpinned song never calls the clear`() {
+        val dao = FakeDao(song())
+        val http = StubHttp(mapOf("get" to json(record(synced = "[00:01.00]one"))))
+        runBlocking { prepareSong(dao, lrclib(http), dao.current) }
+
+        assertEquals(0, dao.clearCalls)
+    }
+
+    @Test fun `a consented adopt and a consented paste both clear, an unconsented one does not`() {
+        val pin = AnchorEntity(songId = 7, lineIndex = 0, timeMs = 500, source = "user")
+        val track = parseTrack(record(synced = "[00:01.00]one"))!!
+
+        val adopt = FakeDao(song(), pins = listOf(pin))
+        runBlocking { adoptTrack(adopt, 7, track, consented = true) }
+        assertEquals(1, adopt.clearCalls)
+
+        val paste = FakeDao(song(), pins = listOf(pin))
+        runBlocking { adoptPastedLyrics(paste, 7, "la\nla", consented = true) }
+        assertEquals(1, paste.clearCalls)
+        assertEquals(2, paste.replaceLinesCalls.single().size)
+
+        val plain = FakeDao(song(), pins = listOf(pin))
+        runBlocking { adoptPastedLyrics(plain, 7, "la", consented = false) }
+        assertEquals(0, plain.clearCalls)
     }
 
     @Test fun `adopting a track writes no anchor`() {

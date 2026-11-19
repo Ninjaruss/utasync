@@ -45,13 +45,13 @@ import kotlinx.coroutines.withContext
 import net.ninjaruss.utasync.align.Sheet
 import net.ninjaruss.utasync.align.sheetFrom
 import net.ninjaruss.utasync.align.splitPastedLyrics
-import net.ninjaruss.utasync.data.LineEntity
 import net.ninjaruss.utasync.data.SongDao
 import net.ninjaruss.utasync.prepare.FetchSetting
 import net.ninjaruss.utasync.prepare.LookupOutcome
 import net.ninjaruss.utasync.prepare.Lrclib
 import net.ninjaruss.utasync.prepare.LrclibTrack
 import net.ninjaruss.utasync.prepare.PrepareOutcome
+import net.ninjaruss.utasync.prepare.adoptPastedLyrics
 import net.ninjaruss.utasync.prepare.adoptTrack
 import net.ninjaruss.utasync.prepare.prepareSong
 
@@ -113,22 +113,16 @@ fun LyricsSourceScreen(songId: Long, dao: SongDao, lrclib: Lrclib, onDone: () ->
                         PrepareOutcome.Disabled -> message = "Lookup is switched off."
                     }
                 }
-                is SheetChange.Adopt -> when (adoptTrack(dao, songId, change.track)) {
+                is SheetChange.Adopt -> when (adoptTrack(dao, songId, change.track, consented = allowReplaceSheet)) {
                     is PrepareOutcome.Synced, is PrepareOutcome.WordsOnly -> onDone()
                     else -> message = "That record has no lyrics to use."
                 }
                 is SheetChange.Paste -> {
-                    val lines = splitPastedLyrics(change.text)
-                    dao.replaceLines(
-                        songId,
-                        lines.mapIndexed { i, text -> LineEntity(songId = songId, lineIndex = i, text = text, startMs = null, endMs = null) },
-                    )
-                    dao.setLyricsSource(songId, "paste")
-                    dao.setPrepareState(songId, "done")
+                    adoptPastedLyrics(dao, songId, change.text, consented = allowReplaceSheet)
                     onDone()
                 }
                 is SheetChange.Lrc -> {
-                    if (importLrc(context, dao, songId, change.uri) > 0) onDone()
+                    if (importLrc(context, dao, songId, change.uri, consented = allowReplaceSheet) > 0) onDone()
                     else message = "That file has no timed lines."
                 }
             }

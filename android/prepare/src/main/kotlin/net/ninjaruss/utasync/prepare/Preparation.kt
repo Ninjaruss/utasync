@@ -4,6 +4,7 @@ import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 import net.ninjaruss.utasync.align.Sheet
 import net.ninjaruss.utasync.align.sheetFrom
+import net.ninjaruss.utasync.align.splitPastedLyrics
 import net.ninjaruss.utasync.data.LineEntity
 import net.ninjaruss.utasync.data.SongDao
 import net.ninjaruss.utasync.data.SongEntity
@@ -79,7 +80,7 @@ suspend fun prepareSong(
     if (artist.isNotEmpty()) {
         val exact = lrclib.get(query)
         exact.track?.takeIf { exact.outcome == LookupOutcome.FOUND }?.let {
-            return adoptTrack(dao, song.id, it)
+            return adoptTrack(dao, song.id, it, consented = allowReplaceSheet)
         }
         // Only "the catalogue has no such record" is worth a second request. Offline or rate
         // limited means asking again now would fail the same way or earn a longer ban.
@@ -134,10 +135,10 @@ private fun stateFor(outcome: LookupOutcome): String =
  * Stores one LRCLIB record's lyrics as the song's lines. Called for rung 1's exact match and
  * for a candidate the user picked.
  *
- * **It never touches an anchor.** `replaceLines` rewrites the computed timings only; a user's
- * pins stay where they are and win at read time through `resolveStarts`.
+ * It never writes or moves an anchor. Pins are cleared only when [consented] is true, i.e. the
+ * user confirmed replacing their hand-timed lines (see [replaceSheetLines]).
  */
-suspend fun adoptTrack(dao: SongDao, songId: Long, track: LrclibTrack): PrepareOutcome {
+suspend fun adoptTrack(dao: SongDao, songId: Long, track: LrclibTrack, consented: Boolean = false): PrepareOutcome {
     val sheet = sheetFrom(track.syncedLyrics, track.plainLyrics, track.instrumental)
     val lines = when (sheet) {
         is Sheet.Timed -> sheet.lines.mapIndexed { i, row ->
@@ -162,7 +163,7 @@ suspend fun adoptTrack(dao: SongDao, songId: Long, track: LrclibTrack): PrepareO
         }
     }
 
-    dao.replaceLines(songId, lines)
+    replaceSheetLines(dao, songId, lines, consented)
     dao.setLyricsSource(songId, "lrclib")
     fillBlankNames(dao, songId, track)
     dao.setPrepareState(songId, DONE)
@@ -187,4 +188,27 @@ private suspend fun fillBlankNames(dao: SongDao, songId: Long, track: LrclibTrac
         title = row.title.ifBlank { track.trackName },
         artist = row.artist.ifBlank { track.artistName },
     )
+}
+
+/**
+ * The single place a song's lyric sheet is replaced. Anchors are keyed by line index, so a
+ * replaced sheet would silently re-point every pin to different words. When the user has
+ * explicitly confirmed ([consented], after the hand-timed-lines warning) the pins are therefore
+ * cleared, which makes the warning's "the hand-placed times will be gone" true. Never pass `true`
+ * from an automatic path: the guarantee protects pins from automatic overwrites, and only an
+ * explicit confirmation is the user's own decision (ADR-0002).
+ */
+suspend fun replaceSheetLines(dao: SongDao, songId: Long, lines: List<LineEntity>, consented: Boolean) {
+    if (consented) dao.clearAnchorsForReplacedSheet(songId)
+    dao.replaceLines(songId, lines)
+}
+
+/** Stores pasted words as untimed lines. [consented] as for [replaceSheetLines]. */
+suspend fun adoptPastedLyrics(dao: SongDao, songId: Long, text: String, consented: Boolean) {
+    val lines = splitPastedLyrics(text).mapIndexed { i, line ->
+        LineEntity(songId = songId, lineIndex = i, text = line, startMs = null, endMs = null)
+    }
+    replaceSheetLines(dao, songId, lines, consented)
+    dao.setLyricsSource(songId, "paste")
+    dao.setPrepareState(songId, DONE)
 }

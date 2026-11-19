@@ -133,6 +133,17 @@ abstract class SongDao {
     @Query("DELETE FROM anchors WHERE songId = :songId AND lineIndex = :lineIndex")
     abstract suspend fun deleteAnchor(songId: Long, lineIndex: Int)
 
+    /**
+     * Removes every pin on a song. **It exists only for a sheet replacement the user has
+     * explicitly confirmed**, because anchors are keyed by line index and would otherwise
+     * re-point to different words. It is the mirror image of the pin guarantee (ADR-0002): **no
+     * automatic path may ever call it**. Its one caller is `replaceSheetLines` in `:prepare`,
+     * reached with `consented = true` only after the user has seen the hand-timed-lines warning.
+     * For removing one line's pin, use [deleteAnchor].
+     */
+    @Query("DELETE FROM anchors WHERE songId = :songId")
+    abstract suspend fun clearAnchorsForReplacedSheet(songId: Long)
+
     @Insert
     abstract suspend fun insertRun(run: AlignmentRunEntity): Long
 }

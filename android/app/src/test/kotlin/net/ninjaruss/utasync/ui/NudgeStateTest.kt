@@ -171,6 +171,7 @@ class NudgeStateTest {
         override suspend fun anchorOn(songId: Long, lineIndex: Int): AnchorEntity? = null
         override suspend fun upsertAnchor(anchor: AnchorEntity) { anchorWrites += anchor }
         override suspend fun deleteAnchor(songId: Long, lineIndex: Int) { deletes += songId to lineIndex }
+        override suspend fun clearAnchorsForReplacedSheet(songId: Long) { otherWrites += "clearAnchorsForReplacedSheet" }
         override fun nowMs(): Long = WRITTEN_AT
         override suspend fun insertRun(run: AlignmentRunEntity): Long { otherWrites += "insertRun"; return 0 }
         override suspend fun resetInterruptedLookups() { otherWrites += "resetInterruptedLookups" }

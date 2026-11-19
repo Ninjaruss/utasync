@@ -12,6 +12,7 @@ import net.ninjaruss.utasync.data.SongDao
 import net.ninjaruss.utasync.data.SongEntity
 import net.ninjaruss.utasync.prepare.mergeTags
 import net.ninjaruss.utasync.prepare.readTags
+import net.ninjaruss.utasync.prepare.replaceSheetLines
 import net.ninjaruss.utasync.prepare.tagsFromFilename
 import kotlin.math.roundToLong
 
@@ -35,7 +36,7 @@ suspend fun importAudio(context: Context, dao: SongDao, uri: Uri): Long = withCo
 }
 
 /** Replaces a song's lines with a synced .lrc file. Returns the number of lines imported. */
-suspend fun importLrc(context: Context, dao: SongDao, songId: Long, uri: Uri): Int = withContext(Dispatchers.IO) {
+suspend fun importLrc(context: Context, dao: SongDao, songId: Long, uri: Uri, consented: Boolean = false): Int = withContext(Dispatchers.IO) {
     val text = context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
         ?: return@withContext 0
     val rows = parseLrc(text)
@@ -48,6 +49,6 @@ suspend fun importLrc(context: Context, dao: SongDao, songId: Long, uri: Uri): I
             endMs = rows.getOrNull(i + 1)?.let { (it.timeSec * 1000).roundToLong() },
         )
     }
-    dao.replaceLines(songId, lines)
+    replaceSheetLines(dao, songId, lines, consented)
     lines.size
 }
