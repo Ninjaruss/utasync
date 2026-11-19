@@ -5,16 +5,28 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class AudioTagsTest {
-    @Test fun `artist - title dot mp3 splits on the first dash`() {
+    @Test fun `artist - title dot mp3 splits on the first spaced dash`() {
         val t = tagsFromFilename("Kenshi Yonezu - Lemon.mp3")
         assertEquals("Kenshi Yonezu", t.artist)
         assertEquals("Lemon", t.title)
     }
 
-    @Test fun `only the first dash splits`() {
+    @Test fun `only the first spaced dash splits`() {
         val t = tagsFromFilename("Artist - Title - Live.mp3")
         assertEquals("Artist", t.artist)
         assertEquals("Title - Live", t.title)
+    }
+
+    @Test fun `a hyphen inside a name is not a separator`() {
+        val t = tagsFromFilename("Jay-Z - Song.mp3")
+        assertEquals("Jay-Z", t.artist)
+        assertEquals("Song", t.title)
+    }
+
+    @Test fun `an unspaced dash does not split`() {
+        val t = tagsFromFilename("Artist-Title.mp3")
+        assertEquals("Artist-Title", t.title)
+        assertNull(t.artist)
     }
 
     @Test fun `a leading track number is dropped`() {
