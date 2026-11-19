@@ -65,4 +65,20 @@ class LrclibTrackTest {
         assertTrue(parseTracks("nope").isEmpty())
         assertTrue(parseTracks("[]").isEmpty())
     }
+
+    @Test fun `one malformed record does not discard the others`() {
+        val bad = """{"id":"abc","trackName":"T","artistName":"A"}"""
+        val list = parseTracks("[$synced,$bad,$synced]")
+        assertEquals(2, list.size)
+        assertEquals(42L, list[0].id)
+        assertEquals(42L, list[1].id)
+    }
+
+    @Test fun `absent duration is null, not zero`() {
+        assertNull(parseTrack("""{"id":4,"trackName":"T","artistName":"A"}""")!!.durationSec)
+    }
+
+    @Test fun `non-numeric duration is null, not zero`() {
+        assertNull(parseTrack("""{"id":5,"trackName":"T","artistName":"A","duration":"long"}""")!!.durationSec)
+    }
 }

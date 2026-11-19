@@ -24,11 +24,20 @@ fun parseTrack(json: String): LrclibTrack? = try {
 }
 
 /** Empty for anything that is not a JSON array of records. */
-fun parseTracks(json: String): List<LrclibTrack> = try {
-    val array = JSONArray(json)
-    (0 until array.length()).mapNotNull { array.optJSONObject(it)?.let(::toTrack) }
-} catch (_: JSONException) {
-    emptyList()
+fun parseTracks(json: String): List<LrclibTrack> {
+    val array = try {
+        JSONArray(json)
+    } catch (_: JSONException) {
+        return emptyList()
+    }
+    // Per record: one malformed record must not discard the good ones around it.
+    return (0 until array.length()).mapNotNull { i ->
+        try {
+            array.optJSONObject(i)?.let(::toTrack)
+        } catch (_: JSONException) {
+            null
+        }
+    }
 }
 
 // An error body ({"statusCode":404,...}) has no id or trackName, so it is not a record.
@@ -39,7 +48,8 @@ private fun toTrack(o: JSONObject): LrclibTrack? {
         trackName = o.getString("trackName"),
         artistName = o.optText("artistName").orEmpty(),
         albumName = o.optText("albumName"),
-        durationSec = if (o.has("duration") && !o.isNull("duration")) o.optDouble("duration").toInt() else null,
+        // optDouble gives NaN for absent/non-numeric; NaN.toInt() would be 0, a fake real duration.
+        durationSec = o.optDouble("duration").takeUnless { it.isNaN() }?.toInt(),
         instrumental = o.optBoolean("instrumental", false),
         plainLyrics = o.optText("plainLyrics"),
         syncedLyrics = o.optText("syncedLyrics"),
