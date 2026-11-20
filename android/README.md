@@ -48,13 +48,17 @@ Requirements: JDK 17, Android SDK 35. Open this folder in Android Studio, or:
 - Highlight within 30 ms of `player.currentPosition` across a full song (instrumented test).
 - Playback continues in the background with notification controls.
 - The manifest declares `INTERNET`, used during preparation only: a lyric lookup against LRCLIB
-  carrying the title, artist, album and duration read from the user's own file. Lyric fetching
-  defaults to on and can be switched off from the lyrics screen (`FetchSetting`). Playing a
-  prepared song makes no network call.
+  carrying the title and artist and, where known, the album and duration (the fuzzy search sends no duration), read from the user's own file. Lyric fetching
+  defaults to on and can be switched off from the lyrics screen (`FetchSetting`). Code-level, not
+  observed: the HTTP transport (`UrlConnectionHttp`) is constructed only in `UtasyncApplication`
+  for the lookup, and `:playback` has no reference to lookup or HTTP, so nothing in the playback
+  path reaches the network. No one has watched network traffic during playback; this rests on the
+  call graph, not a measurement.
 - Corrections are not trapped here: the player's overflow menu exports a plain `.lrc` carrying the
   resolved times (pins folded in over the computed ones), with no `[offset:]` or metadata tags.
   `writeLrc` is covered by JVM tests in `:align` (including a round trip through `parseLrc`);
-  the menu, the file picker and the file write in `PlayerScreen` have no automated test and have
+  the exported file follows the resolver's monotonic view: where pins disagree about order, it
+  contains the repaired order, which can differ from what is stored. The menu, the file picker and the file write in `PlayerScreen` have no automated test and have
   not been exercised on a device.
 
 ## Pins survive everything
@@ -100,7 +104,8 @@ Before merging anything that touches timings, run them:
 
 All of `:data`'s instrumented tests (`PinsSurviveReAlignmentTest`, `LineCountsTest`,
 `ClearAnchorsTest`) were executed once on an API-35 emulator during the lyric-sourcing work: 10
-tests, 0 failures. That is the first time the pin-guarantee tests had run on this branch. It still
+tests, 0 failures (as reported by the person who ran them; not re-run when this README was
+written). That is the first time the pin-guarantee tests had run on this branch. It still
 does not prove the *app* preserves pins end to end: those tests exercise the DAO and resolver layer
 against real Room, not the UI with a file-backed database. `WaveformDecoderTest` (`:playback`) was
 not part of that run.
