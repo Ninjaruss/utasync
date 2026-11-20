@@ -127,18 +127,14 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
         if (uri != null) {
             val export = writeLrc(starts.zip(lines.map { it.text }))
             scope.launch {
-                val saved = runCatching {
+                // Nothing to write is not an export: a song with no timed line would otherwise
+                // leave a zero-byte file behind and be told "Exported".
+                val writeFailed = export.text.isNotEmpty() && runCatching {
                     withContext(Dispatchers.IO) {
                         context.contentResolver.openOutputStream(uri, "wt")!!.use { it.write(export.text.toByteArray()) }
                     }
-                }.isSuccess
-                snackbar.showSnackbar(
-                    when {
-                        !saved -> "Could not write the file"
-                        export.droppedLines > 0 -> "Exported; ${export.droppedLines} untimed lines were left out"
-                        else -> "Exported"
-                    },
-                )
+                }.isFailure
+                snackbar.showSnackbar(exportMessage(export, writeFailed))
             }
         }
     }
