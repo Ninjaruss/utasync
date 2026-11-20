@@ -45,6 +45,7 @@ import kotlinx.coroutines.withContext
 import net.ninjaruss.utasync.align.Sheet
 import net.ninjaruss.utasync.align.sheetFrom
 import net.ninjaruss.utasync.align.splitPastedLyrics
+import net.ninjaruss.utasync.data.PrepareState
 import net.ninjaruss.utasync.data.SongDao
 import net.ninjaruss.utasync.prepare.FetchSetting
 import net.ninjaruss.utasync.prepare.LookupOutcome
@@ -135,10 +136,10 @@ fun LyricsSourceScreen(songId: Long, dao: SongDao, lrclib: Lrclib, onDone: () ->
             }
         } catch (e: CancellationException) {
             // Leaving mid-search must not strand the song at "fetching".
-            withContext(NonCancellable) { dao.setPrepareState(songId, "pending") }
+            withContext(NonCancellable) { dao.setPrepareState(songId, PrepareState.PENDING) }
             throw e
         } catch (e: Exception) {
-            if (change == SheetChange.Search) dao.setPrepareState(songId, "failed")
+            if (change == SheetChange.Search) dao.setPrepareState(songId, PrepareState.FAILED)
             message = "Something went wrong. Nothing was changed."
         } finally {
             busy = false

@@ -1,5 +1,6 @@
 package net.ninjaruss.utasync.ui
 
+import net.ninjaruss.utasync.data.PrepareState
 import net.ninjaruss.utasync.data.Readiness
 import net.ninjaruss.utasync.data.readinessOf
 import org.junit.Assert.assertEquals
@@ -22,7 +23,7 @@ class ReadinessTextTest {
     @Test fun `the messages a song with no lines can actually show are non-blank and distinct`() {
         // The reachable domain is derived, not listed: every prepareState a song can hold, run
         // through readinessOf with no lines. A new state or a precedence change is covered.
-        val reachable = ALL_PREPARE_STATES.map { readinessOf(it, 0, 0) }.toSet()
+        val reachable = PrepareState.ALL.map { readinessOf(it, 0, 0) }.toSet()
         val texts = reachable.map { emptyPlayerMessage(it) }
         assertTrue(texts.all { it.isNotBlank() })
         assertEquals(texts, texts.distinct())
@@ -48,7 +49,7 @@ class ReadinessTextTest {
     }
 
     @Test fun `off and pending read as no lyrics yet, never a failure`() {
-        val off = readinessOf("off", 0, 0)
+        val off = readinessOf(PrepareState.OFF, 0, 0)
         assertEquals(Readiness.NO_LYRICS, off)
         val texts = listOf(libraryStatus(off)!!, emptyPlayerMessage(off))
         texts.forEach {
@@ -56,9 +57,5 @@ class ReadinessTextTest {
             assertFalse(it, it.contains("fail", ignoreCase = true))
             assertFalse(it, it.contains("LRCLIB", ignoreCase = true))
         }
-    }
-
-    private companion object {
-        val ALL_PREPARE_STATES = listOf("pending", "fetching", "done", "no-match", "failed", "off")
     }
 }

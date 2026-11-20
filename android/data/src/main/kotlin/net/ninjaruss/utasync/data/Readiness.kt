@@ -18,13 +18,22 @@ enum class Readiness { FETCHING, NO_LYRICS, NO_MATCH, FETCH_FAILED, WORDS_ONLY, 
  *
  * [timedLineCount] is a count of lines that have a time. A partly timed song is not singable.
  */
-fun readinessOf(prepareState: String, lineCount: Int, timedLineCount: Int): Readiness = when {
-    prepareState == "fetching" -> Readiness.FETCHING
-    lineCount > 0 && timedLineCount >= lineCount -> Readiness.SINGABLE
-    lineCount > 0 -> Readiness.WORDS_ONLY
-    prepareState == "failed" -> Readiness.FETCH_FAILED
-    prepareState == "no-match" -> Readiness.NO_MATCH
-    // "pending", "off" and "done"-with-no-lines: nothing has been tried, or nothing is stored.
-    // None of them is a failure.
-    else -> Readiness.NO_LYRICS
+fun readinessOf(prepareState: String, lineCount: Int, timedLineCount: Int): Readiness {
+    if (prepareState == PrepareState.FETCHING) return Readiness.FETCHING
+    if (lineCount > 0) {
+        return if (timedLineCount >= lineCount) Readiness.SINGABLE else Readiness.WORDS_ONLY
+    }
+    // Every state is named here on purpose. The `else` cannot be removed (these are strings, not
+    // an enum), but nothing in the vocabulary may reach it: a state added to [PrepareState] and
+    // forgotten here would silently read as "No lyrics yet", which is the dishonest-label failure
+    // this app exists not to repeat. `ReadinessTest` derives its domain from [PrepareState.ALL].
+    return when (prepareState) {
+        PrepareState.FAILED -> Readiness.FETCH_FAILED
+        PrepareState.NO_MATCH -> Readiness.NO_MATCH
+        // Nothing has been tried, or nothing is stored. None of these is a failure.
+        PrepareState.PENDING, PrepareState.OFF, PrepareState.DONE -> Readiness.NO_LYRICS
+        // FETCHING is handled above; a string from outside the vocabulary is a bug elsewhere, and
+        // the safest thing to say about a song we know nothing about is that it has no lyrics yet.
+        else -> Readiness.NO_LYRICS
+    }
 }

@@ -6,6 +6,7 @@ import net.ninjaruss.utasync.align.Sheet
 import net.ninjaruss.utasync.align.sheetFrom
 import net.ninjaruss.utasync.align.splitPastedLyrics
 import net.ninjaruss.utasync.data.LineEntity
+import net.ninjaruss.utasync.data.PrepareState
 import net.ninjaruss.utasync.data.SongDao
 import net.ninjaruss.utasync.data.SongEntity
 
@@ -48,7 +49,7 @@ suspend fun prepareSong(
     fetchEnabled: Boolean = true,
 ): PrepareOutcome {
     if (!fetchEnabled) {
-        dao.setPrepareState(song.id, OFF)
+        dao.setPrepareState(song.id, PrepareState.OFF)
         return PrepareOutcome.Disabled
     }
     // Checked before anything is written or asked: a refusal must leave the song untouched.
@@ -62,11 +63,11 @@ suspend fun prepareSong(
     // searched for either. "" is what importAudio stores for a missing tag: absent, not a name.
     if (title.isEmpty()) {
         // No query could be formed, so this is not a service failure and a retry is pointless.
-        dao.setPrepareState(song.id, NO_MATCH)
+        dao.setPrepareState(song.id, PrepareState.NO_MATCH)
         return PrepareOutcome.NotFound(LookupOutcome.NO_ENTRY)
     }
 
-    dao.setPrepareState(song.id, FETCHING)
+    dao.setPrepareState(song.id, PrepareState.FETCHING)
     val query = TrackQuery(
         title = title,
         artist = artist,
@@ -97,7 +98,7 @@ suspend fun prepareSong(
         // they live in this outcome — so a stored "needs-choice" would promise a payload that
         // does not survive process death, and the user's next step (open the lyrics screen,
         // which searches afresh) is the same either way.
-        dao.setPrepareState(song.id, NO_MATCH)
+        dao.setPrepareState(song.id, PrepareState.NO_MATCH)
         PrepareOutcome.NeedsChoice(found.candidates)
     } else {
         dao.setPrepareState(song.id, stateFor(found.outcome))
@@ -105,31 +106,17 @@ suspend fun prepareSong(
     }
 }
 
-/** A lookup is in flight. */
-private const val FETCHING = "fetching"
-
-/** The song has lyrics stored. */
-private const val DONE = "done"
-
-/**
- * The service answered and has nothing this song can use automatically — no record, an
- * instrumental, or candidates only the user can choose among — or no query could be formed at
- * all. The user must act; an automatic retry would change nothing.
- */
-private const val NO_MATCH = "no-match"
-
-/** The service could not be reached: offline, rate limited or an error. A retry is sensible. */
-private const val FAILED = "failed"
-
-/** Automatic lookup is switched off, so nothing has been attempted. */
-private const val OFF = "off"
-
 /**
  * Splits "nothing to take" from "could not ask", so a state is never shown as a service
  * failure when the service answered perfectly well.
  */
-private fun stateFor(outcome: LookupOutcome): String =
-    if (outcome == LookupOutcome.NO_ENTRY) NO_MATCH else FAILED
+private fun stateFor(outcome: LookupOutcome): String = when (outcome) {
+    LookupOutcome.NO_ENTRY -> PrepareState.NO_MATCH
+    LookupOutcome.OFFLINE, LookupOutcome.ERROR, LookupOutcome.RATE_LIMITED -> PrepareState.FAILED
+    // FOUND never reaches here on a usable record: both callers return first. A "found" reply
+    // with nothing in it is the service answering with nothing usable, which is NO_MATCH.
+    LookupOutcome.FOUND -> PrepareState.NO_MATCH
+}
 
 /**
  * Stores one LRCLIB record's lyrics as the song's lines. Called for rung 1's exact match and
@@ -161,7 +148,7 @@ suspend fun adoptTrack(dao: SongDao, songId: Long, track: LrclibTrack, consented
             // An instrumental, or a record with no lyric text in either field. Nothing is
             // stored, so an earlier sheet is not thrown away for an empty one. The service
             // answered, so this is NO_MATCH, not a failure to reach it.
-            dao.setPrepareState(songId, NO_MATCH)
+            dao.setPrepareState(songId, PrepareState.NO_MATCH)
             return PrepareOutcome.NotFound(LookupOutcome.NO_ENTRY)
         }
     }
@@ -173,7 +160,7 @@ suspend fun adoptTrack(dao: SongDao, songId: Long, track: LrclibTrack, consented
     }
     dao.setLyricsSource(songId, "lrclib")
     fillBlankNames(dao, songId, track)
-    dao.setPrepareState(songId, DONE)
+    dao.setPrepareState(songId, PrepareState.DONE)
 
     return when (sheet) {
         is Sheet.Timed -> PrepareOutcome.Synced(lines.size)
@@ -246,7 +233,7 @@ suspend fun adoptPastedLyrics(dao: SongDao, songId: Long, text: String, consente
         SheetReplacement.EMPTY -> return PrepareOutcome.NotFound(LookupOutcome.NO_ENTRY)
     }
     dao.setLyricsSource(songId, "paste")
-    dao.setPrepareState(songId, DONE)
+    dao.setPrepareState(songId, PrepareState.DONE)
     return PrepareOutcome.WordsOnly(lines.size)
 }
 

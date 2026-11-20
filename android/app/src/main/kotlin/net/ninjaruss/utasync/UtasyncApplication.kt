@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import net.ninjaruss.utasync.data.PrepareState
 import net.ninjaruss.utasync.data.UtasyncDatabase
 import net.ninjaruss.utasync.prepare.FetchSetting
 import net.ninjaruss.utasync.prepare.Lrclib
@@ -69,7 +70,7 @@ class UtasyncApplication : Application() {
             } catch (e: Exception) {
                 // Never leave "fetching" behind: an unexpected error is a lookup that did not
                 // complete, which is what "failed" means. Nothing about the song is logged.
-                dao.setPrepareState(songId, "failed")
+                dao.setPrepareState(songId, PrepareState.FAILED)
             }
         }
     }

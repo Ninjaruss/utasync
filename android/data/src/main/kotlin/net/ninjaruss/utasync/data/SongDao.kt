@@ -30,6 +30,10 @@ abstract class SongDao {
      * A lookup runs only inside a process, so at process start no song can truly be
      * `"fetching"`: any that is was interrupted. Back to `"pending"` — nothing was learned, so
      * it must not read as a failure or a miss.
+     *
+     * The two literals are [PrepareState.FETCHING] and [PrepareState.PENDING]. Room's SQL cannot
+     * reference a Kotlin constant, so they are spelled here as well; `SongDaoStateVocabularyTest`
+     * fails if either stops matching the vocabulary.
      */
     @Query("UPDATE songs SET prepareState = 'pending' WHERE prepareState = 'fetching'")
     abstract suspend fun resetInterruptedLookups()

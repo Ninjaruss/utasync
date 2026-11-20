@@ -20,6 +20,9 @@ data class SongEntity(
      * contain — readiness for singing is derived from the lines themselves — so the two cannot
      * drift apart.
      *
+     * Every value lives in [PrepareState]; nothing may write a string that is not one of them,
+     * because [readinessOf] can only fall back to "no lyrics yet" for a state it cannot read.
+     *
      * - `"pending"` — nothing attempted yet.
      * - `"fetching"` — a lookup is in flight.
      * - `"done"` — lyrics are stored.

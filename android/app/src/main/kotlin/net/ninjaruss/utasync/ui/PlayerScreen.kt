@@ -62,6 +62,7 @@ import kotlinx.coroutines.withContext
 import net.ninjaruss.utasync.align.activeLineIndex
 import net.ninjaruss.utasync.align.writeLrc
 import net.ninjaruss.utasync.UtasyncApplication
+import net.ninjaruss.utasync.data.PrepareState
 import net.ninjaruss.utasync.data.Readiness
 import net.ninjaruss.utasync.data.SongDao
 import net.ninjaruss.utasync.data.readinessOf
@@ -173,7 +174,7 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
             }
         }
     }
-    val readiness = readinessOf(song?.prepareState ?: "pending", lines.size, starts.count { it != null })
+    val readiness = readinessOf(song?.prepareState ?: PrepareState.PENDING, lines.size, starts.count { it != null })
     // Not singable means no highlight at all: half-timed lines must not pretend to follow along.
     val active = if (readiness == Readiness.WORDS_ONLY) -1 else activeLineIndex(starts, positionMs)
     val listState = rememberLazyListState()
