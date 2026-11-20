@@ -48,7 +48,6 @@ import net.ninjaruss.utasync.align.splitPastedLyrics
 import net.ninjaruss.utasync.data.PrepareState
 import net.ninjaruss.utasync.data.SongDao
 import net.ninjaruss.utasync.prepare.FetchSetting
-import net.ninjaruss.utasync.prepare.LookupOutcome
 import net.ninjaruss.utasync.prepare.Lrclib
 import net.ninjaruss.utasync.prepare.LrclibTrack
 import net.ninjaruss.utasync.prepare.PrepareOutcome
@@ -117,11 +116,9 @@ fun LyricsSourceScreen(songId: Long, dao: SongDao, lrclib: Lrclib, onDone: () ->
                         }
                         is PrepareOutcome.NotFound -> {
                             candidates = emptyList()
-                            message = if (outcome.outcome == LookupOutcome.NO_ENTRY) {
-                                "LRCLIB has no lyrics for this song. Paste the words or import an .lrc."
-                            } else {
-                                "Couldn't reach LRCLIB. Try again, paste the words, or import an .lrc."
-                            }
+                            // Per outcome, including the rate limit, which must not be reported as
+                            // a service that could not be reached: see lookupFailureMessage.
+                            message = lookupFailureMessage(outcome.outcome).orEmpty()
                         }
                         // Unreachable with allowReplaceSheet checked by the caller; never silent.
                         PrepareOutcome.RefusedHasPins -> message = "This song has lines you timed by hand."
