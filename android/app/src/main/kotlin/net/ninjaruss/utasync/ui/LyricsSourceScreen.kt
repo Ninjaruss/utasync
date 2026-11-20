@@ -48,6 +48,7 @@ import net.ninjaruss.utasync.align.splitPastedLyrics
 import net.ninjaruss.utasync.data.PrepareState
 import net.ninjaruss.utasync.data.SongDao
 import net.ninjaruss.utasync.prepare.FetchSetting
+import net.ninjaruss.utasync.prepare.LookupOutcome
 import net.ninjaruss.utasync.prepare.Lrclib
 import net.ninjaruss.utasync.prepare.LrclibTrack
 import net.ninjaruss.utasync.prepare.PrepareOutcome
@@ -94,6 +95,8 @@ fun LyricsSourceScreen(songId: Long, dao: SongDao, lrclib: Lrclib, onDone: () ->
     var autoLookup by remember { mutableStateOf(fetchSetting.enabled) }
 
     var candidates by remember { mutableStateOf<List<LrclibTrack>>(emptyList()) }
+    // The last thing a search came back with, which decides whether another may be offered.
+    var lastOutcome by remember { mutableStateOf<LookupOutcome?>(null) }
     var message by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var pasted by rememberSaveable { mutableStateOf("") }
@@ -107,6 +110,7 @@ fun LyricsSourceScreen(songId: Long, dao: SongDao, lrclib: Lrclib, onDone: () ->
             when (change) {
                 SheetChange.Search -> {
                     val song = dao.song(songId) ?: return
+                    lastOutcome = null
                     // The user asked, so the automatic setting does not apply: fetchEnabled = true.
                     when (val outcome = prepareSong(dao, lrclib, song, allowReplaceSheet, fetchEnabled = true)) {
                         is PrepareOutcome.Synced, is PrepareOutcome.WordsOnly -> onDone()
@@ -116,9 +120,14 @@ fun LyricsSourceScreen(songId: Long, dao: SongDao, lrclib: Lrclib, onDone: () ->
                         }
                         is PrepareOutcome.NotFound -> {
                             candidates = emptyList()
-                            // Per outcome, including the rate limit, which must not be reported as
-                            // a service that could not be reached: see lookupFailureMessage.
-                            message = lookupFailureMessage(outcome.outcome).orEmpty()
+                            lastOutcome = outcome.outcome
+                            // Per outcome: only OFFLINE may say LRCLIB was not reached, and a rate
+                            // limit asks for a minute (see lookupFailureMessage). The fallback is
+                            // never expected — NotFound is never built with FOUND — but this file
+                            // promises never to be silent, so it says something rather than
+                            // nothing if a later outcome arrives undecided.
+                            message = lookupFailureMessage(outcome.outcome)
+                                ?: "The lookup ended with nothing to show. Paste the words or import an .lrc."
                         }
                         // Unreachable with allowReplaceSheet checked by the caller; never silent.
                         PrepareOutcome.RefusedHasPins -> message = "This song has lines you timed by hand."
@@ -223,7 +232,12 @@ fun LyricsSourceScreen(songId: Long, dao: SongDao, lrclib: Lrclib, onDone: () ->
             )
             HorizontalDivider()
 
-            Button(onClick = { request(SheetChange.Search) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = { request(SheetChange.Search) },
+                // Disabled after a rate limit: see searchAllowed. The message beside it says why.
+                enabled = !busy && searchAllowed(lastOutcome),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Text(if (busy) "Searching…" else "Find lyrics")
             }
             if (message.isNotEmpty()) Text(message)

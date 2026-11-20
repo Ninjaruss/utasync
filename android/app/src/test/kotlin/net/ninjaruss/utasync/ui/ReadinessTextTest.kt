@@ -70,14 +70,28 @@ class ReadinessTextTest {
         rowTexts.forEach { assertFalse(it, it.contains("tap to", ignoreCase = true)) }
     }
 
-    @Test fun `only FETCH_FAILED talks about reaching the service`() {
-        val others = Readiness.entries.filter { it != Readiness.FETCH_FAILED }
-        others.forEach {
+    @Test fun `no readiness text claims LRCLIB was unreachable, because none of them can know`() {
+        // Over the whole enum, FETCH_FAILED included: prepareState = "failed" is written both for
+        // OFFLINE (nothing answered) and for ERROR (LRCLIB answering with a 503, a 4xx, a 5xx or
+        // a non-JSON 200), so neither of these texts can honestly say the service was not
+        // reached. Only the lyrics screen, which still holds the outcome, may say it.
+        Readiness.entries.forEach {
             listOfNotNull(libraryStatus(it), emptyPlayerMessage(it)).forEach { t ->
                 assertFalse(t, t.contains("reach", ignoreCase = true))
+                assertFalse(t, t.contains("unreachable", ignoreCase = true))
+            }
+        }
+    }
+
+    @Test fun `only FETCH_FAILED says the lookup did not finish`() {
+        Readiness.entries.filter { it != Readiness.FETCH_FAILED }.forEach {
+            listOfNotNull(libraryStatus(it), emptyPlayerMessage(it)).forEach { t ->
+                assertFalse(t, t.contains("didn't finish", ignoreCase = true))
                 assertFalse(t, t.contains("fail", ignoreCase = true))
             }
         }
+        listOf(libraryStatus(Readiness.FETCH_FAILED)!!, emptyPlayerMessage(Readiness.FETCH_FAILED))
+            .forEach { assertTrue(it, it.contains("didn't finish")) }
     }
 
     @Test fun `off and pending read as no lyrics yet, never a failure`() {
@@ -85,8 +99,8 @@ class ReadinessTextTest {
         assertEquals(Readiness.NO_LYRICS, off)
         val texts = listOf(libraryStatus(off)!!, emptyPlayerMessage(off))
         texts.forEach {
-            assertFalse(it, it.contains("reach", ignoreCase = true))
             assertFalse(it, it.contains("fail", ignoreCase = true))
+            assertFalse(it, it.contains("didn't finish", ignoreCase = true))
             assertFalse(it, it.contains("LRCLIB", ignoreCase = true))
         }
     }

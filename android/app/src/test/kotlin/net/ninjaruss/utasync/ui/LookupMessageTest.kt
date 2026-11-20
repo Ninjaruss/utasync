@@ -17,10 +17,11 @@ class LookupMessageTest {
     /** Everything a lookup can answer except FOUND, which is adopted rather than described. */
     private val reported = LookupOutcome.entries.filter { it != LookupOutcome.FOUND }
 
-    @Test fun `the reported outcomes group into exactly three messages, one per kind of answer`() {
+    @Test fun `the reported outcomes group into exactly four messages, one per kind of answer`() {
         // Derived from the enum, so a new outcome cannot quietly join a group or inherit a text:
-        // "nothing here", "asked to wait", and "could not be reached" (which OFFLINE and ERROR
-        // share on purpose — the user can act on neither differently). FOUND says nothing.
+        // "nothing here", "asked to wait", "nothing answered" and "answered with an error". ERROR
+        // used to share OFFLINE's text, which was false: a 503, a 4xx, a 5xx and a non-JSON 200
+        // are all LRCLIB answering. FOUND says nothing.
         assertNull(lookupFailureMessage(LookupOutcome.FOUND))
         val groups = reported.groupBy { lookupFailureMessage(it) }
         groups.keys.forEach { assertNotNull(it); assertTrue(it!!.isNotBlank()) }
@@ -28,19 +29,37 @@ class LookupMessageTest {
             setOf(
                 setOf(LookupOutcome.NO_ENTRY),
                 setOf(LookupOutcome.RATE_LIMITED),
-                setOf(LookupOutcome.OFFLINE, LookupOutcome.ERROR),
+                setOf(LookupOutcome.OFFLINE),
+                setOf(LookupOutcome.ERROR),
             ),
             groups.values.map { it.toSet() }.toSet(),
         )
     }
 
-    @Test fun `only an outcome that really failed to reach LRCLIB says so`() {
-        val unreachable = setOf(LookupOutcome.OFFLINE, LookupOutcome.ERROR)
-        reported.filterNot { it in unreachable }.forEach {
+    @Test fun `OFFLINE alone says LRCLIB could not be reached, and it does say it`() {
+        // Both directions. OFFLINE is the only outcome where nothing answered, so it is the only
+        // one allowed that wording — and it must actually carry it, or the one true statement
+        // about an unreachable service would have quietly disappeared.
+        val offline = lookupFailureMessage(LookupOutcome.OFFLINE)!!
+        assertTrue(offline, offline.contains("reach", ignoreCase = true))
+        reported.filter { it != LookupOutcome.OFFLINE }.forEach {
             val message = lookupFailureMessage(it)!!
             assertFalse("$it: $message", message.contains("reach", ignoreCase = true))
             assertFalse("$it: $message", message.contains("couldn't", ignoreCase = true))
         }
+    }
+
+    @Test fun `an error says LRCLIB answered, because in every ERROR case it did`() {
+        val message = lookupFailureMessage(LookupOutcome.ERROR)!!
+        assertTrue(message, message.contains("answered"))
+        assertFalse(message, message.contains("reach", ignoreCase = true))
+    }
+
+    @Test fun `a rate limit is the one outcome that stops another search being offered`() {
+        // Derived from the enum, including "before any search" (null), so a new outcome must be
+        // decided here. The harm to a keyless client is the request, not the label (L51).
+        val blocked = (LookupOutcome.entries + null).filterNot { searchAllowed(it) }
+        assertEquals(listOf(LookupOutcome.RATE_LIMITED), blocked)
     }
 
     @Test fun `a rate limit asks for a minute rather than an immediate retry`() {

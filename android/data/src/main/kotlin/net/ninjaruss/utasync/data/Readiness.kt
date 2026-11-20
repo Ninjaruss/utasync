@@ -5,7 +5,9 @@ package net.ninjaruss.utasync.data
  *
  * [NO_MATCH], [FETCH_FAILED] and [RATE_LIMITED] are deliberately separate. [NO_MATCH] means the
  * service answered and has nothing usable, so the user must act (search or paste). [FETCH_FAILED]
- * means the service was not reached, so a retry is worth a tap. [RATE_LIMITED] means LRCLIB WAS
+ * means the lookup did not finish — nothing answered, or LRCLIB answered with an error — so a
+ * retry is worth a tap; it is not evidence the service was unreachable, and no text may claim
+ * that (see [PrepareState.FAILED]). [RATE_LIMITED] means LRCLIB WAS
  * reached and asked the client to wait: "couldn't reach LRCLIB" would be false, and a retry is the
  * one thing not to offer, because this client's only identity is its IP address (ledger L51).
  * Merging any two of them would make one of their messages false.

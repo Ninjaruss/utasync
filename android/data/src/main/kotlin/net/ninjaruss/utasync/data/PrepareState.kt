@@ -27,7 +27,12 @@ object PrepareState {
      */
     const val NO_MATCH = "no-match"
 
-    /** The service could not be reached: offline or an error. A retry is sensible. */
+    /**
+     * The lookup did not finish: either nothing answered (offline) or LRCLIB answered with an
+     * error. Deliberately one state, because the user's next step is the same — try again — and a
+     * state must earn itself with durable, distinct advice. It is therefore NOT evidence that the
+     * service was unreachable, and nothing reading this state may say so.
+     */
     const val FAILED = "failed"
 
     /**

@@ -29,7 +29,8 @@ data class SongEntity(
      * - `"no-match"` — the service answered and has nothing this song can use automatically (no
      *   record, an instrumental, or candidates only the user can choose among), or no query
      *   could be formed. The user must act; an automatic retry would change nothing.
-     * - `"failed"` — the service could not be reached: offline or an error. A retry is sensible.
+     * - `"failed"` — the lookup did not finish: nothing answered (offline), or LRCLIB answered
+     *   with an error. A retry is sensible. It does **not** mean the service was unreachable.
      * - `"rate-limited"` — the service WAS reached and asked us to wait. No retry is offered.
      * - `"off"` — automatic lookup is switched off, so nothing has been attempted.
      *
