@@ -157,8 +157,20 @@ suspend fun adoptTrack(dao: SongDao, songId: Long, track: LrclibTrack, consented
 
     when (replaceSheetLines(dao, songId, lines, consented)) {
         SheetReplacement.REPLACED -> Unit
-        SheetReplacement.REFUSED_HAS_PINS -> return PrepareOutcome.RefusedHasPins
-        SheetReplacement.EMPTY -> return PrepareOutcome.NotFound(LookupOutcome.NO_ENTRY)
+        SheetReplacement.REFUSED_HAS_PINS -> {
+            // Only reachable if a pin was written between the check above and this one. The
+            // song keeps the sheet it has, which is stored lyrics, so DONE is the true state —
+            // and leaving FETCHING behind would read as "Finding lyrics…" until the process died.
+            dao.setPrepareState(songId, PrepareState.DONE)
+            return PrepareOutcome.RefusedHasPins
+        }
+        SheetReplacement.EMPTY -> {
+            // Defensive: a Timed or Untimed sheet with no rows. Not reachable through sheetFrom
+            // today (it answers Sheet.None when there is no text), so it has no test; the state
+            // is set anyway, because the alternative is a song stuck on "Finding lyrics…".
+            dao.setPrepareState(songId, stateFor(LookupOutcome.NO_ENTRY))
+            return PrepareOutcome.NotFound(LookupOutcome.NO_ENTRY)
+        }
     }
     dao.setLyricsSource(songId, "lrclib")
     fillBlankNames(dao, songId, track)

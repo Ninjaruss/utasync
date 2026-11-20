@@ -57,11 +57,25 @@ import net.ninjaruss.utasync.prepare.adoptTrack
 import net.ninjaruss.utasync.prepare.prepareSong
 
 /** What the user asked for that replaces the song's lyric sheet, held while pins are confirmed. */
-private sealed interface SheetChange {
+internal sealed interface SheetChange {
     data object Search : SheetChange
     data class Adopt(val track: LrclibTrack) : SheetChange
     data class Paste(val text: String) : SheetChange
     data class Lrc(val uri: Uri) : SheetChange
+}
+
+/**
+ * The prepare state an interrupted [change] must leave behind, or null to leave the stored state
+ * alone. Only [SheetChange.Search] ever sets a state (`"fetching"`, inside `prepareSong`), so only
+ * a search may write one here: resetting a cancelled paste or import to `"pending"` would downgrade
+ * what a finished lookup had already learned, turning a "no lyrics found" song into "no lyrics yet".
+ */
+internal fun stateAfterInterruption(change: SheetChange, cancelled: Boolean): String? = when {
+    change != SheetChange.Search -> null
+    // Cancelled: nothing was learned, so neither a failure nor a miss may be shown.
+    cancelled -> PrepareState.PENDING
+    // An unexpected error: the lookup did not complete, which is what "failed" means.
+    else -> PrepareState.FAILED
 }
 
 /**
@@ -111,6 +125,8 @@ fun LyricsSourceScreen(songId: Long, dao: SongDao, lrclib: Lrclib, onDone: () ->
                         }
                         // Unreachable with allowReplaceSheet checked by the caller; never silent.
                         PrepareOutcome.RefusedHasPins -> message = "This song has lines you timed by hand."
+                        // Unreachable too: this call always passes fetchEnabled = true, because
+                        // the user asked. Kept so the `when` stays exhaustive, and never silent.
                         PrepareOutcome.Disabled -> message = "Lookup is switched off."
                     }
                 }
@@ -135,11 +151,14 @@ fun LyricsSourceScreen(songId: Long, dao: SongDao, lrclib: Lrclib, onDone: () ->
                 }
             }
         } catch (e: CancellationException) {
-            // Leaving mid-search must not strand the song at "fetching".
-            withContext(NonCancellable) { dao.setPrepareState(songId, PrepareState.PENDING) }
+            // Leaving mid-search must not strand the song at "fetching"; see stateAfterInterruption
+            // for why a cancelled paste or import must leave the state exactly as it is.
+            stateAfterInterruption(change, cancelled = true)?.let {
+                withContext(NonCancellable) { dao.setPrepareState(songId, it) }
+            }
             throw e
         } catch (e: Exception) {
-            if (change == SheetChange.Search) dao.setPrepareState(songId, PrepareState.FAILED)
+            stateAfterInterruption(change, cancelled = false)?.let { dao.setPrepareState(songId, it) }
             message = "Something went wrong. Nothing was changed."
         } finally {
             busy = false

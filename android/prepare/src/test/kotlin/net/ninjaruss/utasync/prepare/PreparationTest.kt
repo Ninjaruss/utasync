@@ -31,6 +31,8 @@ class PreparationTest {
     private class FakeDao(
         private var row: SongEntity,
         private val pins: List<AnchorEntity> = emptyList(),
+        /** Hides [pins] from the first read, which is the only way to reach the late refusal. */
+        private val pinsAppearLate: Boolean = false,
     ) : SongDao() {
         val replaceLinesCalls = mutableListOf<List<LineEntity>>()
         val anchorWrites = mutableListOf<AnchorEntity>()
@@ -45,7 +47,11 @@ class PreparationTest {
         /** The row as it stands now, so a test can read what preparation wrote. */
         val current: SongEntity get() = row
 
-        override suspend fun anchors(songId: Long): List<AnchorEntity> = pins
+        private var anchorReads = 0
+        override suspend fun anchors(songId: Long): List<AnchorEntity> {
+            anchorReads++
+            return if (pinsAppearLate && anchorReads == 1) emptyList() else pins
+        }
 
         override suspend fun clearAnchorsForReplacedSheet(songId: Long) {
             clearCalls++
@@ -374,6 +380,26 @@ class PreparationTest {
         assertTrue(dao.deletedAnchors.isEmpty())
         assertTrue(dao.lyricsSources.isEmpty())
         assertTrue(dao.states.isEmpty())
+    }
+
+    @Test fun `a pin written mid-adopt refuses and leaves no stale fetching state behind`() {
+        // The race the early check cannot cover: no pin when adoptTrack looks, one by the time
+        // replaceSheetLines does. The song must not be left reading "Finding lyrics…" forever.
+        val pin = AnchorEntity(songId = 7, lineIndex = 0, timeMs = 500, source = "user")
+        val dao = FakeDao(
+            song().copy(prepareState = PrepareState.FETCHING),
+            pins = listOf(pin),
+            pinsAppearLate = true,
+        )
+        val track = parseTrack(record(synced = "[00:01.00]one"))!!
+        val outcome = runBlocking { adoptTrack(dao, 7, track) }
+
+        assertEquals(PrepareOutcome.RefusedHasPins, outcome)
+        assertTrue(dao.replaceLinesCalls.isEmpty())
+        assertEquals(0, dao.clearCalls)
+        // The sheet it keeps IS stored lyrics, so "done" is true; "fetching" would be a lie.
+        assertEquals(PrepareState.DONE, dao.current.prepareState)
+        assertNotEquals(PrepareState.FETCHING, dao.current.prepareState)
     }
 
     @Test fun `an unconsented adoptPastedLyrics on a pinned song refuses and changes nothing`() {
