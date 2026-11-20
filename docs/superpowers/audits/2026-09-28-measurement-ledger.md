@@ -1499,7 +1499,10 @@ nothing rather than an arbitrary row.
   `READ_TIMEOUT_MS` = 20 000 (how long a request may stall before it is an offline failure),
   `MAX_ATTEMPTS` = 3 (attempts per request, so at most two retries), `BASE_BACKOFF_MS` = 500 and
   `MAX_BACKOFF_MS` = 30 000 (the wait when the server gave no `Retry-After`, doubling per attempt, and
-  the ceiling on any wait), `PACING_DELAY_MS` = 300 (the pause between consecutive requests).
+  the ceiling on any wait), `PACING_DELAY_MS` = 300 (the pause between consecutive requests), and the
+  jitter added to every wait, `Random.nextLong(0, 250)` in `Lrclib.kt` (a 0–250 ms spread so repeated
+  waits do not land in lockstep). The jitter range is **unmeasured**: a round number, not observed
+  behaviour, and it gates every wait this client takes.
 - **Where two of them come from:** LRCLIB's published documentation, read 2026-11-19 at
   `https://lrclib.net/docs.txt`. It says to "send requests sequentially by waiting for each one to finish
   before starting the next" and to "add a short delay between requests (200–500 ms)", which is where
@@ -1519,5 +1522,12 @@ nothing rather than an arbitrary row.
   cut-off**. The server's +-2 s duration rule decides rung 1 (`/api/get`), and the user decides everything
   else. The predecessor PWA's scoring machinery (`shouldAcceptEarly`, cut-offs at 0.85/0.92/0.94 and a
   70-request fan-out) was deliberately not carried over: none of it was ever measured.
+- **How the app reports a rate limit (2026-11-20):** `prepareState` has its own `"rate-limited"` value
+  and `Readiness.RATE_LIMITED` its own text ("LRCLIB asked us to wait"), and that state is the one state
+  that is offered **no** retry button, for the ban reason above. It had been reported as "Couldn't reach
+  LRCLIB" with a retry — false, since LRCLIB was reached, and the retry was exactly the risk recorded here.
 - **Reproduce:** `cd android && ./gradlew :prepare:testDebugUnitTest --tests '*RetryPolicyTest*'` covers the
-  policy logic only. `UrlConnectionHttp` is untested, and nothing here was run against the live service.
+  policy logic only. The transport itself is covered by `UrlConnectionHttpTest` (added in `cc93836`): three
+  tests against a loopback `ServerSocket` — that the User-Agent and Accept headers arrive, that a 429's
+  error-stream body, content type and `Retry-After` come back, and that a non-integer `Retry-After` is null.
+  Nothing here was run against the live service.

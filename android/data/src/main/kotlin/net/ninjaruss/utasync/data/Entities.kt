@@ -29,13 +29,13 @@ data class SongEntity(
      * - `"no-match"` — the service answered and has nothing this song can use automatically (no
      *   record, an instrumental, or candidates only the user can choose among), or no query
      *   could be formed. The user must act; an automatic retry would change nothing.
-     * - `"failed"` — the service could not be reached: offline, rate limited or an error. A
-     *   retry is sensible.
+     * - `"failed"` — the service could not be reached: offline or an error. A retry is sensible.
+     * - `"rate-limited"` — the service WAS reached and asked us to wait. No retry is offered.
      * - `"off"` — automatic lookup is switched off, so nothing has been attempted.
      *
-     * `"no-match"` and `"failed"` are deliberately separate: showing "couldn't reach the
-     * service" when the service answered perfectly well is the kind of dishonest label this
-     * project has already paid for once.
+     * `"no-match"`, `"failed"` and `"rate-limited"` are deliberately separate: showing "couldn't
+     * reach the service" when the service answered perfectly well — or when it answered by asking
+     * us to wait — is the kind of dishonest label this project has already paid for once.
      */
     val prepareState: String = "pending",
     val createdAtMs: Long,

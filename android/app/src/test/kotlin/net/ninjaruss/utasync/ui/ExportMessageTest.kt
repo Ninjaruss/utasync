@@ -29,8 +29,8 @@ class ExportMessageTest {
         assertFalse(failed, failed.contains("Exported"))
     }
 
-    @Test fun `no two outcomes share a message`() {
-        // Derived from the outcomes the function distinguishes, so a merged branch fails here.
+    @Test fun `the five outcomes it distinguishes do not share a message`() {
+        // One case per branch of exportMessage, in order; a branch merged into another fails here.
         val messages = listOf(
             exportMessage(LrcExport("", 2), false),
             exportMessage(LrcExport("x", 0), true),

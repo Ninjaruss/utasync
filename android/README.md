@@ -29,7 +29,9 @@ Requirements: JDK 17, Android SDK 35. Open this folder in Android Studio, or:
 ## What has been verified, and what has not
 
 - Warnings are errors in all five modules (`allWarningsAsErrors = true` in each module's
-  `build.gradle.kts`). Verified by planting a deliberate warning and watching the build fail.
+  `build.gradle.kts`). The flag was checked once by planting a deliberate warning in `:prepare`
+  and watching that build fail; the other four modules were not planted in, only observed to
+  compile clean with the flag on.
   `:align` compiles with Kotlin 2.1.0 and its 43 tests pass. Its window planner
   produces exactly the windows of `experiments/phase0/knownTextAlign.mjs` on a real song
   (48 of 48, difference 0.0 s).

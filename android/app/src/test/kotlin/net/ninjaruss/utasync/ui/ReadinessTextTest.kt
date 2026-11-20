@@ -37,16 +37,14 @@ class ReadinessTextTest {
 
     @Test fun `a rate-limited song says it was asked to wait, never that LRCLIB was unreachable`() {
         val texts = listOf(libraryStatus(Readiness.RATE_LIMITED)!!, emptyPlayerMessage(Readiness.RATE_LIMITED))
-        texts.forEach {
-            assertTrue(it, it.contains("wait"))
-            // LRCLIB was reached. The two existing guards cover "reach"/"fail"; this names the
-            // texts it must not borrow, since sharing one would re-merge the two states.
-            assertNotEquals(libraryStatus(Readiness.FETCH_FAILED), libraryStatus(Readiness.RATE_LIMITED))
-            assertNotEquals(
-                emptyPlayerMessage(Readiness.FETCH_FAILED),
-                emptyPlayerMessage(Readiness.RATE_LIMITED),
-            )
-        }
+        texts.forEach { assertTrue(it, it.contains("wait")) }
+        // LRCLIB was reached. The enum-wide guards above cover "reach" and "fail"; sharing a text
+        // with FETCH_FAILED would re-merge the two states, which is the thing being prevented.
+        assertNotEquals(libraryStatus(Readiness.FETCH_FAILED), libraryStatus(Readiness.RATE_LIMITED))
+        assertNotEquals(
+            emptyPlayerMessage(Readiness.FETCH_FAILED),
+            emptyPlayerMessage(Readiness.RATE_LIMITED),
+        )
     }
 
     @Test fun `only a state a retry can help offers a button, and never a rate-limited one`() {

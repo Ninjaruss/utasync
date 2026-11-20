@@ -4,6 +4,7 @@ import net.ninjaruss.utasync.data.PrepareState
 import net.ninjaruss.utasync.prepare.LrclibTrack
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -35,7 +36,7 @@ class SheetChangeInterruptionTest {
     @Test fun `whatever a search writes stays inside the vocabulary`() {
         listOf(true, false).forEach {
             val state = stateAfterInterruption(SheetChange.Search, cancelled = it)!!
-            assertEquals(state, PrepareState.ALL.firstOrNull { s -> s == state })
+            assertTrue(state, state in PrepareState.ALL)
         }
     }
 }

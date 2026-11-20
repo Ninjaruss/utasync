@@ -9,9 +9,17 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * [SongDao.observeLineCounts] is pure SQL, so it is tested against a real Room database. It must
- * apply the same rule as [resolveStarts]: a line is timed when it has a computed start OR an
- * anchor, so the library and the player cannot disagree about a song.
+ * [SongDao.observeLineCounts] is pure SQL, so it is tested against a real Room database. The rule
+ * it applies is: a line is timed when it has a computed start OR an anchor row, which is how the
+ * library row and the player agree about the songs a user can actually produce today.
+ *
+ * The two definitions are **not** identical, and this file does not claim they are. The SQL counts
+ * any anchor row as timing its line, while [resolveStarts]'s `monotonicPins` drops an AUTO anchor
+ * that does not fit between its neighbouring pins — so a song with such an anchor would count as
+ * timed here and resolve to null there. The divergence is latent: nothing writes auto anchors yet
+ * (no aligner exists on Android), and closing it means deciding which definition of "timed" wins,
+ * which is the aligner's question, not this test's. User pins are never dropped, so every case
+ * below is exact.
  */
 class LineCountsTest {
     private fun withDao(block: suspend (SongDao) -> Unit) = runBlocking {
