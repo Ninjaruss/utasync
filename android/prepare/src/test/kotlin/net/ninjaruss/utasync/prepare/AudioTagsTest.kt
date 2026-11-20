@@ -53,10 +53,9 @@ class AudioTagsTest {
         assertNull(t.artist)
     }
 
-    @Test fun `filename tags never carry a duration or album`() {
+    @Test fun `filename tags never carry a duration`() {
         val t = tagsFromFilename("A - B.mp3")
         assertNull(t.durationMs)
-        assertNull(t.album)
     }
 
     @Test fun `embedded tags win over the filename, field by field`() {

@@ -48,7 +48,9 @@ Requirements: JDK 17, Android SDK 35. Open this folder in Android Studio, or:
 - Highlight within 30 ms of `player.currentPosition` across a full song (instrumented test).
 - Playback continues in the background with notification controls.
 - The manifest declares `INTERNET`, used during preparation only: a lyric lookup against LRCLIB
-  carrying the title and artist and, where known, the album and duration (the fuzzy search sends no duration), read from the user's own file. Lyric fetching
+  carrying the title and artist and, where known, the duration, read from the user's own file
+  (the fuzzy search sends no duration, and no album is sent by either endpoint: `TrackQuery` has
+  no album field, and `LrclibQueryTest` keeps it that way). Lyric fetching
   defaults to on and can be switched off from the lyrics screen (`FetchSetting`). Code-level, not
   observed: the HTTP transport (`UrlConnectionHttp`) is constructed only in `UtasyncApplication`
   for the lookup, and `:playback` has no reference to lookup or HTTP, so nothing in the playback

@@ -34,8 +34,11 @@ class LrclibQueryTest {
         assertFalse(url.contains("duration="))
     }
 
-    @Test fun `blank album is omitted`() {
-        assertFalse(getUrl(TrackQuery("A", "B", album = "  ")).contains("album_name="))
+    @Test fun `neither url carries an album, which is never sent`() {
+        // The README documents what leaves the device; this keeps that sentence true.
+        val q = TrackQuery("A", "B", durationSec = 100)
+        assertFalse(getUrl(q).contains("album"))
+        assertFalse(searchUrl(q).contains("album"))
     }
 
     @Test fun `user agent names the app and links it, and carries nothing else`() {

@@ -2,11 +2,18 @@ package net.ninjaruss.utasync.prepare
 
 import java.net.URLEncoder
 
-/** What we know about a track before asking LRCLIB for its lyrics. */
+/**
+ * What we know about a track before asking LRCLIB for its lyrics.
+ *
+ * There is deliberately no album. LRCLIB's endpoints accept `album_name`, but nothing here ever
+ * populated it, so the README claimed the query carried an album it never sent. Adding one would
+ * change which records match — an accuracy change, which rule 1 would want measured — so the
+ * field is gone rather than quietly wired up: what leaves the device is exactly the title, the
+ * artist and, for `/api/get`, the duration.
+ */
 data class TrackQuery(
     val title: String,
     val artist: String,
-    val album: String? = null,
     val durationSec: Int? = null,
 )
 
@@ -17,7 +24,6 @@ fun getUrl(q: TrackQuery): String = build(
     "$BASE/get",
     "track_name" to q.title,
     "artist_name" to q.artist,
-    "album_name" to q.album,
     "duration" to q.durationSec?.toString(),
 )
 
@@ -26,7 +32,6 @@ fun searchUrl(q: TrackQuery): String = build(
     "$BASE/search",
     "track_name" to q.title,
     "artist_name" to q.artist,
-    "album_name" to q.album,
 )
 
 /** LRCLIB asks clients to identify themselves with the app name, version and a link. */

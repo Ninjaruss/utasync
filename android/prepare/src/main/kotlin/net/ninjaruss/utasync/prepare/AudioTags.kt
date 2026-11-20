@@ -8,7 +8,8 @@ import android.net.Uri
 data class AudioTags(
     val title: String? = null,
     val artist: String? = null,
-    val album: String? = null,
+    // No album: nothing reads one. It was read from the file and merged, but never stored and
+    // never sent (see TrackQuery), so it only made the documentation claim more than was true.
     val durationMs: Long? = null,
 )
 
@@ -24,7 +25,6 @@ fun readTags(context: Context, uri: Uri): AudioTags {
         AudioTags(
             title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE).blankToNull(),
             artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST).blankToNull(),
-            album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM).blankToNull(),
             durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.trim()?.toLongOrNull()?.takeIf { it > 0 },
         )
@@ -63,7 +63,6 @@ fun tagsFromFilename(displayName: String): AudioTags {
 fun mergeTags(embedded: AudioTags, fromName: AudioTags): AudioTags = AudioTags(
     title = embedded.title.blankToNull() ?: fromName.title.blankToNull(),
     artist = embedded.artist.blankToNull() ?: fromName.artist.blankToNull(),
-    album = embedded.album.blankToNull() ?: fromName.album.blankToNull(),
     durationMs = embedded.durationMs ?: fromName.durationMs,
 )
 
