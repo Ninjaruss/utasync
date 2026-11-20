@@ -176,7 +176,9 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
     }
     val readiness = readinessOf(song?.prepareState ?: PrepareState.PENDING, lines.size, starts.count { it != null })
     // Not singable means no highlight at all: half-timed lines must not pretend to follow along.
-    val active = if (readiness == Readiness.WORDS_ONLY) -1 else activeLineIndex(starts, positionMs)
+    // Stated as "only SINGABLE highlights" rather than "WORDS_ONLY does not", so a readiness that
+    // is not about the lines (a lookup in flight, say) can never let a half-timed song follow along.
+    val active = if (readiness != Readiness.SINGABLE) -1 else activeLineIndex(starts, positionMs)
     val listState = rememberLazyListState()
     LaunchedEffect(active) {
         if (active >= 0) listState.animateScrollToItem(maxOf(0, active - 2))

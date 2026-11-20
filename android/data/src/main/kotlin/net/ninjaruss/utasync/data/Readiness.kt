@@ -15,13 +15,18 @@ enum class Readiness { FETCHING, NO_LYRICS, NO_MATCH, FETCH_FAILED, RATE_LIMITED
 /**
  * Derives readiness from what has been **attempted** ([prepareState], see
  * [SongEntity.prepareState]) and what the lines actually **contain**. Lines win once they exist:
- * a song with lines is never [Readiness.NO_MATCH] or [Readiness.FETCH_FAILED], whatever the
- * state says, because the state describes an attempt, not the result the user is looking at.
+ * a song with lines is never [Readiness.NO_MATCH], [Readiness.FETCH_FAILED],
+ * [Readiness.RATE_LIMITED] or [Readiness.FETCHING], whatever the state says, because the state
+ * describes an attempt, not the result the user is looking at.
+ *
+ * [Readiness.FETCHING] used to outrank the line branches, which meant a partly timed song got its
+ * highlight back for as long as a lookup was in flight — the no-highlight-unless-fully-timed rule
+ * broken by a label. It is now ranked below them: a lookup running over a song that is already
+ * singable does not take its highlight away either.
  *
  * [timedLineCount] is a count of lines that have a time. A partly timed song is not singable.
  */
 fun readinessOf(prepareState: String, lineCount: Int, timedLineCount: Int): Readiness {
-    if (prepareState == PrepareState.FETCHING) return Readiness.FETCHING
     if (lineCount > 0) {
         return if (timedLineCount >= lineCount) Readiness.SINGABLE else Readiness.WORDS_ONLY
     }
@@ -30,13 +35,14 @@ fun readinessOf(prepareState: String, lineCount: Int, timedLineCount: Int): Read
     // forgotten here would silently read as "No lyrics yet", which is the dishonest-label failure
     // this app exists not to repeat. `ReadinessTest` derives its domain from [PrepareState.ALL].
     return when (prepareState) {
+        PrepareState.FETCHING -> Readiness.FETCHING
         PrepareState.FAILED -> Readiness.FETCH_FAILED
         PrepareState.NO_MATCH -> Readiness.NO_MATCH
         PrepareState.RATE_LIMITED -> Readiness.RATE_LIMITED
         // Nothing has been tried, or nothing is stored. None of these is a failure.
         PrepareState.PENDING, PrepareState.OFF, PrepareState.DONE -> Readiness.NO_LYRICS
-        // FETCHING is handled above; a string from outside the vocabulary is a bug elsewhere, and
-        // the safest thing to say about a song we know nothing about is that it has no lyrics yet.
+        // A string from outside the vocabulary is a bug elsewhere, and the safest thing to say
+        // about a song we know nothing about is that it has no lyrics yet.
         else -> Readiness.NO_LYRICS
     }
 }

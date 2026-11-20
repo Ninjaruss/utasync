@@ -5,9 +5,12 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class ReadinessTest {
-    @Test fun `fetching wins over whatever the lines say`() {
-        assertEquals(Readiness.FETCHING, readinessOf("fetching", 0, 0))
-        assertEquals(Readiness.FETCHING, readinessOf("fetching", 10, 10))
+    @Test fun `fetching is shown only while there is nothing stored to show`() {
+        assertEquals(Readiness.FETCHING, readinessOf(PrepareState.FETCHING, 0, 0))
+        // Lines win once they exist. A lookup in flight must not give a partly timed song a
+        // highlight it has not earned, nor take one away from a song that is already singable.
+        assertEquals(Readiness.WORDS_ONLY, readinessOf(PrepareState.FETCHING, 10, 4))
+        assertEquals(Readiness.SINGABLE, readinessOf(PrepareState.FETCHING, 10, 10))
     }
 
     @Test fun `no lines and a failed fetch is FETCH_FAILED`() {
@@ -70,7 +73,7 @@ class ReadinessTest {
     }
 
     @Test fun `a song with lines is never NO_MATCH, whatever the prepare state says`() {
-        for (state in listOf("pending", "done", "no-match", "failed", "off")) {
+        for (state in PrepareState.ALL) {
             val r = readinessOf(state, 5, 0)
             assertEquals(state, Readiness.WORDS_ONLY, r)
         }
@@ -81,7 +84,7 @@ class ReadinessTest {
     // Why emptyPlayerMessage may fold WORDS_ONLY and SINGABLE into its `else`: a song with no
     // lines can never be either.
     @Test fun `a song with no lines is never WORDS_ONLY or SINGABLE, whatever the prepare state`() {
-        for (state in listOf("pending", "fetching", "done", "no-match", "failed", "off")) {
+        for (state in PrepareState.ALL) {
             val r = readinessOf(state, 0, 0)
             assertNotEquals(state, Readiness.WORDS_ONLY, r)
             assertNotEquals(state, Readiness.SINGABLE, r)
