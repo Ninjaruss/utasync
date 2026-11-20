@@ -264,17 +264,11 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(emptyPlayerMessage(readiness), Modifier.padding(24.dp))
-                    // A retry only where one can help: LRCLIB was not reached, or nothing was
-                    // tried. Never on NO_MATCH, where asking again would change nothing.
-                    if (readiness == Readiness.FETCH_FAILED) {
-                        Button(onClick = { (context.applicationContext as UtasyncApplication).lookUpLyrics(songId) }) {
-                            Text("Try again")
-                        }
-                    }
-                    // NO_LYRICS also covers lookup switched off, where an automatic retry would do
-                    // nothing visible. The lyrics screen searches on request whatever the setting.
-                    if (readiness == Readiness.NO_LYRICS) {
-                        Button(onClick = { sourcing = true }) { Text("Find lyrics") }
+                    // One button at most, and it always opens the lyrics screen, which searches on
+                    // request whatever the automatic setting says. Which states get one, and why
+                    // a rate-limited song gets none, is decided in emptyPlayerAction.
+                    emptyPlayerAction(readiness)?.let { label ->
+                        Button(onClick = { sourcing = true }) { Text(label) }
                     }
                 }
             }

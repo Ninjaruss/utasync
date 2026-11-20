@@ -14,6 +14,31 @@ class ReadinessTest {
         assertEquals(Readiness.FETCH_FAILED, readinessOf("failed", 0, 0))
     }
 
+    @Test fun `no lines and a rate limit is RATE_LIMITED, not FETCH_FAILED or NO_MATCH`() {
+        val r = readinessOf(PrepareState.RATE_LIMITED, 0, 0)
+        assertEquals(Readiness.RATE_LIMITED, r)
+        assertNotEquals(Readiness.FETCH_FAILED, r)
+        assertNotEquals(Readiness.NO_MATCH, r)
+    }
+
+    /**
+     * The whole vocabulary, derived: every state must map somewhere deliberate. NO_LYRICS is for
+     * states that mean "nothing has been tried or nothing is stored" — a new state that forgot its
+     * branch in readinessOf would land there and read as "No lyrics yet", which is the false label
+     * this app exists not to repeat.
+     */
+    @Test fun `every prepare state maps to a readiness that is NO_LYRICS only if nothing was learned`() {
+        val nothingLearned = setOf(PrepareState.PENDING, PrepareState.OFF, PrepareState.DONE)
+        for (state in PrepareState.ALL) {
+            val r = readinessOf(state, 0, 0)
+            if (state in nothingLearned) {
+                assertEquals(state, Readiness.NO_LYRICS, r)
+            } else {
+                assertNotEquals(state, Readiness.NO_LYRICS, r)
+            }
+        }
+    }
+
     @Test fun `no lines and no match is NO_MATCH, not FETCH_FAILED`() {
         assertEquals(Readiness.NO_MATCH, readinessOf("no-match", 0, 0))
         assertNotEquals(Readiness.FETCH_FAILED, readinessOf("no-match", 0, 0))

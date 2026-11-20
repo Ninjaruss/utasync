@@ -7,9 +7,11 @@ import net.ninjaruss.utasync.data.AlignmentRunEntity
 import net.ninjaruss.utasync.data.AnchorEntity
 import net.ninjaruss.utasync.data.LineCounts
 import net.ninjaruss.utasync.data.LineEntity
+import net.ninjaruss.utasync.data.PrepareState
 import net.ninjaruss.utasync.data.SongDao
 import net.ninjaruss.utasync.data.SongEntity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -510,14 +512,18 @@ class PreparationTest {
         assertEquals("failed", dao.current.prepareState)
     }
 
-    @Test fun `a rate-limited lookup is failed, not no-match`() {
+    @Test fun `a rate-limited lookup gets its own state, not failed and not no-match`() {
         val dao = FakeDao(song())
         val http = StubHttp(
             mapOf("get" to HttpResponse(429, "application/json", """{"statusCode":429}""", 86_400)),
         )
         val outcome = runBlocking { prepareSong(dao, lrclib(http), dao.current) }
         assertEquals(PrepareOutcome.NotFound(LookupOutcome.RATE_LIMITED), outcome)
-        assertEquals("failed", dao.current.prepareState)
+        // LRCLIB WAS reached, so "failed" ("couldn't reach LRCLIB") would be false, and it
+        // answered nothing about this song, so "no-match" would be false too.
+        assertEquals(PrepareState.RATE_LIMITED, dao.current.prepareState)
+        assertNotEquals(PrepareState.FAILED, dao.current.prepareState)
+        assertNotEquals(PrepareState.NO_MATCH, dao.current.prepareState)
     }
 
     @Test fun `a song with no title is no-match, since no query could be formed`() {

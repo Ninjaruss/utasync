@@ -3,12 +3,14 @@ package net.ninjaruss.utasync.data
 /**
  * Where a song is on the way to being singable, as the user should be told it.
  *
- * [NO_MATCH] and [FETCH_FAILED] are deliberately separate. [NO_MATCH] means the service
- * answered and has nothing usable, so the user must act (search or paste). [FETCH_FAILED] means
- * the service was not reached, so a retry is worth a tap. Merging them would make one of the
- * two messages false.
+ * [NO_MATCH], [FETCH_FAILED] and [RATE_LIMITED] are deliberately separate. [NO_MATCH] means the
+ * service answered and has nothing usable, so the user must act (search or paste). [FETCH_FAILED]
+ * means the service was not reached, so a retry is worth a tap. [RATE_LIMITED] means LRCLIB WAS
+ * reached and asked the client to wait: "couldn't reach LRCLIB" would be false, and a retry is the
+ * one thing not to offer, because this client's only identity is its IP address (ledger L51).
+ * Merging any two of them would make one of their messages false.
  */
-enum class Readiness { FETCHING, NO_LYRICS, NO_MATCH, FETCH_FAILED, WORDS_ONLY, SINGABLE }
+enum class Readiness { FETCHING, NO_LYRICS, NO_MATCH, FETCH_FAILED, RATE_LIMITED, WORDS_ONLY, SINGABLE }
 
 /**
  * Derives readiness from what has been **attempted** ([prepareState], see
@@ -30,6 +32,7 @@ fun readinessOf(prepareState: String, lineCount: Int, timedLineCount: Int): Read
     return when (prepareState) {
         PrepareState.FAILED -> Readiness.FETCH_FAILED
         PrepareState.NO_MATCH -> Readiness.NO_MATCH
+        PrepareState.RATE_LIMITED -> Readiness.RATE_LIMITED
         // Nothing has been tried, or nothing is stored. None of these is a failure.
         PrepareState.PENDING, PrepareState.OFF, PrepareState.DONE -> Readiness.NO_LYRICS
         // FETCHING is handled above; a string from outside the vocabulary is a bug elsewhere, and

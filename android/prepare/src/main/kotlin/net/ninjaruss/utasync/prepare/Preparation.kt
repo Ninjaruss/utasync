@@ -107,12 +107,14 @@ suspend fun prepareSong(
 }
 
 /**
- * Splits "nothing to take" from "could not ask", so a state is never shown as a service
- * failure when the service answered perfectly well.
+ * Splits "nothing to take" from "could not ask" from "asked to wait", so a state is never shown
+ * as a service failure when the service answered perfectly well, and a rate limit is never shown
+ * as a failure to reach the service (it was reached) with a retry the user should not take.
  */
 private fun stateFor(outcome: LookupOutcome): String = when (outcome) {
     LookupOutcome.NO_ENTRY -> PrepareState.NO_MATCH
-    LookupOutcome.OFFLINE, LookupOutcome.ERROR, LookupOutcome.RATE_LIMITED -> PrepareState.FAILED
+    LookupOutcome.OFFLINE, LookupOutcome.ERROR -> PrepareState.FAILED
+    LookupOutcome.RATE_LIMITED -> PrepareState.RATE_LIMITED
     // FOUND never reaches here on a usable record: both callers return first. A "found" reply
     // with nothing in it is the service answering with nothing usable, which is NO_MATCH.
     LookupOutcome.FOUND -> PrepareState.NO_MATCH
