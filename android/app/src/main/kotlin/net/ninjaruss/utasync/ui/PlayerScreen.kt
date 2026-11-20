@@ -1,6 +1,8 @@
 package net.ninjaruss.utasync.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,14 +17,19 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -32,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -48,7 +56,11 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.ninjaruss.utasync.align.activeLineIndex
+import net.ninjaruss.utasync.align.writeLrc
 import net.ninjaruss.utasync.UtasyncApplication
 import net.ninjaruss.utasync.data.Readiness
 import net.ninjaruss.utasync.data.SongDao
@@ -105,6 +117,30 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
     val starts = remember(lines, anchors) { resolveStarts(lines, anchors) }
     // Lines the user has pinned by hand, so a pin is visible and can be found again to clear.
     val pinned = remember(anchors) { anchors.filter { it.source == "user" }.map { it.lineIndex }.toSet() }
+
+    // Export: the resolved times (pins folded in) leave as a plain .lrc, never the raw computed ones.
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    var menuOpen by remember { mutableStateOf(false) }
+    val exportLrc = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        if (uri != null) {
+            val export = writeLrc(starts.zip(lines.map { it.text }))
+            scope.launch {
+                val saved = runCatching {
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri, "wt")!!.use { it.write(export.text.toByteArray()) }
+                    }
+                }.isSuccess
+                snackbar.showSnackbar(
+                    when {
+                        !saved -> "Could not write the file"
+                        export.droppedLines > 0 -> "Exported; ${export.droppedLines} untimed lines were left out"
+                        else -> "Exported"
+                    },
+                )
+            }
+        }
+    }
 
     // Long-press a line to nudge its start by ear; "Tap along" times the whole song. Hoisted
     // ABOVE the repeat loop on purpose: Compose keeps every effect of this composable alive while
@@ -168,6 +204,7 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text(song?.title ?: "") },
@@ -179,6 +216,21 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
                 actions = {
                     TextButton(onClick = { tapping = true }, enabled = lines.isNotEmpty()) { Text("Tap along") }
                     TextButton(onClick = { sourcing = true }) { Text("Lyrics…") }
+                    Box {
+                        IconButton(onClick = { menuOpen = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                        }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Export .lrc") },
+                                enabled = lines.isNotEmpty(),
+                                onClick = {
+                                    menuOpen = false
+                                    exportLrc.launch("${song?.title ?: "lyrics"}.lrc")
+                                },
+                            )
+                        }
+                    }
                 },
             )
         },

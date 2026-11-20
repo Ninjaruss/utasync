@@ -12,9 +12,10 @@ experiment (`../experiments/phase0/`, ADR-0003).
 | `:app` | Android app | Compose UI: library, player |
 | `:playback` | Android library | `PlaybackService` (Media3 session + ExoPlayer), `PlayerConnection` |
 | `:data` | Android library | Room: songs, lines, anchors, alignment runs |
-| `:align` | **pure Kotlin/JVM** | LRC parsing, sheet↔LRC matching, prior windows, anchors, line clock |
+| `:prepare` | Android library | LRCLIB client and retry policy, audio tag reading, the lyric-sourcing ladder (`prepareSong`) |
+| `:align` | **pure Kotlin/JVM** | LRC parsing and writing, sheet↔LRC matching, prior windows, anchors, line clock |
 
-`:prepare`, `:inference` and `:japanese` (ADR-0002) are added when there is code for them.
+`:inference` and `:japanese` (ADR-0002) are added when there is code for them.
 
 ## Build
 
@@ -22,18 +23,21 @@ Requirements: JDK 17, Android SDK 35. Open this folder in Android Studio, or:
 
 ```sh
 # Everything CI runs: every JVM unit test, then the debug APK.
-./gradlew :align:test :data:testDebugUnitTest :playback:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug
+./gradlew :align:test :data:testDebugUnitTest :playback:testDebugUnitTest :prepare:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug
 ```
 
 ## What has been verified, and what has not
 
-- `:align` compiles with Kotlin 2.1.0 (`-Werror`) and its 23 tests pass. Its window planner
+- Warnings are errors in all five modules (`allWarningsAsErrors = true` in each module's
+  `build.gradle.kts`). Verified by planting a deliberate warning and watching the build fail.
+  `:align` compiles with Kotlin 2.1.0 and its 43 tests pass. Its window planner
   produces exactly the windows of `experiments/phase0/knownTextAlign.mjs` on a real song
   (48 of 48, difference 0.0 s).
 - `:app`, `:data` and `:playback` were written without an Android SDK, then compiled for the
   first time with the versions below (no source changes were needed). CI
   (`.github/workflows/android.yml`) runs every JVM unit test — `:align:test`,
-  `:data:testDebugUnitTest`, `:playback:testDebugUnitTest`, `:app:testDebugUnitTest` — and then
+  `:data:testDebugUnitTest`, `:playback:testDebugUnitTest`, `:prepare:testDebugUnitTest`,
+  `:app:testDebugUnitTest` — and then
   `:app:assembleDebug`. The test tasks have to be named: `assembleDebug` does not compile unit-test
   sources, so a build that only assembles cannot catch a broken or deleted test.
 - Versions in `gradle/libs.versions.toml` are deliberately conservative and known to work
@@ -43,14 +47,22 @@ Requirements: JDK 17, Android SDK 35. Open this folder in Android Studio, or:
 
 - Highlight within 30 ms of `player.currentPosition` across a full song (instrumented test).
 - Playback continues in the background with notification controls.
-- The only network call is a lyric lookup against LRCLIB, carrying the title, artist, album and
-  duration read from the user's own file. It can be switched off (`FetchSetting`, on by default).
+- The manifest declares `INTERNET`, used during preparation only: a lyric lookup against LRCLIB
+  carrying the title, artist, album and duration read from the user's own file. Lyric fetching
+  defaults to on and can be switched off from the lyrics screen (`FetchSetting`). Playing a
+  prepared song makes no network call.
+- Corrections are not trapped here: the player's overflow menu exports a plain `.lrc` carrying the
+  resolved times (pins folded in over the computed ones), with no `[offset:]` or metadata tags.
+  `writeLrc` is covered by JVM tests in `:align` (including a round trip through `parseLrc`);
+  the menu, the file picker and the file write in `PlayerScreen` have no automated test and have
+  not been exercised on a device.
 
 ## Pins survive everything
 
 > **Upgrading from an earlier build of this branch:** the `anchors` table gained a `writtenAtMs`
-> column and `songs` gained `prepareState`, so the Room schema's identity hash changed while the
-> version stayed at 1. There is no migration and no `fallbackToDestructiveMigration`, so an older build's database makes Room throw
+> column, and separately `songs` (`SongEntity`) gained `prepareState`. Each changed Room's schema
+> identity hash while the version stayed at 1. There is no migration and no
+> `fallbackToDestructiveMigration`, so an older build's database makes Room throw
 > "cannot verify the data integrity" on first access — a crash, not a message. Uninstall the old
 > build first. This matters only to developers: the app has never shipped.
 
@@ -79,8 +91,16 @@ write an anchor of the wrong source past those two checks. A pin is removed with
 **CI runs every JVM unit test. The instrumented tests still need a device or emulator.**
 `PinsSurviveReAlignmentTest` (real Room: pin, re-align, resolve; auto write cannot replace a pin;
 each door refuses the other's source; clearing a pin restores the computed time) and
-`WaveformDecoderTest` do not run in CI. Before merging anything that touches timings, run them:
+`WaveformDecoderTest` do not run in CI; neither do `:data`'s `LineCountsTest` and `ClearAnchorsTest`.
+Before merging anything that touches timings, run them:
 
 ```sh
 ./gradlew :data:connectedDebugAndroidTest :playback:connectedDebugAndroidTest
 ```
+
+All of `:data`'s instrumented tests (`PinsSurviveReAlignmentTest`, `LineCountsTest`,
+`ClearAnchorsTest`) were executed once on an API-35 emulator during the lyric-sourcing work: 10
+tests, 0 failures. That is the first time the pin-guarantee tests had run on this branch. It still
+does not prove the *app* preserves pins end to end: those tests exercise the DAO and resolver layer
+against real Room, not the UI with a file-backed database. `WaveformDecoderTest` (`:playback`) was
+not part of that run.
