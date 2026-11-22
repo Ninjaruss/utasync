@@ -1,0 +1,989 @@
+{
+ "v": 1,
+ "entries": [
+  {
+   "text": "明白な事実だ。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "明白",
+     "reading": "めいはく",
+     "sense": "obvious",
+     "alternates": [
+      "あからさま"
+     ]
+    },
+    {
+     "surface": "事実",
+     "reading": "じじつ",
+     "sense": "fact",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "今日は雨が降っている。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "今日",
+     "reading": "きょう",
+     "sense": "today",
+     "alternates": [
+      "こんにち"
+     ]
+    },
+    {
+     "surface": "雨",
+     "reading": "あめ",
+     "sense": "rain",
+     "alternates": []
+    },
+    {
+     "surface": "降っ",
+     "reading": "ふっ",
+     "sense": "fall",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "明日会いましょう。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "明日",
+     "reading": "あした",
+     "sense": "tomorrow",
+     "alternates": [
+      "あす",
+      "みょうにち"
+     ]
+    },
+    {
+     "surface": "会い",
+     "reading": "あい",
+     "sense": "meet",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "昨日の夜は寒かった。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "昨日",
+     "reading": "きのう",
+     "sense": "yesterday",
+     "alternates": [
+      "さくじつ"
+     ]
+    },
+    {
+     "surface": "夜",
+     "reading": "よる",
+     "sense": "night",
+     "alternates": [
+      "よ"
+     ]
+    },
+    {
+     "surface": "寒かっ",
+     "reading": "さむかっ",
+     "sense": "cold",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "彼女は上手に歌う。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "上手",
+     "reading": "じょうず",
+     "sense": "skilful",
+     "alternates": [
+      "うわて",
+      "かみて"
+     ]
+    },
+    {
+     "surface": "歌う",
+     "reading": "うたう",
+     "sense": "sing",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "父は料理が下手だ。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "下手",
+     "reading": "へた",
+     "sense": "unskilful",
+     "alternates": [
+      "したて",
+      "しもて"
+     ]
+    },
+    {
+     "surface": "料理",
+     "reading": "りょうり",
+     "sense": "cooking",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "この店は人気がある。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "人気",
+     "reading": "にんき",
+     "sense": "popular",
+     "alternates": [
+      "ひとけ"
+     ]
+    },
+    {
+     "surface": "店",
+     "reading": "みせ",
+     "sense": "shop",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "人気のない道を歩く。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "人気",
+     "reading": "ひとけ",
+     "sense": "sign of people",
+     "alternates": [
+      "にんき"
+     ]
+    },
+    {
+     "surface": "道",
+     "reading": "みち",
+     "sense": "road",
+     "alternates": []
+    },
+    {
+     "surface": "歩く",
+     "reading": "あるく",
+     "sense": "walk",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "一人で行く。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "一人",
+     "reading": "ひとり",
+     "sense": "one person",
+     "alternates": [
+      "いちにん"
+     ]
+    },
+    {
+     "surface": "行く",
+     "reading": "いく",
+     "sense": "go",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "二人で食べた。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "二人",
+     "reading": "ふたり",
+     "sense": "two people",
+     "alternates": [
+      "ににん"
+     ]
+    },
+    {
+     "surface": "食べ",
+     "reading": "たべ",
+     "sense": "eat",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "大人になりたい。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "大人",
+     "reading": "おとな",
+     "sense": "adult",
+     "alternates": [
+      "たいじん"
+     ]
+    },
+    {
+     "surface": "なり",
+     "reading": "なり",
+     "sense": "become",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "本気で言っている。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "本気",
+     "reading": "ほんき",
+     "sense": "serious",
+     "alternates": [
+      "マジ"
+     ]
+    },
+    {
+     "surface": "言っ",
+     "reading": "いっ",
+     "sense": "say",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "運命を信じる。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "運命",
+     "reading": "うんめい",
+     "sense": "fate",
+     "alternates": [
+      "さだめ"
+     ]
+    },
+    {
+     "surface": "信じる",
+     "reading": "しんじる",
+     "sense": "believe",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "空を見上げた。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "空",
+     "reading": "そら",
+     "sense": "sky",
+     "alternates": [
+      "から",
+      "くう"
+     ]
+    },
+    {
+     "surface": "見上げ",
+     "reading": "みあげ",
+     "sense": "look up",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "風が強い。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "風",
+     "reading": "かぜ",
+     "sense": "wind",
+     "alternates": [
+      "ふう"
+     ]
+    },
+    {
+     "surface": "強い",
+     "reading": "つよい",
+     "sense": "strong",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "夜が明ける。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "夜",
+     "reading": "よ",
+     "sense": "night",
+     "alternates": [
+      "よる"
+     ]
+    },
+    {
+     "surface": "明ける",
+     "reading": "あける",
+     "sense": "dawn",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "行方がわからない。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "行方",
+     "reading": "ゆくえ",
+     "sense": "whereabouts",
+     "alternates": [
+      "いきかた"
+     ]
+    },
+    {
+     "surface": "わから",
+     "reading": "わから",
+     "sense": "understand",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "日が沈む。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "日",
+     "reading": "ひ",
+     "sense": "sun",
+     "alternates": [
+      "にち",
+      "か"
+     ]
+    },
+    {
+     "surface": "沈む",
+     "reading": "しずむ",
+     "sense": "sink",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "一日中歌った。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "一日中",
+     "reading": "いちにちじゅう",
+     "sense": "all day",
+     "alternates": []
+    },
+    {
+     "surface": "歌っ",
+     "reading": "うたっ",
+     "sense": "sing",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "何を探しているの。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "何",
+     "reading": "なに",
+     "sense": "what",
+     "alternates": [
+      "なん"
+     ]
+    },
+    {
+     "surface": "探し",
+     "reading": "さがし",
+     "sense": "search",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "何時ですか。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "何",
+     "reading": "なん",
+     "sense": "what",
+     "alternates": [
+      "なに"
+     ]
+    },
+    {
+     "surface": "時",
+     "reading": "じ",
+     "sense": "o'clock",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "金がない。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "金",
+     "reading": "かね",
+     "sense": "money",
+     "alternates": [
+      "きん"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "後で話そう。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "後",
+     "reading": "あと",
+     "sense": "after",
+     "alternates": [
+      "ご",
+      "のち",
+      "うしろ"
+     ]
+    },
+    {
+     "surface": "話そ",
+     "reading": "はなそ",
+     "sense": "talk",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "心が痛い。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "心",
+     "reading": "こころ",
+     "sense": "heart",
+     "alternates": []
+    },
+    {
+     "surface": "痛い",
+     "reading": "いたい",
+     "sense": "pain",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "笑顔が好きだ。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "笑顔",
+     "reading": "えがお",
+     "sense": "smile",
+     "alternates": []
+    },
+    {
+     "surface": "好き",
+     "reading": "すき",
+     "sense": "like",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "美しくない花。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "美しく",
+     "reading": "うつくしく",
+     "sense": "beautiful",
+     "alternates": []
+    },
+    {
+     "surface": "花",
+     "reading": "はな",
+     "sense": "flower",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "行かなかった。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "行か",
+     "reading": "いか",
+     "sense": "go",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "先生に読まれる。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "先生",
+     "reading": "せんせい",
+     "sense": "teacher",
+     "alternates": []
+    },
+    {
+     "surface": "読ま",
+     "reading": "よま",
+     "sense": "read",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "子供に飲ませた。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "子供",
+     "reading": "こども",
+     "sense": "child",
+     "alternates": []
+    },
+    {
+     "surface": "飲ま",
+     "reading": "のま",
+     "sense": "drink",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "来ない人を待つ。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "来",
+     "reading": "こ",
+     "sense": "come",
+     "alternates": []
+    },
+    {
+     "surface": "人",
+     "reading": "ひと",
+     "sense": "person",
+     "alternates": [
+      "じん",
+      "にん"
+     ]
+    },
+    {
+     "surface": "待つ",
+     "reading": "まつ",
+     "sense": "wait",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "彼が来た。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "彼",
+     "reading": "かれ",
+     "sense": "he",
+     "alternates": [
+      "かの"
+     ]
+    },
+    {
+     "surface": "来",
+     "reading": "き",
+     "sense": "come",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "行った場所を忘れた。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "行っ",
+     "reading": "いっ",
+     "sense": "go",
+     "alternates": [
+      "おこなっ"
+     ]
+    },
+    {
+     "surface": "場所",
+     "reading": "ばしょ",
+     "sense": "place",
+     "alternates": []
+    },
+    {
+     "surface": "忘れ",
+     "reading": "わすれ",
+     "sense": "forget",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "生物の授業が好きだ。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "生物",
+     "reading": "せいぶつ",
+     "sense": "living thing",
+     "alternates": [
+      "なまもの"
+     ]
+    },
+    {
+     "surface": "授業",
+     "reading": "じゅぎょう",
+     "sense": "class",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "今、行く。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "今",
+     "reading": "いま",
+     "sense": "now",
+     "alternates": [
+      "こん"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "手を上げる。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "手",
+     "reading": "て",
+     "sense": "hand",
+     "alternates": [
+      "しゅ"
+     ]
+    },
+    {
+     "surface": "上げる",
+     "reading": "あげる",
+     "sense": "raise",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "上を見る。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "上",
+     "reading": "うえ",
+     "sense": "above",
+     "alternates": [
+      "じょう",
+      "かみ"
+     ]
+    },
+    {
+     "surface": "見る",
+     "reading": "みる",
+     "sense": "look",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "町の外へ出る。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "外",
+     "reading": "そと",
+     "sense": "outside",
+     "alternates": [
+      "ほか",
+      "がい"
+     ]
+    },
+    {
+     "surface": "出る",
+     "reading": "でる",
+     "sense": "go out",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "大きな声で笑う。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "大きな",
+     "reading": "おおきな",
+     "sense": "big",
+     "alternates": []
+    },
+    {
+     "surface": "声",
+     "reading": "こえ",
+     "sense": "voice",
+     "alternates": []
+    },
+    {
+     "surface": "笑う",
+     "reading": "わらう",
+     "sense": "laugh",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "夢を見ていた。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "夢",
+     "reading": "ゆめ",
+     "sense": "dream",
+     "alternates": []
+    },
+    {
+     "surface": "見",
+     "reading": "み",
+     "sense": "see",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "水を飲みたい。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "水",
+     "reading": "みず",
+     "sense": "water",
+     "alternates": []
+    },
+    {
+     "surface": "飲み",
+     "reading": "のみ",
+     "sense": "drink",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "君に会いたい。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "君",
+     "reading": "きみ",
+     "sense": "you",
+     "alternates": [
+      "くん"
+     ]
+    },
+    {
+     "surface": "会い",
+     "reading": "あい",
+     "sense": "meet",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "私の名前は田中です。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "私",
+     "reading": "わたし",
+     "sense": "I",
+     "alternates": [
+      "わたくし"
+     ]
+    },
+    {
+     "surface": "名前",
+     "reading": "なまえ",
+     "sense": "name",
+     "alternates": []
+    },
+    {
+     "surface": "田中",
+     "reading": "たなか",
+     "sense": "Tanaka",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "本を読んだ。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "本",
+     "reading": "ほん",
+     "sense": "book",
+     "alternates": [
+      "もと"
+     ]
+    },
+    {
+     "surface": "読ん",
+     "reading": "よん",
+     "sense": "read",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "小さい頃の思い出。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "頃",
+     "reading": "ころ",
+     "sense": "time",
+     "alternates": [
+      "ごろ"
+     ]
+    },
+    {
+     "surface": "思い出",
+     "reading": "おもいで",
+     "sense": "memory",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "雪が降り始めた。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "雪",
+     "reading": "ゆき",
+     "sense": "snow",
+     "alternates": []
+    },
+    {
+     "surface": "降り",
+     "reading": "ふり",
+     "sense": "fall",
+     "alternates": []
+    },
+    {
+     "surface": "始め",
+     "reading": "はじめ",
+     "sense": "begin",
+     "alternates": []
+    }
+   ]
+  },
+  {
+   "text": "毎日走っている。",
+   "kind": "unverified",
+   "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
+   "words": [
+    {
+     "surface": "毎日",
+     "reading": "まいにち",
+     "sense": "every day",
+     "alternates": []
+    },
+    {
+     "surface": "走っ",
+     "reading": "はしっ",
+     "sense": "run",
+     "alternates": []
+    }
+   ]
+  }
+ ]
+}

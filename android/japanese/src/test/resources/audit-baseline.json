@@ -1,0 +1,17 @@
+{
+ "v": 1,
+ "all": {
+  "words": 97,
+  "wrongReading": 0,
+  "wrongSense": 0,
+  "blank": 97,
+  "unmarkedAlternates": 35
+ },
+ "certified": {
+  "words": 0,
+  "wrongReading": 0,
+  "wrongSense": 0,
+  "blank": 0,
+  "unmarkedAlternates": 0
+ }
+}

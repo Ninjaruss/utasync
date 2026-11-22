@@ -14,4 +14,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "utasync-android"
-include(":app", ":align", ":data", ":playback", ":prepare")
+include(":app", ":align", ":data", ":playback", ":prepare", ":japanese")

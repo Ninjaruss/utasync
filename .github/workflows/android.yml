@@ -50,6 +50,7 @@ jobs:
           :data:testDebugUnitTest
           :playback:testDebugUnitTest
           :prepare:testDebugUnitTest
+          :japanese:testDebugUnitTest
           :app:testDebugUnitTest
           :app:assembleDebug
           --stacktrace
