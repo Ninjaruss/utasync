@@ -277,7 +277,7 @@
    ]
   },
   {
-   "text": "運命を信じる。",
+   "text": "運命という言葉を辞書で調べる。",
    "kind": "unverified",
    "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
    "words": [
@@ -290,9 +290,15 @@
      ]
     },
     {
-     "surface": "信じる",
-     "reading": "しんじる",
-     "sense": "believe",
+     "surface": "辞書",
+     "reading": "じしょ",
+     "sense": "dictionary",
+     "alternates": []
+    },
+    {
+     "surface": "調べる",
+     "reading": "しらべる",
+     "sense": "investigate",
      "alternates": []
     }
    ]
@@ -504,14 +510,14 @@
    ]
   },
   {
-   "text": "心が痛い。",
+   "text": "歯が痛い。",
    "kind": "unverified",
    "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
    "words": [
     {
-     "surface": "心",
-     "reading": "こころ",
-     "sense": "heart",
+     "surface": "歯",
+     "reading": "は",
+     "sense": "tooth",
      "alternates": []
     },
     {
@@ -814,14 +820,14 @@
    ]
   },
   {
-   "text": "夢を見ていた。",
+   "text": "映画を見ていた。",
    "kind": "unverified",
    "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
    "words": [
     {
-     "surface": "夢",
-     "reading": "ゆめ",
-     "sense": "dream",
+     "surface": "映画",
+     "reading": "えいが",
+     "sense": "movie",
      "alternates": []
     },
     {
@@ -852,7 +858,7 @@
    ]
   },
   {
-   "text": "君に会いたい。",
+   "text": "君は友達に会いたい。",
    "kind": "unverified",
    "source": "authored by Claude for this corpus; original sentence, not from any song or published text; reading written from Claude's own knowledge, not tokenizer output; not yet reviewed by the owner",
    "words": [
@@ -863,6 +869,12 @@
      "alternates": [
       "くん"
      ]
+    },
+    {
+     "surface": "友達",
+     "reading": "ともだち",
+     "sense": "friend",
+     "alternates": []
     },
     {
      "surface": "会い",

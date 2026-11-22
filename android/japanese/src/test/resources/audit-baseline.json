@@ -1,13 +1,13 @@
 {
  "v": 1,
- "direction": "right must never fall; it is the number every task moves up. The wrong/blank/unmatched counts may rise when a real analyzer replaces the stub.",
+ "direction": "right is a ratchet: the test requires right >= this baseline, so it can only move up. An intentional reduction needs an explicit, visible edit of this file. The other counts may rise when a real analyzer replaces the stub. Do not read them as accuracy: each word gets ONE verdict, in the order unmatched, blank, wrongReading, wrongSense, right. So wrongSense understates (a word wrong in both reading and sense counts only as wrongReading), and blank hides a reading error. wrongSense = 0 does not mean the senses are fine.",
  "all": {
-  "words": 97,
+  "words": 99,
   "right": 0,
   "wrongReading": 0,
   "wrongSense": 0,
   "blank": 0,
-  "unmatched": 97,
+  "unmatched": 99,
   "unmarkedAlternates": 35
  },
  "certified": {

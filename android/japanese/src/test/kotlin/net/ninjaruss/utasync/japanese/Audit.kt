@@ -9,15 +9,16 @@ import kotlin.coroutines.startCoroutine
 // and printed counts. Expectations must NEVER be produced by the analyzer under test.
 
 /** What a corpus entry's `kind` lets it do. Mirrors scripts/lib/truthKinds.mjs. */
-private data class KindRule(val scores: Boolean, val certifies: Boolean)
+private data class KindRule(val certifies: Boolean)
 
 private val KINDS = mapOf(
     // Written or verified by the owner. The only kind that certifies.
-    "hand-labelled" to KindRule(scores = true, certifies = true),
+    "hand-labelled" to KindRule(certifies = true),
     // A candidate someone else proposed, awaiting owner review: scored, never certifies.
-    "unverified" to KindRule(scores = true, certifies = false),
+    // (Every known kind is scored; an unknown kind is rejected by the corpus tests, not skipped here.)
+    "unverified" to KindRule(certifies = false),
     // Produced by a program: scored, never certifies, and never from the system under test.
-    "generated" to KindRule(scores = true, certifies = false),
+    "generated" to KindRule(certifies = false),
 )
 
 fun isKnownKind(kind: String): Boolean = kind in KINDS
@@ -54,7 +55,7 @@ data class AuditCounts(
  *   returned: says nothing about meanings, so the owner adjusts the corpus's boundaries);
  * - `blank`: matched but with no senses;
  * - `wrongReading`: the shown reading (the ruby's, else the token's) differs from the expectation;
- * - `wrongSense`: the expected sense is in no returned gloss (case-insensitive substring);
+ * - `wrongSense`: the expected sense is in no returned gloss (case-insensitive, whole words within a gloss: see [glossHasSense]);
  * - otherwise `right`.
  * `unmarkedAlternates`: the corpus lists alternates but the ruby carries none.
  */
@@ -76,12 +77,24 @@ fun auditAgainst(corpus: Corpus, analyze: (String) -> List<WordInfo>): AuditCoun
                 hit == null -> unmatched++
                 hit.senses.isEmpty() -> blank++
                 (hit.ruby?.reading ?: hit.token.reading) != w.reading -> wrongReading++
-                hit.senses.none { s -> s.glosses.any { it.contains(w.sense, ignoreCase = true) } } -> wrongSense++
+                hit.senses.none { s -> s.glosses.any { glossHasSense(it, w.sense) } } -> wrongSense++
                 else -> right++
             }
         }
     }
     return AuditCounts(words, right, wrongReading, wrongSense, blank, unmatched, unmarked)
+}
+
+/**
+ * True when [sense] appears in [gloss] as whole words, ignoring case. A plain substring match
+ * would score a wrong sense as `right` ("I" is inside "the picture", "he" inside "the", "go"
+ * inside "good"), and `right` is the number the whole plan ratchets on. This errs strict: it
+ * can call a right sense wrong ("pain" does not match "painful"), never the reverse.
+ */
+fun glossHasSense(gloss: String, sense: String): Boolean {
+    if (sense.isBlank()) return false
+    val word = "[\\p{L}\\p{N}]"
+    return Regex("(?<!$word)${Regex.escape(sense.trim())}(?!$word)", RegexOption.IGNORE_CASE).containsMatchIn(gloss)
 }
 
 /** Runs a suspend call that does not actually suspend (the stub), without a coroutines dependency. */
@@ -125,9 +138,14 @@ private fun countsJson(c: AuditCounts) =
         "\"wrongSense\": ${c.wrongSense}, \"blank\": ${c.blank}, \"unmatched\": ${c.unmatched}, " +
         "\"unmarkedAlternates\": ${c.unmarkedAlternates}}"
 
+private const val DIRECTION =
+    "right is a ratchet: the test requires right >= this baseline, so it can only move up. An intentional reduction needs an explicit, visible edit of this file. " +
+        "The other counts may rise when a real analyzer replaces the stub. Do not read them as accuracy: each word gets ONE verdict, in the order unmatched, blank, wrongReading, wrongSense, right. " +
+        "So wrongSense understates (a word wrong in both reading and sense counts only as wrongReading), and blank hides a reading error. wrongSense = 0 does not mean the senses are fine."
+
 /** `all` scores every entry; `certified` is the gate: hand-labelled entries only. */
 fun renderBaseline(all: AuditCounts, certified: AuditCounts): String =
-    "{\"v\": 1,\n \"direction\": \"right must never fall; it is the number every task moves up. The wrong/blank/unmatched counts may rise when a real analyzer replaces the stub.\",\n \"all\": ${countsJson(all)},\n \"certified\": ${countsJson(certified)}}"
+    "{\"v\": 1,\n \"direction\": \"$DIRECTION\",\n \"all\": ${countsJson(all)},\n \"certified\": ${countsJson(certified)}}"
 
 fun loadBaseline(): Pair<AuditCounts, AuditCounts> {
     fun counts(o: Map<String, Any?>) = AuditCounts(

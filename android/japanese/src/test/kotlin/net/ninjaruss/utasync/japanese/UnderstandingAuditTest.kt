@@ -81,11 +81,34 @@ class UnderstandingAuditTest {
         assertEquals(counts.words, counts.verdictSum)
     }
 
-    @Test fun `the committed baseline matches the current counts`() {
+    @Test fun `a short sense is not matched by a gloss that merely contains its letters`() {
+        assertFalse(glossHasSense("the picture", "I"))
+        assertFalse(glossHasSense("the", "he"))
+        assertFalse(glossHasSense("good", "go"))
+        assertFalse(glossHasSense("known", "now"))
+        assertFalse(glossHasSense("painful", "pain"))
+        assertTrue(glossHasSense("I", "I"))
+        assertTrue(glossHasSense("he; him", "he"))
+        assertTrue(glossHasSense("to go out", "go"))
+        assertTrue(glossHasSense("Fact of life", "fact"))
+        // and through the audit: a wrong sense must not score right
+        val corpus = Corpus(1, listOf(CorpusEntry("x", "hand-labelled", "test", listOf(CorpusWord("私", "わたし", "I", emptyList())))))
+        val counts = auditAgainst(corpus) {
+            listOf(WordInfo(JaToken("私", "わたし", "pronoun", "私", 0), Ruby("私", "わたし", emptyList()), listOf(Sense(null, listOf("the picture"))), null))
+        }
+        assertEquals(0, counts.right)
+        assertEquals(1, counts.wrongSense)
+    }
+
+    @Test fun `right never falls below the committed baseline and the verdicts partition the corpus`() {
         val actual = auditAgainst(loadCorpus(), ::stub)
         val certified = auditAgainst(loadCorpus().certified(), ::stub)
         assertEquals(actual.words, actual.verdictSum)
         assertEquals(certified.words, certified.verdictSum)
-        assertEquals("audit-baseline.json is stale: ${renderBaseline(actual, certified)}", loadBaseline(), actual to certified)
+        val (baseAll, baseCertified) = loadBaseline()
+        // A ratchet, not an equality: regenerating the baseline cannot hide a regression, and
+        // lowering right means editing audit-baseline.json where a reviewer will see it.
+        assertTrue("right fell: ${actual.right} < baseline ${baseAll.right}. If intentional, edit audit-baseline.json (current: ${renderBaseline(actual, certified)})", actual.right >= baseAll.right)
+        assertTrue("certified right fell: ${certified.right} < baseline ${baseCertified.right}", certified.right >= baseCertified.right)
     }
 }
