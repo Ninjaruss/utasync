@@ -18,6 +18,8 @@ kotlin {
 }
 
 dependencies {
+    // Apache-2.0, IPADIC tagset (not UniDic: later gloss and role tuning is against IPADIC's tags).
+    implementation(libs.kuromoji.ipadic)
     // The audit's corpus parser is a small hand-written one in the test sources, so the APK
     // and the test classpath gain nothing beyond JUnit (CLAUDE.md rule 5).
     testImplementation(libs.junit)

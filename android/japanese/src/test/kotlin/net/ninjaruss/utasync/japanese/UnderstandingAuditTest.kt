@@ -39,6 +39,10 @@ class UnderstandingAuditTest {
         for (e in loadCorpus().entries) {
             assertTrue("unknown kind '${e.kind}'", isKnownKind(e.kind))
             assertTrue("entry has no source", e.source.isNotBlank())
+            for (w in e.words) {
+                assertTrue("'${w.surface}' has no senses", w.sense.isNotEmpty())
+                assertTrue("'${w.surface}' has a blank sense", w.sense.none { it.isBlank() })
+            }
         }
     }
 

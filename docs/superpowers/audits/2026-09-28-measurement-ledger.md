@@ -1531,3 +1531,26 @@ nothing rather than an arbitrary row.
   tests against a loopback `ServerSocket` — that the User-Agent and Accept headers arrive, that a 429's
   error-stream body, content type and `Retry-After` come back, and that a non-integer `Retry-After` is null.
   Nothing here was run against the live service.
+
+### L52 — Android tokeniser: Kuromoji IPADIC first-call cost (JVM only; no budget set)
+
+- **What:** `tokenize` in `android/japanese/src/main/kotlin/.../Tokenizer.kt` wraps
+  `com.atilika.kuromoji:kuromoji-ipadic:0.9.0` (Apache-2.0, owner-approved). IPADIC, not UniDic: the
+  part-of-speech tags that gloss and role behaviour will be tuned against are IPADIC's. The dictionary
+  is built lazily (`Ja.tokenizer`), so the first call pays for the load.
+- **Measured (2026-11-23), on a JVM unit test, NOT on a device:** OpenJDK 17.0.16 on the macOS
+  development machine. The first `tokenize("今日は雨")` took **377 ms**; the second call (a different
+  sentence) took **0.75 ms**. Retained heap after the dictionary load was about **35 MB** (a single
+  `Runtime` heap delta, `System.gc()` before and after, one run). Both are one run, not a distribution.
+- **Not measured:** no Android device or emulator was available (`adb` and `emulator` absent), so
+  there is **no API level, no on-device first-call time and no on-device memory figure**. Desktop JVM
+  numbers do not transfer to a phone's storage, CPU or ART; do not read 377 ms or 35 MB as the phone's cost.
+  The heap figure is a crude delta, not a profile.
+- **No budget is set.** This entry gates nothing. Whether tokenisation runs at preparation time or on
+  demand when a word is tapped is **still open**, pending an on-device measurement.
+- **Reproduce:** the numbers came from a throwaway unit test (not committed) timing the first and
+  second `tokenize` calls with `System.nanoTime` and diffing `Runtime.totalMemory() - freeMemory()`
+  across a first call. On a device, time `Ja.tokenizer` first use from a cold process.
+- **Segmentation vs the audit corpus:** the corpus hand-wrote four surfaces Kuromoji splits differently
+  (see Task 2's report); those words become `unmatched` once `analyze` uses the tokeniser. The corpus
+  was not adjusted.
