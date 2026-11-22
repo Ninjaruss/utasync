@@ -1538,17 +1538,26 @@ nothing rather than an arbitrary row.
   `com.atilika.kuromoji:kuromoji-ipadic:0.9.0` (Apache-2.0, owner-approved). IPADIC, not UniDic: the
   part-of-speech tags that gloss and role behaviour will be tuned against are IPADIC's. The dictionary
   is built lazily (`Ja.tokenizer`), so the first call pays for the load.
-- **Measured (2026-11-23), on a JVM unit test, NOT on a device:** OpenJDK 17.0.16 on the macOS
-  development machine. The first `tokenize("今日は雨")` took **377 ms**; the second call (a different
-  sentence) took **0.75 ms**. Retained heap after the dictionary load was about **35 MB** (a single
-  `Runtime` heap delta, `System.gc()` before and after, one run). Both are one run, not a distribution.
-- **Not measured:** no Android device or emulator was available (`adb` and `emulator` absent), so
-  there is **no API level, no on-device first-call time and no on-device memory figure**. Desktop JVM
-  numbers do not transfer to a phone's storage, CPU or ART; do not read 377 ms or 35 MB as the phone's cost.
-  The heap figure is a crude delta, not a profile.
+- **Measured on the JVM (2026-11-23)**, a unit test on OpenJDK 17.0.16 on the macOS development
+  machine, one run: first `tokenize("今日は雨")` **377 ms**, second call **0.75 ms**, retained heap
+  about **35 MB** (a `Runtime` heap delta, `System.gc()` before and after).
+- **Measured on an emulator (2026-11-23)**, `TokenizerLoadTest` (instrumented, one run): **API 35,
+  `sdk_gphone64_arm64`, arm64-v8a**, an arm64 emulator on Apple silicon. First call **483.48 ms**,
+  second **1.89 ms**, heap delta **57.4 MB**. This exercises the real code path (ART, dictionary
+  loaded from inside the APK) that the JVM figure does not: it is a number for a different thing, not a
+  slower version of the JVM's 377 ms. Against the JVM figures the first call is about 28% slower and
+  the heap about 64% larger.
+- **What the emulator figure is and is not:** the time is **optimistic**: a fast host CPU, host-backed
+  memory and host SSD, where the first call pays to load the dictionary from storage, so a real
+  mid-range 2023 phone will be slower. It is API 35, the friendliest version, not the spec's "current
+  minus two" minimum. The heap is a crude delta measured the same way as the JVM one: an estimate,
+  not an RSS reading. **Nobody has measured a real phone.**
 - **No budget is set.** This entry gates nothing. Whether tokenisation runs at preparation time or on
-  demand when a word is tapped is **still open**, pending an on-device measurement.
-- **Reproduce:** the numbers came from a throwaway unit test (not committed) timing the first and
+  demand is **still open**; it now has a number to reason from, not a guess. `Ja.tokenizer` is a lazy
+  singleton, so the heap is resident for as long as anything holds it, and **57 MB resident against the
+  spec's 4 GB minimum target is the figure that would decide it.** Tasks 5 and 7 settle it, with more
+  evidence than this.
+- **Reproduce:** the emulator figures: `cd android && ./gradlew :japanese:connectedDebugAndroidTest` (`TokenizerLoadTest`, logcat tag `TokenizerLoad`). The JVM figures came from a throwaway unit test (not committed) timing the first and
   second `tokenize` calls with `System.nanoTime` and diffing `Runtime.totalMemory() - freeMemory()`
   across a first call. On a device, time `Ja.tokenizer` first use from a cold process.
 - **Segmentation vs the audit corpus:** the corpus hand-wrote four surfaces Kuromoji splits differently
