@@ -26,6 +26,17 @@ pronoun senses). The Android conversion inherits those corrections on purpose.
 Both by `node scripts/build-japanese-db.mjs`, which prints every entry it drops and why.
 These outputs are derivative works under the same licence.
 
+**Do not regenerate unless an input file or a Room entity changed.** The seed is a ~38 MB binary,
+so a regeneration that changes nothing still adds its whole size to git history. The script is
+deterministic for a given input *and toolchain*: it writes no timestamps and inserts in a fixed
+order (`buildJapaneseDb.test.mjs` pins that), but the file embeds SQLite's own version and page
+layout, so a different Node may produce different bytes from identical input. Build with the Node
+version the last regeneration used, recorded here:
+
+| Regenerated | Node | sha1 of `utasync-seed.db` |
+| --- | --- | --- |
+| 2026-11-23 | v22.18.0 | af31b30f (first 8) |
+
 ## Attribution (must appear in the app, not only here)
 
 > This application uses the JMdict dictionary file. JMdict is the property of the Electronic

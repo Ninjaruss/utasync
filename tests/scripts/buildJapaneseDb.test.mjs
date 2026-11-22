@@ -132,6 +132,17 @@ describe('convertDictionary', () => {
     const { rows: out, dropped } = convertDictionary(entries)
     expect(out.length + dropped.total).toBe(total)
   })
+
+  // The assertion above holds by construction: it would still pass if the conversion started
+  // dropping half the dictionary. This is the one that would not. Today the real input converts
+  // whole, so the honest expectation is zero. If this goes red, a gloss became unstorable --
+  // read the printed reasons and decide; do not raise the number to make it green.
+  it('drops nothing at all from the real input', () => {
+    const entries = JSON.parse(readFileSync(POPOVER, 'utf8')).entries
+    const { dropped } = convertDictionary(entries)
+    expect(dropped.byReason).toEqual({})
+    expect(dropped.total).toBe(0)
+  })
 })
 
 describe('convertAlternates', () => {
@@ -145,6 +156,30 @@ describe('convertAlternates', () => {
     const { alternates } = convertAlternates({ 白地: '|あからさま,しらじ', 明日: 'あした,あす' })
     expect(alternates['白地']).toEqual([[], ['あからさま', 'しらじ']])
     expect(alternates['明日']).toEqual([['あした', 'あす'], []])
+  })
+
+  // Over the real input: a surface may be absent ONLY because it has fewer than two distinct
+  // readings. The reading count here is parsed independently of convertAlternates, so the two
+  // would have to be wrong the same way to agree.
+  it('drops a real-input surface only when it has fewer than two distinct readings', () => {
+    const readings = JSON.parse(readFileSync(join(ROOT, 'public/jmdict-readings.json'), 'utf8')).readings
+    const distinct = (packed) =>
+      new Set(
+        packed
+          .split('|')
+          .flatMap((half) => half.split(','))
+          .map((r) => r.trim())
+          .filter(Boolean),
+      ).size
+    const { alternates } = convertAlternates(readings)
+    const wronglyDropped = Object.entries(readings)
+      .filter(([surface]) => !(surface in alternates))
+      .filter(([, packed]) => distinct(packed) >= 2)
+      .map(([surface]) => surface)
+    expect(wronglyDropped).toEqual([])
+    // And the converse: nothing unambiguous was kept.
+    const wronglyKept = Object.keys(alternates).filter((s) => distinct(readings[s]) < 2)
+    expect(wronglyKept).toEqual([])
   })
 
   it('drops a surface with one reading, since it cannot be ambiguous, and counts it', () => {
@@ -184,6 +219,18 @@ describe('buildJapaneseDb', () => {
 
   it('writes the alternates file from the readings input', () => {
     expect(JSON.parse(readFileSync(built.alternatesOut, 'utf8'))).toEqual({ 明白: [['めいはく'], ['あからさま']] })
+  })
+
+  // The seed is a ~38 MB committed binary. If the build is not byte-deterministic, every
+  // incidental rerun adds its whole size to git history for no change at all. This pins the
+  // script's own determinism -- fixed insertion order, no timestamps. It cannot pin SQLite's
+  // file format across Node versions; vendor/jmdict/README.md records the version to build with.
+  it('writes byte-identical output when run twice on the same input', () => {
+    const a = build(popover, { 明白: 'めいはく|あからさま', 空: 'そら' })
+    const b = build(popover, { 明白: 'めいはく|あからさま', 空: 'そら' })
+    expect(a.dbOut).not.toBe(b.dbOut)
+    expect(readFileSync(a.dbOut).equals(readFileSync(b.dbOut))).toBe(true)
+    expect(readFileSync(a.alternatesOut, 'utf8')).toBe(readFileSync(b.alternatesOut, 'utf8'))
   })
 
   it('opens as a Room database: the identity hash and version come from the exported schema', () => {
