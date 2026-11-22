@@ -51,6 +51,26 @@ class ReadingsTest {
         assertEquals(emptyList<String>(), ruby.alternates)
     }
 
+    @Test fun `an inflected token is marked through its base form, keeping its own reading`() {
+        val t = JaToken("行っ", "いっ", "動詞", "行く", 0)
+        val ruby = rubyFor(t, DICTIONARY) { if (it == "行く") listOf("ゆく") else emptyList() }!!
+        assertEquals("いっ", ruby.reading)
+        assertEquals(listOf("ゆく"), ruby.alternates)
+        assertTrue(ruby.isAmbiguous)
+    }
+
+    @Test fun `the surface lookup wins and the base form is not asked when it answers`() {
+        val asked = mutableListOf<String>()
+        val t = JaToken("明白", "めいはく", "名詞", "明白", 0)
+        rubyFor(t, DICTIONARY) { asked += it; listOf("あからさま") }
+        assertEquals(listOf("明白"), asked)
+    }
+
+    @Test fun `isAmbiguous follows the alternates`() {
+        assertTrue(Ruby("明白", "めいはく", listOf("あからさま")).isAmbiguous)
+        assertEquals(false, Ruby("雨", "あめ", emptyList()).isAmbiguous)
+    }
+
     @Test fun `the alternates are asked about the surface, not the reading`() {
         val asked = mutableListOf<String>()
         rubyFor(token("明白", "めいはく"), DICTIONARY) { asked += it; emptyList() }
@@ -64,7 +84,8 @@ class ReadingsTest {
 
     @Test fun `SUNG gives exactly what DICTIONARY gives while no audio reading exists`() {
         val alts: (String) -> List<String> = { if (it == "明白") listOf("あからさま") else emptyList() }
-        val tokens = listOf(token("明白", "めいはく"), token("雨", "あめ"), token("です", "です"), token("雨", null))
+        val tokens = listOf(token("明白", "めいはく"), token("雨", "あめ"), token("です", "です"), token("雨", null)) +
+            loadCorpus().entries.flatMap { tokenize(it.text) }
         for (t in tokens) assertEquals(rubyFor(t, DICTIONARY, alts), rubyFor(t, SUNG, alts))
         assertEquals("めいはく", rubyFor(tokens[0], SUNG, alts)!!.reading)
     }

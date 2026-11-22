@@ -17,7 +17,10 @@ data class Sense(val posLabel: String?, val glosses: List<String>)
  * surface is known to take, so the UI can say "this one usually, and these others exist"
  * rather than assert the reading being sung (spec 4.2).
  */
-data class Ruby(val base: String, val reading: String?, val alternates: List<String>)
+data class Ruby(val base: String, val reading: String?, val alternates: List<String>) {
+    /** The one predicate for "mark this word"; every surface that marks readings must use it. */
+    val isAmbiguous: Boolean get() = alternates.isNotEmpty()
+}
 
 enum class ReadingMode { OFF, DICTIONARY, SUNG }
 

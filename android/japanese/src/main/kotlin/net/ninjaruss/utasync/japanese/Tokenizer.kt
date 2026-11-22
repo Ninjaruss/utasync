@@ -12,7 +12,7 @@ object Ja {
 private const val NONE = "*"
 
 /** Katakana to hiragana (U+30A1..U+30F6 sit exactly 0x60 above their hiragana); the long-vowel mark stays. */
-private fun toHiragana(katakana: String): String =
+internal fun toHiragana(katakana: String): String =
     katakana.map { if (it in 'ァ'..'ヶ') it - 0x60 else it }.joinToString("")
 
 /**
