@@ -13,10 +13,11 @@ audit is a release gate (§7a.2), so it is Task 1 — every task after it is mea
 instrument, and `right` only ratchets up.**
 
 **Why `right`, and not "the counts go down".** Against the Task 1 stub every corpus word is
-`blank`, so `wrongReading` and `wrongSense` are zero *by construction* — a blank is not
-double-counted as wrong. When Task 2 lands a real tokeniser, blanks fall and the wrong-counts
-**rise from zero**. A ratchet on "counts only go down" would break at the first feature task and
-read as a regression. So each corpus word gets exactly one verdict — `right`, `wrongReading`,
+**`unmatched`** — the stub returns nothing, so no word is even *found*, and `blank` (found, but no
+meaning) never applies. `wrongReading` and `wrongSense` are therefore zero *by construction*.
+When `analyze` is finally wired to a real analyzer in Task 5, `unmatched` falls and the
+wrong-counts **rise from zero**. A ratchet on "counts only go down" would break at the first task
+that moves them and read as a regression. So each corpus word gets exactly one verdict — `right`, `wrongReading`,
 `wrongSense`, `blank` or `unmatched` — and **`right` is the number that must never fall.**
 
 **Tech Stack:** Kotlin 2.1.0 (`-Werror`), `com.atilika.kuromoji:kuromoji-ipadic`, Room + KSP,
@@ -159,15 +160,16 @@ Report in your task report how many entries are `hand-labelled` versus `unverifi
 
 `auditAgainst` walks the **corpus's** words — so `words` is the corpus's count, not the
 analyzer's — calls the analyzer per sentence, matches by surface, and counts a corpus word the
-analyzer did not return as `blank`. `unmarkedAlternates` counts a corpus word that has `alternates` where the result's
+analyzer did not return as `unmatched` — not `blank`, which means found-but-meaningless. `unmarkedAlternates` counts a corpus word that has `alternates` where the result's
 `ruby?.alternates` is empty — Review Focus 1, countable from day one.
 
 **`unmatched` exists because the corpus and the tokeniser can disagree about where words end.**
 The audit matches by surface, so if the tokeniser segments `一日中` as `一日` + `中` the corpus's
 entry for it is never found. Counting that as `blank` would conflate "we have no meaning for this
 word" with "we never saw this word", and the gate could then never be cleared for a reason that
-has nothing to do with accuracy. Keep it a separate number, and expect it to be zero until Task 2
-makes real segmentation visible.
+has nothing to do with accuracy. Keep it a separate number. Under the stub it is **every word**;
+it starts falling in Task 5, when `analyze` first returns anything, and whatever is left then is
+the real corpus-versus-tokeniser disagreement.
 
 An assertion worth having while the arithmetic is fresh: the five verdicts sum to `words`.
 
