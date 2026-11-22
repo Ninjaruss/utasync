@@ -86,10 +86,12 @@ fun auditAgainst(corpus: Corpus, analyze: (String) -> List<WordInfo>): AuditCoun
 }
 
 /**
- * True when [sense] appears in [gloss] as whole words, ignoring case. A plain substring match
- * would score a wrong sense as `right` ("I" is inside "the picture", "he" inside "the", "go"
- * inside "good"), and `right` is the number the whole plan ratchets on. This errs strict: it
- * can call a right sense wrong ("pain" does not match "painful"), never the reverse.
+ * True when [sense] appears in [gloss] as a standalone word or word sequence, ignoring case.
+ * This is a standalone-word match, NOT a meaning match. It closes the substring cases that
+ * inflated `right` ("I" inside "the picture", "he" inside "the", "go" inside "good"), but
+ * spaces and hyphens are boundaries too, so "go" still matches "go-between" and "to go wrong".
+ * It also errs the other way: "pain" does not match "painful". `right` is the number the plan
+ * ratchets on, so treat a high `right` as an upper bound that the owner's labelling must back.
  */
 fun glossHasSense(gloss: String, sense: String): Boolean {
     if (sense.isBlank()) return false
@@ -139,7 +141,7 @@ private fun countsJson(c: AuditCounts) =
         "\"unmarkedAlternates\": ${c.unmarkedAlternates}}"
 
 private const val DIRECTION =
-    "right is a ratchet: the test requires right >= this baseline, so it can only move up. An intentional reduction needs an explicit, visible edit of this file. " +
+    "right is a two-sided ratchet: the test requires right == this baseline. A fall is a regression and an intentional reduction needs a visible edit here; a rise is progress that must be recorded by raising it. An intentional reduction needs an explicit, visible edit of this file. " +
         "The other counts may rise when a real analyzer replaces the stub. Do not read them as accuracy: each word gets ONE verdict, in the order unmatched, blank, wrongReading, wrongSense, right. " +
         "So wrongSense understates (a word wrong in both reading and sense counts only as wrongReading), and blank hides a reading error. wrongSense = 0 does not mean the senses are fine."
 

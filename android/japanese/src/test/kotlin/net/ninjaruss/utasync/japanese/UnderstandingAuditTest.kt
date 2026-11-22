@@ -100,15 +100,24 @@ class UnderstandingAuditTest {
         assertEquals(1, counts.wrongSense)
     }
 
-    @Test fun `right never falls below the committed baseline and the verdicts partition the corpus`() {
+    @Test fun `right equals the committed baseline, words matches the corpus, and the verdicts partition it`() {
         val actual = auditAgainst(loadCorpus(), ::stub)
         val certified = auditAgainst(loadCorpus().certified(), ::stub)
         assertEquals(actual.words, actual.verdictSum)
         assertEquals(certified.words, certified.verdictSum)
         val (baseAll, baseCertified) = loadBaseline()
-        // A ratchet, not an equality: regenerating the baseline cannot hide a regression, and
-        // lowering right means editing audit-baseline.json where a reviewer will see it.
-        assertTrue("right fell: ${actual.right} < baseline ${baseAll.right}. If intentional, edit audit-baseline.json (current: ${renderBaseline(actual, certified)})", actual.right >= baseAll.right)
-        assertTrue("certified right fell: ${certified.right} < baseline ${baseCertified.right}", certified.right >= baseCertified.right)
+        // words is shape: it changes only when the corpus does.
+        assertEquals("baseline words is stale: ${renderBaseline(actual, certified)}", baseAll.words, actual.words)
+        assertEquals("baseline certified words is stale: ${renderBaseline(actual, certified)}", baseCertified.words, certified.words)
+        // right is two-sided: every change is a deliberate edit. Only the other counts may drift.
+        fun check(label: String, now: Int, base: Int) {
+            assertTrue("$label right REGRESSED: $now < baseline $base", now >= base)
+            assertTrue(
+                "$label right improved: $now > baseline $base. Progress must be recorded: raise right in audit-baseline.json (${renderBaseline(actual, certified)})",
+                now <= base,
+            )
+        }
+        check("all", actual.right, baseAll.right)
+        check("certified", certified.right, baseCertified.right)
     }
 }
