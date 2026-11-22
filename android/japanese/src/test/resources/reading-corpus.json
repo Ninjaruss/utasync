@@ -9,7 +9,9 @@
     {
      "surface": "明白",
      "reading": "めいはく",
-     "sense": "obvious",
+     "sense": [
+      "obvious"
+     ],
      "alternates": [
       "あからさま"
      ]
@@ -17,7 +19,9 @@
     {
      "surface": "事実",
      "reading": "じじつ",
-     "sense": "fact",
+     "sense": [
+      "fact"
+     ],
      "alternates": []
     }
    ]
@@ -30,7 +34,9 @@
     {
      "surface": "今日",
      "reading": "きょう",
-     "sense": "today",
+     "sense": [
+      "today"
+     ],
      "alternates": [
       "こんにち"
      ]
@@ -38,13 +44,17 @@
     {
      "surface": "雨",
      "reading": "あめ",
-     "sense": "rain",
+     "sense": [
+      "rain"
+     ],
      "alternates": []
     },
     {
      "surface": "降っ",
      "reading": "ふっ",
-     "sense": "fall",
+     "sense": [
+      "fall"
+     ],
      "alternates": []
     }
    ]
@@ -57,7 +67,9 @@
     {
      "surface": "明日",
      "reading": "あした",
-     "sense": "tomorrow",
+     "sense": [
+      "tomorrow"
+     ],
      "alternates": [
       "あす",
       "みょうにち"
@@ -66,7 +78,9 @@
     {
      "surface": "会い",
      "reading": "あい",
-     "sense": "meet",
+     "sense": [
+      "meet"
+     ],
      "alternates": []
     }
    ]
@@ -79,7 +93,9 @@
     {
      "surface": "昨日",
      "reading": "きのう",
-     "sense": "yesterday",
+     "sense": [
+      "yesterday"
+     ],
      "alternates": [
       "さくじつ"
      ]
@@ -87,7 +103,9 @@
     {
      "surface": "夜",
      "reading": "よる",
-     "sense": "night",
+     "sense": [
+      "night"
+     ],
      "alternates": [
       "よ"
      ]
@@ -95,7 +113,9 @@
     {
      "surface": "寒かっ",
      "reading": "さむかっ",
-     "sense": "cold",
+     "sense": [
+      "cold"
+     ],
      "alternates": []
     }
    ]
@@ -108,7 +128,10 @@
     {
      "surface": "上手",
      "reading": "じょうず",
-     "sense": "skilful",
+     "sense": [
+      "skilful",
+      "skillful"
+     ],
      "alternates": [
       "うわて",
       "かみて"
@@ -117,7 +140,9 @@
     {
      "surface": "歌う",
      "reading": "うたう",
-     "sense": "sing",
+     "sense": [
+      "sing"
+     ],
      "alternates": []
     }
    ]
@@ -130,7 +155,10 @@
     {
      "surface": "下手",
      "reading": "へた",
-     "sense": "unskilful",
+     "sense": [
+      "unskilful",
+      "unskillful"
+     ],
      "alternates": [
       "したて",
       "しもて"
@@ -139,7 +167,11 @@
     {
      "surface": "料理",
      "reading": "りょうり",
-     "sense": "cooking",
+     "sense": [
+      "cooking",
+      "cookery",
+      "cuisine"
+     ],
      "alternates": []
     }
    ]
@@ -152,7 +184,10 @@
     {
      "surface": "人気",
      "reading": "にんき",
-     "sense": "popular",
+     "sense": [
+      "popular",
+      "popularity"
+     ],
      "alternates": [
       "ひとけ"
      ]
@@ -160,7 +195,9 @@
     {
      "surface": "店",
      "reading": "みせ",
-     "sense": "shop",
+     "sense": [
+      "shop"
+     ],
      "alternates": []
     }
    ]
@@ -173,7 +210,13 @@
     {
      "surface": "人気",
      "reading": "ひとけ",
-     "sense": "sign of people",
+     "sense": [
+      "sign of people",
+      "signs of people",
+      "sign of life",
+      "signs of life",
+      "presence of people"
+     ],
      "alternates": [
       "にんき"
      ]
@@ -181,13 +224,17 @@
     {
      "surface": "道",
      "reading": "みち",
-     "sense": "road",
+     "sense": [
+      "road"
+     ],
      "alternates": []
     },
     {
      "surface": "歩く",
      "reading": "あるく",
-     "sense": "walk",
+     "sense": [
+      "walk"
+     ],
      "alternates": []
     }
    ]
@@ -200,7 +247,10 @@
     {
      "surface": "一人",
      "reading": "ひとり",
-     "sense": "one person",
+     "sense": [
+      "one person",
+      "alone"
+     ],
      "alternates": [
       "いちにん"
      ]
@@ -208,7 +258,9 @@
     {
      "surface": "行く",
      "reading": "いく",
-     "sense": "go",
+     "sense": [
+      "go"
+     ],
      "alternates": []
     }
    ]
@@ -221,7 +273,10 @@
     {
      "surface": "二人",
      "reading": "ふたり",
-     "sense": "two people",
+     "sense": [
+      "two people",
+      "two persons"
+     ],
      "alternates": [
       "ににん"
      ]
@@ -229,7 +284,9 @@
     {
      "surface": "食べ",
      "reading": "たべ",
-     "sense": "eat",
+     "sense": [
+      "eat"
+     ],
      "alternates": []
     }
    ]
@@ -242,7 +299,9 @@
     {
      "surface": "大人",
      "reading": "おとな",
-     "sense": "adult",
+     "sense": [
+      "adult"
+     ],
      "alternates": [
       "たいじん"
      ]
@@ -250,7 +309,9 @@
     {
      "surface": "なり",
      "reading": "なり",
-     "sense": "become",
+     "sense": [
+      "become"
+     ],
      "alternates": []
     }
    ]
@@ -263,7 +324,12 @@
     {
      "surface": "本気",
      "reading": "ほんき",
-     "sense": "serious",
+     "sense": [
+      "serious",
+      "seriousness",
+      "earnest",
+      "earnestness"
+     ],
      "alternates": [
       "マジ"
      ]
@@ -271,7 +337,9 @@
     {
      "surface": "言っ",
      "reading": "いっ",
-     "sense": "say",
+     "sense": [
+      "say"
+     ],
      "alternates": []
     }
    ]
@@ -284,7 +352,9 @@
     {
      "surface": "運命",
      "reading": "うんめい",
-     "sense": "fate",
+     "sense": [
+      "fate"
+     ],
      "alternates": [
       "さだめ"
      ]
@@ -292,13 +362,17 @@
     {
      "surface": "辞書",
      "reading": "じしょ",
-     "sense": "dictionary",
+     "sense": [
+      "dictionary"
+     ],
      "alternates": []
     },
     {
      "surface": "調べる",
      "reading": "しらべる",
-     "sense": "investigate",
+     "sense": [
+      "investigate"
+     ],
      "alternates": []
     }
    ]
@@ -311,7 +385,9 @@
     {
      "surface": "空",
      "reading": "そら",
-     "sense": "sky",
+     "sense": [
+      "sky"
+     ],
      "alternates": [
       "から",
       "くう"
@@ -320,7 +396,10 @@
     {
      "surface": "見上げ",
      "reading": "みあげ",
-     "sense": "look up",
+     "sense": [
+      "look up",
+      "raise one's eyes"
+     ],
      "alternates": []
     }
    ]
@@ -333,7 +412,9 @@
     {
      "surface": "風",
      "reading": "かぜ",
-     "sense": "wind",
+     "sense": [
+      "wind"
+     ],
      "alternates": [
       "ふう"
      ]
@@ -341,7 +422,9 @@
     {
      "surface": "強い",
      "reading": "つよい",
-     "sense": "strong",
+     "sense": [
+      "strong"
+     ],
      "alternates": []
     }
    ]
@@ -354,7 +437,9 @@
     {
      "surface": "夜",
      "reading": "よ",
-     "sense": "night",
+     "sense": [
+      "night"
+     ],
      "alternates": [
       "よる"
      ]
@@ -362,7 +447,9 @@
     {
      "surface": "明ける",
      "reading": "あける",
-     "sense": "dawn",
+     "sense": [
+      "dawn"
+     ],
      "alternates": []
     }
    ]
@@ -375,7 +462,9 @@
     {
      "surface": "行方",
      "reading": "ゆくえ",
-     "sense": "whereabouts",
+     "sense": [
+      "whereabouts"
+     ],
      "alternates": [
       "いきかた"
      ]
@@ -383,7 +472,9 @@
     {
      "surface": "わから",
      "reading": "わから",
-     "sense": "understand",
+     "sense": [
+      "understand"
+     ],
      "alternates": []
     }
    ]
@@ -396,7 +487,9 @@
     {
      "surface": "日",
      "reading": "ひ",
-     "sense": "sun",
+     "sense": [
+      "sun"
+     ],
      "alternates": [
       "にち",
       "か"
@@ -405,7 +498,9 @@
     {
      "surface": "沈む",
      "reading": "しずむ",
-     "sense": "sink",
+     "sense": [
+      "sink"
+     ],
      "alternates": []
     }
    ]
@@ -418,13 +513,19 @@
     {
      "surface": "一日中",
      "reading": "いちにちじゅう",
-     "sense": "all day",
+     "sense": [
+      "all day",
+      "whole day",
+      "throughout the day"
+     ],
      "alternates": []
     },
     {
      "surface": "歌っ",
      "reading": "うたっ",
-     "sense": "sing",
+     "sense": [
+      "sing"
+     ],
      "alternates": []
     }
    ]
@@ -437,7 +538,9 @@
     {
      "surface": "何",
      "reading": "なに",
-     "sense": "what",
+     "sense": [
+      "what"
+     ],
      "alternates": [
       "なん"
      ]
@@ -445,7 +548,9 @@
     {
      "surface": "探し",
      "reading": "さがし",
-     "sense": "search",
+     "sense": [
+      "search"
+     ],
      "alternates": []
     }
    ]
@@ -458,7 +563,9 @@
     {
      "surface": "何",
      "reading": "なん",
-     "sense": "what",
+     "sense": [
+      "what"
+     ],
      "alternates": [
       "なに"
      ]
@@ -466,7 +573,9 @@
     {
      "surface": "時",
      "reading": "じ",
-     "sense": "o'clock",
+     "sense": [
+      "o'clock"
+     ],
      "alternates": []
     }
    ]
@@ -479,7 +588,9 @@
     {
      "surface": "金",
      "reading": "かね",
-     "sense": "money",
+     "sense": [
+      "money"
+     ],
      "alternates": [
       "きん"
      ]
@@ -494,7 +605,9 @@
     {
      "surface": "後",
      "reading": "あと",
-     "sense": "after",
+     "sense": [
+      "after"
+     ],
      "alternates": [
       "ご",
       "のち",
@@ -504,7 +617,9 @@
     {
      "surface": "話そ",
      "reading": "はなそ",
-     "sense": "talk",
+     "sense": [
+      "talk"
+     ],
      "alternates": []
     }
    ]
@@ -517,13 +632,17 @@
     {
      "surface": "歯",
      "reading": "は",
-     "sense": "tooth",
+     "sense": [
+      "tooth"
+     ],
      "alternates": []
     },
     {
      "surface": "痛い",
      "reading": "いたい",
-     "sense": "painful",
+     "sense": [
+      "painful"
+     ],
      "alternates": []
     }
    ]
@@ -536,13 +655,19 @@
     {
      "surface": "笑顔",
      "reading": "えがお",
-     "sense": "smile",
+     "sense": [
+      "smile"
+     ],
      "alternates": []
     },
     {
      "surface": "好き",
      "reading": "すき",
-     "sense": "like",
+     "sense": [
+      "like",
+      "liking",
+      "fondness"
+     ],
      "alternates": []
     }
    ]
@@ -555,13 +680,17 @@
     {
      "surface": "美しく",
      "reading": "うつくしく",
-     "sense": "beautiful",
+     "sense": [
+      "beautiful"
+     ],
      "alternates": []
     },
     {
      "surface": "花",
      "reading": "はな",
-     "sense": "flower",
+     "sense": [
+      "flower"
+     ],
      "alternates": []
     }
    ]
@@ -574,7 +703,9 @@
     {
      "surface": "行か",
      "reading": "いか",
-     "sense": "go",
+     "sense": [
+      "go"
+     ],
      "alternates": []
     }
    ]
@@ -587,13 +718,17 @@
     {
      "surface": "先生",
      "reading": "せんせい",
-     "sense": "teacher",
+     "sense": [
+      "teacher"
+     ],
      "alternates": []
     },
     {
      "surface": "読ま",
      "reading": "よま",
-     "sense": "read",
+     "sense": [
+      "read"
+     ],
      "alternates": []
     }
    ]
@@ -606,13 +741,17 @@
     {
      "surface": "子供",
      "reading": "こども",
-     "sense": "child",
+     "sense": [
+      "child"
+     ],
      "alternates": []
     },
     {
      "surface": "飲ま",
      "reading": "のま",
-     "sense": "drink",
+     "sense": [
+      "drink"
+     ],
      "alternates": []
     }
    ]
@@ -625,13 +764,17 @@
     {
      "surface": "来",
      "reading": "こ",
-     "sense": "come",
+     "sense": [
+      "come"
+     ],
      "alternates": []
     },
     {
      "surface": "人",
      "reading": "ひと",
-     "sense": "person",
+     "sense": [
+      "person"
+     ],
      "alternates": [
       "じん",
       "にん"
@@ -640,7 +783,9 @@
     {
      "surface": "待つ",
      "reading": "まつ",
-     "sense": "wait",
+     "sense": [
+      "wait"
+     ],
      "alternates": []
     }
    ]
@@ -653,7 +798,9 @@
     {
      "surface": "彼",
      "reading": "かれ",
-     "sense": "he",
+     "sense": [
+      "he"
+     ],
      "alternates": [
       "かの"
      ]
@@ -661,7 +808,9 @@
     {
      "surface": "来",
      "reading": "き",
-     "sense": "come",
+     "sense": [
+      "come"
+     ],
      "alternates": []
     }
    ]
@@ -674,7 +823,9 @@
     {
      "surface": "行っ",
      "reading": "いっ",
-     "sense": "go",
+     "sense": [
+      "go"
+     ],
      "alternates": [
       "おこなっ"
      ]
@@ -682,13 +833,17 @@
     {
      "surface": "場所",
      "reading": "ばしょ",
-     "sense": "place",
+     "sense": [
+      "place"
+     ],
      "alternates": []
     },
     {
      "surface": "忘れ",
      "reading": "わすれ",
-     "sense": "forget",
+     "sense": [
+      "forget"
+     ],
      "alternates": []
     }
    ]
@@ -701,7 +856,12 @@
     {
      "surface": "生物",
      "reading": "せいぶつ",
-     "sense": "living thing",
+     "sense": [
+      "living thing",
+      "living creature",
+      "living being",
+      "life form"
+     ],
      "alternates": [
       "なまもの"
      ]
@@ -709,7 +869,9 @@
     {
      "surface": "授業",
      "reading": "じゅぎょう",
-     "sense": "class",
+     "sense": [
+      "class"
+     ],
      "alternates": []
     }
    ]
@@ -722,7 +884,9 @@
     {
      "surface": "今",
      "reading": "いま",
-     "sense": "now",
+     "sense": [
+      "now"
+     ],
      "alternates": [
       "こん"
      ]
@@ -737,7 +901,9 @@
     {
      "surface": "手",
      "reading": "て",
-     "sense": "hand",
+     "sense": [
+      "hand"
+     ],
      "alternates": [
       "しゅ"
      ]
@@ -745,7 +911,9 @@
     {
      "surface": "上げる",
      "reading": "あげる",
-     "sense": "raise",
+     "sense": [
+      "raise"
+     ],
      "alternates": []
     }
    ]
@@ -758,7 +926,9 @@
     {
      "surface": "上",
      "reading": "うえ",
-     "sense": "above",
+     "sense": [
+      "above"
+     ],
      "alternates": [
       "じょう",
       "かみ"
@@ -767,7 +937,9 @@
     {
      "surface": "見る",
      "reading": "みる",
-     "sense": "look",
+     "sense": [
+      "look"
+     ],
      "alternates": []
     }
    ]
@@ -780,7 +952,9 @@
     {
      "surface": "外",
      "reading": "そと",
-     "sense": "outside",
+     "sense": [
+      "outside"
+     ],
      "alternates": [
       "ほか",
       "がい"
@@ -789,7 +963,11 @@
     {
      "surface": "出る",
      "reading": "でる",
-     "sense": "go out",
+     "sense": [
+      "go out",
+      "exit",
+      "leave"
+     ],
      "alternates": []
     }
    ]
@@ -802,19 +980,25 @@
     {
      "surface": "大きな",
      "reading": "おおきな",
-     "sense": "big",
+     "sense": [
+      "big"
+     ],
      "alternates": []
     },
     {
      "surface": "声",
      "reading": "こえ",
-     "sense": "voice",
+     "sense": [
+      "voice"
+     ],
      "alternates": []
     },
     {
      "surface": "笑う",
      "reading": "わらう",
-     "sense": "laugh",
+     "sense": [
+      "laugh"
+     ],
      "alternates": []
     }
    ]
@@ -827,13 +1011,17 @@
     {
      "surface": "映画",
      "reading": "えいが",
-     "sense": "movie",
+     "sense": [
+      "movie"
+     ],
      "alternates": []
     },
     {
      "surface": "見",
      "reading": "み",
-     "sense": "see",
+     "sense": [
+      "see"
+     ],
      "alternates": []
     }
    ]
@@ -846,13 +1034,17 @@
     {
      "surface": "水",
      "reading": "みず",
-     "sense": "water",
+     "sense": [
+      "water"
+     ],
      "alternates": []
     },
     {
      "surface": "飲み",
      "reading": "のみ",
-     "sense": "drink",
+     "sense": [
+      "drink"
+     ],
      "alternates": []
     }
    ]
@@ -865,7 +1057,9 @@
     {
      "surface": "君",
      "reading": "きみ",
-     "sense": "you",
+     "sense": [
+      "you"
+     ],
      "alternates": [
       "くん"
      ]
@@ -873,13 +1067,17 @@
     {
      "surface": "友達",
      "reading": "ともだち",
-     "sense": "friend",
+     "sense": [
+      "friend"
+     ],
      "alternates": []
     },
     {
      "surface": "会い",
      "reading": "あい",
-     "sense": "meet",
+     "sense": [
+      "meet"
+     ],
      "alternates": []
     }
    ]
@@ -892,7 +1090,9 @@
     {
      "surface": "私",
      "reading": "わたし",
-     "sense": "I",
+     "sense": [
+      "I"
+     ],
      "alternates": [
       "わたくし"
      ]
@@ -900,13 +1100,17 @@
     {
      "surface": "名前",
      "reading": "なまえ",
-     "sense": "name",
+     "sense": [
+      "name"
+     ],
      "alternates": []
     },
     {
      "surface": "田中",
      "reading": "たなか",
-     "sense": "Tanaka",
+     "sense": [
+      "Tanaka"
+     ],
      "alternates": []
     }
    ]
@@ -919,7 +1123,9 @@
     {
      "surface": "本",
      "reading": "ほん",
-     "sense": "book",
+     "sense": [
+      "book"
+     ],
      "alternates": [
       "もと"
      ]
@@ -927,7 +1133,9 @@
     {
      "surface": "読ん",
      "reading": "よん",
-     "sense": "read",
+     "sense": [
+      "read"
+     ],
      "alternates": []
     }
    ]
@@ -940,7 +1148,9 @@
     {
      "surface": "頃",
      "reading": "ころ",
-     "sense": "time",
+     "sense": [
+      "time"
+     ],
      "alternates": [
       "ごろ"
      ]
@@ -948,7 +1158,11 @@
     {
      "surface": "思い出",
      "reading": "おもいで",
-     "sense": "memory",
+     "sense": [
+      "memory",
+      "memories",
+      "recollection"
+     ],
      "alternates": []
     }
    ]
@@ -961,19 +1175,25 @@
     {
      "surface": "雪",
      "reading": "ゆき",
-     "sense": "snow",
+     "sense": [
+      "snow"
+     ],
      "alternates": []
     },
     {
      "surface": "降り",
      "reading": "ふり",
-     "sense": "fall",
+     "sense": [
+      "fall"
+     ],
      "alternates": []
     },
     {
      "surface": "始め",
      "reading": "はじめ",
-     "sense": "begin",
+     "sense": [
+      "begin"
+     ],
      "alternates": []
     }
    ]
@@ -986,13 +1206,19 @@
     {
      "surface": "毎日",
      "reading": "まいにち",
-     "sense": "every day",
+     "sense": [
+      "every day",
+      "each day",
+      "daily"
+     ],
      "alternates": []
     },
     {
      "surface": "走っ",
      "reading": "はしっ",
-     "sense": "run",
+     "sense": [
+      "run"
+     ],
      "alternates": []
     }
    ]

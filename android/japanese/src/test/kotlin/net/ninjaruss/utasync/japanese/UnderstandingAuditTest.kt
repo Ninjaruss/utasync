@@ -21,7 +21,7 @@ class UnderstandingAuditTest {
     }
 
     @Test fun `only hand-labelled entries count toward the gate`() {
-        val word = CorpusWord("今", "いま", "now", emptyList())
+        val word = CorpusWord("今", "いま", listOf("now"), emptyList())
         fun entry(kind: String) = CorpusEntry("今", kind, "test", listOf(word))
         val corpus = Corpus(1, listOf(entry("hand-labelled"), entry("generated"), entry("unverified")))
         // Scored: every kind that can be scored contributes to the full count...
@@ -51,7 +51,7 @@ class UnderstandingAuditTest {
     }
 
     @Test fun `the counters give each word exactly one verdict in a hand-worked case`() {
-        fun w(s: String, r: String, g: String, alts: List<String> = emptyList()) = CorpusWord(s, r, g, alts)
+        fun w(s: String, r: String, g: String, alts: List<String> = emptyList()) = CorpusWord(s, r, listOf(g), alts)
         val words = listOf(
             w("明白", "めいはく", "obvious", listOf("あからさま")), // wrong reading, unmarked (the only one)
             w("事実", "じじつ", "fact"), // wrong sense
@@ -82,22 +82,32 @@ class UnderstandingAuditTest {
     }
 
     @Test fun `a short sense is not matched by a gloss that merely contains its letters`() {
-        assertFalse(glossHasSense("the picture", "I"))
-        assertFalse(glossHasSense("the", "he"))
-        assertFalse(glossHasSense("good", "go"))
-        assertFalse(glossHasSense("known", "now"))
-        assertFalse(glossHasSense("painful", "pain"))
-        assertTrue(glossHasSense("I", "I"))
-        assertTrue(glossHasSense("he; him", "he"))
-        assertTrue(glossHasSense("to go out", "go"))
-        assertTrue(glossHasSense("Fact of life", "fact"))
+        assertFalse(glossHasSense("the picture", listOf("I")))
+        assertFalse(glossHasSense("the", listOf("he")))
+        assertFalse(glossHasSense("good", listOf("go")))
+        assertFalse(glossHasSense("known", listOf("now")))
+        assertFalse(glossHasSense("painful", listOf("pain")))
+        assertTrue(glossHasSense("I", listOf("I")))
+        assertTrue(glossHasSense("he; him", listOf("he")))
+        assertTrue(glossHasSense("to go out", listOf("go")))
+        assertTrue(glossHasSense("Fact of life", listOf("fact")))
         // and through the audit: a wrong sense must not score right
-        val corpus = Corpus(1, listOf(CorpusEntry("x", "hand-labelled", "test", listOf(CorpusWord("私", "わたし", "I", emptyList())))))
+        val corpus = Corpus(1, listOf(CorpusEntry("x", "hand-labelled", "test", listOf(CorpusWord("私", "わたし", listOf("I"), emptyList())))))
         val counts = auditAgainst(corpus) {
             listOf(WordInfo(JaToken("私", "わたし", "pronoun", "私", 0), Ruby("私", "わたし", emptyList()), listOf(Sense(null, listOf("the picture"))), null))
         }
         assertEquals(0, counts.right)
         assertEquals(1, counts.wrongSense)
+    }
+
+    @Test fun `any listed sense counts, including the second`() {
+        assertTrue(glossHasSense("skillful; good at", listOf("skilful", "skillful")))
+        assertFalse(glossHasSense("clumsy", listOf("skilful", "skillful")))
+        val corpus = Corpus(1, listOf(CorpusEntry("x", "hand-labelled", "test", listOf(CorpusWord("上手", "じょうず", listOf("skilful", "skillful"), emptyList())))))
+        val counts = auditAgainst(corpus) {
+            listOf(WordInfo(JaToken("上手", "じょうず", "adj", "上手", 0), Ruby("上手", "じょうず", emptyList()), listOf(Sense(null, listOf("skillful"))), null))
+        }
+        assertEquals(1, counts.right)
     }
 
     @Test fun `right equals the committed baseline, words matches the corpus, and the verdicts partition it`() {

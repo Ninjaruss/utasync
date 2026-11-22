@@ -24,7 +24,7 @@ private val KINDS = mapOf(
 fun isKnownKind(kind: String): Boolean = kind in KINDS
 fun canCertify(kind: String): Boolean = KINDS[kind]?.certifies == true
 
-data class CorpusWord(val surface: String, val reading: String, val sense: String, val alternates: List<String>)
+data class CorpusWord(val surface: String, val reading: String, val sense: List<String>, val alternates: List<String>)
 data class CorpusEntry(val text: String, val kind: String, val source: String, val words: List<CorpusWord>)
 data class Corpus(val v: Int, val entries: List<CorpusEntry>) {
     /** The entries the gate counts: only kinds that certify. */
@@ -55,7 +55,7 @@ data class AuditCounts(
  *   returned: says nothing about meanings, so the owner adjusts the corpus's boundaries);
  * - `blank`: matched but with no senses;
  * - `wrongReading`: the shown reading (the ruby's, else the token's) differs from the expectation;
- * - `wrongSense`: the expected sense is in no returned gloss (case-insensitive, whole words within a gloss: see [glossHasSense]);
+ * - `wrongSense`: none of the expected senses is in any returned gloss (case-insensitive, standalone words within a gloss: see [glossHasSense]);
  * - otherwise `right`.
  * `unmarkedAlternates`: the corpus lists alternates but the ruby carries none.
  */
@@ -86,17 +86,22 @@ fun auditAgainst(corpus: Corpus, analyze: (String) -> List<WordInfo>): AuditCoun
 }
 
 /**
- * True when [sense] appears in [gloss] as a standalone word or word sequence, ignoring case.
+ * True when ANY of [senses] appears in [gloss] as a standalone word or word sequence, ignoring
+ * case. A corpus word lists every wording a dictionary might use to convey its meaning
+ * ("skilful", "skillful"), so the audit tests meaning conveyed, not one dictionary's phrasing.
+ * Each listed string must be something the owner would accept as conveying that meaning:
+ * padding the list with near-synonyms is the substring bug in another shape.
+ *
  * This is a standalone-word match, NOT a meaning match. It closes the substring cases that
  * inflated `right` ("I" inside "the picture", "he" inside "the", "go" inside "good"), but
  * spaces and hyphens are boundaries too, so "go" still matches "go-between" and "to go wrong".
  * It also errs the other way: "pain" does not match "painful". `right` is the number the plan
  * ratchets on, so treat a high `right` as an upper bound that the owner's labelling must back.
  */
-fun glossHasSense(gloss: String, sense: String): Boolean {
-    if (sense.isBlank()) return false
+fun glossHasSense(gloss: String, senses: List<String>): Boolean = senses.any { sense ->
+    if (sense.isBlank()) return@any false
     val word = "[\\p{L}\\p{N}]"
-    return Regex("(?<!$word)${Regex.escape(sense.trim())}(?!$word)", RegexOption.IGNORE_CASE).containsMatchIn(gloss)
+    Regex("(?<!$word)${Regex.escape(sense.trim())}(?!$word)", RegexOption.IGNORE_CASE).containsMatchIn(gloss)
 }
 
 /** Runs a suspend call that does not actually suspend (the stub), without a coroutines dependency. */
@@ -126,7 +131,7 @@ fun loadCorpus(): Corpus {
                     CorpusWord(
                         wo.getValue("surface").str(),
                         wo.getValue("reading").str(),
-                        wo.getValue("sense").str(),
+                        wo.getValue("sense").list().map { it.str() },
                         wo.getValue("alternates").list().map { it.str() },
                     )
                 },
