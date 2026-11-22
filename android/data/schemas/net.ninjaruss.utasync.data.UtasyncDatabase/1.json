@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "e3a2c5c0faf84162017a093afee6a0b5",
+    "identityHash": "527cd43d56f2cce5ec0779acf820cd27",
     "entities": [
       {
         "tableName": "songs",
@@ -257,12 +257,58 @@
             ]
           }
         ]
+      },
+      {
+        "tableName": "dictionary",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`surface` TEXT NOT NULL, `reading` TEXT NOT NULL, `posLabel` TEXT, `glosses` TEXT NOT NULL, `senseIndex` INTEGER NOT NULL, PRIMARY KEY(`surface`, `reading`, `senseIndex`))",
+        "fields": [
+          {
+            "fieldPath": "surface",
+            "columnName": "surface",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reading",
+            "columnName": "reading",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "posLabel",
+            "columnName": "posLabel",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "glosses",
+            "columnName": "glosses",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "senseIndex",
+            "columnName": "senseIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "surface",
+            "reading",
+            "senseIndex"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
       }
     ],
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'e3a2c5c0faf84162017a093afee6a0b5')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '527cd43d56f2cce5ec0779acf820cd27')"
     ]
   }
 }

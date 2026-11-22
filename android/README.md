@@ -68,11 +68,16 @@ Requirements: JDK 17, Android SDK 35. Open this folder in Android Studio, or:
 ## Pins survive everything
 
 > **Upgrading from an earlier build of this branch:** the `anchors` table gained a `writtenAtMs`
-> column, and separately `songs` (`SongEntity`) gained `prepareState`. Each changed Room's schema
-> identity hash while the version stayed at 1. There is no migration and no
-> `fallbackToDestructiveMigration`, so an older build's database makes Room throw
-> "cannot verify the data integrity" on first access — a crash, not a message. Uninstall the old
-> build first. This matters only to developers: the app has never shipped.
+> column, `songs` (`SongEntity`) gained `prepareState`, and the `dictionary` table
+> (`DictionaryEntity`) was added. Each changed Room's schema identity hash while the version stayed
+> at 1. There is no migration and no `fallbackToDestructiveMigration`, so an older build's database
+> makes Room throw "cannot verify the data integrity" on first access — a crash, not a message.
+> Uninstall the old build first. This matters only to developers: the app has never shipped.
+>
+> The database is created from a prebuilt asset (`data/src/main/assets/utasync-seed.db`), which
+> holds every table, so **any later entity change needs the asset rebuilt**: build `:data` (KSP
+> re-exports the schema), then `node scripts/build-japanese-db.mjs`. `tests/scripts` fails if the
+> asset and the exported schema disagree.
 
 A timing the user sets (by nudging a line or tapping along) is stored as an anchor, apart from
 the computed times in `lines`. Re-alignment, re-import or a pipeline change rewrites only the
