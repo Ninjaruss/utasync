@@ -10,7 +10,14 @@ selection. Tokenisation comes from **Atilika Kuromoji**, the JVM library the PWA
 port of, which returns surface, reading and part-of-speech in one call. JMdict is converted at
 build time into a Room table with an exact key, replacing three runtime JSON blobs. **The accuracy
 audit is a release gate (§7a.2), so it is Task 1 — every task after it is measured by the same
-instrument, and its counts only ratchet down.**
+instrument, and `right` only ratchets up.**
+
+**Why `right`, and not "the counts go down".** Against the Task 1 stub every corpus word is
+`blank`, so `wrongReading` and `wrongSense` are zero *by construction* — a blank is not
+double-counted as wrong. When Task 2 lands a real tokeniser, blanks fall and the wrong-counts
+**rise from zero**. A ratchet on "counts only go down" would break at the first feature task and
+read as a regression. So each corpus word gets exactly one verdict — `right`, `wrongReading`,
+`wrongSense`, `blank` or `unmatched` — and **`right` is the number that must never fall.**
 
 **Tech Stack:** Kotlin 2.1.0 (`-Werror`), `com.atilika.kuromoji:kuromoji-ipadic`, Room + KSP,
 Jetpack Compose, JDK 17, SDK 35.
@@ -86,7 +93,9 @@ pinned to a test in the task that owns the code.
   `data class WordInfo(val token: JaToken, val ruby: Ruby?, val senses: List<Sense>, val role: String?)`;
   `suspend fun analyze(text: String, mode: ReadingMode): List<WordInfo>` — a **stub returning an
   empty list** in this task, with the signature it will keep;
-  `data class AuditCounts(val words: Int, val wrongReading: Int, val wrongSense: Int, val blank: Int, val unmarkedAlternates: Int)`;
+  `data class AuditCounts(val words: Int, val right: Int, val wrongReading: Int, val wrongSense: Int, val blank: Int, val unmatched: Int, val unmarkedAlternates: Int)`
+  — one verdict per corpus word, so `right + wrongReading + wrongSense + blank + unmatched == words`
+  and no word is counted twice;
   `fun auditAgainst(corpus: Corpus, analyze: (String) -> List<WordInfo>): AuditCounts`.
 
 **Why this is first:** §7a.2 makes the audit a release gate. A gate written after the feature
@@ -152,6 +161,15 @@ Report in your task report how many entries are `hand-labelled` versus `unverifi
 analyzer's — calls the analyzer per sentence, matches by surface, and counts a corpus word the
 analyzer did not return as `blank`. `unmarkedAlternates` counts a corpus word that has `alternates` where the result's
 `ruby?.alternates` is empty — Review Focus 1, countable from day one.
+
+**`unmatched` exists because the corpus and the tokeniser can disagree about where words end.**
+The audit matches by surface, so if the tokeniser segments `一日中` as `一日` + `中` the corpus's
+entry for it is never found. Counting that as `blank` would conflate "we have no meaning for this
+word" with "we never saw this word", and the gate could then never be cleared for a reason that
+has nothing to do with accuracy. Keep it a separate number, and expect it to be zero until Task 2
+makes real segmentation visible.
+
+An assertion worth having while the arithmetic is fresh: the five verdicts sum to `words`.
 
 - [ ] **Step 6: Run the tests, then record the baseline**
 
