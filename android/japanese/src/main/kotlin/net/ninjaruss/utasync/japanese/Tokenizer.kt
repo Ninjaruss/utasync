@@ -4,7 +4,8 @@ import com.atilika.kuromoji.ipadic.Tokenizer
 
 /** Holds the Kuromoji tokenizer, built on first use so the dictionary loads once. */
 object Ja {
-    val tokenizer: Tokenizer by lazy { Tokenizer() }
+    // internal: nothing outside :japanese should hold a Kuromoji object; `tokenize` is the public surface.
+    internal val tokenizer: Tokenizer by lazy { Tokenizer() }
 }
 
 /** Kuromoji's marker for a field it has no value for. */
@@ -17,9 +18,10 @@ private fun toHiragana(katakana: String): String =
 /**
  * Split [text] into tokens. `reading` is hiragana (Kuromoji's katakana, converted) and null where
  * Kuromoji has none, as for ASCII. `baseForm` is the dictionary form, null where there is none.
- * `start` indexes into [text].
+ * `start` indexes into [text]. Tokens with a blank surface (whitespace) are dropped here, once;
+ * dropping removes entries and does not renumber, so `start` still indexes the original text.
  */
-fun tokenize(text: String): List<JaToken> = Ja.tokenizer.tokenize(text).map { t ->
+fun tokenize(text: String): List<JaToken> = Ja.tokenizer.tokenize(text).filter { it.surface.isNotBlank() }.map { t ->
     JaToken(
         surface = t.surface,
         reading = t.reading?.takeIf { it != NONE }?.let(::toHiragana),

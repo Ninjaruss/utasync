@@ -9,6 +9,14 @@ android {
     buildToolsVersion = "35.0.0"
     defaultConfig {
         minSdk = 26
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+    packaging {
+        // kuromoji-core and kuromoji-ipadic each ship this credits file; identical
+        // duplicates break the merge, and nothing reads it.
+        resources.excludes += listOf("META-INF/CONTRIBUTORS.md")
+        // The same Apache-2.0 text from both jars: keep one copy rather than dropping the licence.
+        resources.pickFirsts += listOf("META-INF/LICENSE.md")
     }
 }
 
@@ -23,4 +31,6 @@ dependencies {
     // The audit's corpus parser is a small hand-written one in the test sources, so the APK
     // and the test classpath gain nothing beyond JUnit (CLAUDE.md rule 5).
     testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.junit)
 }

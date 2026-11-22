@@ -64,4 +64,14 @@ class TokenizerTest {
         assertEquals("あめ", tokens.first { it.surface == "雨" }.reading)
         assertNull(tokens.first { it.surface == "rain" }.reading)
     }
+
+    @Test fun `a sentence with spaces yields no blank token and offsets still index the original text`() {
+        val text = "今日は  雨 が 降る hello  world"
+        val tokens = tokenize(text)
+        assertTrue(tokens.none { it.surface.isBlank() })
+        assertTrue(tokens.size > 3)
+        for (t in tokens) assertEquals(t.surface, text.substring(t.start, t.start + t.surface.length))
+        assertEquals(text.indexOf("雨"), tokens.first { it.surface == "雨" }.start)
+        assertEquals(text.indexOf("world"), tokens.first { it.surface == "world" }.start)
+    }
 }
