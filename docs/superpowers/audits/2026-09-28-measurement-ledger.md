@@ -1532,34 +1532,39 @@ nothing rather than an arbitrary row.
   error-stream body, content type and `Retry-After` come back, and that a non-integer `Retry-After` is null.
   Nothing here was run against the live service.
 
-### L52 — Android tokeniser: Kuromoji IPADIC first-call cost (JVM only; no budget set)
+### L52 — Android tokeniser: Kuromoji IPADIC first-call cost (JVM and arm64 emulator; no budget set)
 
 - **What:** `tokenize` in `android/japanese/src/main/kotlin/.../Tokenizer.kt` wraps
   `com.atilika.kuromoji:kuromoji-ipadic:0.9.0` (Apache-2.0, owner-approved). IPADIC, not UniDic: the
   part-of-speech tags that gloss and role behaviour will be tuned against are IPADIC's. The dictionary
   is built lazily (`Ja.tokenizer`), so the first call pays for the load.
 - **Measured on the JVM (2026-11-23)**, a unit test on OpenJDK 17.0.16 on the macOS development
-  machine, one run: first `tokenize("今日は雨")` **377 ms**, second call **0.75 ms**, retained heap
-  about **35 MB** (a `Runtime` heap delta, `System.gc()` before and after).
+  machine, one run: first `tokenize("今日は雨")` **377 ms**, second call **0.75 ms**, heap delta
+  of about **35 MB** (a `Runtime` heap delta, `System.gc()` before and after).
 - **Measured on an emulator (2026-11-23)**, `TokenizerLoadTest` (instrumented, one run): **API 35,
   `sdk_gphone64_arm64`, arm64-v8a**, an arm64 emulator on Apple silicon. First call **483.48 ms**,
   second **1.89 ms**, heap delta **57.4 MB**. This exercises the real code path (ART, dictionary
   loaded from inside the APK) that the JVM figure does not: it is a number for a different thing, not a
   slower version of the JVM's 377 ms. Against the JVM figures the first call is about 28% slower and
-  the heap about 64% larger.
+  the heap delta about 64% larger.
 - **What the emulator figure is and is not:** the time is **optimistic**: a fast host CPU, host-backed
   memory and host SSD, where the first call pays to load the dictionary from storage, so a real
   mid-range 2023 phone will be slower. It is API 35, the friendliest version, not the spec's "current
-  minus two" minimum. The heap is a crude delta measured the same way as the JVM one: an estimate,
-  not an RSS reading. **Nobody has measured a real phone.**
+  minus two" minimum. The heap figure is a crude heap delta measured the same way as the JVM one: an
+  estimate, not an RSS reading, and not a resident-set size. Whether the 483 ms was a **cold process
+  is unknown**: `TokenizerLoadTest` does not guarantee a fresh process. **Nobody has measured a real phone.**
 - **No budget is set.** This entry gates nothing. Whether tokenisation runs at preparation time or on
   demand is **still open**; it now has a number to reason from, not a guess. `Ja.tokenizer` is a lazy
-  singleton, so the heap is resident for as long as anything holds it, and **57 MB resident against the
-  spec's 4 GB minimum target is the figure that would decide it.** Tasks 5 and 7 settle it, with more
+  singleton, so what it allocates stays reachable for as long as anything holds it, and **a 57 MB heap
+  delta against the spec's 4 GB minimum target is the figure that would decide it.** Tasks 5 and 7 settle it, with more
   evidence than this.
 - **Reproduce:** the emulator figures: `cd android && ./gradlew :japanese:connectedDebugAndroidTest` (`TokenizerLoadTest`, logcat tag `TokenizerLoad`). The JVM figures came from a throwaway unit test (not committed) timing the first and
   second `tokenize` calls with `System.nanoTime` and diffing `Runtime.totalMemory() - freeMemory()`
   across a first call. On a device, time `Ja.tokenizer` first use from a cold process.
-- **Segmentation vs the audit corpus:** the corpus hand-wrote four surfaces Kuromoji splits differently
-  (see Task 2's report); those words become `unmatched` once `analyze` uses the tokeniser. The corpus
-  was not adjusted.
+- **Segmentation vs the audit corpus (a FORECAST, not yet measured by the audit):** `analyze` is
+  still a stub, so the audit has not run against the tokeniser. A throwaway probe (not committed)
+  tokenised every corpus sentence and compared surfaces. It predicts 4 of the 99 corpus words will
+  become `unmatched` once `analyze` uses `tokenize`, because Kuromoji IPADIC segments them differently:
+  一人 -> 一 / 人 / で; 二人 -> 二 / 人 / で; 一日中 -> 一 / 日 / 中; 後 -> 後で (one token). The other 95
+  surfaces matched. Check it by tokenising those sentences, or by reading the audit's `unmatched` once
+  `analyze` lands. The corpus was not adjusted to the tokeniser.
