@@ -98,11 +98,19 @@ cannot be built. *(An earlier draft of this document did exactly that; it was wr
 **What v1 does instead,** which is honest rather than merely reduced:
 
 1. **Show the dictionary reading** — correct for the large majority of surfaces.
-2. **Mark a surface that has known alternates.** `jmdict-readings.json` already carries them, as
-   `surface → "primary|alternate,alternate"` (so 明白 → めいはく | あからさま). Where a surface has
-   alternates, the ruby says so, and the word popover lists them. The app never claims the reading
-   it shows is the one being sung; it says "this one usually, and these others exist" — which is
-   what the data supports and no more.
+2. **Mark a surface that has known alternates.** `jmdict-readings.json` already carries them.
+   Where a surface has more than one reading, the ruby says so, and the word popover lists them.
+   The app never claims the reading it shows is the one being sung; it says "this one usually, and
+   these others exist" — which is what the data supports and no more.
+
+   **Corrected 2026-11-23, after Task 4 read the file rather than trusting this paragraph.** An
+   earlier version of this document described the format as
+   `surface → "primary|alternate,alternate"`, with 明白 → めいはく | あながた as the example. That
+   is wrong in the general case. The pipe separates **common readings from uncommon ones**, and
+   *either side may hold several, comma-separated*: 今日 is `きょう,こんにち|こんち,こんじつ`. No
+   pipe means every reading is common; a leading pipe means none is. So "the alternates" are the
+   **union of both sides minus the reading being shown**, not "whatever follows the pipe". The
+   example survived only because 明白 happens to have one of each.
 3. **Leave the promotion hook in place.** `ReadingMode` keeps both values, and when an engine
    eventually produces `audioReading`, promotion slots in above this exactly as the PWA does.
 
@@ -130,6 +138,13 @@ instrument. See §8.
   attribution in the app**, not merely in a file. Both are F-Droid-clean.
 - **Size.** The PWA carries 64 MB of data for this: JMdict as three JSON blobs (28 + 11 + 7.4 MB)
   plus a 17 MB tokenizer dictionary. That is far too much to ship as-is; §6.2 addresses it.
+
+  **Measured 2026-11-23, and §6's estimate was too low.** The converted dictionary adds **16.3 MB**
+  to the debug APK (13.1 → 29.4 MB), and Kuromoji's IPADIC jar is **13 MB** more once `:app`
+  depends on `:japanese`. So the APK lands near **42 MB**, not the "nearer 25–35 MB" §6 predicted —
+  an estimate of mine that was out by roughly a fifth. The conclusion it supported still holds:
+  42 MB is comfortably bundleable, so the F-Droid runtime-download question stays avoided rather
+  than merely deferred. But the number was wrong and is corrected here rather than quietly left.
 - **CLAUDE.md.** Rule 5 (dependencies asked for and approved: Kuromoji, vendored JMdict).
   Rule 6 / ADR-0004: **no copyrighted song text in the repository**, which constrains the test
   fixtures of a feature whose whole input is song lyrics. Rule 2: any behaviour-gating constant
