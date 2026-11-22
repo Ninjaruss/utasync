@@ -30,47 +30,58 @@ data class Corpus(val v: Int, val entries: List<CorpusEntry>) {
     fun certified(): Corpus = copy(entries = entries.filter { canCertify(it.kind) })
 }
 
+/**
+ * Each corpus word gets exactly one verdict: [right], [wrongReading], [wrongSense], [blank] or
+ * [unmatched], so those five always sum to [words]. [right] is the number every later task has
+ * to move, and it must never fall. [unmarkedAlternates] is a separate axis, not a verdict.
+ */
 data class AuditCounts(
     val words: Int,
+    val right: Int,
     val wrongReading: Int,
     val wrongSense: Int,
     val blank: Int,
+    val unmatched: Int,
     val unmarkedAlternates: Int,
-)
+) {
+    val verdictSum get() = right + wrongReading + wrongSense + blank + unmatched
+}
 
 /**
  * Walks the corpus's words, so [AuditCounts.words] is the corpus's count, not the analyzer's.
- * A word is matched by surface. Not returned, or returned with no senses, is `blank`. Otherwise
- * the shown reading (the ruby's, else the token's) is compared with the expectation, and the
- * expected sense must appear (case-insensitively) in some returned gloss.
+ * A word is matched by surface. Verdict, first that applies:
+ * - `unmatched`: no returned word has that surface (a segmentation disagreement, or nothing
+ *   returned: says nothing about meanings, so the owner adjusts the corpus's boundaries);
+ * - `blank`: matched but with no senses;
+ * - `wrongReading`: the shown reading (the ruby's, else the token's) differs from the expectation;
+ * - `wrongSense`: the expected sense is in no returned gloss (case-insensitive substring);
+ * - otherwise `right`.
  * `unmarkedAlternates`: the corpus lists alternates but the ruby carries none.
  */
 fun auditAgainst(corpus: Corpus, analyze: (String) -> List<WordInfo>): AuditCounts {
     var words = 0
+    var right = 0
     var wrongReading = 0
     var wrongSense = 0
     var blank = 0
+    var unmatched = 0
     var unmarked = 0
     for (entry in corpus.entries) {
         val result = analyze(entry.text)
         for (w in entry.words) {
             words++
             val hit = result.firstOrNull { it.token.surface == w.surface }
-            if (hit != null) {
-                val shown = hit.ruby?.reading ?: hit.token.reading
-                if (shown != w.reading) wrongReading++
-                if (w.alternates.isNotEmpty() && hit.ruby?.alternates.isNullOrEmpty()) unmarked++
-            } else if (w.alternates.isNotEmpty()) {
-                unmarked++ // nothing was shown, so nothing was marked
-            }
-            if (hit == null || hit.senses.isEmpty()) {
-                blank++
-            } else if (hit.senses.none { s -> s.glosses.any { it.contains(w.sense, ignoreCase = true) } }) {
-                wrongSense++
+            if (w.alternates.isNotEmpty() && hit?.ruby?.alternates.isNullOrEmpty()) unmarked++
+            when {
+                hit == null -> unmatched++
+                hit.senses.isEmpty() -> blank++
+                (hit.ruby?.reading ?: hit.token.reading) != w.reading -> wrongReading++
+                hit.senses.none { s -> s.glosses.any { it.contains(w.sense, ignoreCase = true) } } -> wrongSense++
+                else -> right++
             }
         }
     }
-    return AuditCounts(words, wrongReading, wrongSense, blank, unmarked)
+    return AuditCounts(words, right, wrongReading, wrongSense, blank, unmatched, unmarked)
 }
 
 /** Runs a suspend call that does not actually suspend (the stub), without a coroutines dependency. */
@@ -110,17 +121,19 @@ fun loadCorpus(): Corpus {
 }
 
 private fun countsJson(c: AuditCounts) =
-    "{\"words\": ${c.words}, \"wrongReading\": ${c.wrongReading}, \"wrongSense\": ${c.wrongSense}, " +
-        "\"blank\": ${c.blank}, \"unmarkedAlternates\": ${c.unmarkedAlternates}}"
+    "{\"words\": ${c.words}, \"right\": ${c.right}, \"wrongReading\": ${c.wrongReading}, " +
+        "\"wrongSense\": ${c.wrongSense}, \"blank\": ${c.blank}, \"unmatched\": ${c.unmatched}, " +
+        "\"unmarkedAlternates\": ${c.unmarkedAlternates}}"
 
 /** `all` scores every entry; `certified` is the gate: hand-labelled entries only. */
 fun renderBaseline(all: AuditCounts, certified: AuditCounts): String =
-    "{\"v\": 1,\n \"all\": ${countsJson(all)},\n \"certified\": ${countsJson(certified)}}"
+    "{\"v\": 1,\n \"direction\": \"right must never fall; it is the number every task moves up. The wrong/blank/unmatched counts may rise when a real analyzer replaces the stub.\",\n \"all\": ${countsJson(all)},\n \"certified\": ${countsJson(certified)}}"
 
 fun loadBaseline(): Pair<AuditCounts, AuditCounts> {
     fun counts(o: Map<String, Any?>) = AuditCounts(
-        o.getValue("words").num(), o.getValue("wrongReading").num(), o.getValue("wrongSense").num(),
-        o.getValue("blank").num(), o.getValue("unmarkedAlternates").num(),
+        o.getValue("words").num(), o.getValue("right").num(), o.getValue("wrongReading").num(),
+        o.getValue("wrongSense").num(), o.getValue("blank").num(), o.getValue("unmatched").num(),
+        o.getValue("unmarkedAlternates").num(),
     )
     val root = MiniJson.parse(resource("audit-baseline.json")).obj()
     return counts(root.getValue("all").obj()) to counts(root.getValue("certified").obj())
