@@ -1,10 +1,23 @@
 package net.ninjaruss.utasync.japanese
 
-/** One token of analysed Japanese text. [start] is the offset of [surface] in the analysed text. */
+/**
+ * One token of analysed Japanese text. [start] is the offset of [surface] in the analysed text.
+ *
+ * [pos] is IPADIC's part of speech at level 1 (名詞, 助詞, 動詞, …) and [posDetail] at level 2
+ * (格助詞 vs 接続助詞 for が, 係助詞 for は). [conjugation] is IPADIC's conjugation **form**
+ * (基本形, 体言接続, 連用テ接続, …), which separates 早い before a noun from 早く before a verb,
+ * and [conjugationType] its conjugation **class** (特殊・タ, 特殊・ダ, 五段・ラ行, …), which is the
+ * only field that separates the voiced past だ of 読んだ from the copula だ: both are 助動詞,
+ * both are 基本形, and both have base form だ. All four carry IPADIC's own strings; null where
+ * Kuromoji has no value ("*").
+ */
 data class JaToken(
     val surface: String,
     val reading: String?,
     val pos: String,
+    val posDetail: String?,
+    val conjugation: String?,
+    val conjugationType: String?,
     val baseForm: String?,
     val start: Int,
 )

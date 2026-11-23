@@ -37,9 +37,9 @@ class SenseSelectionTest {
 
     // Review Focus 5.
     @Test fun `a homograph picks the sense matching the token's part of speech`() {
-        val noun = selectSenses(JaToken("が", "が", "名詞", "が", 0), ga)
+        val noun = selectSenses(JaToken(surface = "が", reading = "が", pos = "名詞", posDetail = null, conjugation = null, conjugationType = null, baseForm = "が", start = 0), ga)
         assertEquals(listOf("picture", "drawing"), noun.first().glosses)
-        val conj = selectSenses(JaToken("が", "が", "接続詞", "が", 0), ga)
+        val conj = selectSenses(JaToken(surface = "が", reading = "が", pos = "接続詞", posDetail = null, conjugation = null, conjugationType = null, baseForm = "が", start = 0), ga)
         assertEquals(listOf("but", "however"), conj.first().glosses)
         // The two disagree, so this cannot be passing because one answer suits every token.
         assertTrue(noun.first().glosses != conj.first().glosses)
@@ -77,8 +77,8 @@ class SenseSelectionTest {
     @Test fun `a plain noun keeps its own part of speech label`() {
         val unlabelled = entry("空", "そら", null, "sky")
         // A noun whose source gave no part of speech keeps none: nothing forces "n" onto it.
-        assertNull(selectSenses(JaToken("空", "そら", "名詞", "空", 0), listOf(unlabelled)).single().posLabel)
-        assertEquals("n", selectSenses(JaToken("空", "そら", "名詞", "空", 0), listOf(entry("空", "そら", "n", "sky"))).single().posLabel)
+        assertNull(selectSenses(JaToken(surface = "空", reading = "そら", pos = "名詞", posDetail = null, conjugation = null, conjugationType = null, baseForm = "空", start = 0), listOf(unlabelled)).single().posLabel)
+        assertEquals("n", selectSenses(JaToken(surface = "空", reading = "そら", pos = "名詞", posDetail = null, conjugation = null, conjugationType = null, baseForm = "空", start = 0), listOf(entry("空", "そら", "n", "sky"))).single().posLabel)
         // Derived over every corpus token and the labels the dictionary actually holds: no sense
         // may carry a label that was not in its own entries.
         val rows = ga + unlabelled
@@ -94,11 +94,11 @@ class SenseSelectionTest {
         // Derived over the whole grammar-word set, not one example: every one of them gets one sense.
         assertTrue(GRAMMAR_POS.isNotEmpty())
         for (pos in GRAMMAR_POS) {
-            val senses = selectSenses(JaToken("が", "が", pos, "が", 0), ga)
+            val senses = selectSenses(JaToken(surface = "が", reading = "が", pos = pos, posDetail = null, conjugation = null, conjugationType = null, baseForm = "が", start = 0), ga)
             assertEquals("$pos got ${senses.size} senses", 1, senses.size)
         }
         // A word that is not a grammar word keeps the several it has: the cut is the rule, not a cap.
-        assertTrue(selectSenses(JaToken("明白", "めいはく", "名詞", "明白", 0), listOf(
+        assertTrue(selectSenses(JaToken(surface = "明白", reading = "めいはく", pos = "名詞", posDetail = null, conjugation = null, conjugationType = null, baseForm = "明白", start = 0), listOf(
             entry("明白", "めいはく", "adj", "obvious", index = 0),
             entry("明白", "めいはく", "n", "clarity", index = 1),
         )).size > 1)
@@ -183,7 +183,7 @@ class SenseSelectionTest {
         // The reading on the ruby and the reading the senses came from are the same one: the
         // token's. Reading ひとけ must not be glossed "popularity" just because it comes first.
         for ((reading, gloss) in listOf("にんき" to "popularity", "ひとけ" to "sign of life")) {
-            val senses = selectSenses(JaToken("人気", reading, "名詞", "人気", 0), rows)
+            val senses = selectSenses(JaToken(surface = "人気", reading = reading, pos = "名詞", posDetail = null, conjugation = null, conjugationType = null, baseForm = "人気", start = 0), rows)
             assertEquals(listOf(gloss), senses.single().glosses)
         }
         // And structurally: the ruby on a WordInfo is rubyFor's, for the same token and mode, so
@@ -204,9 +204,16 @@ class SenseSelectionTest {
     }
 
     @Test fun `a role is not invented here`() {
-        // Task 6 fills roles in; until then every role is null rather than a placeholder.
+        // Task 5 asserted every role was null, which was true only until Task 6 existed. The
+        // claim this test is named for survives: `analyze` invents no role of its own — the
+        // roles on its words are exactly what `roleOf` names, and the words it has nothing
+        // mechanical to say about keep a null role rather than a placeholder.
         val words = analyzed("明白な事実だ。", ga)
         assertTrue(words.isNotEmpty())
-        assertTrue(words.all { it.role == null })
+        assertEquals("links the adjective to the next noun", words.first { it.token.surface == "な" }.role)
+        assertEquals("states 'is'", words.first { it.token.surface == "だ" }.role)
+        assertNull(words.first { it.token.surface == "明白" }.role)
+        assertNull(words.first { it.token.surface == "事実" }.role)
+        assertNull(words.first { it.token.surface == "。" }.role)
     }
 }

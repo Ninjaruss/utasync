@@ -15,15 +15,18 @@ import net.ninjaruss.utasync.data.DictionaryEntity
  * off-device (the alternates asset is parsed by [parseReadingAlternates], and the dictionary is a
  * Room DAO), and it matches [rubyFor]'s own shape.
  *
- * [WordInfo.role] is left null. Roles are Task 6's; a placeholder here would be a claim about
- * grammar that nothing had computed.
+ * [WordInfo.role] comes from [roleOf], which sees each token's **following token** — the role of
+ * 早い depends on whether a noun comes next. Most words get no role: that is the point, not a gap.
  */
 class Analyzer(
     private val dictionary: DictionaryDao,
     private val alternates: (String) -> List<String>,
 ) {
-    suspend fun analyze(text: String, mode: ReadingMode): List<WordInfo> = tokenize(text).map { token ->
-        WordInfo(token, rubyFor(token, mode, alternates), sensesFor(token), role = null)
+    suspend fun analyze(text: String, mode: ReadingMode): List<WordInfo> {
+        val tokens = tokenize(text)
+        return tokens.mapIndexed { i, token ->
+            WordInfo(token, rubyFor(token, mode, alternates), sensesFor(token), roleOf(token, tokens.getOrNull(i + 1)))
+        }
     }
 
     /**

@@ -75,7 +75,7 @@ class UnderstandingAuditTest {
         )
         val corpus = Corpus(1, listOf(CorpusEntry("x", "hand-labelled", "test", words)))
         fun info(surface: String, reading: String, alts: List<String>, gloss: String?) = WordInfo(
-            JaToken(surface, reading, "noun", surface, 0),
+            JaToken(surface = surface, reading = reading, pos = "noun", posDetail = null, conjugation = null, conjugationType = null, baseForm = surface, start = 0),
             Ruby(surface, reading, alts),
             if (gloss == null) emptyList() else listOf(Sense(null, listOf(gloss))),
             null,
@@ -108,7 +108,7 @@ class UnderstandingAuditTest {
         // and through the audit: a wrong sense must not score right
         val corpus = Corpus(1, listOf(CorpusEntry("x", "hand-labelled", "test", listOf(CorpusWord("私", "わたし", listOf("I"), emptyList())))))
         val counts = auditAgainst(corpus) {
-            listOf(WordInfo(JaToken("私", "わたし", "pronoun", "私", 0), Ruby("私", "わたし", emptyList()), listOf(Sense(null, listOf("the picture"))), null))
+            listOf(WordInfo(JaToken(surface = "私", reading = "わたし", pos = "pronoun", posDetail = null, conjugation = null, conjugationType = null, baseForm = "私", start = 0), Ruby("私", "わたし", emptyList()), listOf(Sense(null, listOf("the picture"))), null))
         }
         assertEquals(0, counts.right)
         assertEquals(1, counts.wrongSense)
@@ -119,7 +119,7 @@ class UnderstandingAuditTest {
         assertFalse(glossHasSense("clumsy", listOf("skilful", "skillful")))
         val corpus = Corpus(1, listOf(CorpusEntry("x", "hand-labelled", "test", listOf(CorpusWord("上手", "じょうず", listOf("skilful", "skillful"), emptyList())))))
         val counts = auditAgainst(corpus) {
-            listOf(WordInfo(JaToken("上手", "じょうず", "adj", "上手", 0), Ruby("上手", "じょうず", emptyList()), listOf(Sense(null, listOf("skillful"))), null))
+            listOf(WordInfo(JaToken(surface = "上手", reading = "じょうず", pos = "adj", posDetail = null, conjugation = null, conjugationType = null, baseForm = "上手", start = 0), Ruby("上手", "じょうず", emptyList()), listOf(Sense(null, listOf("skillful"))), null))
         }
         assertEquals(1, counts.right)
     }
