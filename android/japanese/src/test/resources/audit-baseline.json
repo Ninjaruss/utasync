@@ -3,12 +3,12 @@
  "direction": "right is a two-sided ratchet: the test requires right == this baseline. A fall is a regression and an intentional reduction needs a visible edit here; a rise is progress that must be recorded by raising it. An intentional reduction needs an explicit, visible edit of this file. The other counts may rise when a real analyzer replaces the stub. Do not read them as accuracy: each word gets ONE verdict, in the order unmatched, blank, wrongReading, wrongSense, right. So wrongSense understates (a word wrong in both reading and sense counts only as wrongReading), and blank hides a reading error. wrongSense = 0 does not mean the senses are fine.",
  "all": {
   "words": 99,
-  "right": 0,
-  "wrongReading": 0,
-  "wrongSense": 0,
-  "blank": 0,
-  "unmatched": 99,
-  "unmarkedAlternates": 35
+  "right": 89,
+  "wrongReading": 3,
+  "wrongSense": 2,
+  "blank": 1,
+  "unmatched": 4,
+  "unmarkedAlternates": 5
  },
  "certified": {
   "words": 0,

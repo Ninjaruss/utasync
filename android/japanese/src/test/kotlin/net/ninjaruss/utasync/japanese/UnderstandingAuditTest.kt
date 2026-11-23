@@ -6,7 +6,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UnderstandingAuditTest {
-    private fun stub(text: String): List<WordInfo> = runSuspend { analyze(text, ReadingMode.DICTIONARY) }
+    /**
+     * An analyzer that returns nothing. It was the shipped `analyze` until Task 5 replaced the
+     * stub with [Analyzer]; the counters' behaviour against an analyzer that finds no words is
+     * still worth pinning, so it stays here, as a stub rather than as the product.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    private fun stub(text: String): List<WordInfo> = emptyList()
 
     @Test fun `the audit reports every word unmatched against a stub analyzer`() {
         val corpus = loadCorpus()
@@ -119,8 +125,11 @@ class UnderstandingAuditTest {
     }
 
     @Test fun `right equals the committed baseline, words matches the corpus, and the verdicts partition it`() {
-        val actual = auditAgainst(loadCorpus(), ::stub)
-        val certified = auditAgainst(loadCorpus().certified(), ::stub)
+        // The real analyzer, over the real dictionary rows and the shipped alternates asset
+        // (see CorpusDictionary): what the baseline records is the product's accuracy, not a stub's.
+        val analyzer = corpusAnalyzer(loadCorpus())
+        val actual = auditAgainst(loadCorpus(), analyzer)
+        val certified = auditAgainst(loadCorpus().certified(), analyzer)
         assertEquals(actual.words, actual.verdictSum)
         assertEquals(certified.words, certified.verdictSum)
         val (baseAll, baseCertified) = loadBaseline()

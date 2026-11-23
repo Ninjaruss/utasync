@@ -1568,3 +1568,31 @@ nothing rather than an arbitrary row.
   一人 -> 一 / 人 / で; 二人 -> 二 / 人 / で; 一日中 -> 一 / 日 / 中; 後 -> 後で (one token). The other 95
   surfaces matched. Check it by tokenising those sentences, or by reading the audit's `unmatched` once
   `analyze` lands. The corpus was not adjusted to the tokeniser.
+
+### L53 — Android word senses: the understanding audit's first real-analyzer counts (the CI bar, 89 of 99)
+
+- **What:** `Analyzer.analyze` (`android/japanese/src/main/kotlin/.../Analyze.kt`) replaced Task 1's
+  stub, so the understanding audit now scores the product: tokenise (Kuromoji IPADIC) → `rubyFor`
+  → the dictionary → `selectSenses`. The number that gates CI is `right` in
+  `android/japanese/src/test/resources/audit-baseline.json`, which the ratchet test requires to be
+  matched exactly in both directions.
+- **Measured 2026-11-23**, the 46-sentence / 99-word corpus, one run: **right 89, wrongReading 3,
+  wrongSense 2, blank 1, unmatched 4, unmarkedAlternates 5** (was right 0, unmatched 99,
+  unmarkedAlternates 35 against the stub). One verdict per word, in the order unmatched, blank,
+  wrongReading, wrongSense, right — so `wrongSense = 2` understates: a word wrong in both reading
+  and sense is counted once, as `wrongReading`.
+- **What 89 is and is not.** Every corpus entry is `"kind": "unverified"` (owner review pending), so
+  `certified` is all zeros and **nothing here certifies**: 89 is a number over expectations one model
+  wrote, not over hand-labelled truth. The sense test is a standalone-word match inside a gloss, not
+  a meaning match, so `right` is an upper bound. The dictionary rows come from the committed
+  `public/jmdict-popover.json` read directly by the test (`CorpusDictionary`), applying the same
+  conversion rules as `scripts/build-japanese-db.mjs`; Room is not in the loop, so this measures
+  sense selection, not the shipped table's SQL.
+- **The 10 still wrong, by cause, none of them a selection defect:** IPADIC's chosen reading
+  (人気 → にんき where the line means ひとけ; 夜 → よる where the line means よ; 金 → きむ, a
+  person-name reading); IPADIC segmentation (一人 → 一/人, 二人 → 二/人, 一日中 → 一/日/中,
+  後 → 後で — **exactly the 4 L52 forecast, confirmed**); the dictionary's own content (明ける has
+  only "to open", 日/ひ only "day; days", 田中 is absent — the popover file carries no proper names).
+- **Reproduce:** `cd android && ./gradlew :japanese:testDebugUnitTest --tests '*UnderstandingAuditTest*'`.
+  The failure message prints every count. Per-word verdicts came from a throwaway probe (not
+  committed) that re-applied the audit's verdict order and printed surface, reading and glosses.
