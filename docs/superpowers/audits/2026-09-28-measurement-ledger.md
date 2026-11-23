@@ -1596,3 +1596,41 @@ nothing rather than an arbitrary row.
 - **Reproduce:** `cd android && ./gradlew :japanese:testDebugUnitTest --tests '*UnderstandingAuditTest*'`.
   The failure message prints every count. Per-word verdicts came from a throwaway probe (not
   committed) that re-applied the audit's verdict order and printed surface, reading and glosses.
+
+**Review follow-up (2026-11-23).** Three things the task's review found, all now fixed or
+measured rather than described:
+
+- **The duplicated conversion is now pinned.** `right` only means "accuracy over the dictionary
+  the app ships" while the Kotlin test reader converts `jmdict-popover.json` the way
+  `scripts/build-japanese-db.mjs` does, and nothing compared the two: a changed drop rule would
+  have moved the shipped table and left `right` untouched, so the audit would have gone on
+  reporting a number for data the device no longer had. `scripts/build-audit-digest.mjs` now
+  writes a SHA-256 over the canonical rows for the corpus's 94 declared surfaces (196 rows, 75
+  surfaces found) and `AuditDictionaryDigestTest` reproduces it. Proven to fail both on a
+  corrupted digest and on a real rule divergence (splitting glosses on `,` instead of `;`).
+  Adding it found **two rules the Kotlin side was missing**: the separator refusal, and mapping an
+  empty part of speech to null. Neither changes a row in today's data — 0 of 331,316 entries
+  contain the separator and 0 have an empty `pos` — which is precisely why nothing had caught
+  them. The digest therefore pins agreement *on today's data*: a rule difference with no effect on
+  these rows would still pass.
+- **The audit's inputs are now in the Android CI path filter.** The ratchet reads
+  `public/jmdict-popover.json`, outside `android/**`, so a PWA-side data edit moved an Android
+  test without running the Android job and the break would have surfaced on an unrelated later
+  PR. `.github/workflows/android.yml` now also watches the two popover/readings files and the two
+  scripts.
+- **The "reading beats part of speech" fallback is measured, not hedged.** When no entry matches
+  the token's reading the filter stands aside rather than returning nothing, which can show a
+  sense from another reading. Over the corpus: **173** words' senses sit at their ruby's reading,
+  **31** are glossed through their dictionary form (correct and expected — な is the copula だ's
+  attributive form, and "be; is" is だ's gloss), and the fallback fires **once**. Asserted in
+  `every analyzed word's senses come from entries read the way its ruby says`.
+
+**A test that was replaced rather than kept.** `the WordInfo's ruby and its senses describe the
+same reading` asserted `rubyFor(w.token, mode, alternates) == w.ruby`, which `Analyzer` satisfies
+by calling `rubyFor` — it restated the implementation — while its sense half called `selectSenses`
+directly against a two-row fake, so nothing ever tied a real `WordInfo`'s ruby to its senses. Both
+halves passed and neither tested the contract. Its replacement runs the real `Analyzer` over the
+real dictionary. **My first formulation of the replacement was itself wrong**: requiring every
+word's senses to sit at its ruby's reading fails on な, because an inflected word is glossed
+through its dictionary form, whose reading differs by construction. The code was right and the
+contract was wrong.

@@ -2,6 +2,7 @@ package net.ninjaruss.utasync.japanese
 
 import java.io.File
 import net.ninjaruss.utasync.data.DictionaryDao
+import net.ninjaruss.utasync.data.GlossConverter
 import net.ninjaruss.utasync.data.DictionaryEntity
 
 // The audit needs a REAL dictionary, not a hand-written one. A fake whose glosses were typed next
@@ -46,10 +47,18 @@ class CorpusDictionary(surfaces: Set<String>) : DictionaryDao {
         return rows[surface].orEmpty()
     }
 
+    /** Every row this dictionary holds, for the digest that pins it against the build script. */
+    fun allRows(): List<DictionaryEntity> = rows.values.flatten()
+
     override suspend fun entriesFor(surface: String, reading: String): List<DictionaryEntity> =
         entriesFor(surface).filter { it.reading == reading }
 
-    private companion object {
+    companion object {
+        /** The canonical form `scripts/build-audit-digest.mjs` hashes. Field order is a contract. */
+        fun canonicalLine(r: DictionaryEntity): String =
+            listOf(r.surface, r.reading, r.posLabel ?: "", r.glosses.joinToString("\u0002"), r.senseIndex.toString())
+                .joinToString("\u0001")
+
         /** One flat object per sense group; no gloss or reading contains a brace. */
         val GROUP = Regex("""\{[^{}]*}""")
         val FIELD = Regex(""""(\w+)"\s*:\s*"((?:[^"\\]|\\.)*)"""")
@@ -78,17 +87,31 @@ class CorpusDictionary(surfaces: Set<String>) : DictionaryDao {
             }
         }
 
-        /** The same drops and the same numbering as scripts/build-japanese-db.mjs. */
+        /**
+         * The same drops and the same numbering as scripts/build-japanese-db.mjs.
+         *
+         * "The same" is asserted, not asserted-in-a-comment: `auditDictionaryDigestMatches`
+         * hashes these rows for the corpus surfaces and compares against the digest that script
+         * writes. Two rules below were missing when the digest was added, and neither changed a
+         * row in today's data -- which is exactly why nothing had caught them.
+         */
         fun groups(surface: String, slice: String): List<DictionaryEntity> {
             var senseIndex = 0
             return GROUP.findAll(slice).mapNotNull { m ->
                 val fields = FIELD.findAll(m.value).associate { it.groupValues[1] to unescape(it.groupValues[2]) }
                 val reading = fields["r"]?.trim().orEmpty()
                 val glosses = fields["g"].orEmpty().split(';').map { it.trim() }.filter { it.isNotEmpty() }
-                if (reading.isEmpty() || glosses.isEmpty()) null
-                else DictionaryEntity(surface, reading, fields["pos"], glosses, senseIndex++)
+                // The script refuses a gloss containing the packing separator rather than
+                // corrupting the row, so a row it would drop must not appear here either.
+                val packable = glosses.none { GlossConverter.SEPARATOR in it }
+                // The script maps a falsy pos to null (`e.pos ? e.pos : null`); passing "" through
+                // would make posMatches reject a word the shipped table leaves unlabelled.
+                val pos = fields["pos"]?.takeIf { it.isNotEmpty() }
+                if (reading.isEmpty() || glosses.isEmpty() || !packable) null
+                else DictionaryEntity(surface, reading, pos, glosses, senseIndex++)
             }.toList()
         }
+
 
         fun unescape(s: String): String {
             if ('\\' !in s) return s
@@ -155,6 +178,16 @@ class CorpusDictionary(surfaces: Set<String>) : DictionaryDao {
         }
     }
 }
+
+/**
+ * The surfaces the corpus *declares*, independent of any tokenizer.
+ *
+ * This is the set `scripts/build-audit-digest.mjs` hashes, and it has to be derivable without
+ * Kuromoji: the script cannot tokenise, so a digest over [corpusSurfaces] could never be computed
+ * on both sides.
+ */
+fun declaredSurfaces(corpus: Corpus): Set<String> =
+    corpus.entries.flatMap { it.words }.map { it.surface }.filter { it.isNotEmpty() }.toSet()
 
 /** Every surface and dictionary form the corpus's own sentences tokenise to. */
 fun corpusSurfaces(corpus: Corpus): Set<String> = corpus.entries

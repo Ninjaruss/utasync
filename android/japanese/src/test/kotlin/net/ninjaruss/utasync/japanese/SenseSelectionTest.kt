@@ -105,7 +105,76 @@ class SenseSelectionTest {
     }
 
     // Review Focus 2 — the consistency contract: one call, one token, one mode, one reading.
-    @Test fun `the WordInfo's ruby and its senses describe the same reading`() {
+    /**
+     * The contract Review Focus 2 is actually about: a word's glosses must be the glosses of
+     * entries read the way its ruby says, over REAL dictionary rows and real `Analyzer` output.
+     *
+     * The previous version of this test asserted `rubyFor(w.token, mode, alternates) == w.ruby`,
+     * which `Analyzer` satisfies by calling `rubyFor` — it restated the implementation. And its
+     * sense half called `selectSenses` directly against a two-row fake, so no assertion ever tied
+     * a real `WordInfo`'s ruby to its senses. Both halves passed; neither tested the contract.
+     */
+    @Test fun `every analyzed word's senses come from entries read the way its ruby says`() {
+        val corpus = loadCorpus()
+        val dictionary = CorpusDictionary(corpusSurfaces(corpus))
+        val alternates = shippedAlternates()
+        val analyzer = Analyzer(dictionary, alternates)
+
+        var checked = 0
+        var throughDictionaryForm = 0
+        var readingFilterStoodAside = 0
+        for (corpusEntry in corpus.entries) {
+            for (w in runSuspend { analyzer.analyze(corpusEntry.text, ReadingMode.DICTIONARY) }) {
+                if (w.senses.isEmpty()) continue
+                val reading = w.ruby?.reading ?: w.token.reading ?: continue
+                val inflected = w.token.baseForm?.let { it.isNotBlank() && it != w.token.surface } == true
+                val keys = listOfNotNull(w.token.surface, w.token.baseForm).distinct()
+                val all = keys.flatMap { runSuspend { dictionary.entriesFor(it) } }
+                val shown = w.senses.flatMap { it.glosses }.toSet()
+
+                // Whatever happens, a gloss must come from the dictionary and not from nowhere.
+                assertTrue(
+                    "glosses for '${w.token.surface}' are not in the dictionary at all",
+                    shown.isNotEmpty() && shown.all { g -> all.any { g in it.glosses } },
+                )
+
+                // An inflected word is glossed through its DICTIONARY FORM, whose reading differs
+                // from the surface's by construction (な is the copula だ's attributive form, and
+                // "be; is" is だ's gloss, correctly). The first version of this test required the
+                // senses to sit at the ruby's reading for every word, which made it fail on な —
+                // the contract was wrong, not the code. Readings.kt's KDoc draws the same
+                // distinction for alternates.
+                if (inflected) {
+                    throughDictionaryForm++
+                    continue
+                }
+
+                val atThatReading = all.filter { it.reading == reading }
+                if (atThatReading.isEmpty()) {
+                    // The documented fallback: no entry has this reading, so the filter stands
+                    // aside rather than returning nothing. Counted, not asserted away.
+                    readingFilterStoodAside++
+                } else {
+                    val allowed = atThatReading.flatMap { it.glosses }.toSet()
+                    assertEquals(
+                        "'${w.token.surface}' read $reading was glossed from another reading",
+                        emptySet<String>(),
+                        shown - allowed,
+                    )
+                    checked++
+                }
+            }
+        }
+        // Without these the loop could check nothing and still pass.
+        assertTrue("no uninflected word exercised the contract, so this proved nothing", checked >= 20)
+        assertTrue("no inflected word was seen, so that branch proved nothing", throughDictionaryForm > 0)
+        println(
+            "sense-reading contract: $checked checked, $throughDictionaryForm through a dictionary " +
+                "form, $readingFilterStoodAside with no entry at the surface's reading",
+        )
+    }
+
+    @Test fun `a homograph's senses follow the token's reading, not the dictionary's order`() {
         val alternates: (String) -> List<String> = { if (it == "人気") listOf("ひとけ") else emptyList() }
         val rows = listOf(
             entry("人気", "にんき", "n", "popularity", index = 0),

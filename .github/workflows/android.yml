@@ -2,6 +2,12 @@
 # and then a debug APK build of :app. assembleDebug does not compile unit-test sources, so the
 # test tasks have to be named: without them a change that breaks resolveStarts goes green.
 # Only the instrumented tests (:data, :playback androidTest) stay out — they need an emulator.
+#
+# The paths filter below covers files OUTSIDE android/ on purpose. :japanese's understanding
+# audit scores the real dictionary, which it reads from the PWA's public/jmdict-*.json via the
+# conversion in scripts/build-japanese-db.mjs, and its `right` count is a ratchet. Editing that
+# data or that script moves an Android test, so a filter of android/** alone would let the
+# break land on an unrelated later PR with no clue where it came from.
 
 name: Android
 
@@ -11,10 +17,20 @@ on:
     paths:
       - "android/**"
       - ".github/workflows/android.yml"
+      # Inputs to :japanese's audit ratchet (see the note at the top of this file).
+      - "public/jmdict-popover.json"
+      - "public/jmdict-readings.json"
+      - "scripts/build-japanese-db.mjs"
+      - "scripts/build-audit-digest.mjs"
   pull_request:
     paths:
       - "android/**"
       - ".github/workflows/android.yml"
+      # Inputs to :japanese's audit ratchet (see the note at the top of this file).
+      - "public/jmdict-popover.json"
+      - "public/jmdict-readings.json"
+      - "scripts/build-japanese-db.mjs"
+      - "scripts/build-audit-digest.mjs"
 
 concurrency:
   group: android-${{ github.ref }}
