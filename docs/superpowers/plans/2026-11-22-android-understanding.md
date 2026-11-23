@@ -506,6 +506,14 @@ git commit -m "feat(japanese): name what each element is doing, mechanically"
 
 ### Task 7: The screen — ruby, the line view, and the word popover
 
+> **Scope change, decided by the owner on 2026-11-23 after Task 6 produced real output
+> (spec §7 item 3): roles are rendered in the TAP-A-WORD POPOVER ONLY.** Not inline under the
+> lyric line, and not as a column in the line sheet. Roles land on 40–50% of tokens, which inline
+> is a second moving line of English fragments under the Japanese — the §4.1 anti-goal. `roleOf`
+> and `WordInfo.role` stay exactly as built; this is a rendering decision, so do not delete the
+> role code, and do not add a role column to the line view. A word with a null role shows no role
+> line at all, never an empty one.
+
 **Files:**
 - Create: `android/app/src/main/kotlin/net/ninjaruss/utasync/ui/RubyText.kt`
 - Create: `android/app/src/main/kotlin/net/ninjaruss/utasync/ui/WordPopover.kt`

@@ -200,6 +200,31 @@ Decided by this document (Claude's calls, flagged as such):
    descriptions ("は marks the topic", "past tense", "i-adjective modifying the next noun"), never
    explanations of a lyricist's choice. If they read as noise on real songs, they are still the
    first thing to cut (§7.6).
+
+   **Decided by the owner, 2026-11-23, once the real output existed: roles appear in the
+   tap-a-word popover only — never inline under the lyric line, and not in the line sheet.**
+
+   The clause above anticipated this. Built and measured, roles land on **40–50% of tokens**
+   (5 of 11 on one sample line), and inline that is a second, moving line of English fragments
+   under the Japanese — §4.1's failure, and arguably worse than a translation, because it is six
+   fragments where a translation is one phrase. In the popover the same strings earn their place:
+   one word, one phrase, read deliberately while stopped, and "marks the topic" under は or
+   "past tense" under the だ of 読んだ are the two things a gloss cannot give. The line sheet was
+   judged marginal rather than wrong — a role column three-fifths blank reads as missing data —
+   and is excluded for that reason, not as a cut.
+
+   **The density figure is from invented sentences, not real lyrics** (rule 6 keeps song text out
+   of the repo), so it is indicative, not measured on the thing itself. Real lyrics are more
+   elliptical — fewer particles, more bare nouns — which would make roles *sparser*, so the
+   estimate is a ceiling. Worth a ten-minute look at the owner's own catalogue once a line can be
+   rendered; it would not reverse the popover decision, but it is the evidence that would justify
+   trimming the vocabulary further.
+
+   Four roles that asserted something false were fixed before any of this was shown to a user:
+   the adverbial i-adjective (IPADIC gives the negation stem of 高くない, the て-conjunction of
+   高くて and the genuine adverb of 早く走る byte-identical tags), the past copula だっ labelled
+   "states 'is'", a sentence-final particle mid-line, and て/で claiming the word before it was a
+   verb.
 4. **JMdict is converted at build time into a Room table with an exact key on (surface, reading)**,
    replacing three runtime JSON files. *Not* FTS: this is an exact-key lookup, and a full-text
    index would be weight with no purpose. (An earlier draft said FTS; that was loose.)
