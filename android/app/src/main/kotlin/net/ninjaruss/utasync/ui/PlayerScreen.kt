@@ -67,6 +67,8 @@ import net.ninjaruss.utasync.data.Readiness
 import net.ninjaruss.utasync.data.SongDao
 import net.ninjaruss.utasync.data.readinessOf
 import net.ninjaruss.utasync.data.resolveStarts
+import net.ninjaruss.utasync.japanese.ReadingMode
+import net.ninjaruss.utasync.japanese.WordInfo
 import net.ninjaruss.utasync.playback.PlayerConnection
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -170,11 +172,23 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
             }
         }
     }
+    // Furigana and word meanings. One cache for the screen, analysed a line at a time off the
+    // main thread; a line that has not come back yet draws as plain text (see LineWordsCache).
+    // ReadingMode is fixed at DICTIONARY here: the three-state control is Task 8's.
+    val app = context.applicationContext as UtasyncApplication
+    val wordsCache = remember(app) { LineWordsCache({ app.analyzer() }, ReadingMode.DICTIONARY) }
+    var lookingUp by remember { mutableStateOf<WordInfo?>(null) }
+    var showingWords by rememberSaveable { mutableStateOf(false) }
+
     val readiness = readinessOf(song?.prepareState ?: PrepareState.PENDING, lines.size, starts.count { it != null })
     // Not singable means no highlight at all: half-timed lines must not pretend to follow along.
     // Stated as "only SINGABLE highlights" rather than "WORDS_ONLY does not", so a readiness that
     // is not about the lines (a lookup in flight, say) can never let a half-timed song follow along.
     val active = if (readiness != Readiness.SINGABLE) -1 else activeLineIndex(starts, positionMs)
+    // The active line's words, for the sheet. Unconditional, so the effect behind it keeps its
+    // place in composition: with no active line it analyses the empty string, which is no words.
+    val activeLine = lines.getOrNull(active)
+    val activeWords = rememberLineWords(wordsCache, activeLine?.lineIndex ?: -1, activeLine?.text ?: "")
     val listState = rememberLazyListState()
     LaunchedEffect(active) {
         if (active >= 0) listState.animateScrollToItem(maxOf(0, active - 2))
@@ -221,6 +235,14 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
                         }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             DropdownMenuItem(
+                                text = { Text(LINE_WORDS_HEADING) },
+                                enabled = activeWords != null && activeWords.isNotEmpty(),
+                                onClick = {
+                                    menuOpen = false
+                                    showingWords = true
+                                },
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Export .lrc") },
                                 enabled = lines.isNotEmpty(),
                                 onClick = {
@@ -258,6 +280,12 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
             }
         },
     ) { padding ->
+        lookingUp?.let { word -> WordPopover(word, onClose = { lookingUp = null }) }
+        // Only ever opened from the menu item, which is disabled until the active line's words
+        // are in hand; if the active line changes under it the sheet closes rather than emptying.
+        if (showingWords && !activeWords.isNullOrEmpty()) {
+            LineWordsSheet(activeWords) { showingWords = false }
+        }
         if (lines.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -283,26 +311,55 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
                     itemsIndexed(lines, key = { _, line -> line.lineIndex }) { i, line ->
                         val isActive = i == active
                         val isPinned = line.lineIndex in pinned
-                        Text(
-                            text = if (isPinned) "\uD83D\uDCCC ${line.text}" else line.text,
-                            style = if (isActive) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleMedium,
-                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        val words = rememberLineWords(wordsCache, line.lineIndex, line.text)
+                        val style = (if (isActive) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleMedium)
+                            .copy(
+                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .semantics {
                                     if (isPinned) contentDescription = "Pinned: ${line.text}"
                                 }
+                                // The row is the control, except on the active line, where its own
+                                // words are: nesting a second control inside one takes the tap away
+                                // from it, and there is nothing to seek to on the line you are
+                                // already on (the PWA's LyricDisplay.tsx:440). Long-press is
+                                // unchanged on every row, which is why the row stays clickable.
                                 .combinedClickable(
                                     onLongClickLabel = "Nudge this line's start",
                                     onLongClick = { nudging = i },
+                                    onClickLabel = if (isActive) null else "Seek to this line",
                                     onClick = {
-                                        starts.getOrNull(i)?.let { controller?.seekTo(it) }
-                                        if (repeatLine != null && starts.getOrNull(i) != null) repeatLine = i
+                                        if (!isActive) {
+                                            starts.getOrNull(i)?.let { controller?.seekTo(it) }
+                                            if (repeatLine != null && starts.getOrNull(i) != null) repeatLine = i
+                                        }
                                     },
                                 )
                                 .padding(horizontal = 24.dp, vertical = 10.dp),
-                        )
+                        ) {
+                            if (isPinned) Text("\uD83D\uDCCC ", style = style)
+                            // Plain text until this line has been analysed: the lyric is on screen
+                            // before the furigana is, with no spinner and no blank row.
+                            if (words == null) {
+                                Text(line.text, style = style)
+                            } else {
+                                RubyText(
+                                    words = words,
+                                    onWordTap = { index -> lookingUp = words[index] },
+                                    tappable = isActive,
+                                    // A word's own gesture handler swallows the long press, so
+                                    // the row's is handed down to it: long-press is unchanged on
+                                    // every row, the active one included.
+                                    onWordLongPress = { nudging = i },
+                                    onLongPressLabel = "Nudge this line's start",
+                                    baseStyle = style,
+                                )
+                            }
+                        }
                     }
                 }
             }

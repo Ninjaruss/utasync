@@ -24,6 +24,14 @@ android {
     }
 
     buildFeatures { compose = true }
+
+    packaging {
+        // A library module's packaging block does not apply to the consuming app's APK, so
+        // :japanese's block is mirrored here: Kuromoji's two jars each carry these files and
+        // the merge fails on the duplicates.
+        resources.excludes += listOf("META-INF/CONTRIBUTORS.md")
+        resources.pickFirsts += listOf("META-INF/LICENSE.md")
+    }
 }
 
 kotlin {
@@ -34,6 +42,7 @@ kotlin {
 dependencies {
     implementation(project(":align"))
     implementation(project(":data"))
+    implementation(project(":japanese"))
     implementation(project(":playback"))
     implementation(project(":prepare"))
 

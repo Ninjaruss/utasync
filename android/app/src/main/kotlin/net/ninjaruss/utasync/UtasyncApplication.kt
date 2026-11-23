@@ -7,9 +7,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import net.ninjaruss.utasync.data.PrepareState
 import net.ninjaruss.utasync.data.UtasyncDatabase
+import net.ninjaruss.utasync.japanese.Analyzer
+import net.ninjaruss.utasync.japanese.readingAlternates
 import net.ninjaruss.utasync.prepare.FetchSetting
 import net.ninjaruss.utasync.prepare.Lrclib
 import net.ninjaruss.utasync.prepare.UrlConnectionHttp
@@ -26,6 +29,23 @@ class UtasyncApplication : Application() {
      * [resetInterruptedLookups].
      */
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
+     * The one analyzer for the process, built on first use and never on the main thread.
+     *
+     * Building it parses a 733 kB asset ([readingAlternates]) and the first `analyze` call then
+     * loads Kuromoji's dictionary (ledger L52). Both are paid here, once, by whichever line is
+     * analysed first; the parse cost is logged because nobody had measured it (ledger L54).
+     */
+    private val analyzerAsync = appScope.async(Dispatchers.IO, CoroutineStart.LAZY) {
+        val started = System.nanoTime()
+        val alternates = readingAlternates(this@UtasyncApplication)
+        Log.i("Utasync", "reading alternates: ${alternates.size} surfaces in ${(System.nanoTime() - started) / 1_000_000} ms")
+        Analyzer(database.dictionaryDao()) { surface -> alternates[surface].orEmpty() }
+    }
+
+    /** Suspends until the analyzer is ready. Callers are lines being drawn; see LineWordsCache. */
+    suspend fun analyzer(): Analyzer = analyzerAsync.await()
 
     /** The one LRCLIB client, shared by background lookups and the lyrics screen. */
     val lrclib by lazy {

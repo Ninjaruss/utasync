@@ -1634,3 +1634,40 @@ real dictionary. **My first formulation of the replacement was itself wrong**: r
 word's senses to sit at its ruby's reading fails on な, because an inflected word is glossed
 through its dictionary form, whose reading differs by construction. The code was right and the
 contract was wrong.
+
+### L54 — Android furigana: what a line costs before it can be drawn (emulator; no budget set)
+
+- **What:** Task 7 draws furigana by calling `Analyzer.analyze` per line. Two one-off costs stand
+  between opening a song and the first ruby appearing, and neither had been measured:
+  `readingAlternates(Context)` (Task 5's one untested line — it parses the 733 kB
+  `reading-alternates.json` asset with the hand-written parser in `ReadingAlternates.kt`), and
+  Kuromoji's first `tokenize`, which L52 measured on its own.
+- **Measured on an emulator (2026-11-23)**, API 35 `sdk_gphone64_arm64` on Apple silicon, from the
+  running debug app, three cold starts: the alternates parse took **1443 ms, 699 ms and 958 ms**
+  for **13 758 surfaces**. It is logged by `UtasyncApplication` (`Log.i("Utasync", "reading
+  alternates: … ms")`), so it can be re-read at any time with
+  `adb logcat -d | grep "reading alternates"`. **The spread is as interesting as the figure**: the
+  same work on the same device varied by 2x between runs, so treat ~1 s as the order of magnitude,
+  not a measurement of the parser.
+- **Kuromoji under contention costs more than L52's figure.** Five lines are analysed at once (one
+  per visible row), so four `DefaultDispatcher` workers queue on `Ja.tokenizer`'s lazy init:
+  logcat reports `Long monitor contention … SynchronizedLazyImpl.getValue() for 945 ms` and
+  `1.440 s` on separate runs, against L52's 483 ms for a single first call. The two costs are
+  **sequential** (the analyzer cannot be built before the asset is parsed), so the wall clock from
+  opening a song to the first furigana is about **2 s** on this emulator, and a real phone will be
+  slower. Both are off the main thread; the lyric lines are on screen as plain text throughout
+  (screenshotted), and nothing blocks a frame.
+- **No budget is set, and nothing here gates behaviour.** `MAX_CACHED_LINES = 64` in
+  `LineWords.kt` bounds how many analysed lines are kept; it is a constructor parameter, chosen as
+  comfortably more than a screenful so scrolling back never re-analyses, and no memory figure was
+  measured for it. `RUBY_SCALE = 0.5f` is the conventional ruby-to-base font ratio, a typographic
+  convention rather than a measurement, and is a parameter of `RubyText` for the same reason.
+  `nominalWidthSp`'s em constants lay nothing out on screen — `RubyText` measures with Compose's
+  own `TextMeasurer` — and exist only so `rubyRuns` has a default for tests and previews.
+- **What this suggests and does not prove:** the ~1 s parse is the cheaper of the two to remove —
+  the asset could be converted into the Room seed at build time (`scripts/build-japanese-db.mjs`
+  already writes it) and read by key instead of parsed into a 13 758-entry map. That would also
+  drop whatever the map costs in heap, which **nobody has measured**. Not done here: it changes
+  Task 4's data shape, and this task is UI.
+- **Reproduce:** install the debug APK, `adb logcat -c`, open a song with Japanese lines, then
+  `adb logcat -d | grep -E "reading alternates|SynchronizedLazy"`.
