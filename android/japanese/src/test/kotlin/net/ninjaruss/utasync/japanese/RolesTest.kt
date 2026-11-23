@@ -1,5 +1,7 @@
 package net.ninjaruss.utasync.japanese
 
+import net.ninjaruss.utasync.data.DictionaryDao
+import net.ninjaruss.utasync.data.DictionaryEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -134,11 +136,96 @@ class RolesTest {
     }
 
     @Test fun `most words on an ordinary line get no role`() {
-        // The anti-goal (spec 4.1): the eye stays on the Japanese. A role on every token is the
-        // failure mode this feature has to avoid, so the sparsity is asserted, not assumed.
-        val tokens = tokenize("私は白い雪を見ながら静かに歩いた")
-        val roles = tokens.mapIndexed { i, t -> roleOf(t, tokens.getOrNull(i + 1)) }
-        assertTrue("no roles at all on this line", roles.any { it != null })
-        assertTrue("every token got a role: ${tokens.map { it.surface }.zip(roles)}", roles.any { it == null })
+        // This asserted only that at least one token had a role and at least one did not, which is
+        // true of almost any line and does not check "most". It now counts.
+        val words = tokenize("白い雪が静かに降っている。")
+        val roles = words.indices.map { roleOf(words[it], words.getOrNull(it + 1)) }
+        val named = roles.count { it != null }
+        assertTrue("expected a role on at least one word, got none", named > 0)
+        assertTrue("expected most words to have NO role, got $named of ${words.size}", named * 2 < words.size)
+    }
+
+    // ---- the four false roles the Task 6 review found, each settled by probing IPADIC ----
+    //
+    // 連用テ接続 is byte-identical for three different functions, so the tag alone cannot tell them
+    // apart and the role is only given before a verb.
+
+    @Test fun `an i-adjective before a verb is adverbial`() {
+        assertEquals("i-adjective used adverbially", roleIn("早く走る。", "早く"))
+    }
+
+    @Test fun `the stem of a negation is not called adverbial`() {
+        // 高く of 空は高くない carries the SAME tag as 早く of 早く走る. The negation is named on the
+        // ない that follows, so the stem is owed nothing.
+        assertNull(roleIn("空は高くない。", "高く"))
+        assertEquals("negative", roleIn("空は高くない。", "ない"))
+    }
+
+    @Test fun `an i-adjective joined by te is not called adverbial`() {
+        assertNull(roleIn("高くて白い山。", "高く"))
+    }
+
+    @Test fun `the past copula does not claim to state 'is'`() {
+        // だっ of 静かだった is 特殊・ダ like the copula, but 連用タ接続: the た after it is the tense.
+        assertNull(roleIn("とても静かだった。", "だっ"))
+        assertEquals("past tense", roleIn("とても静かだった。", "た"))
+        assertEquals("states 'is'", roleIn("とても静かだ。", "だ"))
+    }
+
+    @Test fun `a sentence-final particle mid-line does not claim to end the sentence`() {
+        assertEquals("ends the sentence", roleIn("行くよ。", "よ"))
+        assertNull(roleIn("行くよ、そして帰る。", "よ"))
+    }
+
+    @Test fun `the te particle does not claim what precedes it is a verb`() {
+        // Same 接続助詞 tag after a verb, an adjective and an auxiliary; roleOf cannot see which.
+        // 読んで voices the particle to で, which is why the verb case here is 食べて and not 読んで:
+        // both are in the table, and picking the wrong one tested the tokenizer, not the role.
+        for (line in listOf("パンを食べて帰る。", "高くて白い山。", "食べたくて困る。")) {
+            assertEquals("joins what comes before to what follows", roleIn(line, "て"))
+        }
+        assertEquals("joins what comes before to what follows", roleIn("本を読んで帰る。", "で"))
+    }
+
+    // ---- null discipline, over a derived set rather than examples ----
+
+    @Test fun `no content word on a mixed line is given a role`() {
+        val words = tokenize("とても白い雪がhello world静かに降る。")
+        val content = words.indices.filter { words[it].pos in setOf("名詞", "動詞", "副詞", "記号") }
+        assertTrue("no content words found, so this proved nothing", content.size >= 5)
+        for (i in content) {
+            assertNull(
+                "'${words[i].surface}' (${words[i].pos}) was given a role",
+                roleOf(words[i], words.getOrNull(i + 1)),
+            )
+        }
+    }
+
+    // ---- the next-token wiring, through analyze rather than roleOf ----
+
+    @Test fun `analyze passes each word's following token, so attributive roles work end to end`() {
+        // roleOf's attributive cases depend entirely on `next`. Every other analyze-level test uses
+        // a line with no i-adjective, so an off-by-one in analyze's `next` would have passed them
+        // all while breaking the one role that needs it.
+        val words = runSuspend {
+            Analyzer(NoDictionary) { emptyList() }.analyze("白い雪が降る。", ReadingMode.DICTIONARY)
+        }
+        assertEquals("i-adjective modifying the next noun", words.first { it.token.surface == "白い" }.role)
+        assertEquals("marks the subject", words.first { it.token.surface == "が" }.role)
+        assertNull(words.first { it.token.surface == "雪" }.role)
+    }
+
+    /** Roles do not depend on the dictionary, so this task's analyze test needs no rows. */
+    private object NoDictionary : DictionaryDao {
+        override suspend fun entriesFor(surface: String): List<DictionaryEntity> = emptyList()
+        override suspend fun entriesFor(surface: String, reading: String): List<DictionaryEntity> = emptyList()
+    }
+
+    /** The role of [surface] in [text], tokenized for real so no assertion rests on a built token. */
+    private fun roleIn(text: String, surface: String): String? {
+        val words = tokenize(text)
+        val i = words.indexOfFirst { it.surface == surface }
+        assertTrue("'$surface' is not a token of '$text'; the tokenizer split it differently", i >= 0)
+        return roleOf(words[i], words.getOrNull(i + 1))
     }
 }

@@ -34,8 +34,11 @@ private val CASE_PARTICLE_ROLES: Map<Pair<String, String>, String> = mapOf(
     ("から" to "格助詞") to "marks the starting point",
     ("まで" to "副助詞") to "marks the end point",
     ("が" to "接続助詞") to "joins two clauses, as 'but'",
-    ("て" to "接続助詞") to "joins this verb to what follows",
-    ("で" to "接続助詞") to "joins this verb to what follows",
+    // Not "joins this verb": て follows adjectives (高くて) and auxiliaries (食べたくて) under the
+    // same 接続助詞 tag, and roleOf cannot see what precedes it. The wording claims only what the
+    // tag actually fixes.
+    ("て" to "接続助詞") to "joins what comes before to what follows",
+    ("で" to "接続助詞") to "joins what comes before to what follows",
 )
 
 /**
@@ -47,8 +50,10 @@ private val CASE_PARTICLE_ROLES: Map<Pair<String, String>, String> = mapOf(
 private val PARTICLE_DETAIL_ROLES: Map<String, String> = mapOf(
     "連体化" to "links this noun to the next",
     "副詞化" to "makes the word before it adverbial",
-    "終助詞" to "ends the sentence",
 )
+
+/** 終助詞, but only where the sentence really ends: よ of 行くよ、そして帰る does not end it. */
+private const val SENTENCE_FINAL = "ends the sentence"
 
 /**
  * Auxiliaries, keyed on IPADIC's **conjugation class**, not on the surface and not on the base
@@ -74,7 +79,15 @@ private const val ATTRIBUTIVE_COPULA = "links the adjective to the next noun"
 /** 形容詞 in 基本形 whose following token is a 名詞. */
 private const val ATTRIBUTIVE_ADJECTIVE = "i-adjective modifying the next noun"
 
-/** 形容詞 in 連用テ接続 (早く of 早く走る): adverbial, so it modifies no noun. */
+/**
+ * 形容詞 in 連用テ接続 — but ONLY before a verb.
+ *
+ * This tag is overloaded three ways and the features are byte-identical in all of them:
+ * 早く of 早く走る (genuinely adverbial), 高く of 空は高くない (the stem of a negation, whose
+ * ない carries "negative" itself) and 高く of 高くて白い山 (a て-conjunction). Naming all three
+ * "adverbially" asserts something false about two of them, so the role is given only when the
+ * next token is a verb; the other two get nothing, which is what they are owed.
+ */
 private const val ADVERBIAL_ADJECTIVE = "i-adjective used adverbially"
 
 /**
@@ -83,7 +96,7 @@ private const val ADVERBIAL_ADJECTIVE = "i-adjective used adverbially"
  */
 internal val ROLE_VOCABULARY: Set<String> =
     CASE_PARTICLE_ROLES.values.toSet() + PARTICLE_DETAIL_ROLES.values + AUX_ROLES.values +
-        setOf(ATTRIBUTIVE_COPULA, ATTRIBUTIVE_ADJECTIVE, ADVERBIAL_ADJECTIVE)
+        setOf(ATTRIBUTIVE_COPULA, ATTRIBUTIVE_ADJECTIVE, ADVERBIAL_ADJECTIVE, SENTENCE_FINAL)
 
 /**
  * The role [token] plays, or null where naming it adds nothing.
@@ -98,16 +111,31 @@ internal val ROLE_VOCABULARY: Set<String> =
  */
 fun roleOf(token: JaToken, next: JaToken?): String? = when (token.pos) {
     "助詞" -> token.posDetail?.let { detail ->
-        CASE_PARTICLE_ROLES[token.surface to detail] ?: PARTICLE_DETAIL_ROLES[detail]
+        CASE_PARTICLE_ROLES[token.surface to detail]
+            ?: PARTICLE_DETAIL_ROLES[detail]
+            ?: SENTENCE_FINAL.takeIf { detail == "終助詞" && endsHere(next) }
     }
     "助動詞" -> when {
-        token.conjugationType == "特殊・ダ" && token.conjugation == "体言接続" -> ATTRIBUTIVE_COPULA
-        else -> AUX_ROLES[token.conjugationType]
+        token.conjugationType != "特殊・ダ" -> AUX_ROLES[token.conjugationType]
+        // 特殊・ダ is three things by form: な of 静かな (a link), だ of 静かだ (a statement), and
+        // だっ of 静かだった (neither -- the た that follows carries the tense).
+        token.conjugation == "体言接続" -> ATTRIBUTIVE_COPULA
+        token.conjugation == "基本形" -> AUX_ROLES["特殊・ダ"]
+        else -> null
     }
     "形容詞" -> when (token.conjugation) {
         "基本形" -> ATTRIBUTIVE_ADJECTIVE.takeIf { next?.pos == "名詞" }
-        "連用テ接続" -> ADVERBIAL_ADJECTIVE
+        "連用テ接続" -> ADVERBIAL_ADJECTIVE.takeIf { next?.pos == "動詞" }
         else -> null
     }
     else -> null
 }
+
+/**
+ * True where the sentence really ends: nothing follows, or a FULL STOP follows.
+ *
+ * Not "any 記号". My first version of this accepted every symbol, which let the よ of
+ * 行くよ、そして帰る go on claiming to end the sentence -- a comma is 記号,読点, the same top-level
+ * tag as 記号,句点. The level-2 tag is the one that distinguishes them.
+ */
+private fun endsHere(next: JaToken?): Boolean = next == null || next.posDetail == "句点"
