@@ -1718,3 +1718,37 @@ contract was wrong.
   The 18 and the implementer's ~47% are different material, and neither is a real song.
 - **Reproduce:** `cd android && ./gradlew :japanese:testDebugUnitTest`; the counts are in
   `audit-baseline.json` and `renderBaseline` prints them on a mismatch.
+
+### L56 — no signal separates the false ambiguity marks from the true ones (MEASURED, NO-GO)
+
+- **What:** L55 left three candidate signals for the furigana ambiguity mark and said each belonged
+  in a spike with its gate written first. Five were pre-registered and run:
+  `experiments/ambiguity-mark/2026-11-24-mark-signal.md`. The gate was `overmarkedAlternates` ≤ 9
+  **and** `unmarkedAlternates` ≤ 5 **and** `right` == 89.
+- **Result: every arm NO-GO.** Baseline 18 / 5 / 89. Common-readings-only 5 / 17; rival-is-a-
+  standalone-word 17 / 7; rival-is-not-the-same-word 16 / 9; tokenizer-took-the-first-entry 8 / 27;
+  the last two together 15 / 12. `right` never moved.
+- **The sharp number.** 48 words are marked, 30 rightly and 18 wrongly, so deleting marks at random
+  costs 1.67 true marks per false one removed. Measured: common-only 0.92, standalone-word 2.0,
+  same-word 2.0, first-entry 2.2, the conjunction 2.33. **Only the common/uncommon split beats
+  chance** (by about 1.8×), and it still costs nearly one true mark per false one. A rival's
+  part-of-speech class, its gloss agreement with the shown reading, and its position in the
+  dictionary's entry list carry **no usable signal**.
+- **JMdict frequency and priority tags are not available**, so that candidate of L55's three was
+  never testable: `public/jmdict-popover.json` carries `r`, `pos` and `g` only, and
+  `public/jmdict-readings.json` carries the same common/uncommon split arm A tests.
+- **Two by-products, both worth fixing before anyone tunes this again.** `unmarkedAlternates`
+  conflates "not marked" with "not matched": 3 of the 5 (一人, 二人, 後) are IPADIC segmentation
+  disagreements where no word came back at all, so genuine missing marks number **2**. And 7 of the
+  18 false marks name the word's **own** reading as its rival — 降っ shown ふっ, marked because 降る
+  is read ふる — because the shown reading is filtered by string equality, which cannot match a
+  dictionary-form reading. The popover shows that list to the reader, so it is wrong content; it is
+  not a fix for the mark's count (降っ still has くだる), and it needs no signal.
+- **Why the thread stops here.** Precision 62.5%, recall 86%, and several of the 18 are arguably
+  correct marks the corpus calls wrong (時 does read とき, 水 does read すい) while every corpus
+  entry is `"kind": "unverified"`. The binding constraint is the expectation, not the predicate:
+  the owner's verification of the 35 alternate lists is on the critical path.
+- **Reproduce:** the harness is not in `android/` — NO-GO means nothing enters it (rule 3) — but a
+  measurement has to be reproducible, so it is kept as text at
+  `experiments/ambiguity-mark/MarkSignalSpike.kt.txt`, with the copy-in command in its header. The
+  baseline it reproduces is `cd android && ./gradlew :japanese:testDebugUnitTest`.
