@@ -1752,3 +1752,30 @@ contract was wrong.
   measurement has to be reproducible, so it is kept as text at
   `experiments/ambiguity-mark/MarkSignalSpike.kt.txt`, with the copy-in command in its header. The
   baseline it reproduces is `cd android && ./gradlew :japanese:testDebugUnitTest`.
+
+## L57 — a word no longer names its own reading as a rival (MEASURED, FIXED)
+
+2026-11-25, `feat/android-understanding`.
+
+The content defect L56 found as a by-product. Alternates reached through the base form are
+dictionary-form readings (いく, ゆく for 行く) while the shown reading is the surface's (いっ), so
+the equality filter in `rubyFor` could never remove the word's **own** reading, and the popover
+printed "also read いく" over a word already read いく-inflected.
+
+- **Measured, over the 46-sentence corpus with the shipped alternates asset:** **7 words before, 0
+  after** — 降っ (ふる), 寒かっ (さむい), 言っ (いう), 行か (いく), 行っ (いく) and 来 twice (くる, under
+  both こ and き).
+- **No count moved.** All eight audit counters are byte-identical before and after (99 words, right
+  89, wrongReading 3, wrongSense 2, blank 1, unmatched 4, unmarkedAlternates 5,
+  overmarkedAlternates 18), which is what L56 predicted: 降っ still has くだる, so no mark is
+  cleared. The fix changes what a mark *says*, not how many there are. A fix for the count still
+  has no signal behind it (L56).
+- **No threshold.** `rubyFor` gained a required `baseReading` lookup and drops the one reading it
+  returns; nothing numeric gates it.
+- **Not applied to the surface level, deliberately.** There the key is the surface itself, so
+  "drop the key's own reading" would delete a genuine rival from every word shown in its less
+  common reading — 時 as じ would lose とき. A test pins that case.
+- **Reproduce:** `cd android && ./gradlew --rerun-tasks :japanese:testDebugUnitTest`. The guard is
+  `ReadingsTest."no word lists the reading of its own dictionary form as an alternate"`, which
+  walks the corpus through the real analyzer and names each offender; it failed with all 7 before
+  the fix.

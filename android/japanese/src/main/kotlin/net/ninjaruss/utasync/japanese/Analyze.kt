@@ -25,7 +25,7 @@ class Analyzer(
     suspend fun analyze(text: String, mode: ReadingMode): List<WordInfo> {
         val tokens = tokenize(text)
         return tokens.mapIndexed { i, token ->
-            WordInfo(token, rubyFor(token, mode, alternates), sensesFor(token), roleOf(token, tokens.getOrNull(i + 1)))
+            WordInfo(token, rubyFor(token, mode, alternates, ::dictionaryReading), sensesFor(token), roleOf(token, tokens.getOrNull(i + 1)))
         }
     }
 
@@ -60,4 +60,19 @@ class Analyzer(
         }
         return selectSenses(token, found)
     }
+}
+
+/**
+ * The reading IPADIC gives [form] standing alone — the reading a base-form alternates list is
+ * about, and the one [rubyFor] drops so a word cannot name itself as a rival.
+ *
+ * Not injected: it must come from the SAME tokenizer that produced the token's own reading, or
+ * the two could disagree and the self-reference would survive. Every token's reading is used, not
+ * just a single token's: a dictionary form that splits in two still has one reading, and giving up
+ * there would leave the defect alive where it is hardest to see. Null where any piece has no
+ * reading at all, which filters nothing — honest beats guessed.
+ */
+internal fun dictionaryReading(form: String): String? {
+    val pieces = tokenize(form).map { it.reading }
+    return if (pieces.isEmpty() || pieces.any { it == null }) null else pieces.joinToString("")
 }

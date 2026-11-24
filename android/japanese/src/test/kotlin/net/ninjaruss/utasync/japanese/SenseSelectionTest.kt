@@ -194,7 +194,7 @@ class SenseSelectionTest {
                 val words = runSuspend { Analyzer(FakeDictionary(rows), alternates).analyze(corpusEntry.text, mode) }
                 assertEquals(tokenize(corpusEntry.text).size, words.size)
                 for (w in words) {
-                    assertEquals(rubyFor(w.token, mode, alternates), w.ruby)
+                    assertEquals(rubyFor(w.token, mode, alternates, ::dictionaryReading), w.ruby)
                     if (w.ruby != null) rubies++
                 }
             }
