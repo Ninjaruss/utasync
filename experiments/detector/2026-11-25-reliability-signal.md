@@ -119,3 +119,39 @@ scoring it on them would be tuning on the data (rule 1). It is therefore fixed h
 - **Gate:** recall **≥ 15 of 20** (75%) and false alarms **≤ 12 of 80** (15%).
 - A pass makes arm E a candidate to carry into the `human-onsets` column. It is still not
   permission to ship: a detector that works on medleys has not been shown to work on songs.
+
+## Arm E's result — FAIL, 0 of 20, and the test set contained a different failure
+
+`node experiments/detector/armE.mjs`, 100 medley lines, 20 catastrophes against measured onsets.
+
+| arm | recall (needed ≥ 15 of 20) | false alarms (allowed ≤ 12 of 80) | verdict |
+| --- | --- | --- | --- |
+| E gap inversion | **0 of 20** | 0 of 80 | FAIL |
+| D pinned, for comparison | 0 of 20 | **79 of 80** | — |
+
+**Two things this says, kept apart.**
+
+1. **The product's reliability flag is inverted on medleys**, not merely weak: it fires on 79 of
+   80 correct lines and none of the 20 wrong ones. On real songs it fired on 10 of 186 stable and
+   0 of 16 catastrophes. In neither place does it carry information about correctness.
+2. **Arm E was tested against a failure it was not designed for.** 19 of the 20 medley
+   catastrophes are *line 3* — the last line of every four-line medley, where the forced decoder
+   sequence has no following line and the window runs off the end. The real songs' failure is the
+   first line *after* an instrumental. They are different mechanisms, so E's 0 of 20 is an honest
+   pre-registered failure that leaves its own case untested. Re-testing E on the five songs that
+   produced it would be tuning on the data, and this spike does not do that.
+
+## Verdict
+
+**NO-GO.** Five pre-registered arms, zero useful recall; the one signal the mechanism suggested
+could only be tested against a different mechanism, and failed there. Nothing enters `src/` or
+`android/`.
+
+ADR-0007's proposal is strengthened rather than changed: arm D is not merely inaccurate on its
+tail, **nothing tried here can tell which lines are on it**, so the "mark the bad lines and show
+the rest" fallback that would have made a 7% error rate shippable has no detector behind it.
+
+**What would reopen this**, stated so it is not re-litigated from scratch: a detector with a test
+set that contains the post-instrumental case *and* measured truth. That means the `human-onsets`
+column, which is the same evidence ADR-0007 declines to collect — so reopening the detector and
+reopening the gate are the same decision, not two.
