@@ -62,6 +62,7 @@ when you make a decision another session would otherwise re-litigate. The long p
 | 0004 | No copyrighted song text in the repository |
 | 0005 | Android v1 is local audio only (no YouTube) |
 | 0006 | How alignment accuracy is measured |
+| 0007 | Arm D does not pass Phase 0; no automatic alignment in Android v1 (proposed) |
 
 ## Measured facts worth knowing (see the ledger for sources)
 
@@ -70,3 +71,6 @@ when you make a decision another session would otherwise re-litigate. The long p
   10.73 s live, L32/L33). Do not benchmark against them.
 - Vocal isolation fixes tails but worsens most lines on clean songs (L35).
 - Lyric-prompted Whisper echoes the prompt even over non-vocal audio (L18).
+- Phase 0 arm D (Whisper known-text alignment) FAILS the gate's corpus column: 41% within
+  250 ms against a required 85%, and on real songs 16 of 221 lines land over 2 s from a
+  version-exact LRC with the reliability flag catching none of them (L62, ADR-0007).

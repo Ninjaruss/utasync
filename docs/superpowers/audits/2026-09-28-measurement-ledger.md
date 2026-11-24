@@ -1278,3 +1278,78 @@ nothing rather than an arbitrary row.
   each medley's own offset is written to `.cache/pjs/<id>.lrc.json` as `plantedOffset`. To test the
   pin boundary, re-score an existing run at other values of `PIN_SEC` and read the flagged count and
   the clause-2 column: not done here.
+
+### L62 — arm D fails the corpus-onsets column, and the same failure is visible on real songs (MEASURED)
+
+- **Date:** 2026-11-25. **Instruments:** `experiments/phase0/score.mjs` (the pre-registered gate)
+  and `experiments/phase0/lrcScreen.mjs` (a screen, not a gate). Runs in `.cache/phase0/runs`
+  (local: they contain lyric text).
+- **Id note:** parked at L62. L43–L58 are claimed by open branches and L60/L61 by the Arm C
+  branch; ids are assigned at merge.
+
+**1. The corpus-onsets column of the ADR-0003 gate: NOT MET.** 25 PJS medleys at `--per 4`
+(`.cache/pjs-per4`), already carrying `corpus-onsets` annotations (adjudicated, blind,
+uncertainty 0.02 s), 100 scored lines. Arm D run as `D@lrc` against the builder's planted prior.
+
+| clause | required | observed |
+| --- | --- | --- |
+| certifying songs | ≥ 10 | 25 |
+| scored lines, pooled | ≥ 60 | 100 |
+| starts within 0.25 s | ≥ 85% | **41%** |
+| unflagged lines over 1 s | 0 | **20** |
+| flagged lines (exempt) | reported | 79 of 100 |
+| worst scored line | reported | 10.40 s |
+| D p90 below arm B | every song | **1 of 25** |
+| D p90 below arm A | every song | not evaluated (no arm A run on any medley) |
+
+**The mechanism, split by whether D decided anything:**
+
+| | n | p50 | p90 | within 0.25 s |
+| --- | --- | --- | --- | --- |
+| pinned (fell back to the planted prior, L38) | 79 | 0.25 s | 0.52 s | 51% |
+| D chose its own start | 21 | **7.13 s** | 9.62 s | **5%** |
+| the planted prior alone (arm B) | 100 | 0.26 s | 0.57 s | 48% |
+
+So the 41% is carried entirely by the fallback — those lines *are* the prior — and every line D
+decided for itself was seconds out. Arms A and the accompanied medleys are missing, but clauses 1
+and 2 fail without them.
+
+**2. The same failure on real songs, screened against their catalogue LRCs.** `lrcScreen.mjs
+--shipped`, 221 lines over the five songs with LRC priors, each song centred on its own median
+signed shift so a version or edit offset cannot count as error:
+
+| song | lines | centred p50 | centred p90 | worst | >1 s | of those flagged | >2 s |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| guitar-loneliness | 36 | 0.32 s | 2.07 s | 10.35 s | 12 | 0 | 4 |
+| recollect | 47 | 0.26 s | 1.90 s | 13.43 s | 11 | 0 | 4 |
+| stranger-than-heaven | 59 | 0.34 s | 1.04 s | 3.46 s | 6 | 0 | 4 |
+| veil | 48 | 0.14 s | 0.82 s | 12.94 s | 4 | 0 | 3 |
+| going-my-way | 31 | 0.11 s | 0.51 s | 10.30 s | 2 | 0 | 1 |
+
+**35 of 221 lines (16%) over a second, 16 over two seconds, none of them flagged.** The repeated
+-chorus alibi was checked rather than assumed: on guitar-loneliness, whose LRC is version-**exact**
+(229.0 s against 228.98 s of audio), lines 7/18/29/34 are 2.4/10.4/2.1/9.2 s out and **none is
+repeated text**; on veil, the corpus's cleanest LRC at −0.02 s residual, lines 4/19/38 are
+12.2/12.9/3.2 s out and the two twelve-second ones are not repeated text either.
+
+**What this screen is NOT.** An accuracy measurement. A catalogue LRC carries ~0.3 s of its own
+uncertainty (L39), has an unknown per-song offset, and is arm D's own prior, so it cannot
+adjudicate the gate's 250 ms clause and never certifies (ADR-0006, rule 1). It can only separate
+tenths of a second from tens of seconds — which is the question it was run to answer.
+
+**What it answers.** Whether the medley result was an artifact of medleys (four unrelated
+sentences separated by silence, with nonsense `[prev, next]` decoder context — ADR-0003's own open
+question). It was not: multi-second unflagged errors appear on real accompanied songs whose LRCs
+are the most trustworthy in the corpus. Clause 2 exists to forbid exactly this pattern.
+
+**Still unevaluated, and not claimed:** the `human-onsets` column has zero certifying songs. None
+of the corpus's seven can serve — five have catalogue LRCs, akfg's truth is `coarse-captions`, and
+all are `exposure: previously-used-in-development`, so a blind pass is no longer available on any
+of them.
+
+**Reproduce:**
+
+```sh
+node experiments/phase0/score.mjs --manifest .cache/pjs-per4/manifest.json
+node experiments/phase0/lrcScreen.mjs --shipped
+```
