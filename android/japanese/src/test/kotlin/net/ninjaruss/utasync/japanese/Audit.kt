@@ -44,6 +44,7 @@ data class AuditCounts(
     val blank: Int,
     val unmatched: Int,
     val unmarkedAlternates: Int,
+    val overmarkedAlternates: Int,
 ) {
     val verdictSum get() = right + wrongReading + wrongSense + blank + unmatched
 }
@@ -57,7 +58,14 @@ data class AuditCounts(
  * - `wrongReading`: the shown reading (the ruby's, else the token's) differs from the expectation;
  * - `wrongSense`: none of the expected senses is in any returned gloss (case-insensitive, standalone words within a gloss: see [glossHasSense]);
  * - otherwise `right`.
- * `unmarkedAlternates`: the corpus lists alternates but the ruby carries none.
+ * `unmarkedAlternates`: the corpus lists alternates but the ruby carries none — a reading shown
+ * as certain when the corpus says it is not.
+ * `overmarkedAlternates`: the corpus lists NO alternates but the ruby carries some — a word
+ * marked ambiguous that the corpus says is not. Added 2026-11-24, because nothing measured it:
+ * spec 4.2's anti-goal is furigana asserting a reading it cannot know, so the audit grew a
+ * counter for the missing mark and none for the excess one. Task 7 then found the mark firing on
+ * roughly half the words on a real screen, and the audit could not see it. A mark on half a line
+ * is not a warning, and until this counter existed no fix for it could be measured.
  */
 fun auditAgainst(corpus: Corpus, analyze: (String) -> List<WordInfo>): AuditCounts {
     var words = 0
@@ -67,12 +75,15 @@ fun auditAgainst(corpus: Corpus, analyze: (String) -> List<WordInfo>): AuditCoun
     var blank = 0
     var unmatched = 0
     var unmarked = 0
+    var overmarked = 0
     for (entry in corpus.entries) {
         val result = analyze(entry.text)
         for (w in entry.words) {
             words++
             val hit = result.firstOrNull { it.token.surface == w.surface }
-            if (w.alternates.isNotEmpty() && hit?.ruby?.alternates.isNullOrEmpty()) unmarked++
+            val marked = hit?.ruby?.alternates.isNullOrEmpty().not()
+            if (w.alternates.isNotEmpty() && !marked) unmarked++
+            if (w.alternates.isEmpty() && marked) overmarked++
             when {
                 hit == null -> unmatched++
                 hit.senses.isEmpty() -> blank++
@@ -82,7 +93,7 @@ fun auditAgainst(corpus: Corpus, analyze: (String) -> List<WordInfo>): AuditCoun
             }
         }
     }
-    return AuditCounts(words, right, wrongReading, wrongSense, blank, unmatched, unmarked)
+    return AuditCounts(words, right, wrongReading, wrongSense, blank, unmatched, unmarked, overmarked)
 }
 
 /**
@@ -143,12 +154,14 @@ fun loadCorpus(): Corpus {
 private fun countsJson(c: AuditCounts) =
     "{\"words\": ${c.words}, \"right\": ${c.right}, \"wrongReading\": ${c.wrongReading}, " +
         "\"wrongSense\": ${c.wrongSense}, \"blank\": ${c.blank}, \"unmatched\": ${c.unmatched}, " +
-        "\"unmarkedAlternates\": ${c.unmarkedAlternates}}"
+        "\"unmarkedAlternates\": ${c.unmarkedAlternates}, " +
+        "\"overmarkedAlternates\": ${c.overmarkedAlternates}}"
 
 private const val DIRECTION =
     "right is a two-sided ratchet: the test requires right == this baseline. A fall is a regression and an intentional reduction needs a visible edit here; a rise is progress that must be recorded by raising it. An intentional reduction needs an explicit, visible edit of this file. " +
         "The other counts may rise when a real analyzer replaces the stub. Do not read them as accuracy: each word gets ONE verdict, in the order unmatched, blank, wrongReading, wrongSense, right. " +
-        "So wrongSense understates (a word wrong in both reading and sense counts only as wrongReading), and blank hides a reading error. wrongSense = 0 does not mean the senses are fine."
+        "So wrongSense understates (a word wrong in both reading and sense counts only as wrongReading), and blank hides a reading error. wrongSense = 0 does not mean the senses are fine. " +
+        "unmarkedAlternates and overmarkedAlternates are the two ways the ambiguity mark is wrong and they pull in opposite directions: read them together or not at all."
 
 /** `all` scores every entry; `certified` is the gate: hand-labelled entries only. */
 fun renderBaseline(all: AuditCounts, certified: AuditCounts): String =
@@ -158,7 +171,7 @@ fun loadBaseline(): Pair<AuditCounts, AuditCounts> {
     fun counts(o: Map<String, Any?>) = AuditCounts(
         o.getValue("words").num(), o.getValue("right").num(), o.getValue("wrongReading").num(),
         o.getValue("wrongSense").num(), o.getValue("blank").num(), o.getValue("unmatched").num(),
-        o.getValue("unmarkedAlternates").num(),
+        o.getValue("unmarkedAlternates").num(), o.getValue("overmarkedAlternates").num(),
     )
     val root = MiniJson.parse(resource("audit-baseline.json")).obj()
     return counts(root.getValue("all").obj()) to counts(root.getValue("certified").obj())

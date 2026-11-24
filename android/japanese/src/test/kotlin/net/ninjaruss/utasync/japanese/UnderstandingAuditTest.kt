@@ -89,7 +89,10 @@ class UnderstandingAuditTest {
             )
         }
         assertEquals(
-            AuditCounts(words = 5, right = 1, wrongReading = 1, wrongSense = 1, blank = 1, unmatched = 1, unmarkedAlternates = 1),
+            AuditCounts(
+                words = 5, right = 1, wrongReading = 1, wrongSense = 1, blank = 1, unmatched = 1,
+                unmarkedAlternates = 1, overmarkedAlternates = 0,
+            ),
             counts,
         )
         assertEquals(counts.words, counts.verdictSum)

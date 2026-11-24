@@ -1671,3 +1671,50 @@ contract was wrong.
   Task 4's data shape, and this task is UI.
 - **Reproduce:** install the debug APK, `adb logcat -c`, open a song with Japanese lines, then
   `adb logcat -d | grep -E "reading alternates|SynchronizedLazy"`.
+
+### L55 — the furigana ambiguity mark is wrong 18 times in 99, and nothing was measuring it (MEASURED)
+
+- **What:** spec §4.2's anti-goal is "furigana that asserts a reading it cannot know", so a word
+  whose surface takes more than one reading is marked. The understanding audit has counted
+  `unmarkedAlternates` — a reading shown as certain when the corpus says it is not — since the
+  audit existed. **It had no counter for the opposite error**, and that is the one that bites: Task
+  7 put the mark on a real screen and it fired on roughly half the words (7 of 15 readings on the
+  implementer's sample lines; 空's popover lists six alternates). A mark on half a line is not a
+  warning, it is wallpaper, and §4.2 is not served by it.
+- **The instrument, added 2026-11-24:** `AuditCounts.overmarkedAlternates` — the corpus lists no
+  alternates for a word but the ruby carries some. Measured on the 99-word corpus with everything
+  else unchanged:
+
+  | | count | of 99 |
+  | --- | --- | --- |
+  | `overmarkedAlternates` (marked, should not be) | **18** | 18% |
+  | `unmarkedAlternates` (not marked, should be) | 5 | 5% |
+  | `right` (reading and sense both correct) | 89 | 90% |
+
+- **The two numbers pull in opposite directions and mean nothing alone.** Suppressing the mark
+  everywhere drives `overmarkedAlternates` to 0 and `unmarkedAlternates` to its ceiling; marking
+  everything does the reverse. Any fix has to move one without giving back the other, which is why
+  the counter had to exist before a fix could be attempted.
+- **A proposed fix that this measurement refutes.** Task 7's implementer suggested marking only
+  where a *common* rival reading exists, since the readings asset carries a common/uncommon split
+  that `rubyFor` discards by unioning both sides. Checked against the shipped asset: only **472 of
+  13,758 surfaces (3.4%)** have more than one common reading, and of the seven words observed
+  marked, four would clear (明白 めいはく|あからさま, 答え こたえ|いらえ, 声 こえ|しょう, 強い つよい|こわい)
+  while **three would not** — 空 (から, そら), 風 (ふり, かぜ, ふう) and 街 (がい, まち) all carry
+  several *common* readings. 風/ふう and 街/がい are on'yomi that are common **in compounds** and
+  never apply to a standalone token, and a common/uncommon split cannot express that. The union is
+  also deliberate and documented (彼 あれ/かれ, both common), so the split is not a
+  primary-versus-alternate signal. The filter would remove about half the false marks and read as
+  a fix.
+- **What a real fix needs:** a signal for "could the tokenizer plausibly have read this token that
+  way here", not "does the dictionary list this reading". Candidates, none yet measured: whether
+  the rival reading has a standalone dictionary entry rather than only a suffix or counter sense;
+  JMdict's own frequency or priority tags; agreement between Kuromoji's chosen reading and the
+  dictionary's first. Each is a measurable hypothesis against the two counters above and belongs
+  in a spike with its gate written first (CLAUDE.md rule 3).
+- **Caveat on the instrument itself:** every corpus entry is `"kind": "unverified"`, so
+  `overmarkedAlternates` measures agreement with an unverified expectation, not with truth. The
+  owner's verification of the corpus is still outstanding and it bounds what this number means.
+  The 18 and the implementer's ~47% are different material, and neither is a real song.
+- **Reproduce:** `cd android && ./gradlew :japanese:testDebugUnitTest`; the counts are in
+  `audit-baseline.json` and `renderBaseline` prints them on a mismatch.

@@ -8,7 +8,8 @@
   "wrongSense": 2,
   "blank": 1,
   "unmatched": 4,
-  "unmarkedAlternates": 5
+  "unmarkedAlternates": 5,
+  "overmarkedAlternates": 18
  },
  "certified": {
   "words": 0,
@@ -17,6 +18,7 @@
   "wrongSense": 0,
   "blank": 0,
   "unmatched": 0,
-  "unmarkedAlternates": 0
+  "unmarkedAlternates": 0,
+  "overmarkedAlternates": 0
  }
 }
