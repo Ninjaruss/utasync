@@ -1388,3 +1388,27 @@ node experiments/phase0/lrcScreen.mjs --shipped
   tail shippable has no detector behind it (ADR-0007).
 - **Reproduce:** `node experiments/detector/signals.mjs` and `node experiments/detector/armE.mjs`
   (local runs in `.cache/phase0/runs`, `.cache/pjs-per4`).
+
+### L64 — tap-a-few-and-interpolate fails its gate on every song (MEASURED, NO-GO)
+
+- **Date:** 2026-11-25. **Instrument:** `experiments/anchors/tapsVsAccuracy.mjs`.
+  **Gate pre-registered before the simulation was written**, in
+  `experiments/anchors/2026-11-25-taps-vs-accuracy.md`: build only if, at k ≤ 6 taps, ≥ 85% of
+  **untapped** lines land within 1.0 s of the reference on ≥ 4 of 5 songs.
+- **Measured:** the best cell at k ≤ 5 is **50%**, and **no song reaches 85% even at k = 12**.
+  Tapping the longest silences: 7–41% at k ≤ 5, 25–61% at k = 12. Tapping every nth line:
+  7–50% at k ≤ 5, 37–72% at k = 12. Neither interpolation rule (even spacing, or in proportion
+  to character count) wins consistently — the choice between them is noise next to the error.
+- **Reference:** each song's catalogue LRC, centred on its median shift. A reference, not truth
+  (L39, L62), but the question is "within about a second" and both rules face the same reference.
+- **Non-monotonic when tapping the longest silences** (veil 18% at k=3, 7% at k=5), checked and
+  real: the biggest breaks cluster early, so the song's tail falls beyond the last anchor and is
+  extrapolated from the median line gap.
+- **Why, stated so it is not re-proposed:** a line's timing is not predictable from its
+  neighbours. Held notes, breaths and instrumental bars break the assumption that the span
+  between two known points divides by line or by character. The information is in the audio, not
+  in the lyric sheet.
+- **Consequence:** a song is timed because it arrived timed, because every line was tapped, or
+  because something reads the audio. There is no cheap middle — L62, L63 and L64 reach that from
+  three directions.
+- **Reproduce:** `node experiments/anchors/tapsVsAccuracy.mjs`.
