@@ -44,13 +44,20 @@ const val RUBY_SCALE: Float = 0.5f
  * confuse two of them. [RubyText] passes widths it measured with Compose's own text measurer; the
  * default [nominalWidthSp] estimator is for tests and previews and gates nothing on screen.
  *
+ * **[maxWidth] and [widthOf] are in one unit, whichever the caller chose, and the function never
+ * converts.** [RubyText] works in pixels on purpose: under Android 14's nonlinear font scaling a
+ * text unit is not a fixed number of pixels, so adding up sp widths and comparing the total
+ * against a container converted with `Dp.toSp()` compares two different scales and wraps a line
+ * early or late at large font sizes. Pixels are additive at every scale. The default estimator
+ * returns sp, so a caller that takes it must pass [maxWidth] in sp too.
+ *
  * A word wider than the whole row gets a run to itself rather than being dropped. An empty line
  * produces no runs. The runs are in order and contiguous, so walking them yields every word once,
  * which is how [RubyText] recovers a word's index in [words].
  */
 fun rubyRuns(
     words: List<WordInfo>,
-    maxWidthSp: Float,
+    maxWidth: Float,
     widthOf: (Int) -> Float = { nominalWidthSp(words[it]) },
 ): List<List<WordInfo>> {
     if (words.isEmpty()) return emptyList()
@@ -59,7 +66,7 @@ fun rubyRuns(
     var used = 0f
     words.forEachIndexed { i, word ->
         val width = widthOf(i)
-        if (current.isNotEmpty() && used + width > maxWidthSp) {
+        if (current.isNotEmpty() && used + width > maxWidth) {
             runs += current
             current = ArrayList()
             used = 0f
@@ -132,10 +139,12 @@ fun isJapanese(surface: String): Boolean = surface.any { c ->
  * the row itself is the control that seeks, and nesting a second control inside it would take the
  * tap away from it (`LyricDisplay.tsx:440`).
  *
- * [onWordLongPress] is **not optional where [tappable]**: a word's own gesture handler consumes
- * the long press as well as the tap, so without it the row's long press stops working over the
- * words — measured on the emulator, where long-pressing the active line opened the popover
- * instead of the nudge screen. It is the row's long press, handed down.
+ * [onWordLongPress] and [onLongPressLabel] are **required, not defaulted**: a word's own gesture
+ * handler consumes the long press as well as the tap, so without them the row's long press stops
+ * working over the words — measured on the emulator, where long-pressing the active line opened
+ * the popover instead of the nudge screen. They are the row's long press and its label, handed
+ * down. Defaulted, a future caller could drop either one and put that bug back with nothing
+ * failing; required, it does not compile.
  *
  * **Accessibility:** the ruby is removed from the semantics tree entirely, so a screen reader
  * never reads base and reading interleaved. What it reads is the words' own surfaces, in order,
@@ -146,10 +155,10 @@ fun isJapanese(surface: String): Boolean = surface.any { c ->
 fun RubyText(
     words: List<WordInfo>,
     onWordTap: (Int) -> Unit,
+    onWordLongPress: () -> Unit,
+    onLongPressLabel: String,
     modifier: Modifier = Modifier,
     tappable: Boolean = true,
-    onWordLongPress: (() -> Unit)? = null,
-    onLongPressLabel: String? = null,
     baseStyle: TextStyle = LocalTextStyle.current,
     rubyScale: Float = RUBY_SCALE,
 ) {
@@ -165,15 +174,17 @@ fun RubyText(
     val ambiguousColor = MaterialTheme.colorScheme.tertiary
 
     BoxWithConstraints(modifier) {
-        val maxWidthSp = with(density) { if (constraints.hasBoundedWidth) maxWidth.toSp().value else Float.MAX_VALUE }
+        // Pixels throughout: the measurer reports pixels and `constraints` is in pixels, so
+        // nothing is converted and nothing depends on sp being additive (see rubyRuns).
+        val maxWidthPx = if (constraints.hasBoundedWidth) constraints.maxWidth.toFloat() else Float.MAX_VALUE
         val bases = remember(words) { words.indices.map { spacedBase(words, it) } }
-        val runs = remember(words, bases, baseStyle, rubyScale, maxWidthSp) {
+        val runs = remember(words, bases, baseStyle, rubyScale, maxWidthPx, density) {
             val widths = words.indices.map { i ->
                 val base = measurer.measure(bases[i], baseStyle).size.width
                 val ruby = words[i].ruby?.reading?.let { measurer.measure(it, rubyStyle).size.width } ?: 0
-                with(density) { maxOf(base, ruby).toSp().value }
+                maxOf(base, ruby).toFloat()
             }
-            rubyRuns(words, maxWidthSp) { widths[it] }
+            rubyRuns(words, maxWidthPx) { widths[it] }
         }
 
         Column {

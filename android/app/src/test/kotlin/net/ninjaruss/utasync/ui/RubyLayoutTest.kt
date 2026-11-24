@@ -43,7 +43,7 @@ class RubyLayoutTest {
     @Test fun `a line too long for one row breaks between words, never inside a ruby group`() {
         // Each word is 10 wide; the row holds 25. Widths are supplied, so this test measures the
         // breaking rule and nothing about fonts.
-        val runs = rubyRuns(sky, maxWidthSp = 25f) { 10f }
+        val runs = rubyRuns(sky, maxWidth = 25f) { 10f }
 
         assertEquals(listOf(listOf(sky[0], sky[1]), listOf(sky[2])), runs)
         // Nothing lost, nothing reordered, nothing split: a word is the unit, so a break can
@@ -53,7 +53,7 @@ class RubyLayoutTest {
     }
 
     @Test fun `a word wider than the whole row gets its own run rather than being dropped`() {
-        val runs = rubyRuns(sky, maxWidthSp = 5f) { 10f }
+        val runs = rubyRuns(sky, maxWidth = 5f) { 10f }
         assertEquals(3, runs.size)
         assertEquals(sky, runs.flatten())
     }
@@ -81,7 +81,7 @@ class RubyLayoutTest {
 
     @Test fun `an all-ASCII line produces one run and no ruby`() {
         val latin = testLine("Hello" to null, "world" to null)
-        val runs = rubyRuns(latin, maxWidthSp = 1_000f)
+        val runs = rubyRuns(latin, maxWidth = 1_000f)
         assertEquals(1, runs.size)
         assertEquals(latin, runs.single())
         assertFalse(runHasRuby(runs.single()))
@@ -106,6 +106,6 @@ class RubyLayoutTest {
     }
 
     @Test fun `an empty line produces no runs`() {
-        assertEquals(emptyList<List<WordInfo>>(), rubyRuns(emptyList(), maxWidthSp = 100f))
+        assertEquals(emptyList<List<WordInfo>>(), rubyRuns(emptyList(), maxWidth = 100f))
     }
 }

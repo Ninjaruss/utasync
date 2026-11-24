@@ -62,6 +62,7 @@ import kotlinx.coroutines.withContext
 import net.ninjaruss.utasync.align.activeLineIndex
 import net.ninjaruss.utasync.align.writeLrc
 import net.ninjaruss.utasync.UtasyncApplication
+import net.ninjaruss.utasync.data.LineEntity
 import net.ninjaruss.utasync.data.PrepareState
 import net.ninjaruss.utasync.data.Readiness
 import net.ninjaruss.utasync.data.SongDao
@@ -178,7 +179,10 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
     val app = context.applicationContext as UtasyncApplication
     val wordsCache = remember(app) { LineWordsCache({ app.analyzer() }, ReadingMode.DICTIONARY) }
     var lookingUp by remember { mutableStateOf<WordInfo?>(null) }
-    var showingWords by rememberSaveable { mutableStateOf(false) }
+    // The line the sheet is showing, captured when it opens -- NOT the active line. The sheet is
+    // read while the song keeps playing, so following the playhead would swap its contents, and
+    // close it outright at an instrumental break, under someone mid-read.
+    var sheetLineIndex by rememberSaveable { mutableStateOf<Int?>(null) }
 
     val readiness = readinessOf(song?.prepareState ?: PrepareState.PENDING, lines.size, starts.count { it != null })
     // Not singable means no highlight at all: half-timed lines must not pretend to follow along.
@@ -189,6 +193,11 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
     // place in composition: with no active line it analyses the empty string, which is no words.
     val activeLine = lines.getOrNull(active)
     val activeWords = rememberLineWords(wordsCache, activeLine?.lineIndex ?: -1, activeLine?.text ?: "")
+    // The sheet's own line, held still while the playhead moves on. Unconditional for the same
+    // reason as above; it is already analysed, since the menu item that opens the sheet is
+    // disabled until the words are in hand.
+    val sheetLine = sheetLineFor(sheetLineIndex, lines)
+    val sheetWords = rememberLineWords(wordsCache, sheetLine?.lineIndex ?: -1, sheetLine?.text ?: "")
     val listState = rememberLazyListState()
     LaunchedEffect(active) {
         if (active >= 0) listState.animateScrollToItem(maxOf(0, active - 2))
@@ -239,7 +248,7 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
                                 enabled = activeWords != null && activeWords.isNotEmpty(),
                                 onClick = {
                                     menuOpen = false
-                                    showingWords = true
+                                    sheetLineIndex = activeLine?.lineIndex
                                 },
                             )
                             DropdownMenuItem(
@@ -281,10 +290,11 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
         },
     ) { padding ->
         lookingUp?.let { word -> WordPopover(word, onClose = { lookingUp = null }) }
-        // Only ever opened from the menu item, which is disabled until the active line's words
-        // are in hand; if the active line changes under it the sheet closes rather than emptying.
-        if (showingWords && !activeWords.isNullOrEmpty()) {
-            LineWordsSheet(activeWords) { showingWords = false }
+        // Only ever opened from the menu item, which is disabled until that line's words are in
+        // hand. It closes when its own line is gone from the song (a replaced lyric sheet), never
+        // because the playhead moved: see sheetLineFor.
+        if (!sheetWords.isNullOrEmpty()) {
+            LineWordsSheet(sheetWords) { sheetLineIndex = null }
         }
         if (lines.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
@@ -366,6 +376,21 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
         }
     }
 }
+
+/**
+ * The line the words sheet is showing: the one captured when it opened, looked up by **line
+ * index** rather than by position in [lines].
+ *
+ * Two things fall out of that, and both are the point:
+ * - The playhead is not an input. The sheet is read while the song plays on, so a sheet that
+ *   tracked the active line would re-fill itself under the reader and empty on an instrumental
+ *   break. It holds its line until it is closed.
+ * - A line that is no longer in the song returns null, which closes the sheet. That is the
+ *   replaced-lyric-sheet case (spec 7 item 7): the captured index may now name different text, or
+ *   nothing at all, and showing the old words against the new line would be worse than closing.
+ */
+internal fun sheetLineFor(captured: Int?, lines: List<LineEntity>): LineEntity? =
+    captured?.let { index -> lines.firstOrNull { it.lineIndex == index } }
 
 /** Speed choices. A judgement, not a measurement: see ledger L47. */
 private val SPEEDS = listOf(0.5f, 0.75f, 1f)
