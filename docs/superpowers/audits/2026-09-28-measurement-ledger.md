@@ -1779,3 +1779,35 @@ printed "also read いく" over a word already read いく-inflected.
   `ReadingsTest."no word lists the reading of its own dictionary form as an alternate"`, which
   walks the corpus through the real analyzer and names each offender; it failed with all 7 before
   the fix.
+
+## L58 — the understanding gate's numbers, over an unverified corpus (MEASURED, NO BAR SET)
+
+2026-11-25, `feat/android-understanding`, Task 8. The release gate of spec §7a.2, run on the real
+`Analyzer` over the real dictionary rows and the shipped alternates asset (not a stub, not a
+fixture of the analyzer's own output).
+
+| count | value | what it means |
+| --- | --- | --- |
+| `words` | 99 | the corpus's own count, walked from the corpus, not the analyzer |
+| `right` | 89 | reading and at least one expected sense both matched |
+| `wrongReading` | 3 | |
+| `wrongSense` | 2 | understated: a word wrong in both counts only as `wrongReading` |
+| `blank` | 1 | matched, no senses — and a blank hides a reading error |
+| `unmatched` | 4 | no returned word had that surface: IPADIC segmentation, not meaning |
+| `unmarkedAlternates` | 5 | of which **3 are `unmatched` words**, so genuine missing marks are 2 (L56) |
+| `overmarkedAlternates` | 18 | marked where the corpus says there is nothing to mark; no signal separates them (L56) |
+
+**The corpus: 46 sentences, 99 words, all 46 `"kind": "unverified"`. Hand-labelled: zero.** So the
+gate's certified count is **0 of 99**, by design — `canCertify` scores an unverified entry and
+never lets it certify. Read `right = 89` as an upper bound on an expectation nobody has checked,
+not as 90% accuracy: 35 of the 99 words carry alternate lists, and Task 4's cross-check already
+found 21 of those incomplete and 3 naming alternates the inventory lacks.
+
+**No passing bar is set, and this entry does not invent one** (CLAUDE.md rule 2). The owner reads
+these numbers and decides. The one thing that would move all of them at once is verifying the
+corpus; until then a change that raises `right` cannot be told from one fitted to a wrong
+expectation.
+
+**Reproduce:** `cd android && ./gradlew --rerun-tasks :japanese:testDebugUnitTest`. The counts are
+committed in `japanese/src/test/resources/audit-baseline.json`, and `right` is a two-sided ratchet:
+a fall is a regression, a rise must be recorded by editing that file.

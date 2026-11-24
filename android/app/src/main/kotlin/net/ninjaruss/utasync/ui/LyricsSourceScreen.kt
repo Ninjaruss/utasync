@@ -8,8 +8,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -22,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -37,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -47,6 +52,7 @@ import net.ninjaruss.utasync.align.sheetFrom
 import net.ninjaruss.utasync.align.splitPastedLyrics
 import net.ninjaruss.utasync.data.PrepareState
 import net.ninjaruss.utasync.data.SongDao
+import net.ninjaruss.utasync.japanese.ReadingMode
 import net.ninjaruss.utasync.prepare.FetchSetting
 import net.ninjaruss.utasync.prepare.LookupOutcome
 import net.ninjaruss.utasync.prepare.Lrclib
@@ -93,6 +99,8 @@ fun LyricsSourceScreen(songId: Long, dao: SongDao, lrclib: Lrclib, onDone: () ->
     val scope = rememberCoroutineScope()
     val fetchSetting = remember { FetchSetting(context) }
     var autoLookup by remember { mutableStateOf(fetchSetting.enabled) }
+    val readingSetting = remember { ReadingSetting(context) }
+    var readingMode by remember { mutableStateOf(readingSetting.mode) }
 
     var candidates by remember { mutableStateOf<List<LrclibTrack>>(emptyList()) }
     // The last thing a search came back with, which decides whether another may be offered.
@@ -271,6 +279,42 @@ fun LyricsSourceScreen(songId: Long, dao: SongDao, lrclib: Lrclib, onDone: () ->
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Import an .lrc file") }
+            HorizontalDivider()
+
+            // One control, three states (spec 7 item 9) -- not a switch for furigana and another
+            // for which reading. It sits below the lyric actions on purpose: this screen is for
+            // giving a song its words, and the reading is a preference, not a step.
+            Text("Furigana", style = MaterialTheme.typography.titleMedium)
+            Column(Modifier.fillMaxWidth().selectableGroup()) {
+                ReadingMode.entries.forEach { mode ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .selectable(
+                                selected = readingMode == mode,
+                                role = Role.RadioButton,
+                                // The whole row, so the label is the target and not just the dot.
+                                onClick = { readingMode = mode; readingSetting.mode = mode },
+                            ),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // onClick = null: the row above owns the click, and the button must not
+                        // announce itself as a second target to a screen reader.
+                        RadioButton(selected = readingMode == mode, onClick = null)
+                        Text(readingModeLabel(mode), Modifier.padding(start = 8.dp))
+                    }
+                }
+            }
+            // Always shown, not only under the sung state: someone has to be able to read what
+            // that state does BEFORE choosing it.
+            Text(SUNG_READING_CAVEAT, style = MaterialTheme.typography.bodySmall)
+            HorizontalDivider()
+
+            // In the app, not only in a file: CC BY-SA requires it (spec section 5).
+            DICTIONARY_ATTRIBUTION.forEach {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }

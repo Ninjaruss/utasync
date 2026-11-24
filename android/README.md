@@ -14,8 +14,36 @@ experiment (`../experiments/phase0/`, ADR-0003).
 | `:data` | Android library | Room: songs, lines, anchors, alignment runs |
 | `:prepare` | Android library | LRCLIB client and retry policy, audio tag reading, the lyric-sourcing ladder (`prepareSong`) |
 | `:align` | **pure Kotlin/JVM** | LRC parsing and writing, sheet↔LRC matching, prior windows, anchors, line clock |
+| `:japanese` | Android library | Tokenising, furigana, the ambiguity mark, sense selection, grammatical roles |
 
-`:inference` and `:japanese` (ADR-0002) are added when there is code for them.
+`:inference` (ADR-0002) is added when there is code for it.
+
+### What `:japanese` brings in, and what each is used under
+
+| Dependency | Licence | Obligation |
+| --- | --- | --- |
+| `com.atilika.kuromoji:kuromoji-ipadic` | Apache 2.0 (Kuromoji), IPADIC's own terms (the bundled dictionary, NAIST) | keep the notices |
+| Vendored JMdict/EDICT, converted into the Room seed by `scripts/build-japanese-db.mjs` | CC BY-SA 4.0 (EDRDG) | **credit in the app**, not only in a file |
+
+The in-app credit is `DICTIONARY_ATTRIBUTION` in `app/.../ui/ReadingSetting.kt`, shown at the
+bottom of the Lyrics screen under the furigana control. A test holds it to naming each work and
+its licence, so it cannot be deleted quietly. Both dependencies were asked for and approved
+(CLAUDE.md rule 5), and both are F-Droid-clean.
+
+### What the readings do NOT claim
+
+**No reading shown is claimed to be the one being sung.** A singer assigns readings freely, and
+nothing in the app hears the audio — the alignment engine is undecided (ADR-0003). So the app
+shows the *dictionary* reading, marks a word that is known to be read more than one way, and lists
+the other readings when the word is tapped. The reading control's third state ("as sung, where it
+is known") exists for the day an engine produces a transcript; today it shows what the dictionary
+state shows, and the screen says so.
+
+**How accurate that is has been measured, and the corpus behind it is unverified.** See ledger
+L58: 99 words over 46 invented sentences, 89 right — but all 46 entries are `"kind": "unverified"`,
+which means **nothing in that number has been checked by a Japanese speaker**. `canCertify` keeps
+unverified entries out of the gate on purpose, so the certified count is 0 of 99 until the owner
+reads the corpus.
 
 ## Build
 
@@ -23,7 +51,7 @@ Requirements: JDK 17, Android SDK 35. Open this folder in Android Studio, or:
 
 ```sh
 # Everything CI runs: every JVM unit test, then the debug APK.
-./gradlew :align:test :data:testDebugUnitTest :playback:testDebugUnitTest :prepare:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug
+./gradlew :align:test :data:testDebugUnitTest :playback:testDebugUnitTest :prepare:testDebugUnitTest :japanese:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug
 ```
 
 ## What has been verified, and what has not

@@ -68,7 +68,6 @@ import net.ninjaruss.utasync.data.Readiness
 import net.ninjaruss.utasync.data.SongDao
 import net.ninjaruss.utasync.data.readinessOf
 import net.ninjaruss.utasync.data.resolveStarts
-import net.ninjaruss.utasync.japanese.ReadingMode
 import net.ninjaruss.utasync.japanese.WordInfo
 import net.ninjaruss.utasync.playback.PlayerConnection
 
@@ -175,9 +174,15 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
     }
     // Furigana and word meanings. One cache for the screen, analysed a line at a time off the
     // main thread; a line that has not come back yet draws as plain text (see LineWordsCache).
-    // ReadingMode is fixed at DICTIONARY here: the three-state control is Task 8's.
     val app = context.applicationContext as UtasyncApplication
-    val wordsCache = remember(app) { LineWordsCache({ app.analyzer() }, ReadingMode.DICTIONARY) }
+    val readingSetting = remember(app) { ReadingSetting(app) }
+    // Re-read when the lyrics screen closes, because the control lives there: a mode chosen there
+    // must be in force when the player comes back, without restarting the app.
+    var readingMode by remember { mutableStateOf(readingSetting.mode) }
+    LaunchedEffect(sourcing) { if (!sourcing) readingMode = readingSetting.mode }
+    // A new cache per mode: the analysed lines hold the ruby the old mode produced, and OFF
+    // produces none at all, so keeping them would leave furigana on screen after switching off.
+    val wordsCache = remember(app, readingMode) { LineWordsCache({ app.analyzer() }, readingMode) }
     var lookingUp by remember { mutableStateOf<WordInfo?>(null) }
     // The line the sheet is showing, captured when it opens -- NOT the active line. The sheet is
     // read while the song keeps playing, so following the playhead would swap its contents, and
