@@ -106,13 +106,11 @@ fun TapAlongScreen(songId: Long, dao: SongDao, controller: MediaController?, onD
     if (confirmReplace) {
         AlertDialog(
             onDismissRequest = { confirmReplace = false },
-            title = { Text("Replace $replaced hand-timed line${if (replaced == 1) "" else "s"}?") },
+            title = { Text(replaceHandTimedTitle(replaced)) },
             text = {
                 Text(
                     "Saving your $tapCount tap${if (tapCount == 1) "" else "s"} replaces " +
-                        "$replaced line${if (replaced == 1) "" else "s"} " +
-                        "you placed by hand. That cannot be undone; the hand-placed time${if (replaced == 1) "" else "s"} " +
-                        "will be gone.",
+                        "${handPlacedLines(replaced)}. ${handTimedLossNote(replaced)}",
                 )
             },
             confirmButton = {

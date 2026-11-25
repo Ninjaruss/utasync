@@ -15,6 +15,30 @@ data class SongEntity(
     val durationMs: Long? = null,
     /** Where the lyric text came from: "lrc-file", "embedded", "lrclib", "paste". */
     val lyricsSource: String? = null,
+    /**
+     * What preparation has been **attempted**. It deliberately says nothing about what the lines
+     * contain — readiness for singing is derived from the lines themselves — so the two cannot
+     * drift apart.
+     *
+     * Every value lives in [PrepareState]; nothing may write a string that is not one of them,
+     * because [readinessOf] can only fall back to "no lyrics yet" for a state it cannot read.
+     *
+     * - `"pending"` — nothing attempted yet.
+     * - `"fetching"` — a lookup is in flight.
+     * - `"done"` — lyrics are stored.
+     * - `"no-match"` — the service answered and has nothing this song can use automatically (no
+     *   record, an instrumental, or candidates only the user can choose among), or no query
+     *   could be formed. The user must act; an automatic retry would change nothing.
+     * - `"failed"` — the lookup did not finish: nothing answered (offline), or LRCLIB answered
+     *   with an error. A retry is sensible. It does **not** mean the service was unreachable.
+     * - `"rate-limited"` — the service WAS reached and asked us to wait. No retry is offered.
+     * - `"off"` — automatic lookup is switched off, so nothing has been attempted.
+     *
+     * `"no-match"`, `"failed"` and `"rate-limited"` are deliberately separate: showing "couldn't
+     * reach the service" when the service answered perfectly well — or when it answered by asking
+     * us to wait — is the kind of dishonest label this project has already paid for once.
+     */
+    val prepareState: String = "pending",
     val createdAtMs: Long,
 )
 

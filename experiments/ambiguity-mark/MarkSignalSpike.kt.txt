@@ -1,0 +1,107 @@
+// The spike harness, kept as text rather than as Kotlin: the gate came back NO-GO, so nothing
+// enters android/ (CLAUDE.md rule 3), but a ledger entry has to be reproducible (rule 1).
+//
+// To re-run: copy to
+//   android/japanese/src/test/kotlin/net/ninjaruss/utasync/japanese/MarkSignalSpike.kt
+// then `cd android && ./gradlew :japanese:testDebugUnitTest --tests '*MarkSignalSpike*' --rerun-tasks`
+// and read system-out from japanese/build/test-results/testDebugUnitTest/*MarkSignalSpike.xml.
+// Delete it again afterwards: it prints, it asserts nothing, and it is not a test.
+
+package net.ninjaruss.utasync.japanese
+
+import java.io.File
+import net.ninjaruss.utasync.data.DictionaryEntity
+import org.junit.Test
+
+class MarkSignalSpike {
+    /** The rivals an arm keeps, given the word and the dictionary rows for the surface it matched. */
+    private fun interface Arm {
+        fun keep(shown: String, rivals: List<String>, rows: List<DictionaryEntity>, common: List<String>): List<String>
+    }
+
+    private val suffixish = setOf("suf", "pref", "ctr")
+
+    private fun firstGloss(rows: List<DictionaryEntity>, reading: String): String? =
+        rows.firstOrNull { it.reading == reading }?.glosses?.firstOrNull()
+
+    private val arms: List<Pair<String, Arm>> = listOf(
+        "0 baseline" to Arm { _, rivals, _, _ -> rivals },
+        "A common only" to Arm { _, rivals, _, common -> rivals.filter { it in common } },
+        "B standalone word" to Arm { _, rivals, rows, _ ->
+            rivals.filter { r ->
+                val withReading = rows.filter { it.reading == r }
+                withReading.isEmpty() || withReading.any { it.posLabel !in suffixish }
+            }
+        },
+        "C not the same word" to Arm { shown, rivals, rows, _ ->
+            val mine = firstGloss(rows, shown)
+            rivals.filter { r -> mine == null || firstGloss(rows, r) != mine }
+        },
+        "D tokenizer took the first entry" to Arm { shown, rivals, rows, _ ->
+            if (rows.firstOrNull()?.reading == shown) emptyList() else rivals
+        },
+        "B+C" to Arm { shown, rivals, rows, _ ->
+            val mine = firstGloss(rows, shown)
+            rivals.filter { r ->
+                val withReading = rows.filter { it.reading == r }
+                val standalone = withReading.isEmpty() || withReading.any { it.posLabel !in suffixish }
+                standalone && (mine == null || firstGloss(rows, r) != mine)
+            }
+        },
+    )
+
+    @Test fun `every arm, same corpus`() {
+        val corpus = loadCorpus()
+        val dict = CorpusDictionary(corpusSurfaces(corpus))
+        val base = corpusAnalyzer(corpus)
+        val common = commonReadings()
+        val rowsFor = { w: WordInfo ->
+            val surface = w.token.surface
+            val own = runSuspend { dict.entriesFor(surface) }
+            if (own.isNotEmpty()) own
+            else w.token.baseForm?.takeIf { it.isNotBlank() && it != surface }
+                ?.let { runSuspend { dict.entriesFor(it) } }.orEmpty()
+        }
+        println("arm,overmarked,unmarked,right")
+        arms.forEach { (name, arm) ->
+            val counts = auditAgainst(corpus) { text ->
+                base(text).map { w ->
+                    val ruby = w.ruby ?: return@map w
+                    val shown = ruby.reading ?: return@map w
+                    w.copy(ruby = ruby.copy(alternates = arm.keep(shown, ruby.alternates, rowsFor(w), common(w.token.surface))))
+                }
+            }
+            println("$name,${counts.overmarkedAlternates},${counts.unmarkedAlternates},${counts.right}")
+        }
+        // The baseline's disagreements, word by word, for the owner's review.
+        corpus.entries.forEach { e ->
+            val got = base(e.text)
+            e.words.forEach { w ->
+                val hit = got.firstOrNull { it.token.surface == w.surface }
+                if (hit == null) { if (w.alternates.isNotEmpty()) println("NOMATCH ${w.surface}"); return@forEach }
+                val mark = hit.ruby?.alternates.orEmpty()
+                val ownBase = tokenize(hit.token.baseForm ?: "").firstOrNull()?.reading
+                if (ownBase != null && mark.contains(ownBase)) println("SELFRIVAL ${w.surface} shown=${hit.ruby?.reading} names its own base reading $ownBase")
+                if (w.alternates.isEmpty() && mark.isNotEmpty()) {
+                    println("OVER ${w.surface} shown=${hit.ruby?.reading} rivals=${mark.joinToString("/")}")
+                }
+                if (w.alternates.isNotEmpty() && mark.isEmpty()) {
+                    println("UNDER ${w.surface} shown=${hit.ruby?.reading} corpus=${w.alternates.joinToString("/")}")
+                }
+            }
+        }
+    }
+
+    /** The asset's FIRST list per surface (common readings); the shipped parser unions both. */
+    private fun commonReadings(): (String) -> List<String> {
+        val text = generateSequence(File("").absoluteFile) { it.parentFile }
+            .map { File(it, "japanese/src/main/assets/reading-alternates.json") }
+            .first { it.isFile }.readText()
+        val entry = Regex(""""((?:[^"\\]|\\.)*)":\[\[([^]]*)],\[[^]]*]]""")
+        val map = entry.findAll(text).associate { m ->
+            m.groupValues[1] to m.groupValues[2].split(',')
+                .map { it.trim().trim('"') }.filter { it.isNotEmpty() }
+        }
+        return { map[it].orEmpty() }
+    }
+}

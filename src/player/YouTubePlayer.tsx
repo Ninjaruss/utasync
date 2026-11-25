@@ -35,9 +35,20 @@ function loadYTScript(): Promise<void> {
     ytScriptPromise = new Promise((resolve) => {
       let settled = false
       const finish = () => {
-        if (settled || !window.YT?.Player) return
+        if (settled) return
+        // This poll is cleared only once window.YT.Player appears, so wherever the YouTube
+        // API never loads - a test environment, a blocked or offline page - it runs every
+        // 100 ms for the lifetime of the document and `ytScriptPromise` never settles. When
+        // jsdom then tears the window down, the `!window.YT?.Player` check below is the line
+        // that throws "window is not defined". Ending the poll on a vanished window stops
+        // both the crash and an interval nobody owns any more.
+        if (typeof window === 'undefined') {
+          clearInterval(poll)
+          return
+        }
+        if (!window.YT?.Player) return
         settled = true
-        window.clearInterval(poll)
+        clearInterval(poll)
         resolve()
       }
       const prev = window.onYouTubeIframeAPIReady
