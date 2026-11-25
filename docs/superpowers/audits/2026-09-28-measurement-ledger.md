@@ -1886,6 +1886,64 @@ node experiments/phase0/score.mjs --manifest .cache/pjs-per4/manifest.json
 node experiments/phase0/lrcScreen.mjs --shipped
 ```
 
+### L63 — nothing flags arm D's catastrophic lines (MEASURED, NO-GO)
+
+- **Date:** 2026-11-25. **Instruments:** `experiments/detector/signals.mjs` and
+  `experiments/detector/armE.mjs`. **Gate pre-registered before any arm existed**, in
+  `experiments/detector/2026-11-25-reliability-signal.md` (commit `163e811`).
+- **Question:** L62 showed D's median is fine and its tail is not. An aligner wrong 7% of the
+  time that *says which* 7% is shippable; one that is confidently wrong is not. Does any cheap
+  signal separate the 16 catastrophic lines from the 186 stable ones?
+
+| arm | recall (≥ 12 of 16) | false alarms (≤ 28 of 186) |
+| --- | --- | --- |
+| A order | 0 | 0 |
+| B spacing | 0 | 8 |
+| C window-shift disagreement (own subset) | 1 of 8 | 8 of 97 |
+| D `pinned`, the product's flag | 0 | 10 |
+| A ∨ B | 0 | 8 |
+
+- **The mechanism, measured:** the catastrophes do not break order or spacing because D is
+  smoothly, self-consistently wrong. It takes the first line after a long instrumental and pulls
+  it back to the end of the previous section, **inverting the gaps either side of it** (veil 4:
+  prior 15.9/3.0, D 3.5/15.2; same shape on veil 19, guitar 18 and 34, recollect 25,
+  going-my-way 14), and the error tracks the break's length. Same family as L37's prior-following
+  lines, but these are not pinned, so the existing flag is blind to them.
+- **Arm E (gap inversion)** was pre-registered against the PJS medleys rather than the songs that
+  produced the hypothesis, and scored **0 of 20**. But 19 of the 20 medley catastrophes are the
+  *last* line of a four-line medley — a different failure (no following context) from the
+  post-instrumental entry E targets. E's own case is therefore untested, and re-testing it on the
+  five songs would be tuning on the data.
+- **Also measured, and worth its own line:** `pinned` fires on **79 of 80 correct** medley lines
+  and **0 of 20 wrong** ones. The product's reliability flag is inverted there, not weak.
+- **Consequence:** the "mark the bad lines, show the rest" fallback that would have made D's 7%
+  tail shippable has no detector behind it (ADR-0007).
+- **Reproduce:** `node experiments/detector/signals.mjs` and `node experiments/detector/armE.mjs`
+  (local runs in `.cache/phase0/runs`, `.cache/pjs-per4`).
+
+### L64 — tap-a-few-and-interpolate fails its gate on every song (MEASURED, NO-GO)
+
+- **Date:** 2026-11-25. **Instrument:** `experiments/anchors/tapsVsAccuracy.mjs`.
+  **Gate pre-registered before the simulation was written**, in
+  `experiments/anchors/2026-11-25-taps-vs-accuracy.md`: build only if, at k ≤ 6 taps, ≥ 85% of
+  **untapped** lines land within 1.0 s of the reference on ≥ 4 of 5 songs.
+- **Measured:** the best cell at k ≤ 5 is **50%**, and **no song reaches 85% even at k = 12**.
+  Tapping the longest silences: 7–41% at k ≤ 5, 25–61% at k = 12. Tapping every nth line:
+  7–50% at k ≤ 5, 37–72% at k = 12. Neither interpolation rule (even spacing, or in proportion
+  to character count) wins consistently — the choice between them is noise next to the error.
+- **Reference:** each song's catalogue LRC, centred on its median shift. A reference, not truth
+  (L39, L62), but the question is "within about a second" and both rules face the same reference.
+- **Non-monotonic when tapping the longest silences** (veil 18% at k=3, 7% at k=5), checked and
+  real: the biggest breaks cluster early, so the song's tail falls beyond the last anchor and is
+  extrapolated from the median line gap.
+- **Why, stated so it is not re-proposed:** a line's timing is not predictable from its
+  neighbours. Held notes, breaths and instrumental bars break the assumption that the span
+  between two known points divides by line or by character. The information is in the audio, not
+  in the lyric sheet.
+- **Consequence:** a song is timed because it arrived timed, because every line was tapped, or
+  because something reads the audio. There is no cheap middle — L62, L63 and L64 reach that from
+  three directions.
+- **Reproduce:** `node experiments/anchors/tapsVsAccuracy.mjs`.
 ### L65 — 95% of a real playlist already has synced lyrics; the aligner serves 6 songs in 111 (MEASURED)
 
 - **Date:** 2026-11-25. **Instrument:** `experiments/coverage/lrclibCoverage.mjs` against the
