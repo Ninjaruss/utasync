@@ -38,6 +38,12 @@ jobs:
       # because the generated dictionaries and glosses are committed to the repo.
       - name: Install
         run: npm ci
+        # onnxruntime-node's postinstall downloads a CUDA build of ONNX Runtime from
+        # GitHub releases, which began 404ing on 2026-11-24 and fails `npm ci` outright
+        # on every branch. CI has no GPU, so the CUDA execution provider was never
+        # usable here; skipping the download leaves ONNX Runtime itself installed.
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
 
       - name: Typecheck
         run: npx tsc -b
@@ -69,6 +75,9 @@ jobs:
 
       - name: Install
         run: npm ci
+        # See the static-checks job: the CUDA download 404s and has no use in CI.
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
 
       - name: Test
         run: npx vitest run --reporter=dot
