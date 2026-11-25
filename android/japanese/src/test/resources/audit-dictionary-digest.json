@@ -1,0 +1,9 @@
+{
+ "v": 1,
+ "generatedBy": "scripts/build-audit-digest.mjs",
+ "note": "Both scripts/build-japanese-db.mjs and the Kotlin CorpusDictionary must produce these rows for the corpus surfaces. If this fails, the two conversions have diverged: fix the divergence, do not regenerate to make it pass.",
+ "surfaces": 94,
+ "surfacesFound": 75,
+ "rows": 196,
+ "sha256": "0b6af5944fb1b7f3a35f485634832e91b0cb5777ffc574c5c1d5f144d521d7f0"
+}

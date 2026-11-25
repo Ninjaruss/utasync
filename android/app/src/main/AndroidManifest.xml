@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- No INTERNET permission yet: v1 phase 1 is fully offline (local audio + .lrc files). -->
+<!--
+  INTERNET is for lyric lookup against LRCLIB and nothing else. The query carries only the
+  title, artist, album and duration read from the user's own file; no audio and no personal
+  data leave the device, and the lookup can be switched off (FetchSetting).
+-->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:name=".UtasyncApplication"

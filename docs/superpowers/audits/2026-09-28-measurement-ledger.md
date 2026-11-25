@@ -1279,6 +1279,538 @@ nothing rather than an arbitrary row.
   pin boundary, re-score an existing run at other values of `PIN_SEC` and read the flagged count and
   the clause-2 column: not done here.
 
+### L43 — Android waveform decode gate: a 4-minute file decodes in under 2 s (a judgement, not a measurement; currently UNMET on the emulator, UNTESTED on hardware)
+
+- **What:** the pre-registered gate for `decodeEnvelope` (`android/playback/.../WaveformDecoder.kt`)
+  in the Android correction plan, Task 2. The gate is "a 4-minute local file → 200 peaks/s envelope in
+  **< 2 s** on a debug build, and envelope length within **50 ms** of the file duration". The 50 ms is
+  10 peaks at 200/s, i.e. the envelope's own grain; the 2 s is the number this entry is about.
+- **Gates:** whether the nudge screen (drag a line start along a waveform) may be built on this decoder.
+  Nothing in `src/` or `android/` reads the constant; it is a go/no-go for the plan. CI asserts only a
+  coarse real-time factor (< 10x audio length) so an order-of-magnitude slowdown fails (the assert runs after the decode returns; a hang is caught separately by a 180 s `withTimeout` around each test decode), and
+  deliberately does **not** assert 2 s.
+- **2 s for 4 min — a judgement, not measured.** It rests on a UX budget: the waveform should appear
+  about as fast as the screen opens, and 2 s is roughly "the user does not feel a wait". Nothing was
+  measured to derive it. It is expressed as ms because the plan wrote it that way; the portable form is
+  a real-time factor: 2 s / 240 s = 0.0083.
+- **Length (hardware-independent):** WAV, mono and stereo, 6 s and 240 s: exact. AAC-LC stereo
+  (in-test `MediaCodec`+`MediaMuxer`): 6.000 s source → 1199 peaks, durationMs 5990; 240.000 s source →
+  47996 peaks, durationMs 239978. Both inside 50 ms (10 / 22 ms short, i.e. 2 / 4 peaks).
+- **Timings taken (every one; the device is in each row — emulator numbers are NOT hardware numbers):**
+
+  | Input | Device | Warm-up? | Time | RTF | vs 2 s |
+  | --- | --- | --- | --- | --- | --- |
+  | PCM WAV, mono 44.1k, 240 s | EMULATOR (AVD sdk_gphone64_arm64, android-35, software GPU) | no (cold) | 6104, 9390, 6985 ms | 0.025–0.039 | over |
+  | PCM WAV, stereo 44.1k, 240 s | EMULATOR (same) | yes (one prior decode of the AAC file) | 8164 ms | 0.034 | over |
+  | AAC-LC stereo 128 kbps 44.1k, 240 s | EMULATOR (same) | yes | 31603, 49642, 43276 ms | 0.132–0.207 | over, 16–25x |
+  | PCM WAV, stereo 44.1k, 240 s, **after loop change** (drain/feed with timeout 0, bulk buffer read) | EMULATOR (same) | yes | 5022 ms | 0.021 | over (gate: <2 s) |
+  | AAC-LC stereo 128 kbps 44.1k, 240 s, **after loop change** | EMULATOR (same) | yes | 31203, 28131, 38622 ms | 0.117–0.161 | over (gate: <8 s) |
+  | any | real phone | — | **not measured** | — | **untested** |
+
+  The mono-WAV rows exercised the PCM pass-through path only (no compressed decoder), so they say
+  nothing about real songs; the AAC row is the realistic input. The emulator runs software codecs on
+  an Apple Silicon host; the relationship to a phone's hardware or NEON decoder is unknown and not
+  assumed.
+- **Loop-overhead experiment (gate written before the run: PCM WAV < 2 s AND AAC < 8 s).** Hypothesis:
+  the 10 ms-timeout one-buffer-per-iteration loop, not decode, was the cost. One change (feed all free
+  input buffers and drain all ready output with timeout 0; bulk-copy each output buffer to an array)
+  gave PCM 8.2 → 5.0 s and AAC 31.6/49.6/43.3 → 31.2/28.1/38.6 s. **Both gates missed**: the loop is
+  not the main cost on this emulator (PCM only improved ~40%, AAC within its own run-to-run spread). Not
+  iterated further, by design.
+- **`peaksPerSecond` = 200 (`WaveformDecoder.kt`, the default argument) — a judgement, not a
+  measurement.** This entry's 50 ms length tolerance is derived from it (10 peaks at 200/s), so it
+  has to be stated here. What it buys: one peak per 5 ms. The nudge waveform is 12 s wide
+  (`NudgeWindow.SPAN_MS`, L45) on a phone screen of roughly 1080 px, so one screen pixel covers
+  about 11 ms — two peaks. That is the point: at 200/s the picture is never the limit on what the
+  eye can see, while the array stays small (a 4-minute song is 48 000 floats, 192 KB). Below about
+  100/s a pixel would span a peak or more and attack transients would smear; far above 200/s costs
+  memory for detail no pixel can show. Nothing was measured to pick it, and the decode cost is
+  dominated by the codec, not by the bucketing, so changing it would not move the timings above.
+- **`delay(2)` in the drain loop — a tuned number, not a measured one.** When a pass of the loop
+  neither feeds nor drains a buffer it waits 2 ms rather than spinning. It was `Thread.sleep(2)`,
+  which blocked a `Dispatchers.Default` pool thread (the pool is sized to the core count) inside
+  this very loop; it is now `delay(2)`, which suspends instead. The 2 ms is unchanged and
+  unmeasured: it is short enough to be well under one buffer of audio and long enough to stop a
+  busy-spin. The timings in the table above were taken with `Thread.sleep`; the change can only
+  free pool threads, not slow the decode, and it was not re-timed.
+- **Open item — float-PCM branch untested.** The decoder has a `ENCODING_PCM_FLOAT` path (and a bulk
+  float read); the emulator's decoders emit 16-bit, so it has never run. Needs a device whose decoder
+  emits float, or a test that requests float output via `KEY_PCM_ENCODING`.
+- **What is and is not known:** on the emulator the approach is well over the judged budget on realistic
+  input. That is a finding about *this emulator*, not proof that a phone misses. It is not tuned.
+- **Reproduce:** `cd android && ./gradlew :playback:connectedDebugAndroidTest`, then
+  `adb logcat -d -s WaveformGate` (each line carries the device tag). Run it on a physical phone to
+  fill the empty row; until then this gate is unmet and untested on hardware.
+
+### L44 — Android `Scrubber.COALESCE_WINDOW_MS` = 60 ms (a judgement, not a measurement; never tried on a real player)
+
+- **Where:** `android/playback/.../Scrubber.kt`. **Gates:** how often a drag on the nudge waveform
+  issues a `seekTo`. The first position in a window seeks at once; later ones are held and only the
+  latest is seeked to when the window ends. At 60 ms a drag is capped at ~16 seeks/s.
+- **What it rests on:** a UX judgement. 60 ms is about four 60 Hz frames (3.6, rounded): short enough that the audio
+  feels attached to the thumb, long enough that a drag emitting hundreds of events/s does not queue
+  hundreds of seeks. Nothing was measured. It was deliberately **not** timed on the emulator or any
+  player (L43's emulator timings are explicitly about that emulator, not hardware).
+- **What the tests do and do not pin:** `ScrubberTest` uses a fake clock and a fake seek target. It
+  proves the *coalescing logic* (one seek per window, last position wins, no seek after `stop`). It
+  says nothing about whether 60 ms *sounds* right, or about real `MediaController.seekTo` latency.
+- **Open item:** on a physical phone, drag over a song and listen. If audio lags the thumb or stutters
+  with seek storms, adjust the constant and record what was heard here. Untested until then.
+- **Reproduce:** `cd android && ./gradlew :playback:testDebugUnitTest --tests '*ScrubberTest*'`.
+
+### L45 — Android nudge screen: `ScrubAudio.IDLE_PAUSE_MS` = 150 ms and `NudgeWindow.SPAN_MS` = 12 s (judgements, not measurements; drawn on the emulator, never heard)
+
+- **Where:** `android/app/.../ui/ScrubAudio.kt`, `NudgeState.kt`. **Gates:** (1) `IDLE_PAUSE_MS`: how long a
+  held finger keeps the player running before it pauses, so a stationary thumb repeats its spot instead of
+  the song running ahead of it. Playback starts on the first drag event (a paused ExoPlayer is silent on
+  `seekTo`) and the pre-gesture play state is restored on release. (2) `SPAN_MS`: seconds of song across
+  the waveform; this bounds how far one drag can move a line (handle cannot leave the view).
+- **What they rest on:** 150 ms is above the 60 ms seek window (L44) so normal movement never idles, and
+  below a perceptible pause. 12 s is about two or three sung lines at the pace of the demo songs. Both are
+  judgements; nothing was measured or listened to.
+- **Hard numbers in the same change that are NOT judgements:** `MIN_GAP_MS` = 50 equals `applyAnchors`'s
+  `minGapSec` default 0.05 (`NudgeStateTest.clampedTimeIsOneAlignLeavesAlone`); `FINE_STEP_MS` = 100 is the
+  product spec's "±0.1 s".
+- **`TimingResolver.MIN_PIN_GAP_MS` = 50 — the same rule, a third copy, and the one that guards the
+  guarantee.** `android/data/.../TimingResolver.kt`. **Gates:** how far a conflicting later user pin is
+  pushed forward in the resolved monotonic view when two user pins cross (the earlier line wins and the
+  later one is clamped to at least this far after it), and whether an auto pin is considered to "fit"
+  between its neighbours. It is not a tuned number: it is `applyAnchors`'s `minGapSec` default 0.05 s
+  expressed in ms, so that a time this module stores is never one the `:align` module would move. The
+  50 ms itself is `:align`'s, and is a floor on distinguishable line starts, not a measurement of
+  anything in this project. All three copies are now pinned to `:align`'s default by tests:
+  `NudgeStateTest.clampedTimeIsOneAlignLeavesAlone` and
+  `TimingResolverTest.theResolversMinimumGapIsTheAlignModulesDefault`, which reads the default back out
+  of `applyAnchors`'s behaviour rather than restating the literal. Changing one without the others now
+  fails a test. **Reproduce:** `cd android && ./gradlew :data:testDebugUnitTest :app:testDebugUnitTest`.
+- **Conflict rule: earlier-line-wins, with the data to change it now stored.** `AnchorEntity.writtenAtMs`
+  (stamped by `SongDao.upsertUser`/`upsertAuto`) records when each pin was written, so "the most recent
+  correction wins" is available whenever it is wanted. It was added while the database is still at
+  version 1 with no installed base, so it cost a regenerated schema JSON and no migration. The resolver
+  deliberately does **not** use it yet: no one has been observed hitting the case, and switching rules
+  would change resolved times with nothing measured to say the new rule is better (rule 2).
+  Earlier-line-wins is also order-stable — the view depends only on the pins, not on the order they were
+  saved in. Not a permanent decision; the blocker is now a measurement, not a schema.
+- **Open item:** on a physical phone, drag with the song paused and listen: does it sound under the thumb,
+  does a held finger repeat cleanly, is 12 s too narrow. Record what was heard here.
+- **Reproduce:** `cd android && ./gradlew :app:testDebugUnitTest --tests '*ScrubAudioTest*' --tests '*NudgeStateTest*'`
+  (logic only; says nothing about how it sounds).
+- **What was drawn (emulator-5554, API 35, `-no-audio`, 27 s TTS m4a):** Loading, Ready, Failed (missing
+  file), a null-time line, portrait and landscape, a drag clamped at the neighbour, and Save writing one
+  `anchors` row with `lines` unchanged. Two layout defects were found and fixed this way (no scroll; squashed
+  progress indicator) plus a stale-state bug (handle stayed live after a failed decode). **Not heard:** the
+  emulator has no audio, so nothing here says whether scrubbing sounds right; `IDLE_PAUSE_MS` and the
+  `Scrubber` window remain untested by ear. **Not verified:** that Cancel restores the playhead (coded, not
+  observed).
+- **Known gap: reach.** A line cannot pass its neighbours (clamp) and lines sit ~3-5 s apart, so nudge
+  reaches roughly +/-6 s at most, bounded by the neighbour clamp, not the 12 s view. Errors in the 6-24 s
+  band measured in this project belong to tap-along (Task 5). **Nothing yet hands the user from one tool to
+  the other**; today they must know. "Centre on playhead" moves the view, not the clamp.
+- **Rotation (fixed in part).** Rotating used to drop an unsaved drag and re-decode. The proposal now
+  survives rotation (`rememberSaveable`, re-applied when the state is rebuilt; observed on the emulator: New
+  12.45 s kept after rotating). The **waveform still decodes again**, so a rotation mid-correction costs the
+  decode time (28-49 s for a 4-minute file, L43) behind the Loading state; the handle works meanwhile.
+- **Clamp outside the view (fixed).** When a clamp lands outside the window (reachable after "Centre on
+  playhead"), the handle, original and neighbour lines are now pinned to the view edge instead of vanishing,
+  and the status text sits in a minimum-height slot so a message appearing mid-drag does not shove the waveform
+  under the finger. Observed: `pinned_clamp_outside_view.png` (handle at the left edge, New 12.45 s, clamp text).
+  Pinning shows that a clamp happened, not by how much.
+- **Playhead on Cancel (explained and fixed).** The restore was coded correctly all along; a second effect
+  was undoing it. `PlayerScreen`'s repeat loop was declared ABOVE the early returns that hand over to the
+  nudge and tap-along screens, so Compose kept it composed and seeking while those screens were open: with
+  Repeat on, `onDispose` seeked back to the start position and the still-live loop seeked it away on the
+  next frame. The same effect made the nudge handle jump out from under the thumb (`ScrubAudio` starts
+  playback on the first drag; the loop then saw the position past the range and seeked back) and looped one
+  line forever during tap-along, so a whole set of taps could be saved crammed inside a single line. Fixed
+  by hoisting the `nudging`/`tapping` state above the loop and suspending the loop while either is up
+  (Repeat stays on and resumes on return). Reproduced and then confirmed gone on emulator-5554.
+- **Removing a pin (added).** The guarantee was only "a pin can never be lost"; the inverse was missing and
+  the only escape from a bad pin was deleting the song. Pinned lines now carry a marker in `PlayerScreen`
+  and the nudge screen offers "Clear pin", one `SongDao.deleteAnchor`, after which the line falls back to
+  its computed time. No threshold, nothing measured; it is a missing inverse, not a tuning choice.
+- **Known gap, deliberately not closed: anchors re-attach by line INDEX.** Importing a different `.lrc`
+  whose lines do not correspond one-to-one leaves every pin on whatever line now holds that index, silently.
+  The resolver already drops pins on indexes past the end of a shorter sheet, which is the only part that
+  cannot be wrong. Binding a pin to line CONTENT instead (or prompting the user at re-import) is a design
+  decision about what a pin is attached to, and is bigger than this wave; it is recorded here rather than
+  guessed at. Until it is settled, a user who re-imports a differently-cut sheet must check their pins.
+
+
+### L46 — Android tap-along: `TapSession.DEBOUNCE_MS` = 250 ms (a judgement, not a measurement)
+
+- **Where:** `android/align/.../TapAlong.kt`. **Gates:** a tap closer than this to the previous accepted tap is
+  rejected and consumes no line. Without it, an accidental double-tap times the next line at the same
+  instant and every later line is off by one.
+- **What it rests on:** nothing measured. It is meant to sit above the gap between the two taps of an
+  accidental double-tap (roughly 100-200 ms, from general experience, not from this project) and below
+  any real gap between sung lines (lines in this project's songs are seconds apart). If a rapid
+  deliberate sequence of short lines is rejected, lower it; if double-taps still get through, raise it.
+- **Not a judgement:** a tap earlier than the previous one is rejected outright; a tap after the last line
+  is rejected. Both are rules, not tuned numbers.
+- **Not handled:** tap latency (finger to player clock). Its sign and size are unknown: tapping to an
+  anticipated line start tends to land near zero or slightly early, Bluetooth output delay pushes the
+  other way, and both vary by user and audio route. No offset is applied (rule 2: none is measured).
+  Taps are a first pass, and the screen says to fine-tune with nudge. Measuring it against the
+  `benchmarks/sync` blind human onsets is a follow-up.
+- **Rejection observed on screen (once, by a different route):** with the player paused the clock does not
+  advance, so consecutive taps arrive with the same position and the "Ignored: too soon after the last tap."
+  notice appeared (`07_replace_warning.png`). That shows the rejection path reaches the UI. A genuine fast
+  double-tap with a real finger was NOT observed: `adb input tap` pairs are too slow and too
+  unreliable to land inside 250 ms. The 250 ms window itself is covered by unit tests only.
+- **Reproduce:** `cd android && ./gradlew :align:test --tests '*TapAlongTest*'` (logic only). The window's
+  effect on a real finger is untested.
+- **What was drawn (emulator-5554, `-no-audio`, 8-line test tone):** taps advance the highlighted line,
+  Undo steps back one, Save writes `source = "user"` anchors in ms and leaves `lines` unchanged. Not heard.
+- **Reach:** this is the tool for errors beyond nudge's roughly +/-6 s (L45); nothing yet routes the user
+  from one to the other.
+- **Replacing hand-timed lines is now a confirmation, not a caption (no threshold involved).** The warning
+  used to be static text above the TAP/Save row, which a user mid-flow does not read, and one tap then
+  replaced hand-nudged pins irreversibly. When a save would replace at least one `source = "user"` pin,
+  a dialog names the count and asks ("Replace" / "Keep my timings"). `countReplaced` is an exact count of
+  overlapping line indexes; no tolerance or merge window was invented (rule 2 — the right call remains not
+  to guess one).
+
+### L47 — Android practice speeds: 0.5x / 0.75x / 1x (a judgement, not a measurement)
+
+- **Where:** `SPEEDS` in `android/app/.../ui/PlayerScreen.kt`. **Gates:** which playback speeds the player offers.
+  Nothing else depends on them; speed goes straight to Media3 `setPlaybackSpeed`.
+- **What it rests on:** nothing measured. Three coarse steps were chosen so a learner can slow a line down
+  without a fiddly slider. No learner has used them and no study backs the values. If people want slower
+  or finer control, change the list.
+- **Not ours:** pitch preservation at reduced speed is the platform's job (Media3/ExoPlayer defaults).
+  Not verified here: the emulator runs `-no-audio`, so nothing about the sound was heard.
+- **Repeat range is not a constant:** `repeatRange` has no thresholds; a line loops from its start to the
+  next timed line's start (last line: the audio duration), so a line ending on a held note loops through
+  the following silence. That is the accepted cost of one timestamp per line.
+- **Reproduce:** `cd android && ./gradlew :app:testDebugUnitTest --tests '*RepeatRangeTest*'` (range logic only).
+  Loop seamlessness is unverified: the loop is driven by a per-frame poll (about 16 ms granularity), so it can
+  overshoot the boundary by up to a frame; whether that is audible is unknown.
+- **Loop target is latched at the toggle (known sharp edge, no threshold added):** pressing Repeat picks the
+  active line at that instant. Pressed a beat before a line starts, it loops the previous line (seen once on the
+  emulator). Resolving that would need a proximity threshold, which rule 2 forbids without a measurement. A single
+  tap on the intended line retargets the loop. Following the active line instead cannot work: the position
+  crosses into the next line every pass.
+- **Unexamined, sub-frame:** the inclusive `position >= range.last` check can let one frame of the next line play
+  before the seek back, and the loop does not check for a pending seek. Not judged without audio.
+
+### L51 — Android LRCLIB client: timeouts, pacing and backoff (service guidance, not measurements)
+
+- **Where:** `android/prepare/.../RetryPolicy.kt`. **Gates:** `CONNECT_TIMEOUT_MS` = 10 000 and
+  `READ_TIMEOUT_MS` = 20 000 (how long a request may stall before it is an offline failure),
+  `MAX_ATTEMPTS` = 3 (attempts per request, so at most two retries), `BASE_BACKOFF_MS` = 500 and
+  `MAX_BACKOFF_MS` = 30 000 (the wait when the server gave no `Retry-After`, doubling per attempt, and
+  the ceiling on any wait), `PACING_DELAY_MS` = 300 (the pause between consecutive requests), and the
+  jitter added to every wait, `Random.nextLong(0, 250)` in `Lrclib.kt` (a 0–250 ms spread so repeated
+  waits do not land in lockstep). The jitter range is **unmeasured**: a round number, not observed
+  behaviour, and it gates every wait this client takes.
+- **Where two of them come from:** LRCLIB's published documentation, read 2026-11-19 at
+  `https://lrclib.net/docs.txt`. It says to "send requests sequentially by waiting for each one to finish
+  before starting the next" and to "add a short delay between requests (200–500 ms)", which is where
+  `PACING_DELAY_MS` sits (the lower half of that range), and "Your client **must** honor Retry-After", which is
+  why a given `Retry-After` is waited out exactly (plus caller-supplied jitter). `MAX_BACKOFF_MS` caps only
+  a backoff this client computed itself, never a wait the server asked for: a `Retry-After` above it is not
+  shortened, the request is not retried, and the caller reports "rate limited". This client has no API key,
+  so its only identity is its IP address, and retrying early against an explicit instruction risks a longer
+  ban that would cost the user every later lookup. This is guidance from the service, not something
+  measured here.
+- **The timeouts are a guess.** Nobody on this project has observed LRCLIB's real latency from a phone, on
+  mobile data or on a slow link. 10 s to connect and 20 s to read are round numbers that sit well above
+  what a healthy small JSON endpoint should need; they may be too short on a bad connection or too
+  long for a user watching a spinner. `MAX_ATTEMPTS`, `BASE_BACKOFF_MS` and `MAX_BACKOFF_MS` are equally
+  unmeasured: common retry shapes, not tuned against this service's failure behaviour.
+- **Deliberately absent:** this client contains **no title/artist similarity threshold and no acceptance
+  cut-off**. The server's +-2 s duration rule decides rung 1 (`/api/get`), and the user decides everything
+  else. The predecessor PWA's scoring machinery (`shouldAcceptEarly`, cut-offs at 0.85/0.92/0.94 and a
+  70-request fan-out) was deliberately not carried over: none of it was ever measured.
+- **How the app reports a rate limit (2026-11-20):** `prepareState` has its own `"rate-limited"` value
+  and `Readiness.RATE_LIMITED` its own text ("LRCLIB asked us to wait"), and that state is the one state
+  that is offered **no** retry button, for the ban reason above. It had been reported as "Couldn't reach
+  LRCLIB" with a retry — false, since LRCLIB was reached, and the retry was exactly the risk recorded here.
+- **Reproduce:** `cd android && ./gradlew :prepare:testDebugUnitTest --tests '*RetryPolicyTest*'` covers the
+  policy logic only. The transport itself is covered by `UrlConnectionHttpTest` (added in `cc93836`): three
+  tests against a loopback `ServerSocket` — that the User-Agent and Accept headers arrive, that a 429's
+  error-stream body, content type and `Retry-After` come back, and that a non-integer `Retry-After` is null.
+  Nothing here was run against the live service.
+
+### L52 — Android tokeniser: Kuromoji IPADIC first-call cost (JVM and arm64 emulator; no budget set)
+
+- **What:** `tokenize` in `android/japanese/src/main/kotlin/.../Tokenizer.kt` wraps
+  `com.atilika.kuromoji:kuromoji-ipadic:0.9.0` (Apache-2.0, owner-approved). IPADIC, not UniDic: the
+  part-of-speech tags that gloss and role behaviour will be tuned against are IPADIC's. The dictionary
+  is built lazily (`Ja.tokenizer`), so the first call pays for the load.
+- **Measured on the JVM (2026-11-23)**, a unit test on OpenJDK 17.0.16 on the macOS development
+  machine, one run: first `tokenize("今日は雨")` **377 ms**, second call **0.75 ms**, heap delta
+  of about **35 MB** (a `Runtime` heap delta, `System.gc()` before and after).
+- **Measured on an emulator (2026-11-23)**, `TokenizerLoadTest` (instrumented, one run): **API 35,
+  `sdk_gphone64_arm64`, arm64-v8a**, an arm64 emulator on Apple silicon. First call **483.48 ms**,
+  second **1.89 ms**, heap delta **57.4 MB**. This exercises the real code path (ART, dictionary
+  loaded from inside the APK) that the JVM figure does not: it is a number for a different thing, not a
+  slower version of the JVM's 377 ms. Against the JVM figures the first call is about 28% slower and
+  the heap delta about 64% larger.
+- **What the emulator figure is and is not:** the time is **optimistic**: a fast host CPU, host-backed
+  memory and host SSD, where the first call pays to load the dictionary from storage, so a real
+  mid-range 2023 phone will be slower. It is API 35, the friendliest version, not the spec's "current
+  minus two" minimum. The heap figure is a crude heap delta measured the same way as the JVM one: an
+  estimate, not an RSS reading, and not a resident-set size. Whether the 483 ms was a **cold process
+  is unknown**: `TokenizerLoadTest` does not guarantee a fresh process. **Nobody has measured a real phone.**
+- **No budget is set.** This entry gates nothing. Whether tokenisation runs at preparation time or on
+  demand is **still open**; it now has a number to reason from, not a guess. `Ja.tokenizer` is a lazy
+  singleton, so what it allocates stays reachable for as long as anything holds it, and **a 57 MB heap
+  delta against the spec's 4 GB minimum target is the figure that would decide it.** Tasks 5 and 7 settle it, with more
+  evidence than this.
+- **Reproduce:** the emulator figures: `cd android && ./gradlew :japanese:connectedDebugAndroidTest` (`TokenizerLoadTest`, logcat tag `TokenizerLoad`). The JVM figures came from a throwaway unit test (not committed) timing the first and
+  second `tokenize` calls with `System.nanoTime` and diffing `Runtime.totalMemory() - freeMemory()`
+  across a first call. On a device, time `Ja.tokenizer` first use from a cold process.
+- **Segmentation vs the audit corpus (a FORECAST, not yet measured by the audit):** `analyze` is
+  still a stub, so the audit has not run against the tokeniser. A throwaway probe (not committed)
+  tokenised every corpus sentence and compared surfaces. It predicts 4 of the 99 corpus words will
+  become `unmatched` once `analyze` uses `tokenize`, because Kuromoji IPADIC segments them differently:
+  一人 -> 一 / 人 / で; 二人 -> 二 / 人 / で; 一日中 -> 一 / 日 / 中; 後 -> 後で (one token). The other 95
+  surfaces matched. Check it by tokenising those sentences, or by reading the audit's `unmatched` once
+  `analyze` lands. The corpus was not adjusted to the tokeniser.
+
+### L53 — Android word senses: the understanding audit's first real-analyzer counts (the CI bar, 89 of 99)
+
+- **What:** `Analyzer.analyze` (`android/japanese/src/main/kotlin/.../Analyze.kt`) replaced Task 1's
+  stub, so the understanding audit now scores the product: tokenise (Kuromoji IPADIC) → `rubyFor`
+  → the dictionary → `selectSenses`. The number that gates CI is `right` in
+  `android/japanese/src/test/resources/audit-baseline.json`, which the ratchet test requires to be
+  matched exactly in both directions.
+- **Measured 2026-11-23**, the 46-sentence / 99-word corpus, one run: **right 89, wrongReading 3,
+  wrongSense 2, blank 1, unmatched 4, unmarkedAlternates 5** (was right 0, unmatched 99,
+  unmarkedAlternates 35 against the stub). One verdict per word, in the order unmatched, blank,
+  wrongReading, wrongSense, right — so `wrongSense = 2` understates: a word wrong in both reading
+  and sense is counted once, as `wrongReading`.
+- **What 89 is and is not.** Every corpus entry is `"kind": "unverified"` (owner review pending), so
+  `certified` is all zeros and **nothing here certifies**: 89 is a number over expectations one model
+  wrote, not over hand-labelled truth. The sense test is a standalone-word match inside a gloss, not
+  a meaning match, so `right` is an upper bound. The dictionary rows come from the committed
+  `public/jmdict-popover.json` read directly by the test (`CorpusDictionary`), applying the same
+  conversion rules as `scripts/build-japanese-db.mjs`; Room is not in the loop, so this measures
+  sense selection, not the shipped table's SQL.
+- **The 10 still wrong, by cause, none of them a selection defect:** IPADIC's chosen reading
+  (人気 → にんき where the line means ひとけ; 夜 → よる where the line means よ; 金 → きむ, a
+  person-name reading); IPADIC segmentation (一人 → 一/人, 二人 → 二/人, 一日中 → 一/日/中,
+  後 → 後で — **exactly the 4 L52 forecast, confirmed**); the dictionary's own content (明ける has
+  only "to open", 日/ひ only "day; days", 田中 is absent — the popover file carries no proper names).
+- **Reproduce:** `cd android && ./gradlew :japanese:testDebugUnitTest --tests '*UnderstandingAuditTest*'`.
+  The failure message prints every count. Per-word verdicts came from a throwaway probe (not
+  committed) that re-applied the audit's verdict order and printed surface, reading and glosses.
+
+**Review follow-up (2026-11-23).** Three things the task's review found, all now fixed or
+measured rather than described:
+
+- **The duplicated conversion is now pinned.** `right` only means "accuracy over the dictionary
+  the app ships" while the Kotlin test reader converts `jmdict-popover.json` the way
+  `scripts/build-japanese-db.mjs` does, and nothing compared the two: a changed drop rule would
+  have moved the shipped table and left `right` untouched, so the audit would have gone on
+  reporting a number for data the device no longer had. `scripts/build-audit-digest.mjs` now
+  writes a SHA-256 over the canonical rows for the corpus's 94 declared surfaces (196 rows, 75
+  surfaces found) and `AuditDictionaryDigestTest` reproduces it. Proven to fail both on a
+  corrupted digest and on a real rule divergence (splitting glosses on `,` instead of `;`).
+  Adding it found **two rules the Kotlin side was missing**: the separator refusal, and mapping an
+  empty part of speech to null. Neither changes a row in today's data — 0 of 331,316 entries
+  contain the separator and 0 have an empty `pos` — which is precisely why nothing had caught
+  them. The digest therefore pins agreement *on today's data*: a rule difference with no effect on
+  these rows would still pass.
+- **The audit's inputs are now in the Android CI path filter.** The ratchet reads
+  `public/jmdict-popover.json`, outside `android/**`, so a PWA-side data edit moved an Android
+  test without running the Android job and the break would have surfaced on an unrelated later
+  PR. `.github/workflows/android.yml` now also watches the two popover/readings files and the two
+  scripts.
+- **The "reading beats part of speech" fallback is measured, not hedged.** When no entry matches
+  the token's reading the filter stands aside rather than returning nothing, which can show a
+  sense from another reading. Over the corpus: **173** words' senses sit at their ruby's reading,
+  **31** are glossed through their dictionary form (correct and expected — な is the copula だ's
+  attributive form, and "be; is" is だ's gloss), and the fallback fires **once**. Asserted in
+  `every analyzed word's senses come from entries read the way its ruby says`.
+
+**A test that was replaced rather than kept.** `the WordInfo's ruby and its senses describe the
+same reading` asserted `rubyFor(w.token, mode, alternates) == w.ruby`, which `Analyzer` satisfies
+by calling `rubyFor` — it restated the implementation — while its sense half called `selectSenses`
+directly against a two-row fake, so nothing ever tied a real `WordInfo`'s ruby to its senses. Both
+halves passed and neither tested the contract. Its replacement runs the real `Analyzer` over the
+real dictionary. **My first formulation of the replacement was itself wrong**: requiring every
+word's senses to sit at its ruby's reading fails on な, because an inflected word is glossed
+through its dictionary form, whose reading differs by construction. The code was right and the
+contract was wrong.
+
+### L54 — Android furigana: what a line costs before it can be drawn (emulator; no budget set)
+
+- **What:** Task 7 draws furigana by calling `Analyzer.analyze` per line. Two one-off costs stand
+  between opening a song and the first ruby appearing, and neither had been measured:
+  `readingAlternates(Context)` (Task 5's one untested line — it parses the 733 kB
+  `reading-alternates.json` asset with the hand-written parser in `ReadingAlternates.kt`), and
+  Kuromoji's first `tokenize`, which L52 measured on its own.
+- **Measured on an emulator (2026-11-23)**, API 35 `sdk_gphone64_arm64` on Apple silicon, from the
+  running debug app, three cold starts: the alternates parse took **1443 ms, 699 ms and 958 ms**
+  for **13 758 surfaces**. It is logged by `UtasyncApplication` (`Log.i("Utasync", "reading
+  alternates: … ms")`), so it can be re-read at any time with
+  `adb logcat -d | grep "reading alternates"`. **The spread is as interesting as the figure**: the
+  same work on the same device varied by 2x between runs, so treat ~1 s as the order of magnitude,
+  not a measurement of the parser.
+- **Kuromoji under contention costs more than L52's figure.** Five lines are analysed at once (one
+  per visible row), so four `DefaultDispatcher` workers queue on `Ja.tokenizer`'s lazy init:
+  logcat reports `Long monitor contention … SynchronizedLazyImpl.getValue() for 945 ms` and
+  `1.440 s` on separate runs, against L52's 483 ms for a single first call. The two costs are
+  **sequential** (the analyzer cannot be built before the asset is parsed), so the wall clock from
+  opening a song to the first furigana is about **2 s** on this emulator, and a real phone will be
+  slower. Both are off the main thread; the lyric lines are on screen as plain text throughout
+  (screenshotted), and nothing blocks a frame.
+- **No budget is set, and nothing here gates behaviour.** `MAX_CACHED_LINES = 64` in
+  `LineWords.kt` bounds how many analysed lines are kept; it is a constructor parameter, chosen as
+  comfortably more than a screenful so scrolling back never re-analyses, and no memory figure was
+  measured for it. `RUBY_SCALE = 0.5f` is the conventional ruby-to-base font ratio, a typographic
+  convention rather than a measurement, and is a parameter of `RubyText` for the same reason.
+  `nominalWidthSp`'s em constants lay nothing out on screen — `RubyText` measures with Compose's
+  own `TextMeasurer` — and exist only so `rubyRuns` has a default for tests and previews.
+- **What this suggests and does not prove:** the ~1 s parse is the cheaper of the two to remove —
+  the asset could be converted into the Room seed at build time (`scripts/build-japanese-db.mjs`
+  already writes it) and read by key instead of parsed into a 13 758-entry map. That would also
+  drop whatever the map costs in heap, which **nobody has measured**. Not done here: it changes
+  Task 4's data shape, and this task is UI.
+- **Reproduce:** install the debug APK, `adb logcat -c`, open a song with Japanese lines, then
+  `adb logcat -d | grep -E "reading alternates|SynchronizedLazy"`.
+
+### L55 — the furigana ambiguity mark is wrong 18 times in 99, and nothing was measuring it (MEASURED)
+
+- **What:** spec §4.2's anti-goal is "furigana that asserts a reading it cannot know", so a word
+  whose surface takes more than one reading is marked. The understanding audit has counted
+  `unmarkedAlternates` — a reading shown as certain when the corpus says it is not — since the
+  audit existed. **It had no counter for the opposite error**, and that is the one that bites: Task
+  7 put the mark on a real screen and it fired on roughly half the words (7 of 15 readings on the
+  implementer's sample lines; 空's popover lists six alternates). A mark on half a line is not a
+  warning, it is wallpaper, and §4.2 is not served by it.
+- **The instrument, added 2026-11-24:** `AuditCounts.overmarkedAlternates` — the corpus lists no
+  alternates for a word but the ruby carries some. Measured on the 99-word corpus with everything
+  else unchanged:
+
+  | | count | of 99 |
+  | --- | --- | --- |
+  | `overmarkedAlternates` (marked, should not be) | **18** | 18% |
+  | `unmarkedAlternates` (not marked, should be) | 5 | 5% |
+  | `right` (reading and sense both correct) | 89 | 90% |
+
+- **The two numbers pull in opposite directions and mean nothing alone.** Suppressing the mark
+  everywhere drives `overmarkedAlternates` to 0 and `unmarkedAlternates` to its ceiling; marking
+  everything does the reverse. Any fix has to move one without giving back the other, which is why
+  the counter had to exist before a fix could be attempted.
+- **A proposed fix that this measurement refutes.** Task 7's implementer suggested marking only
+  where a *common* rival reading exists, since the readings asset carries a common/uncommon split
+  that `rubyFor` discards by unioning both sides. Checked against the shipped asset: only **472 of
+  13,758 surfaces (3.4%)** have more than one common reading, and of the seven words observed
+  marked, four would clear (明白 めいはく|あからさま, 答え こたえ|いらえ, 声 こえ|しょう, 強い つよい|こわい)
+  while **three would not** — 空 (から, そら), 風 (ふり, かぜ, ふう) and 街 (がい, まち) all carry
+  several *common* readings. 風/ふう and 街/がい are on'yomi that are common **in compounds** and
+  never apply to a standalone token, and a common/uncommon split cannot express that. The union is
+  also deliberate and documented (彼 あれ/かれ, both common), so the split is not a
+  primary-versus-alternate signal. The filter would remove about half the false marks and read as
+  a fix.
+- **What a real fix needs:** a signal for "could the tokenizer plausibly have read this token that
+  way here", not "does the dictionary list this reading". Candidates, none yet measured: whether
+  the rival reading has a standalone dictionary entry rather than only a suffix or counter sense;
+  JMdict's own frequency or priority tags; agreement between Kuromoji's chosen reading and the
+  dictionary's first. Each is a measurable hypothesis against the two counters above and belongs
+  in a spike with its gate written first (CLAUDE.md rule 3).
+- **Caveat on the instrument itself:** every corpus entry is `"kind": "unverified"`, so
+  `overmarkedAlternates` measures agreement with an unverified expectation, not with truth. The
+  owner's verification of the corpus is still outstanding and it bounds what this number means.
+  The 18 and the implementer's ~47% are different material, and neither is a real song.
+- **Reproduce:** `cd android && ./gradlew :japanese:testDebugUnitTest`; the counts are in
+  `audit-baseline.json` and `renderBaseline` prints them on a mismatch.
+
+### L56 — no signal separates the false ambiguity marks from the true ones (MEASURED, NO-GO)
+
+- **What:** L55 left three candidate signals for the furigana ambiguity mark and said each belonged
+  in a spike with its gate written first. Five were pre-registered and run:
+  `experiments/ambiguity-mark/2026-11-24-mark-signal.md`. The gate was `overmarkedAlternates` ≤ 9
+  **and** `unmarkedAlternates` ≤ 5 **and** `right` == 89.
+- **Result: every arm NO-GO.** Baseline 18 / 5 / 89. Common-readings-only 5 / 17; rival-is-a-
+  standalone-word 17 / 7; rival-is-not-the-same-word 16 / 9; tokenizer-took-the-first-entry 8 / 27;
+  the last two together 15 / 12. `right` never moved.
+- **The sharp number.** 48 words are marked, 30 rightly and 18 wrongly, so deleting marks at random
+  costs 1.67 true marks per false one removed. Measured: common-only 0.92, standalone-word 2.0,
+  same-word 2.0, first-entry 2.2, the conjunction 2.33. **Only the common/uncommon split beats
+  chance** (by about 1.8×), and it still costs nearly one true mark per false one. A rival's
+  part-of-speech class, its gloss agreement with the shown reading, and its position in the
+  dictionary's entry list carry **no usable signal**.
+- **JMdict frequency and priority tags are not available**, so that candidate of L55's three was
+  never testable: `public/jmdict-popover.json` carries `r`, `pos` and `g` only, and
+  `public/jmdict-readings.json` carries the same common/uncommon split arm A tests.
+- **Two by-products, both worth fixing before anyone tunes this again.** `unmarkedAlternates`
+  conflates "not marked" with "not matched": 3 of the 5 (一人, 二人, 後) are IPADIC segmentation
+  disagreements where no word came back at all, so genuine missing marks number **2**. And 7 of the
+  18 false marks name the word's **own** reading as its rival — 降っ shown ふっ, marked because 降る
+  is read ふる — because the shown reading is filtered by string equality, which cannot match a
+  dictionary-form reading. The popover shows that list to the reader, so it is wrong content; it is
+  not a fix for the mark's count (降っ still has くだる), and it needs no signal.
+- **Why the thread stops here.** Precision 62.5%, recall 86%, and several of the 18 are arguably
+  correct marks the corpus calls wrong (時 does read とき, 水 does read すい) while every corpus
+  entry is `"kind": "unverified"`. The binding constraint is the expectation, not the predicate:
+  the owner's verification of the 35 alternate lists is on the critical path.
+- **Reproduce:** the harness is not in `android/` — NO-GO means nothing enters it (rule 3) — but a
+  measurement has to be reproducible, so it is kept as text at
+  `experiments/ambiguity-mark/MarkSignalSpike.kt.txt`, with the copy-in command in its header. The
+  baseline it reproduces is `cd android && ./gradlew :japanese:testDebugUnitTest`.
+
+## L57 — a word no longer names its own reading as a rival (MEASURED, FIXED)
+
+2026-11-25, `feat/android-understanding`.
+
+The content defect L56 found as a by-product. Alternates reached through the base form are
+dictionary-form readings (いく, ゆく for 行く) while the shown reading is the surface's (いっ), so
+the equality filter in `rubyFor` could never remove the word's **own** reading, and the popover
+printed "also read いく" over a word already read いく-inflected.
+
+- **Measured, over the 46-sentence corpus with the shipped alternates asset:** **7 words before, 0
+  after** — 降っ (ふる), 寒かっ (さむい), 言っ (いう), 行か (いく), 行っ (いく) and 来 twice (くる, under
+  both こ and き).
+- **No count moved.** All eight audit counters are byte-identical before and after (99 words, right
+  89, wrongReading 3, wrongSense 2, blank 1, unmatched 4, unmarkedAlternates 5,
+  overmarkedAlternates 18), which is what L56 predicted: 降っ still has くだる, so no mark is
+  cleared. The fix changes what a mark *says*, not how many there are. A fix for the count still
+  has no signal behind it (L56).
+- **No threshold.** `rubyFor` gained a required `baseReading` lookup and drops the one reading it
+  returns; nothing numeric gates it.
+- **Not applied to the surface level, deliberately.** There the key is the surface itself, so
+  "drop the key's own reading" would delete a genuine rival from every word shown in its less
+  common reading — 時 as じ would lose とき. A test pins that case.
+- **Reproduce:** `cd android && ./gradlew --rerun-tasks :japanese:testDebugUnitTest`. The guard is
+  `ReadingsTest."no word lists the reading of its own dictionary form as an alternate"`, which
+  walks the corpus through the real analyzer and names each offender; it failed with all 7 before
+  the fix.
+
+## L58 — the understanding gate's numbers, over an unverified corpus (MEASURED, NO BAR SET)
+
+2026-11-25, `feat/android-understanding`, Task 8. The release gate of spec §7a.2, run on the real
+`Analyzer` over the real dictionary rows and the shipped alternates asset (not a stub, not a
+fixture of the analyzer's own output).
+
+| count | value | what it means |
+| --- | --- | --- |
+| `words` | 99 | the corpus's own count, walked from the corpus, not the analyzer |
+| `right` | 89 | reading and at least one expected sense both matched |
+| `wrongReading` | 3 | |
+| `wrongSense` | 2 | understated: a word wrong in both counts only as `wrongReading` |
+| `blank` | 1 | matched, no senses — and a blank hides a reading error |
+| `unmatched` | 4 | no returned word had that surface: IPADIC segmentation, not meaning |
+| `unmarkedAlternates` | 5 | of which **3 are `unmatched` words**, so genuine missing marks are 2 (L56) |
+| `overmarkedAlternates` | 18 | marked where the corpus says there is nothing to mark; no signal separates them (L56) |
+
+**The corpus: 46 sentences, 99 words, all 46 `"kind": "unverified"`. Hand-labelled: zero.** So the
+gate's certified count is **0 of 99**, by design — `canCertify` scores an unverified entry and
+never lets it certify. Read `right = 89` as an upper bound on an expectation nobody has checked,
+not as 90% accuracy: 35 of the 99 words carry alternate lists, and Task 4's cross-check already
+found 21 of those incomplete and 3 naming alternates the inventory lacks.
+
+**No passing bar is set, and this entry does not invent one** (CLAUDE.md rule 2). The owner reads
+these numbers and decides. The one thing that would move all of them at once is verifying the
+corpus; until then a change that raises `right` cannot be told from one fitted to a wrong
+expectation.
+
+**Reproduce:** `cd android && ./gradlew --rerun-tasks :japanese:testDebugUnitTest`. The counts are
+committed in `japanese/src/test/resources/audit-baseline.json`, and `right` is a two-sided ratchet:
+a fall is a regression, a rise must be recorded by editing that file.
 ### L62 — arm D fails the corpus-onsets column, and the same failure is visible on real songs (MEASURED)
 
 - **Date:** 2026-11-25. **Instruments:** `experiments/phase0/score.mjs` (the pre-registered gate)
