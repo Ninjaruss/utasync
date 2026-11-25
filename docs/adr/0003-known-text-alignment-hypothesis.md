@@ -48,10 +48,18 @@ adjudicate it — which is exactly why `lrc-derived` (uncertainty 0.3 s, L39) ne
 Draft marks are reported as drafts and certify nothing.
 
 **How much evidence, by kind.** The two kinds do different jobs: PJS medleys carry the
-volume, real songs carry the realism. PJS alone cannot pass this gate. PJS medleys are
-concatenated solo sung sentences separated by silence, which is far easier than accompanied
-J-pop; and spec §8.4's selection-bias argument bites the other way — the aligner only ever
-runs where no catalogue LRC exists, so LRC-covered songs flatter it.
+volume, real songs carry the realism. PJS alone cannot pass this gate, and spec §8.4's
+selection-bias argument bites the other way — the aligner only ever runs where no catalogue
+LRC exists, so LRC-covered songs flatter it.
+
+**Corrected 2026-11-18 (ledger L48).** This paragraph used to say PJS medleys are "far
+easier than accompanied J-pop" because they are solo sentences separated by silence. That was
+measured and is **wrong in the direction it assumed**: the silences are what broke the
+aligner. Four real runs put the best medley at p50 3.69 s and the worst at 20.21 s, with
+whole-line collapses into the gaps — far worse than the 0.54 s p50 measured on real
+accompanied English with hand-aligned truth (L49). A medley is not an easy case; it is a
+different and in some ways harsher one. So a PJS pass does not imply a real-song pass, and
+the two-kind split stands for a better reason than the one originally given.
 
 | | `corpus-onsets` (PJS medleys) | `human-onsets` (real accompanied songs) |
 | --- | --- | --- |

@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "kind": "corpus-onsets",
+  "status": "adjudicated",
+  "reviewer": "corpus",
+  "predictionsShown": false,
+  "priorPredictionExposure": "none",
+  "lineHashVersion": "1",
+  "audioSha256": "b6117290b7d2d1e550a529df92baddbf1958d6397cb356886b73e1beb378b246",
+  "lyricsSha256": "116fdf111b6b313dab164dfa7a8cb2293c94de5fdb5b5ac15a977644b4a78854",
+  "convention": "first sung onset of each concatenated PJS sentence; method per line",
+  "lines": [
+    {
+      "textHash": "0b18d1d3b5d93386a877122d9d04d84a582a8ee1ca6eb7313dd7e8d95d9b2bb4",
+      "onset": 4.935,
+      "uncertainty": 0.02,
+      "excluded": false,
+      "method": "phoneme-label",
+      "source": "pjs079"
+    },
+    {
+      "textHash": "980e7fad66db365a6712ec115458ab22fe32b1bb63f3d7d2bce92ef28badaa4c",
+      "onset": 22.499,
+      "uncertainty": 0.02,
+      "excluded": false,
+      "method": "phoneme-label",
+      "source": "pjs080"
+    },
+    {
+      "textHash": "af5e3634801c8e112950d588a062f3b9f303fdee9be1104e2a1f0a1cc3928ce0",
+      "onset": 48.382,
+      "uncertainty": 0.02,
+      "excluded": false,
+      "method": "phoneme-label",
+      "source": "pjs081"
+    },
+    {
+      "textHash": "fb94f302f34e84de065ce66625219e3f711bfdf078ec03e4547774da31f60eb6",
+      "onset": 73.327,
+      "uncertainty": 0.02,
+      "excluded": false,
+      "method": "phoneme-label",
+      "source": "pjs082"
+    },
+    {
+      "textHash": "0c7c0d04b0eb2b5e70378d4040f3a5fb4434b8c048adf42700f1bce991be7935",
+      "onset": 92.574,
+      "uncertainty": 0.02,
+      "excluded": false,
+      "method": "phoneme-label",
+      "source": "pjs083"
+    },
+    {
+      "textHash": "8658541b18318537f65b3ec9e5d382813177af2344265899247101286311389d",
+      "onset": 112.355,
+      "uncertainty": 0.02,
+      "excluded": false,
+      "method": "phoneme-label",
+      "source": "pjs084"
+    }
+  ]
+}
