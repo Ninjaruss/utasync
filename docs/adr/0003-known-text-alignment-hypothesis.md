@@ -1,6 +1,10 @@
 # ADR-0003: Known-text alignment is the lead hypothesis, pending the Phase 0 gate
 
 - Status: **proposed** — decided by the Phase 0 result, not by this document
+- **2026-11-25: the `corpus-onsets` column was evaluated and FAILED** (ledger L62). The gate's
+  terms are not restated here — recording an outcome is not re-scoping. ADR-0007 proposes
+  taking the decision rule's "neither passes" branch without completing the `human-onsets`
+  column, and replaces this ADR if accepted.
 - Date: 2026-11-03
 - **Gate restated 2026-11-06, corrected 2026-11-07** (evidence terms only; see "Revision
   history" at the end)
