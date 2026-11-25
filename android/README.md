@@ -45,6 +45,28 @@ which means **nothing in that number has been checked by a Japanese speaker**. `
 unverified entries out of the gate on purpose, so the certified count is 0 of 99 until the owner
 reads the corpus.
 
+### What the app does NOT claim about an LRC's fit
+
+**Nothing in the app verifies that a lyric sheet belongs to the audio it is stored against.** Rung
+1 (`/api/get`) sends the file's duration and LRCLIB's server applies its own ±2 s rule; a candidate
+the user picks and an imported `.lrc` file get no such rule. A fit check was pre-registered,
+measured and **failed its gate** (ledger L66, `experiments/fit/`): a record for a cut within 30 s
+of the user's file is caught 13% of the time, and no trailing-gap or span-ratio threshold closes
+that hole at a usable false-alarm rate.
+
+What ships from that measurement is the one statement arithmetic can make, and it carries no
+tolerance because it needs none:
+
+- `pastEndLines` (`:align`) — a line cannot start after the file ends. The player shows a banner
+  when any does, judged on the times the user actually sees (anchors applied). Of 105 real LRCLIB
+  records, none trips it against its own length, so it cries wolf on none of them.
+- `lengthComparison` (`:app`) — a candidate's length is shown as a difference from the user's file
+  ("8 s longer than your file"). Nothing is hidden, reordered or marked unsuitable: no measured
+  cut-off separates a usable record from an unusable one.
+
+So the app states what it knows and leaves the verdict to the user pressing play. No wording in it
+may say the fit was checked.
+
 ## Build
 
 Requirements: JDK 17, Android SDK 35. Open this folder in Android Studio, or:

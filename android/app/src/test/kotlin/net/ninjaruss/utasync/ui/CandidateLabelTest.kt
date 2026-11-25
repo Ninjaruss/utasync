@@ -40,4 +40,20 @@ class CandidateLabelTest {
         val t = LrclibTrack(6, "Lemon", "", " ", 256, false, "la", null)
         assertEquals("Lemon · 4:16 · words only", candidateLabel(t))
     }
+
+    @Test fun `with the file's length known the candidate states the difference`() {
+        val t = LrclibTrack(7, "Lemon", "Kenshi Yonezu", null, 256, false, null, timed)
+        assertEquals(
+            "Lemon · Kenshi Yonezu · 4:16 · 8 s longer than your file · timed",
+            candidateLabel(t, audioDurationMs = 248_000L),
+        )
+    }
+
+    @Test fun `a candidate of unknown length states no difference it cannot know`() {
+        val t = LrclibTrack(8, "Lemon", "Kenshi Yonezu", null, null, false, null, timed)
+        assertEquals(
+            "Lemon · Kenshi Yonezu · length unknown · timed",
+            candidateLabel(t, audioDurationMs = 248_000L),
+        )
+    }
 }

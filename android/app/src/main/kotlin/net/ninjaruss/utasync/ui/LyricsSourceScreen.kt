@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -103,6 +104,11 @@ fun LyricsSourceScreen(songId: Long, dao: SongDao, lrclib: Lrclib, onDone: () ->
     var readingMode by remember { mutableStateOf(readingSetting.mode) }
 
     var candidates by remember { mutableStateOf<List<LrclibTrack>>(emptyList()) }
+    // The file's own length, so a candidate's length can be shown as a difference from it rather
+    // than as a number the user has to compare in their head. Null until read, and null for a
+    // file that did not say: lengthComparison then states nothing.
+    var audioDurationMs by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(songId) { audioDurationMs = dao.song(songId)?.durationMs }
     // The last thing a search came back with, which decides whether another may be offered.
     var lastOutcome by remember { mutableStateOf<LookupOutcome?>(null) }
     var message by remember { mutableStateOf("") }
@@ -252,7 +258,7 @@ fun LyricsSourceScreen(songId: Long, dao: SongDao, lrclib: Lrclib, onDone: () ->
             candidates.forEach { track ->
                 val usable = sheetFrom(track.syncedLyrics, track.plainLyrics, track.instrumental) != Sheet.None
                 Text(
-                    candidateLabel(track),
+                    candidateLabel(track, audioDurationMs),
                     color = if (usable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
                         .fillMaxWidth()

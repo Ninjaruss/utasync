@@ -2056,3 +2056,66 @@ node experiments/phase0/lrcScreen.mjs --shipped
   in any form, so no aligner that starts from a prior would have helped them either. Tap-along
   covers them.
 - **Reproduce:** `node experiments/coverage/lrclibCoverage.mjs <song-coverage.csv>`.
+
+### L66 — a timestamp-only check cannot tell a nearly-right cut from the right one (MEASURED, NO-GO; arm A ships)
+
+
+**Measured 2026-11-25.** Gate pre-registered before the first run in
+`experiments/fit/2026-11-25-does-this-lrc-fit-this-song.md`: recall ≥ 80% of mismatched pairs and
+false alarms ≤ 5% of matched pairs, each arm judged alone. **No arm met it.**
+
+Why it was asked: with ADR-0007 proposing no automatic alignment, a catalogue LRC is the app's main
+path (L65: 105 of the owner's 111 songs have synced lyrics on LRCLIB), which makes L65's unmeasured
+risk the dominant one — a synced record that belongs to a **different cut** than the user's file.
+What the app checked before this: LRCLIB's server applies its own ±2 s duration rule to `/api/get`
+(rung 1) and nothing else does anything. Rung 2's chosen candidate and an imported `.lrc` file had
+**no fit check at all**, and none of the three looked at the lyric timestamps.
+
+105 matched pairs (each synced record's lyrics against its own declared duration), 291 mismatched
+pairs over 72 songs (record X's lyrics against sibling record Y's duration, |dX − dY| ≥ 10 s).
+Thresholds read off the matched population only — *G* = 41.6 s, ratio ∈ [0.754, 0.974] — which
+fixes false alarms at ~5% by construction and leaves recall as what the arm earns.
+
+| arm | recall | false alarms | gate |
+| --- | --- | --- | --- |
+| A — a line starts after the audio ends | 49% | **0%** | fail (recall) |
+| B — trailing gap > *G* | 23% | 5% | fail (both) |
+| D — span ratio outside [lo, hi] | 65% | 6% | fail (both) |
+| A or B | 73% | 5% | fail (recall) |
+
+Arm C (declared vs audio duration) was **not evaluated**: the pairs are built from that difference,
+so scoring it here would be circular. It is also the one rung 1 already has, from LRCLIB's server.
+
+**Split by how far apart the two cuts are, which is the finding that matters:**
+
+- 131 pairs ≥ 60 s apart (a TV-size record against the full song): arm A catches **85%**.
+- 116 pairs < 30 s apart (an edit, a single version, a remaster): arm A catches **13%**;
+  A-or-B, 34%.
+
+So the gross mismatch is caught and the near one is not — and the near one is the dangerous one,
+because the first verse looks right and the drift arrives later. B and D were the arms aimed at it
+and neither earned its place.
+
+**What shipped, per the gate's fail branch:** arm A alone, as `pastEndLines` in `:align`, shown as
+a banner on the player over any song whose visible times (anchors applied) run past the end of its
+file. **It carries no tolerance, and that is not an unmeasured threshold** — the statement is
+arithmetic, and the cost of strictness was measured: of the 105 real records, none has a line past
+its own declared length, so false alarms are 0% measured as well as 0% by argument. A rung-2
+candidate also now states its length as a difference from the user's file (`lengthComparison`),
+which is arithmetic too: nothing is hidden, reordered or marked unsuitable, because no measured
+cut-off separates a usable record from an unusable one.
+
+**What is therefore still true after this change:** nothing in the app verifies that a synced
+record fits the audio, and no wording may say it does. The app states what arithmetic knows and
+leaves the verdict to the user pressing play. L65's version-mismatch *rate* remains unmeasured —
+this screen measured what a detector can do, not how often the problem occurs on the owner's files.
+
+**Limits (written into the gate doc before the run, not afterwards):** a declared duration is
+metadata, not a measurement of the user's file; the matched pairs are presumed correct because a
+pipeline matched them, and none was heard; the playlist is one person's, curated by a pipeline that
+needed lyric text.
+
+**Reproduce:**
+`node experiments/fit/fitScreen.mjs "<song-coverage.csv>"` (records cached under `.cache/fit/`, so
+a re-run needs no requests), then
+`cd android && ./gradlew --rerun-tasks :align:test :app:testDebugUnitTest`.
