@@ -49,6 +49,11 @@ chance is small, offered as a screen and not as a certificate.
 
 - The Android app has no automatic alignment, and that is now a recorded decision rather than an
   open question. The product consequence is blunt: a song with no synced lyrics needs tap-along.
+- **Measured afterwards, and it is smaller than it sounds (L65): 105 of the 111 songs in the
+  owner's Weeb Bangers playlist already have synced lyrics on LRCLIB.** The hole is six songs,
+  five of which have no LRCLIB record at all — so an aligner that refines a prior would not have
+  helped them either. This does not say those 105 play correctly: a synced record can belong to
+  a different cut, and that rate is still unmeasured.
 - The PWA keeps its pipeline, and preparation there plus `.lrc` export remains the only route to
   a timed song the app did not receive already timed.
 - Phase 0's apparatus stays: the medleys, the annotations, the scorer, `knownTextAlign.mjs` and
