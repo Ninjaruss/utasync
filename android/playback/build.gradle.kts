@@ -13,7 +13,10 @@ android {
     }
 }
 
-kotlin { jvmToolchain(17) }
+kotlin {
+    jvmToolchain(17)
+    compilerOptions { allWarningsAsErrors = true }
+}
 
 dependencies {
     // api: callers hold MediaController and build MediaItems.
