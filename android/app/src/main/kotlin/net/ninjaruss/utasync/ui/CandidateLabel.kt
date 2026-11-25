@@ -12,8 +12,13 @@ import net.ninjaruss.utasync.prepare.LrclibTrack
  *
  * "timed" is judged by what adopting the record would store ([sheetFrom]), so the label cannot
  * promise timings a tap would not deliver.
+ *
+ * [audioDurationMs] turns the record's length from a number the user must compare themselves into
+ * a difference ([lengthComparison]). It is still only a difference: nothing is hidden, reordered
+ * or marked unsuitable because of it, because no measured cut-off separates a usable record from
+ * an unusable one (ledger L66).
  */
-fun candidateLabel(track: LrclibTrack): String {
+fun candidateLabel(track: LrclibTrack, audioDurationMs: Long? = null): String {
     val lyrics = when (sheetFrom(track.syncedLyrics, track.plainLyrics, track.instrumental)) {
         is Sheet.Timed -> "timed"
         is Sheet.Untimed -> "words only"
@@ -24,6 +29,7 @@ fun candidateLabel(track: LrclibTrack): String {
         track.artistName.takeIf { it.isNotBlank() },
         track.albumName?.takeIf { it.isNotBlank() },
         track.durationSec?.let { "${it / 60}:${(it % 60).toString().padStart(2, '0')}" } ?: "length unknown",
+        lengthComparison(track.durationSec, audioDurationMs),
         lyrics,
     ).joinToString(" · ")
 }

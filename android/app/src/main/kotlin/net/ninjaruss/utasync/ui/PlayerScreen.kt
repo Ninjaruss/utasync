@@ -60,6 +60,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.ninjaruss.utasync.align.activeLineIndex
+import net.ninjaruss.utasync.align.pastEndLines
 import net.ninjaruss.utasync.align.writeLrc
 import net.ninjaruss.utasync.UtasyncApplication
 import net.ninjaruss.utasync.data.LineEntity
@@ -319,6 +320,18 @@ fun PlayerScreen(songId: Long, dao: SongDao, onBack: () -> Unit) {
                     Text(
                         WORDS_ONLY_NOTICE,
                         style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    )
+                }
+                // Checked against the times the user will actually see (anchors applied), not
+                // against the sheet as stored, and shown here rather than at import: a song whose
+                // lyrics arrived automatically never passes through an import screen. It is the
+                // only fit statement the app can make — see LrcFitWording for what it may not say.
+                pastEndLines(starts.filterNotNull(), song?.durationMs ?: durationMs)?.let { past ->
+                    Text(
+                        pastEndWarning(past),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
                     )
                 }
