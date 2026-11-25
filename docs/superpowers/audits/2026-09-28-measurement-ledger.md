@@ -1353,3 +1353,34 @@ of them.
 node experiments/phase0/score.mjs --manifest .cache/pjs-per4/manifest.json
 node experiments/phase0/lrcScreen.mjs --shipped
 ```
+
+### L65 — 95% of a real playlist already has synced lyrics; the aligner serves 6 songs in 111 (MEASURED)
+
+- **Date:** 2026-11-25. **Instrument:** `experiments/coverage/lrclibCoverage.mjs` against the
+  owner's **Weeb Bangers** playlist (111 songs), whose LRCLIB record ids were resolved by the
+  `japanese-learning` project's 2026-10 pipeline (`song-coverage.csv`, on the owner's external
+  volume — not committed).
+- **The question nothing here had asked.** L62–L64 measured the aligner from three directions.
+  None measured **how often an aligner is needed at all.**
+
+| state | songs |
+| --- | --- |
+| **synced lyrics on LRCLIB** | **105 of 111 (95%)** |
+| no LRCLIB record (hand-sourced in that pipeline) | 5 |
+| record exists, plain text only | 1 |
+
+- The six are: 大好きなのに (Kylee), Dazzling Smile (Shihoko Hirata), 幸福のすゝめ (LEEVELLES),
+  Clear Mind – Acoustic ver. (Masaaki Endoh, plain-only), BURSTY GREEDY SPIDER (Konomi Suzuki),
+  Will, Death, and Poetry (Losstime Life).
+- **What this does NOT say.** That 95% of the playlist *plays correctly*. A synced record can be
+  for a different cut: guitar-loneliness's LRC is version-exact, veil's is −0.02 s, but
+  stranger-than-heaven's is a 237 s edit against 233.57 s of audio (L62). The version-mismatch
+  rate is unmeasured and is the obvious next measurement; a global offset nudge, which the app
+  already has, is the cheap answer where it bites.
+- **Selection bias, named:** the playlist was curated by a pipeline that needed lyric *text*, so
+  it may lean toward well-covered songs. Text availability is not timing availability, so the
+  bias is partial, not total — but a different library could be worse.
+- **Consequence:** the hole ADR-0007 leaves is 6 songs in 111, and 5 of those are not on LRCLIB
+  in any form, so no aligner that starts from a prior would have helped them either. Tap-along
+  covers them.
+- **Reproduce:** `node experiments/coverage/lrclibCoverage.mjs <song-coverage.csv>`.
