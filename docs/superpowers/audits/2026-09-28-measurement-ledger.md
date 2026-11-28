@@ -2119,3 +2119,45 @@ needed lyric text.
 `node experiments/fit/fitScreen.mjs "<song-coverage.csv>"` (records cached under `.cache/fit/`, so
 a re-run needs no requests), then
 `cd android && ./gradlew --rerun-tasks :align:test :app:testDebugUnitTest`.
+
+### L67 — A download site's tail in the filename, measured against LRCLIB's search
+
+**Why:** the first real-song run (2026-11-28) found that every audio file on the owner's device is
+downloader output with **no embedded title or artist tags at all**, so `tagsFromFilename` decides
+every song's name. Each name ends in a bitrate and the site's host, which both goes into the
+lookup and fills the title bar. The question was whether removing that tail is worth doing, and
+how much of the problem it actually solves.
+
+**Method:** the owner's ten local audio files, by filename only. For each, `GET /api/search` with
+`track_name=<name>` — the parameter the app really sends (`searchUrl`), not the free-text `q`,
+which answers differently and would have overstated the result. Counted: files returning at least
+one candidate. No lyric text was read, stored or printed (rule 6).
+
+| name sent | files with ≥1 candidate |
+| --- | --- |
+| as-is, extension removed | **1 / 10** |
+| with the download tail removed | **2 / 10** |
+| tail removed, then `-`/`_` turned into spaces | **2 / 10** |
+
+**Result, and the honest size of it:** removing the tail recovers **one** more file out of ten.
+The larger, non-numeric gain is that all 7 downloader files get a title that reads as a title
+instead of one ending in a hostname. The remaining 7 fail for a reason no filename rule can fix:
+the name is a sentence a downloader wrote ("…-opening-full-…-lyrics"), or a bare song name with no
+artist, and `/api/get` needs both names. **A rename in the app, which does not exist, is what
+unblocks those — not more parsing.**
+
+**Dead end (measured, do not retry):** turning `-` and `_` into spaces after stripping the tail
+changed nothing, 2/10 either way. LRCLIB's search is insensitive to it. It is not in the shipped
+rule.
+
+**The constants, and why they are these:** a tail is dropped only on two shapes that are
+unmistakably a machine's — a host with **two or more** dots, or a host of any depth with a
+**bitrate** (`\d{2,4}k?(bps)?`) immediately before it. A bare trailing number is never dropped on
+its own. This is deliberately strict because there is still **no rename in the app**, so a word
+taken off a real title could not be put back. Checked against 6 adversarial names that must
+survive untouched ("Song - 1999", "Blink-182 - 2001", "Artist - Track 128", "Artist - Song.live",
+"U.S.A.", a name that is nothing but a tail): **0 of 6 altered**, pinned in `AudioTagsTest`.
+
+**Reproduce:** `cd android && ./gradlew --rerun-tasks :prepare:testDebugUnitTest` for the rule.
+The 10-file table is a one-off against a live service over local files that are not in the
+repository; the method above is the whole of it.
