@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -108,7 +109,27 @@ fun LyricsSourceScreen(songId: Long, dao: SongDao, lrclib: Lrclib, onDone: () ->
     // than as a number the user has to compare in their head. Null until read, and null for a
     // file that did not say: lengthComparison then states nothing.
     var audioDurationMs by remember { mutableStateOf<Long?>(null) }
-    LaunchedEffect(songId) { audioDurationMs = dao.song(songId)?.durationMs }
+    // The name as it is stored, kept beside the fields so "would this change anything?" can be
+    // answered without another read, and so the Save button can be off until it would.
+    var storedTitle by remember { mutableStateOf("") }
+    var storedArtist by remember { mutableStateOf("") }
+    var titleField by rememberSaveable { mutableStateOf("") }
+    var artistField by rememberSaveable { mutableStateOf("") }
+    // Loaded once. A later read must not type over an edit the user is in the middle of.
+    var nameLoaded by rememberSaveable { mutableStateOf(false) }
+    // Whether the song has lyrics decides whether a rename clears a stale lookup result.
+    val storedLines by dao.observeLines(songId).collectAsState(initial = emptyList())
+    LaunchedEffect(songId) {
+        val row = dao.song(songId)
+        audioDurationMs = row?.durationMs
+        storedTitle = row?.title.orEmpty()
+        storedArtist = row?.artist.orEmpty()
+        if (!nameLoaded) {
+            titleField = storedTitle
+            artistField = storedArtist
+            nameLoaded = true
+        }
+    }
     // The last thing a search came back with, which decides whether another may be offered.
     var lastOutcome by remember { mutableStateOf<LookupOutcome?>(null) }
     var message by remember { mutableStateOf("") }
@@ -244,6 +265,56 @@ fun LyricsSourceScreen(songId: Long, dao: SongDao, lrclib: Lrclib, onDone: () ->
                 "Searching below and pasting work whether this is on or off.",
                 style = MaterialTheme.typography.bodySmall,
             )
+            HorizontalDivider()
+
+            // Above the search on purpose: this is the text the search is made of. Until now
+            // there was no way to correct it anywhere in the app, and for a file with no embedded
+            // tags the filename decided it (ledger L67).
+            Text("Name", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "This is what LRCLIB is asked for. A file downloaded from the web often carries " +
+                    "the site's name instead of the song's, and an artist is what the exact " +
+                    "match needs.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedTextField(
+                value = titleField,
+                onValueChange = { titleField = it },
+                label = { Text("Title") },
+                singleLine = true,
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = artistField,
+                onValueChange = { artistField = it },
+                label = { Text("Artist") },
+                singleLine = true,
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        val row = dao.song(songId) ?: return@launch
+                        val next = renamedTitleArtist(row.title, row.artist, titleField, artistField)
+                            ?: return@launch
+                        dao.setTitleArtist(songId, next.first, next.second)
+                        // A stored miss answered a question about the old name; see stateAfterRename.
+                        stateAfterRename(row.prepareState, hasLines = storedLines.isNotEmpty())
+                            ?.let { dao.setPrepareState(songId, it) }
+                        storedTitle = next.first
+                        storedArtist = next.second
+                        titleField = next.first
+                        artistField = next.second
+                        message = "Name saved. Find lyrics now searches for it."
+                    }
+                },
+                // Off until saving would actually change something, so the button never promises
+                // a write it will not make.
+                enabled = !busy && renamedTitleArtist(storedTitle, storedArtist, titleField, artistField) != null,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Save name") }
             HorizontalDivider()
 
             Button(
