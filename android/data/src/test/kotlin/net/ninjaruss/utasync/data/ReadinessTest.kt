@@ -42,6 +42,20 @@ class ReadinessTest {
         }
     }
 
+    /**
+     * The state the live run exposed: LRCLIB's search answered with records, so "no lyrics found"
+     * is false. NEEDS_CHOICE means the user has something to pick from, and must never collapse
+     * into NO_MATCH, which says the catalogue had nothing.
+     */
+    @Test fun `candidates waiting is NEEDS_CHOICE, never NO_MATCH`() {
+        val r = readinessOf(PrepareState.NEEDS_CHOICE, 0, 0)
+        assertEquals(Readiness.NEEDS_CHOICE, r)
+        assertNotEquals(Readiness.NO_MATCH, r)
+        assertNotEquals(Readiness.NO_LYRICS, r)
+        // Lines still win: once a record is picked, the state it came from says nothing.
+        assertEquals(Readiness.SINGABLE, readinessOf(PrepareState.NEEDS_CHOICE, 5, 5))
+    }
+
     @Test fun `no lines and no match is NO_MATCH, not FETCH_FAILED`() {
         assertEquals(Readiness.NO_MATCH, readinessOf("no-match", 0, 0))
         assertNotEquals(Readiness.FETCH_FAILED, readinessOf("no-match", 0, 0))

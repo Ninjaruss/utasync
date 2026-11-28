@@ -21,11 +21,26 @@ object PrepareState {
     const val DONE = "done"
 
     /**
-     * The service answered and has nothing this song can use automatically — no record, an
-     * instrumental, or candidates only the user can choose among — or no query could be formed at
-     * all. The user must act; an automatic retry would change nothing.
+     * The service answered and has nothing this song can use at all — no record, an instrumental,
+     * or no query could be formed. The user must act; an automatic retry would change nothing.
+     *
+     * **Not** for a search that found records. That is [NEEDS_CHOICE]: writing it here told the
+     * user "No lyrics found for this song" over twenty usable records, the correct one among
+     * them, on the first real-song run.
      */
     const val NO_MATCH = "no-match"
+
+    /**
+     * `/api/search` answered with records that could be this song, and only the user may choose
+     * among them (rule 2). Separate from [NO_MATCH] because the catalogue *does* have something:
+     * saying nothing was found would be false, and the user's next step is to pick, not to paste.
+     *
+     * The candidates themselves are deliberately not stored — the lyrics screen searches afresh,
+     * so a stored list would be a payload that goes stale and does not survive process death.
+     * What is stored is the one durable fact: a search of this song's own title and artist came
+     * back with records.
+     */
+    const val NEEDS_CHOICE = "needs-choice"
 
     /**
      * The lookup did not finish: either nothing answered (offline) or LRCLIB answered with an
@@ -50,5 +65,5 @@ object PrepareState {
      * Every value a row may hold. Tests derive their domain from this rather than listing states,
      * so a new state is covered the day it is added.
      */
-    val ALL = listOf(PENDING, FETCHING, DONE, NO_MATCH, FAILED, RATE_LIMITED, OFF)
+    val ALL = listOf(PENDING, FETCHING, DONE, NO_MATCH, NEEDS_CHOICE, FAILED, RATE_LIMITED, OFF)
 }
