@@ -95,10 +95,12 @@ suspend fun prepareSong(
     return if (found.candidates.isNotEmpty()) {
         // The service answered and there is something to pick from, so nothing is wrong and a
         // retry would change nothing: the user must choose. The candidates are NOT persisted —
-        // they live in this outcome — so a stored "needs-choice" would promise a payload that
-        // does not survive process death, and the user's next step (open the lyrics screen,
-        // which searches afresh) is the same either way.
-        dao.setPrepareState(song.id, PrepareState.NO_MATCH)
+        // they live in this outcome, and the lyrics screen searches afresh — but the *fact* that
+        // a search found records is durable and has to be stored, because the caller may discard
+        // this outcome (LibraryScreen does, on purpose). Storing NO_MATCH here is what made the
+        // library row and the player say "No lyrics found for this song" over twenty usable
+        // records on the first real-song run.
+        dao.setPrepareState(song.id, PrepareState.NEEDS_CHOICE)
         PrepareOutcome.NeedsChoice(found.candidates)
     } else {
         dao.setPrepareState(song.id, stateFor(found.outcome))

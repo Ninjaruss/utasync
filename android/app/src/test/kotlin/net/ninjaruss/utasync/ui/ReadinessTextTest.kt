@@ -6,6 +6,7 @@ import net.ninjaruss.utasync.data.readinessOf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,6 +36,23 @@ class ReadinessTextTest {
         assertNotEquals(emptyPlayerMessage(Readiness.NO_MATCH), emptyPlayerMessage(Readiness.FETCH_FAILED))
     }
 
+    @Test fun `a song with candidates waiting is never told nothing was found`() {
+        val texts = listOf(
+            libraryStatus(Readiness.NEEDS_CHOICE)!!,
+            emptyPlayerMessage(Readiness.NEEDS_CHOICE),
+        )
+        // The live run's defect, pinned where the user reads it: records were waiting and the
+        // app said "No lyrics found for this song."
+        texts.forEach { assertFalse(it, it.contains("no lyrics", ignoreCase = true)) }
+        assertNotEquals(libraryStatus(Readiness.NO_MATCH), libraryStatus(Readiness.NEEDS_CHOICE))
+        assertNotEquals(
+            emptyPlayerMessage(Readiness.NO_MATCH),
+            emptyPlayerMessage(Readiness.NEEDS_CHOICE),
+        )
+        // There is something to do, so the player must offer the way to do it.
+        assertNotNull(emptyPlayerAction(Readiness.NEEDS_CHOICE))
+    }
+
     @Test fun `a rate-limited song says it was asked to wait, never that LRCLIB was unreachable`() {
         val texts = listOf(libraryStatus(Readiness.RATE_LIMITED)!!, emptyPlayerMessage(Readiness.RATE_LIMITED))
         texts.forEach { assertTrue(it, it.contains("wait")) }
@@ -50,7 +68,7 @@ class ReadinessTextTest {
     @Test fun `only a state a retry can help offers a button, and never a rate-limited one`() {
         // Derived from the whole enum, not a list: a new readiness value must be decided here.
         val offered = Readiness.entries.filter { emptyPlayerAction(it) != null }.toSet()
-        assertEquals(setOf(Readiness.FETCH_FAILED, Readiness.NO_LYRICS), offered)
+        assertEquals(setOf(Readiness.FETCH_FAILED, Readiness.NO_LYRICS, Readiness.NEEDS_CHOICE), offered)
         assertNull(emptyPlayerAction(Readiness.RATE_LIMITED))
         // Every label that is offered is non-blank and distinct, so no two buttons read alike.
         val labels = offered.map { emptyPlayerAction(it)!! }

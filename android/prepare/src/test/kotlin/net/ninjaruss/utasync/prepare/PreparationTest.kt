@@ -214,8 +214,10 @@ class PreparationTest {
         // No lyrics are stored on a guess: the user picks (no matching threshold, rule 2).
         assertTrue(dao.replaceLinesCalls.isEmpty())
         assertEquals(listOf("get", "search"), http.urls.map { StubHttp.endpointOf(it) })
-        // The service answered and there are results waiting; "failed" here would be a lie.
-        assertEquals(listOf("fetching", "no-match"), dao.states)
+        // The service answered and there are results waiting, so neither "failed" nor "no-match"
+        // is true: the stored state has to say that a choice is waiting, or the library and the
+        // player both report "No lyrics found" over twenty usable records.
+        assertEquals(listOf("fetching", "needs-choice"), dao.states)
     }
 
     @Test fun `a 404 with no candidates returns NotFound(NO_ENTRY)`() {
@@ -560,11 +562,18 @@ class PreparationTest {
         assertEquals(listOf("no-match"), dao.states)
     }
 
-    @Test fun `a no-artist song whose search finds candidates is no-match`() {
+    /**
+     * This used to assert `no-match`, which is what the first real-song run surfaced: the search
+     * found records and the stored state said the catalogue had nothing, so both the library row
+     * and the player reported "No lyrics found for this song" over usable results.
+     */
+    @Test fun `a no-artist song whose search finds candidates is needs-choice, not no-match`() {
         val dao = FakeDao(song(artist = ""))
         val http = StubHttp(mapOf("search" to json("[${record()}]")))
-        runBlocking { prepareSong(dao, lrclib(http), dao.current) }
-        assertEquals(listOf("fetching", "no-match"), dao.states)
+        val outcome = runBlocking { prepareSong(dao, lrclib(http), dao.current) }
+        assertTrue(outcome is PrepareOutcome.NeedsChoice)
+        assertEquals(listOf(PrepareState.FETCHING, PrepareState.NEEDS_CHOICE), dao.states)
+        assertNotEquals(PrepareState.NO_MATCH, dao.current.prepareState)
     }
 
     // ---- Filling in what the file did not say. ----

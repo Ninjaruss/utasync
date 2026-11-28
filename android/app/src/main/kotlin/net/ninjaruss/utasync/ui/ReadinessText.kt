@@ -7,6 +7,7 @@ fun libraryStatus(readiness: Readiness): String? = when (readiness) {
     Readiness.FETCHING -> "Finding lyrics…"
     Readiness.NO_LYRICS -> "No lyrics yet"
     Readiness.NO_MATCH -> "No lyrics found"
+    Readiness.NEEDS_CHOICE -> "Several records could be this song"
     Readiness.FETCH_FAILED -> "Lyrics lookup didn't finish"
     Readiness.RATE_LIMITED -> "LRCLIB asked us to wait"
     Readiness.WORDS_ONLY -> "Words only — not timed yet"
@@ -27,6 +28,8 @@ fun emptyPlayerMessage(readiness: Readiness): String = when (readiness) {
     Readiness.FETCHING -> "Finding lyrics…"
     Readiness.NO_MATCH ->
         "No lyrics found for this song. Tap Lyrics… to search, paste the words, or import an .lrc."
+    Readiness.NEEDS_CHOICE ->
+        "LRCLIB has several records that could be this song. Pick the one that matches."
     Readiness.FETCH_FAILED -> "The lyrics lookup didn't finish, so there are no lyrics yet."
     Readiness.RATE_LIMITED -> "LRCLIB asked us to wait — try again in a minute."
     else -> "No lyrics yet. Tap Lyrics… to search, paste the words, or import an .lrc."
@@ -44,11 +47,13 @@ fun emptyPlayerMessage(readiness: Readiness): String = when (readiness) {
  */
 fun emptyPlayerAction(readiness: Readiness): String? = when (readiness) {
     Readiness.FETCH_FAILED -> "Try again"
+    // A search already found records; this opens the screen that lists them for the user to pick.
+    Readiness.NEEDS_CHOICE -> "Pick lyrics"
     // Also covers lookup switched off, and a song nothing has been attempted for yet.
     Readiness.NO_LYRICS -> "Find lyrics"
     // FETCHING (a lookup is running), NO_MATCH (the lyrics screen is named in the message, and
     // asking again would change nothing), RATE_LIMITED (see above), and the two states a song
-    // with no lines cannot be in.
+    // with no lines cannot be in. NEEDS_CHOICE is above: it is the one miss with something to do.
     else -> null
 }
 

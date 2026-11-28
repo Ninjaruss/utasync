@@ -11,8 +11,21 @@ package net.ninjaruss.utasync.data
  * reached and asked the client to wait: "couldn't reach LRCLIB" would be false, and a retry is the
  * one thing not to offer, because this client's only identity is its IP address (ledger L51).
  * Merging any two of them would make one of their messages false.
+ *
+ * [NEEDS_CHOICE] is separate from [NO_MATCH] for the same reason: the catalogue answered with
+ * records this song could use, so "no lyrics found" would be false, and the user's next step is
+ * to pick one rather than to paste the words themselves.
  */
-enum class Readiness { FETCHING, NO_LYRICS, NO_MATCH, FETCH_FAILED, RATE_LIMITED, WORDS_ONLY, SINGABLE }
+enum class Readiness {
+    FETCHING,
+    NO_LYRICS,
+    NO_MATCH,
+    NEEDS_CHOICE,
+    FETCH_FAILED,
+    RATE_LIMITED,
+    WORDS_ONLY,
+    SINGABLE,
+}
 
 /**
  * Derives readiness from what has been **attempted** ([prepareState], see
@@ -40,6 +53,7 @@ fun readinessOf(prepareState: String, lineCount: Int, timedLineCount: Int): Read
         PrepareState.FETCHING -> Readiness.FETCHING
         PrepareState.FAILED -> Readiness.FETCH_FAILED
         PrepareState.NO_MATCH -> Readiness.NO_MATCH
+        PrepareState.NEEDS_CHOICE -> Readiness.NEEDS_CHOICE
         PrepareState.RATE_LIMITED -> Readiness.RATE_LIMITED
         // Nothing has been tried, or nothing is stored. None of these is a failure.
         PrepareState.PENDING, PrepareState.OFF, PrepareState.DONE -> Readiness.NO_LYRICS
