@@ -2119,3 +2119,55 @@ needed lyric text.
 `node experiments/fit/fitScreen.mjs "<song-coverage.csv>"` (records cached under `.cache/fit/`, so
 a re-run needs no requests), then
 `cd android && ./gradlew --rerun-tasks :align:test :app:testDebugUnitTest`.
+
+### L69 — fitting a wrong-cut record to the audio: NO-GO, and not for the expected reason
+
+- **Date:** 2026-11-28. **Instrument:** `experiments/lrc-fit/fit.mjs`. **Gate pre-registered
+  before any code existed**, in `experiments/lrc-fit/README.md`.
+- **Question:** L68 found that only 5 of the owner's 10 songs have a record whose length matches
+  their file, and that the others often *do* have a record — for a different cut. Can a global
+  affine map (`t' = scale·t + offset`) put such a record on the user's audio well enough to sing
+  to? Arms: **A0** the record untouched, **A1** scale by declared-duration ratio, **A2** that plus
+  one tap on line 1, **A3** two taps (first and last line), which determines the map exactly.
+
+**The corpus turned out not to contain the case.** Of the owner's songs, 3 have a reference
+record and a differing-duration record with enough matched lines; 4 have no reference at all.
+And on every one of the 16 pairs, **A0 — the record left completely alone — already puts 100% of
+matched lines within 1.0 s of the reference** (74–82% within 0.5 s, worst 1.0 s).
+
+| arm | pairs ≥85% within 1.0 s | worst line seen |
+| --- | --- | --- |
+| A0 (untouched) | 16 of 16 | 1.0 s |
+| A1 (scale by duration ratio) | 0 of 16 | **17.5 s** |
+| A2 (ratio + 1 tap) | 0 of 16 | 15.3 s |
+| A3 (2 taps) | 15 of 16 | 1.0 s |
+
+**So a record whose declared duration differs mostly carries the same timings.** These are not
+different cuts; they are the same recording catalogued under different albums and uploaders, with
+unreliable `duration` metadata. There is nothing for a fit to repair.
+
+**The one real different-cut case cannot be scored here.** The 393 s First Take recording has only
+278 s studio records — and precisely because no matching record exists, there is no reference to
+measure a fit against. This is structural, not a gap in effort: wherever fitting would be needed,
+truth is absent by definition. Measuring it would need a reference built by hand.
+
+**The finding worth carrying forward, and it is a real one: never scale by declared duration.**
+A1 is the obvious implementation of this idea and it is *catastrophic* — 0 of 16 pairs usable,
+single lines up to 17.5 s out, on records that were correct before it touched them. The duration
+field is metadata, not a measurement, and the first run of this probe found LRCLIB records
+claiming 8 s whose lyrics run past 200 s (dropped by a coherence filter added mid-spike; the gate
+was not touched).
+
+**Consequence for L68.** That entry's hit test was `|record.duration − file duration| ≤ 3 s`. This
+spike shows that field is unreliable, so **L68's 5-of-10 is a floor, not an estimate**: a usable
+record with a wrong duration would have been counted a miss. The direction of the error is known;
+its size is not.
+
+**Verdict: do not build the fit.** Both gate conditions fail, and the deeper reason is that the
+problem it addresses is either already solved by leaving the record alone, or unmeasurable here.
+
+**Limits:** three songs, one library; a version-matching record is a reference, not truth (L39);
+a "different cut" is not one thing, and this corpus separates none of them.
+
+**Reproduce:** `node experiments/lrc-fit/fit.mjs <folder-of-audio-files> [names.json]`
+(records cached under `.cache/lrc-fit/`, which holds lyric text and is not committed).
