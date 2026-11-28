@@ -71,7 +71,21 @@ describe.each(OVERLAY_SURFACES)('$name as a modal dialog', ({ open, role }) => {
 
   it('closes on Escape', async () => {
     const expectClosed = open()
-    await screen.findByRole(role ?? 'dialog')
+    const dialog = await screen.findByRole(role ?? 'dialog')
+    // Wait for the surface to be READY, not merely present. useModalDialog
+    // attaches its keydown listener in a mount effect, so there is a window in
+    // which the element is in the DOM — which is all findByRole waits for — and
+    // nothing is listening yet. An Escape fired in that window is swallowed,
+    // nothing retries it, and the close assertion below then times out. That is
+    // a flake in this test, not in the app: a real user cannot press Escape
+    // before the dialog has mounted.
+    //
+    // Focus moving inside is the observable proof that the effect body ran: it
+    // focuses the panel and adds the listener in the same synchronous block, so
+    // once focus is in, the listener is attached. Row 14 is the one that found
+    // this on CI, because its dialog mounts after async matching work rather
+    // than in the click's own commit, which widens the window.
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true))
     fireEvent.keyDown(document, { key: 'Escape' })
     await expectClosed()
   })
