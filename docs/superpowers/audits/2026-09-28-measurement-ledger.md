@@ -2119,3 +2119,59 @@ needed lyric text.
 `node experiments/fit/fitScreen.mjs "<song-coverage.csv>"` (records cached under `.cache/fit/`, so
 a re-run needs no requests), then
 `cd android && ./gradlew --rerun-tasks :align:test :app:testDebugUnitTest`.
+
+### L70 — approach B scored on user effort: FAILS today, and says what to build first
+
+- **Date:** 2026-11-28. **Instrument:** `experiments/effort/actions.mjs`. **Gate and method in
+  `experiments/effort/README.md`, written before the numbers were put together.**
+- **Not ADR-0003 re-litigated.** That gate asked whether arm D is accurate enough to be the
+  engine; a required column failed and that stands. This asks whether arm D's output is a cheaper
+  **starting point** than nothing. A draft can be worth having while being far too inaccurate to
+  trust. Arm D is not re-scored: L62's table is taken exactly as published.
+- **Declared:** L62's per-song table was already read, so no threshold chosen now is honestly
+  pre-registered against it. The threshold is therefore argued from the user's own complaint —
+  "a bunch of work", so a route must at least **halve** it — applied to every song including the
+  one already known to be worst, and the result is offered as a **screen, not a certificate**.
+
+**Counted:** user actions to get every line right. Tapping every line costs `N`. Starting from the
+draft costs `cost × B`, where `B` is the lines the user bothers to fix. Both need a full listen, so
+listening is not what separates them and is not counted.
+
+| | guitar | recollect | stranger | veil | going-my-way | worst | verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| lines | 36 | 47 | 59 | 48 | 31 | | |
+| **nudge (3 actions), fixes >1 s** | **1.00×** | 1.42× | 3.28× | 4.00× | 5.17× | **1.00×** | **FAIL** |
+| tap-to-fix (1 action), fixes >1 s | 3.00× | 4.27× | 9.83× | 12.0× | 15.5× | 3.00× | PASS |
+| nudge (3 actions), fixes only >2 s | 3.00× | 3.92× | 4.92× | 5.33× | 10.3× | 3.00× | PASS |
+
+**The gate is the first row — the only affordance that exists — and it fails.** On
+guitar-loneliness, starting from the aligner's draft and nudging its 12 wrong lines costs
+*exactly as many actions* as tapping all 36 from scratch. The aligner buys nothing on the song
+that needs it most.
+
+**Two things flip it, and neither is a measurement.**
+
+1. **A one-tap per-line fix.** There is none: `TapSession` times lines strictly in order from
+   line 0 (`nextLine = times.size`), so line 17 cannot be re-timed on its own. Correcting one line
+   means long-press → nudge screen → drag → done, three actions. Give the player "tap this line's
+   start as it plays" and the worst song goes 1.00× → 3.00×.
+2. **What the user will tolerate.** At >1 s it fails; at >2 s the same affordance passes at 3.00×.
+   Nobody has measured how wrong a line must be before this user bothers to fix it, and the
+   verdict turns on it.
+
+**Consequence — build the correction, not the aligner.** Per-line tap-to-fix is small, lives
+entirely in code Android already has (anchors, `applyAnchors`, `TapSession`), helps whether or not
+an aligner ever arrives, and is what moves approach B from FAIL to PASS. Porting a pipeline first
+would be building the expensive half on top of a missing cheap one.
+
+**Also worth recording: approach B needs no Kotlin port to be tried at all.** ADR-0007 already
+notes the PWA keeps its pipeline and that preparation there plus `.lrc` export is a working route
+into Android. One real song prepared that way would measure the whole question end to end, on
+shipped software.
+
+**Limits:** five songs, one library, one aligner run, same corpus and caveats as L62. Actions are
+a proxy for effort — a tap placed in real time is not the same work as a drag made at leisure, and
+both count as one. `B` assumes the user finds every wrong line; L63 measured that nothing marks
+them, so this **understates** the draft route's real cost.
+
+**Reproduce:** `node experiments/effort/actions.mjs`
