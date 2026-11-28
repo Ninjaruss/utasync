@@ -2119,3 +2119,52 @@ needed lyric text.
 `node experiments/fit/fitScreen.mjs "<song-coverage.csv>"` (records cached under `.cache/fit/`, so
 a re-run needs no requests), then
 `cd android && ./gradlew --rerun-tasks :align:test :app:testDebugUnitTest`.
+
+### L68 — `q` versus `track_name` on rung 2: NO CHANGE (gate failed)
+
+**Why:** while measuring L67 it looked as though the app was asking LRCLIB the wrong way.
+`searchUrl` sends `/api/search?track_name=…`, and the free-text parameter answers very
+differently: for one of the owner's files, `track_name=road to tomorrow` returns **0**
+records where `q=road to tomorrow` returns **17**. On raw result counts, `q` looked
+clearly better.
+
+**Gate, written before the first run** (`experiments/lookup-query/README.md`): switch
+rung 2 to `q` only if (1) `q` finds a usable record for strictly more files in some
+regime, **and** (2) `q` never loses a file that `track_name` found. Crucially, a probe
+counts as a hit only when the returned list contains a record whose duration is within
+**±3 s of the user's own file** — not merely when the list is non-empty. Twenty wrong
+records are worse than none: they cost a decision and invite a wrong pick.
+
+**Method:** the owner's 10 local songs (a 7 s practice clip in the same folder is skipped
+and reported). Two name forms — the filename with the L67 tail removed, and a title and
+artist typed by hand — each asked both ways. Rung 1 (`/api/get`) was out of scope
+throughout: it is an exact lookup and keeps sending exact fields.
+
+| how the name is got | `track_name` | `q` |
+| --- | --- | --- |
+| from the filename | **2 / 10** | **2 / 10** |
+| from a typed name | **5 / 10** | **5 / 10** |
+
+**Result: the gate fails on condition 1 and rung 2 is unchanged.** `q` finds a usable
+record for exactly the same files; it loses none, but it gains none either. It is also
+slightly *worse* where both succeed: over the five typed-name hits the first matching
+record sits at ranks 1,1,2,1,1 under `track_name` and 1,1,1,3,3 under `q`, so `q` pushes
+the right answer further down the list the user reads.
+
+**What the initial observation actually was:** `q` returns *more records*, not *better*
+ones. Result count is not recall, and the gate existed to catch exactly that. Had the
+decision been made on the 0-versus-17 number alone, the app would have shipped a change
+that found nothing new and ranked the right answer lower.
+
+**The more useful number this produced,** and the one that bears on what the app is worth:
+with a correct title and artist typed in, only **5 of the owner's 10 songs** have a
+length-matching record on LRCLIB at all. Three return nothing under any spelling
+(Japanese titles), and one — a First Take live recording — has only studio cuts 1:55 out.
+Catalogue coverage, not the query, is the ceiling on automatic preparation here.
+
+**Limits, stated before the run:** a duration match is a proxy for the right record, not
+proof; nothing was heard. Ten files, one person's library, heavy on Japanese titles; this
+does not generalise to another catalogue. Where a title and artist could not be
+established with confidence, the file was probed by title only.
+
+**Reproduce:** `node experiments/lookup-query/probe.mjs <folder-of-audio-files> [names.json]`
